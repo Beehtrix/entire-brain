@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "45677ed36114",
+  "session_id": "01a0a9d7-ffce-7c21-8600-aa70aa52d8b3",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-16T19:03:13.051286Z",
+  "branch": "codex/reorganize-brain-help",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/root.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6-astra",
+  "turn_id": "15adc8f12c5e",
+  "checkpoint_transcript_start": 307,
+  "transcript_lines_at_start": 307,
+  "compact_transcript_start": 41,
+  "token_usage": {
+    "input_tokens": 6316,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 686080,
+    "output_tokens": 1418,
+    "api_call_count": 10
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-16T19:03:13.026671Z",
+    "agent_lines": 14,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 14,
+    "total_lines_changed": 15,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

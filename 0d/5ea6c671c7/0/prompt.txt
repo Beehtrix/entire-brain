@@ -1,0 +1,1 @@
+Some of the descriptions for help are too long to fit into the current terminal. Either truncate them when the line is too long for the terminal window, or wrap them, keeping the left indent consistent.

@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "f84e3c0c4c1b",
+  "strategy": "manual-commit",
+  "branch": "codex/reorganize-brain-help",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/agent_surface.go",
+    "internal/cli/capabilities.go",
+    "internal/cli/dash.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/doctor.go",
+    "internal/cli/entities_cmd.go",
+    "internal/cli/facts_write_cmd.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/patterns_cmd.go",
+    "internal/cli/repo_identity_cmd.go",
+    "internal/cli/retrieve_cmd.go",
+    "internal/cli/semantic.go",
+    "internal/cli/session_privacy.go",
+    "internal/cli/setup.go",
+    "internal/cli/viz.go",
+    "internal/cli/watch.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f8/4e3c0c4c1b/0/metadata.json",
+      "transcript": "/f8/4e3c0c4c1b/0/full.jsonl",
+      "compact_transcript": "/f8/4e3c0c4c1b/0/transcript.jsonl",
+      "content_hash": "/f8/4e3c0c4c1b/0/content_hash.txt",
+      "prompt": "/f8/4e3c0c4c1b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 26700,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2022912,
+    "output_tokens": 4518,
+    "api_call_count": 24,
+    "subagent_tokens_complete": true
+  }
+}

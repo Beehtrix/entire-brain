@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.10.7-nightly.202609130627.8a43e78f1.0.20260913155315-d419fef66327",
+  "checkpoint_id": "fedd75f554a3",
+  "strategy": "manual-commit",
+  "branch": "codex/reorganize-brain-help",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/root.go",
+    "internal/cli/root_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fe/dd75f554a3/0/metadata.json",
+      "transcript": "/fe/dd75f554a3/0/full.jsonl",
+      "compact_transcript": "/fe/dd75f554a3/0/transcript.jsonl",
+      "content_hash": "/fe/dd75f554a3/0/content_hash.txt",
+      "prompt": "/fe/dd75f554a3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5087,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 447104,
+    "output_tokens": 1501,
+    "api_call_count": 8
+  }
+}

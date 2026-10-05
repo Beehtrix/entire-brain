@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "0cabb8f86dd3",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/hook_cmd.go",
+    "internal/cli/hook_payload_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0c/abb8f86dd3/0/metadata.json",
+      "transcript": "/0c/abb8f86dd3/0/full.jsonl",
+      "compact_transcript": "/0c/abb8f86dd3/0/transcript.jsonl",
+      "content_hash": "/0c/abb8f86dd3/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 5847,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1444864,
+    "output_tokens": 3274,
+    "api_call_count": 6
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "2cf77c6be5cf",
+  "session_id": "01a10b9d-7a30-7291-97fd-3b33ac149025",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-05T10:44:03.865567Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_timeout_flag_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "35157c582344",
+  "checkpoint_transcript_start": 301,
+  "transcript_lines_at_start": 301,
+  "compact_transcript_start": 35,
+  "token_usage": {
+    "input_tokens": 16741,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1397888,
+    "output_tokens": 3162,
+    "api_call_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-05T10:44:03.81891Z",
+    "agent_lines": 67,
+    "agent_removed": 147,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 67,
+    "total_lines_changed": 214,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

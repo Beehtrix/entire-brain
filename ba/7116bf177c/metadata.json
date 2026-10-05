@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "ba7116bf177c",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/agentsetup/agents_wired_test.go",
+    "internal/agentsetup/coordination_test.go",
+    "internal/agentsetup/files.go",
+    "internal/agentsetup/guide.go",
+    "internal/cli/hook_cmd.go",
+    "internal/cli/hook_payload_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_kind_inventory_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ba/7116bf177c/0/metadata.json",
+      "transcript": "/ba/7116bf177c/0/full.jsonl",
+      "compact_transcript": "/ba/7116bf177c/0/transcript.jsonl",
+      "content_hash": "/ba/7116bf177c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 55916,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3128960,
+    "output_tokens": 13110,
+    "api_call_count": 33
+  }
+}

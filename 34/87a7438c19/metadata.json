@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "3487a7438c19",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_ollama_auto_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/34/87a7438c19/0/metadata.json",
+      "transcript": "/34/87a7438c19/0/full.jsonl",
+      "compact_transcript": "/34/87a7438c19/0/transcript.jsonl",
+      "content_hash": "/34/87a7438c19/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 4354,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 749312,
+    "output_tokens": 1716,
+    "api_call_count": 4
+  }
+}

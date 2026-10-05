@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "02c57b691f09",
+  "session_id": "01a10b9d-7a30-7291-97fd-3b33ac149025",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-05T10:41:15.87018Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/agentsetup/claudehooks.go",
+    "internal/agentsetup/claudehooks_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "35157c582344",
+  "checkpoint_transcript_start": 250,
+  "transcript_lines_at_start": 250,
+  "compact_transcript_start": 29,
+  "token_usage": {
+    "input_tokens": 14712,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1281408,
+    "output_tokens": 2693,
+    "api_call_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-05T10:41:15.822298Z",
+    "agent_lines": 766,
+    "agent_removed": 0,
+    "human_added": 122,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 888,
+    "total_lines_changed": 888,
+    "agent_percentage": 86.26126126126125,
+    "metric_version": 2
+  }
+}

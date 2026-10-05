@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "e79de00f967f",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/brainignore_disclosure_test.go",
+    "internal/cli/regression.go",
+    "internal/cli/regression_caps_surfaces_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e7/9de00f967f/0/metadata.json",
+      "transcript": "/e7/9de00f967f/0/full.jsonl",
+      "compact_transcript": "/e7/9de00f967f/0/transcript.jsonl",
+      "content_hash": "/e7/9de00f967f/0/content_hash.txt",
+      "prompt": "/e7/9de00f967f/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 370611,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 16732160,
+    "output_tokens": 53163,
+    "api_call_count": 125
+  }
+}

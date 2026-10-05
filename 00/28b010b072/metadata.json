@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "0028b010b072",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/regression.go",
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/00/28b010b072/0/metadata.json",
+      "transcript": "/00/28b010b072/0/full.jsonl",
+      "compact_transcript": "/00/28b010b072/0/transcript.jsonl",
+      "content_hash": "/00/28b010b072/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 22646,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2100096,
+    "output_tokens": 7852,
+    "api_call_count": 13
+  }
+}

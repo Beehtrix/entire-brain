@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "d3987849a974",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/git_harden.go",
+    "internal/factmerge/similarity.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/d3/987849a974/0/metadata.json",
+      "transcript": "/d3/987849a974/0/full.jsonl",
+      "compact_transcript": "/d3/987849a974/0/transcript.jsonl",
+      "content_hash": "/d3/987849a974/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 17337,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 624896,
+    "output_tokens": 4448,
+    "api_call_count": 8
+  }
+}

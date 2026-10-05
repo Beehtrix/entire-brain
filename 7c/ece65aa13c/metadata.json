@@ -1,0 +1,25 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "7cece65aa13c",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/workspace.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7c/ece65aa13c/0/metadata.json",
+      "transcript": "/7c/ece65aa13c/0/full.jsonl",
+      "compact_transcript": "/7c/ece65aa13c/0/transcript.jsonl",
+      "content_hash": "/7c/ece65aa13c/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10520,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 873216,
+    "output_tokens": 2353,
+    "api_call_count": 6
+  }
+}

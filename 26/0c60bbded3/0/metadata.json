@@ -1,0 +1,50 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "260c60bbded3",
+  "session_id": "01a10b9d-7a30-7291-97fd-3b33ac149025",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-05T10:39:09.273431Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/concepts.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/brain_brief_compact.go",
+    "internal/cli/facts.go",
+    "internal/cli/facts_admin_cmd.go",
+    "internal/cli/facts_import.go",
+    "internal/cli/facts_import_fifo_other_test.go",
+    "internal/cli/facts_import_fifo_unix_test.go",
+    "internal/cli/facts_import_hardening_test.go",
+    "internal/cli/facts_import_test.go",
+    "internal/cli/facts_origin_sums_test.go",
+    "internal/cli/facts_status_cmd.go",
+    "internal/cli/verify_cmd.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "35157c582344",
+  "checkpoint_transcript_start": 184,
+  "transcript_lines_at_start": 184,
+  "compact_transcript_start": 21,
+  "token_usage": {
+    "input_tokens": 32766,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1287936,
+    "output_tokens": 2618,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-05T10:39:09.231625Z",
+    "agent_lines": 19,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 19,
+    "total_lines_changed": 20,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}

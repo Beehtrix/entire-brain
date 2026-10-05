@@ -1,0 +1,38 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "8661ba7d7cfd",
+  "session_id": "01a10b9d-7a30-7291-97fd-3b33ac149025",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-05T11:32:47.28061Z",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/refresh.go",
+    "internal/cli/refresh_ollama_auto_test.go"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "35157c582344",
+  "checkpoint_transcript_start": 1210,
+  "transcript_lines_at_start": 1210,
+  "compact_transcript_start": 145,
+  "token_usage": {
+    "input_tokens": 134178,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 1129472,
+    "output_tokens": 4896,
+    "api_call_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-05T11:32:47.192738Z",
+    "agent_lines": 30,
+    "agent_removed": 6,
+    "human_added": 23,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 53,
+    "total_lines_changed": 62,
+    "agent_percentage": 58.06451612903226,
+    "metric_version": 2
+  }
+}

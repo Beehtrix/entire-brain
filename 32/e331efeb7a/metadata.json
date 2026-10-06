@@ -1,0 +1,37 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "32e331efeb7a",
+  "strategy": "manual-commit",
+  "branch": "fix/install-ux-dirty-gate-and-agent-default",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/install_ux_test.go",
+    "internal/cli/refresh.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_watchplan.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/32/e331efeb7a/0/metadata.json",
+      "transcript": "/32/e331efeb7a/0/full.jsonl",
+      "compact_transcript": "/32/e331efeb7a/0/transcript.jsonl",
+      "content_hash": "/32/e331efeb7a/0/content_hash.txt",
+      "prompt": "/32/e331efeb7a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 8940,
+    "cache_creation_tokens": 39876667,
+    "cache_read_tokens": 2361106368,
+    "output_tokens": 3510447,
+    "api_call_count": 4493,
+    "subagent_tokens": {
+      "input_tokens": 2118,
+      "cache_creation_tokens": 5200397,
+      "cache_read_tokens": 128494377,
+      "output_tokens": 120070,
+      "api_call_count": 1059
+    }
+  }
+}

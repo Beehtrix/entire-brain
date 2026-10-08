@@ -92,3 +92,13 @@ also 6 of the 31 checks are failing
 ---
 
 new medium finding
+
+---
+
+fix the findings
+
+---
+
+okay this is merged in now. 
+
+let' supdate tickets in linear and then test it end to end

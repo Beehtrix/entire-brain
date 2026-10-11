@@ -214,6 +214,10 @@ func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 //
 // It is a DURABLE condition: no amount of retrying changes the bytes on disk,
 // so a relaunch chain spends two hours and ends exactly where it started.
+// retiredManifestRemedy is the one wording, so the "already said it" check
+// below cannot drift from the thing it is checking for.
+const retiredManifestRemedy = "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `entire brain refresh --force`"
+
 // retiredManifestFieldMessage states the failure AND what to do about it.
 //
 // The remedy has to be attached here rather than at the read, because the
@@ -224,7 +228,58 @@ func retiredManifestFieldMessage(err error) string {
 	if err == nil {
 		return ""
 	}
-	return err.Error() + "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `entire brain refresh --force`"
+	msg := err.Error()
+	// Idempotent. loadBrainManifestForReplace already attaches this remedy, and
+	// the worker then asks for the message again -- appending unconditionally
+	// printed the whole explanation TWICE. Caught by weakening: deleting this
+	// function's retired-field branch made the output better, which is only
+	// possible if the branch was doing harm.
+	if strings.Contains(msg, retiredManifestRemedy) {
+		return msg
+	}
+	return msg + retiredManifestRemedy
+}
+
+// errRepositoryGone reports a prepass that failed because the repository this
+// brain belongs to is no longer there.
+//
+// Also durable. A brain outlives its repository -- scratch clones, benchmark
+// cells, a checkout someone deleted -- and the worker went on relaunching
+// against it. Measured on this machine: nine orphaned brains, three of them
+// holding roughly 2,650 recorded prepass failures each.
+//
+// If the repository comes back, nothing is lost: a new lifecycle event starts a
+// fresh chain, which is exactly how the existing give-up path already behaves.
+func errRepositoryGone(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "not a git repository") ||
+		strings.Contains(msg, "repository does not exist")
+}
+
+// errDurablePrepassFailure reports a failure that retrying cannot change.
+//
+// The relaunch chain is 1m, 2m, 4m, 8m, 16m, 30m, 30m -- about two hours -- and
+// each pending retry is a live sleeping process, not a timer. Spending that on
+// a condition fixed only by a human is the defect this classifies away.
+func errDurablePrepassFailure(err error) bool {
+	return errRetiredManifestField(err) || errRepositoryGone(err)
+}
+
+// durablePrepassMessage states the failure and what to do about it.
+func durablePrepassMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	if errRetiredManifestField(err) {
+		return retiredManifestFieldMessage(err)
+	}
+	if errRepositoryGone(err) {
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `entire brain reset` if the repository is not coming back"
+	}
+	return err.Error()
 }
 
 func errRetiredManifestField(err error) bool {

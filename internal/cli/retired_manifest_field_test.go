@@ -122,3 +122,134 @@ func TestTheRemedyMessageKeepsTheOriginalCause(t *testing.T) {
 		t.Fatal("no error must produce no message")
 	}
 }
+
+// A brain outlives its repository -- scratch clones, benchmark cells, a
+// checkout someone deleted. Nine such brains were sitting on this machine,
+// three of them with roughly 2,650 recorded prepass failures each, because the
+// worker kept relaunching against a repository that was not coming back.
+//
+// The error text is the one a real orphaned brain produces, captured by
+// deleting a repository out from under its brain and running the worker.
+func TestAMissingRepositoryIsDurable(t *testing.T) {
+	t.Parallel()
+	err := wrapTestError("delta session export",
+		wrapTestError("complete routed checkpoint discovery failed: list checkpoints",
+			wrapTestError("entire [checkpoint explain --json --search-all]: exit status 1", errNotAGitRepoForTest)))
+
+	if !errRepositoryGone(err) {
+		t.Fatalf("an orphaned brain must stop relaunching: %v", err)
+	}
+	if !errDurablePrepassFailure(err) {
+		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
+	}
+	msg := durablePrepassMessage(err)
+	if !strings.Contains(msg, "entire brain reset") {
+		t.Fatalf("the message names no way to clear the orphan: %s", msg)
+	}
+	if !strings.Contains(msg, "not a git repository") {
+		t.Fatalf("the remedy replaced the cause instead of adding to it: %s", msg)
+	}
+}
+
+// Two durable causes now share one path, and they must not be confused: a
+// retired field is repaired by refresh, an orphan by reset. Telling someone to
+// reset a brain that only needed a refresh would destroy work for nothing.
+func TestTheTwoDurableCausesKeepTheirOwnRemedies(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManifestWithRetiredField(t, dir)
+	_, err := loadBrainManifestForReplace(dir)
+	if err == nil {
+		t.Fatal("fixture produced no error, so this guard would pass on anything")
+	}
+
+	if got := durablePrepassMessage(err); !strings.Contains(got, "refresh --force") || strings.Contains(got, "reset") {
+		t.Fatalf("a retired field must be sent to refresh, never to reset: %s", got)
+	}
+
+	orphan := wrapTestError("delta session export", errNotAGitRepoForTest)
+	if got := durablePrepassMessage(orphan); !strings.Contains(got, "reset") || strings.Contains(got, "refresh --force") {
+		t.Fatalf("an orphaned brain must be sent to reset, not refresh: %s", got)
+	}
+}
+
+// A transient failure must still be retried, or one bad run stops the brain
+// updating until something unrelated restarts the chain.
+func TestATransientFailureIsNotDurable(t *testing.T) {
+	t.Parallel()
+	for _, err := range []error{
+		wrapTestError("delta session export", os.ErrDeadlineExceeded),
+		wrapTestError("delta session export", os.ErrPermission),
+		nil,
+	} {
+		if errDurablePrepassFailure(err) {
+			t.Fatalf("a transient failure classed durable would never be retried: %v", err)
+		}
+	}
+}
+
+// The remedy must appear exactly ONCE. loadBrainManifestForReplace attaches it
+// and the worker asks for the message again, so an unconditional append printed
+// the whole explanation twice. Found by weakening, not by reading: deleting the
+// retired-field branch of durablePrepassMessage made the output BETTER, which is
+// only possible if that branch was doing harm.
+func TestTheRemedyIsStatedExactlyOnce(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManifestWithRetiredField(t, dir)
+	_, err := loadBrainManifestForReplace(dir)
+	if err == nil {
+		t.Fatal("fixture produced no error, so this guard would pass on anything")
+	}
+	for name, msg := range map[string]string{
+		"retiredManifestFieldMessage": retiredManifestFieldMessage(err),
+		"durablePrepassMessage":       durablePrepassMessage(err),
+	} {
+		if n := strings.Count(msg, "refresh --force"); n != 1 {
+			t.Errorf("%s states the remedy %d times, want 1: %s", name, n, msg)
+		}
+	}
+}
+
+// The worker asks errDurablePrepassFailure, not the specific predicates, so a
+// retired field must satisfy the general one too -- otherwise the chain keeps
+// relaunching for the very case this was built for.
+func TestARetiredFieldSatisfiesTheGeneralClassifier(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeManifestWithRetiredField(t, dir)
+	_, err := loadBrainManifestForReplace(dir)
+	if err == nil {
+		t.Fatal("fixture produced no error")
+	}
+	if !errDurablePrepassFailure(err) {
+		t.Fatalf("the worker would keep relaunching against a retired field: %v", err)
+	}
+}
+
+// The worker does NOT always see the wrapped form. The live prepass error was
+// bare -- "parse brain manifest: ...: json: unknown field" with no remedy --
+// because the delta-export path reads the manifest without going through
+// loadBrainManifestForReplace. That bare form is the one a reader actually got,
+// and the one that named no action at all.
+//
+// Without this case the retired-field branch of durablePrepassMessage looks
+// dead: every other fixture arrives with the remedy already attached, so
+// deleting the branch changes nothing and the guard silently stops holding.
+func TestABarePrepassErrorStillGetsTheRemedy(t *testing.T) {
+	t.Parallel()
+	bare := wrapTestError("delta session export",
+		wrapTestError("parse brain manifest: "+memoryErrStateCorrupt+": brain manifest cannot be parsed",
+			errUnknownFieldForTest))
+
+	if strings.Contains(bare.Error(), "refresh --force") {
+		t.Fatal("the fixture already carries the remedy, so it cannot show that the branch adds it")
+	}
+	if !errRetiredManifestField(bare) {
+		t.Fatalf("the bare form must still be recognised as durable: %v", bare)
+	}
+	msg := durablePrepassMessage(bare)
+	if n := strings.Count(msg, "refresh --force"); n != 1 {
+		t.Fatalf("the bare error must gain the remedy exactly once, got %d: %s", n, msg)
+	}
+}

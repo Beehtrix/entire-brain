@@ -1726,9 +1726,9 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// it burned a full 1m..30m chain per repository, every chain
 				// ending exactly where it started, each pending retry a live
 				// sleeping process rather than a timer.
-				if durable := errRetiredManifestField(err); durable {
+				if durable := errDurablePrepassFailure(err); durable {
 					stats.PrepassGaveUp = true
-					stats.PrepassError = retiredManifestFieldMessage(err)
+					stats.PrepassError = durablePrepassMessage(err)
 					_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token, stats.PrepassError)
 				} else if retry, ok := memoryWorkerPrepassRetry(failures); ok {
 					prepassRetry = &retry

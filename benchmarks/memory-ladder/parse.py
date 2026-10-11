@@ -11,8 +11,8 @@ if not os.path.isdir(run) or not os.path.isfile(os.path.join(run, "stream.jsonl"
     sys.exit(f"{sys.argv[1]!r} is not a run directory (expected stream.jsonl inside it)")
 tools = collections.Counter(); cmds = []; result = {}
 # Leakage audit: the harness directory is stripped from the clone, but an agent may still probe
-# for it. Probes are recorded; a tool result that carries rubric or README content marks the run
-# contaminated so grade.py excludes it.
+# for it. Probes are recorded; tool results carrying harness content or metadata mark the run
+# contaminated so grade.py excludes it. Git pathspecs restrict diffs, not mixed-commit messages.
 HARNESS_MARKERS = ("memory-ladder", "memory_ladder", "rubric")
 CONTENT_MARKERS = ('"recovered"', ".rubric.json", "_comment", "## Run 1", "## Run 2", "Recovered the recorded")
 probes = []; contaminated = False
@@ -78,7 +78,9 @@ for line in open(os.path.join(run, "stream.jsonl")):
         for b in ev.get("message", {}).get("content", []):
             if isinstance(b, dict) and b.get("type") == "tool_result":
                 body = b.get("content"); body = body if isinstance(body, str) else json.dumps(body)
-                if any(m in body for m in CONTENT_MARKERS) and "not available in this environment" not in body:
+                leaked = any(m in body for m in CONTENT_MARKERS) or any(m in body.lower() for m in HARNESS_MARKERS)
+                refused = re.fullmatch(r"(?:git|entire): [^\n]+ is not available in this environment", body.strip())
+                if leaked and not refused:
                     contaminated = True
     elif ev.get("type") == "result":
         result = ev

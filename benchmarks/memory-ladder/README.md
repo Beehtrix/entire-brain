@@ -18,9 +18,11 @@ starts, so it cannot read its own answer key. Once the harness has merged it sti
 exists in history, so the agent's `git` is also a shim (`bin/git`): read
 subcommands only, any argument naming the directory refused, and a pathspec
 exclusion appended to history and content readers so `git show <sha>` and
-`git log -p` cannot print it even for the commits that added it. `parse.py`
-records any probe for the directory and marks a run contaminated if a tool
-result carries rubric or README content; `grade.py` excludes those. The clone's
+`git log -p` cannot print its diff even for the commits that added it. Mixed
+commits can still expose harness details in their messages. `parse.py` records
+any probe for the directory and marks a run contaminated if a tool result
+carries harness identifiers (including commit metadata), rubric or README
+content; `grade.py` excludes those. The clone's
 HEAD is one commit past the indexed commit, and Brain's freshness label moves from
 "degraded" to "unsafe"; its facts and history sections are unchanged by that
 (checked: 3 facts and 3 history matches before and after). A shim first on `PATH` decides which `entire`

@@ -48,9 +48,11 @@ def audit_paths(tool, inp):
         if cand.startswith(SYSTEM_PREFIXES):
             continue  # tool binaries, devices, Go caches
         escapes.append(f"{tool}: {m[:160]}")
+        if not m.startswith("/"):
+            contaminated = True  # parent escape can redirect later relative reads anywhere
         if src and (cand == src or cand.startswith(src + os.sep)):
             contaminated = True  # reached the source repository and its un-stripped harness
-        if cand.startswith(out_root + os.sep) and not (cand == clone or cand.startswith(clone + os.sep)):
+        if cand == out_root or cand.startswith(out_root + os.sep):
             contaminated = True  # reached another run's clone, transcript or answer
 for line in open(os.path.join(run, "stream.jsonl")):
     line = line.strip()

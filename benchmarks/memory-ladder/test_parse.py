@@ -37,7 +37,8 @@ class EscapeAuditTests(unittest.TestCase):
 
     def test_parent_directory_commands_contaminate_run(self):
         for command in ("cd ..", "cd '../..'", "cd ../..", "cd ..; cat summary.json",
-                        "cd ./..", "cd ./../..", "cd docs/../.."):
+                        "cd ./..", "cd ./../..", "cd docs/../..",
+                        "cd ../../..", "cd ../../../.."):
             with self.subTest(command=command):
                 summary = self.parse([command, "cat summary.json"])
                 self.assertTrue(summary["contaminated"], summary)
@@ -51,6 +52,10 @@ class EscapeAuditTests(unittest.TestCase):
 
     def test_sibling_run_absolute_path_contaminates(self):
         summary = self.parse([f"cat {self.out}/global-activation/c2-r1/summary.json"])
+        self.assertTrue(summary["contaminated"], summary)
+
+    def test_output_root_directory_contaminates(self):
+        summary = self.parse([f"cd {self.out}", "cat global-activation/c2-r1/summary.json"])
         self.assertTrue(summary["contaminated"], summary)
 
     def test_parent_escape_is_excluded_from_grading(self):

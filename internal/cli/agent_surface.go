@@ -4642,7 +4642,14 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case seed.Commit != live.Head:
 			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
-			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+			// CAUSE only, no remedy. This axis is rendered as the `Cause`
+			// line directly under the status verdict, which prints the one
+			// remedy a dirty tree has (setupDirtyWorktreeHint). While this
+			// string also carried "refresh with --worktree to include current
+			// changes", the two appeared together on one screen: the verdict
+			// said commit or stash, the next line said index the uncommitted
+			// content instead.
+			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":

@@ -1721,7 +1721,16 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				stats.PrepassError = err.Error()
 				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
-				if retry, ok := memoryWorkerPrepassRetry(failures); ok {
+				// Some failures are durable: no retry changes the bytes on
+				// disk. A retired manifest field is the one measured here --
+				// it burned a full 1m..30m chain per repository, every chain
+				// ending exactly where it started, each pending retry a live
+				// sleeping process rather than a timer.
+				if durable := errRetiredManifestField(err); durable {
+					stats.PrepassGaveUp = true
+					stats.PrepassError = retiredManifestFieldMessage(err)
+					_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token, stats.PrepassError)
+				} else if retry, ok := memoryWorkerPrepassRetry(failures); ok {
 					prepassRetry = &retry
 					relaunchPrepassFailures = failures
 				} else {

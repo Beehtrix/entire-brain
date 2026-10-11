@@ -1,0 +1,34 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "50fda077e51b",
+  "strategy": "manual-commit",
+  "branch": "docs/install-ux-backlog",
+  "checkpoints_count": 19,
+  "files_touched": [
+    "docs/install-ux-backlog.md",
+    "scripts/try-first-run.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/50/fda077e51b/0/metadata.json",
+      "transcript": "/50/fda077e51b/0/full.jsonl",
+      "compact_transcript": "/50/fda077e51b/0/transcript.jsonl",
+      "content_hash": "/50/fda077e51b/0/content_hash.txt",
+      "prompt": "/50/fda077e51b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 320,
+    "cache_creation_tokens": 4929336,
+    "cache_read_tokens": 93271528,
+    "output_tokens": 167962,
+    "api_call_count": 160,
+    "subagent_tokens": {
+      "input_tokens": 462,
+      "cache_creation_tokens": 943198,
+      "cache_read_tokens": 32108149,
+      "output_tokens": 30749,
+      "api_call_count": 231
+    }
+  }
+}

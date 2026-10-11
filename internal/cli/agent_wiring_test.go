@@ -426,3 +426,45 @@ func TestHookPreEditClaudeHookStaysSilentWithoutAMatch(t *testing.T) {
 		t.Fatalf("no matching fact must emit nothing, got %q (err %v)", out, err)
 	}
 }
+
+// TestWiringTheHookIsReportedAsDoneNotSkipped pins a line that contradicted
+// itself. progress.Skip appends "skipped", so reporting a hook it had just
+// WRITTEN through Skip rendered "pre-edit hook wired (...) skipped" -- a line
+// that both claims and denies the same action. Found by reading a live first
+// run, not by any test: every assertion here passed while the line was wrong.
+func TestWiringTheHookIsReportedAsDoneNotSkipped(t *testing.T) {
+	f := newSetupTestFixture(t)
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	opts.noBackfill = true
+
+	first := runSetupForTest(t, f, opts, &recordedSetup{})
+
+	line := setupLineContaining(t, first, "pre-edit hook wired")
+	if strings.Contains(line, "skipped") {
+		t.Fatalf("setup wrote the hook, then called it skipped: %q", line)
+	}
+	if !strings.Contains(line, "done") {
+		t.Fatalf("wiring the hook is work and must report done: %q", line)
+	}
+
+	// The other direction: a second run really does skip, and must still say so.
+	second := runSetupForTest(t, f, opts, &recordedSetup{})
+	already := setupLineContaining(t, second, "pre-edit hook already wired")
+	if !strings.Contains(already, "skipped") {
+		t.Fatalf("a run that wired nothing must say skipped: %q", already)
+	}
+}
+
+// setupLineContaining returns the one output line holding want, failing when it
+// is absent -- so a rename cannot turn this guard vacuous by matching nothing.
+func setupLineContaining(t *testing.T, out, want string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	t.Fatalf("no line containing %q in setup output:\n%s", want, out)
+	return ""
+}

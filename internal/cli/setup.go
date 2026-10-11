@@ -1689,7 +1689,12 @@ func reportSetupAgents(progress *refreshProgress, agents setupAgentsState, repor
 	case declinedHooks:
 		progress.Skip("pre-edit hook (--no-agent-hooks)")
 	case agents.Hook != "" && agents.HookChanged:
-		progress.Skip(fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited", agents.Hook, dash))
+		// Wiring the hook IS work, so it reports as done. progress.Skip appends
+		// "skipped", which would render "pre-edit hook wired (...) skipped" --
+		// a line that both claims and denies the same action.
+		hookTask := progress.Begin("pre-edit hook")
+		hookTask.Update(fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited", agents.Hook, dash))
+		hookTask.Finish(nil)
 	case agents.Hook != "":
 		progress.Skip(fmt.Sprintf("pre-edit hook already wired (%s)", agents.Hook))
 	case agents.Detail != "":

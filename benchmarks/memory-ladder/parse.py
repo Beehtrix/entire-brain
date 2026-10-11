@@ -39,7 +39,9 @@ escapes = []
 def audit_paths(tool, inp):
     global contaminated
     text = json.dumps(inp)
-    for m in re.findall(r"(?:(?<=[\s\"'=:(])|^)(/[^\s\"'`;|&)>]+|(?:\.\./)+[^\s\"'`;|&)>]*)", text):
+    # A bare parent token changes Bash's persistent directory too. Flag the
+    # escape now, before a later call reads a sibling's data by relative name.
+    for m in re.findall(r"(?:(?<=[\s\"'=:(])|^)(/[^\s\"'`;|&)>]+|(?:\.\./)+[^\s\"'`;|&)>]*|\.\.(?=[\s\"'`;|&)>]|$))", text):
         cand = os.path.realpath(m if m.startswith("/") else os.path.join(clone, m))
         if cand.startswith(clone + os.sep) or cand == clone:
             continue

@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "3b519f1e2b46",
+  "strategy": "manual-commit",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "benchmarks/memory-ladder/bin/git",
+    "benchmarks/memory-ladder/parse.py",
+    "benchmarks/memory-ladder/test_git_shim.py",
+    "benchmarks/memory-ladder/test_parse.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3b/519f1e2b46/0/metadata.json",
+      "transcript": "/3b/519f1e2b46/0/full.jsonl",
+      "compact_transcript": "/3b/519f1e2b46/0/transcript.jsonl",
+      "content_hash": "/3b/519f1e2b46/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 20130,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 2402048,
+    "output_tokens": 7132,
+    "api_call_count": 13
+  }
+}

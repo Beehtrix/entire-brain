@@ -427,6 +427,7 @@ jobs:
         run: |
           set -e
           python3 benchmarks/agent-brain/mined-scale/check_manifest.py
+          python3 -B -m unittest discover -s benchmarks/memory-ladder -p 'test_*.py'
           python3 -B tools/coverage/python_run.py --output "${{ runner.temp }}/python-coverage"
       - name: Retain Python coverage and module outcomes
         if: always()

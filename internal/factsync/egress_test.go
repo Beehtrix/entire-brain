@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factmerge"
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 // anchoredFact builds a fact whose single provenance anchor carries BOTH opaque
@@ -146,5 +146,16 @@ func TestSyncUnionsProvenanceAfterSanitize(t *testing.T) {
 	}
 	if !sessions["sess-A"] || !sessions["sess-B"] || len(recs[0].Provenance) != 2 {
 		t.Fatalf("provenance union after sanitize = %+v; want sess-A + sess-B", recs[0].Provenance)
+	}
+}
+
+func TestSanitizeForEgressClearsClientClaimedAuthor(t *testing.T) {
+	in := []factmerge.Record{{ID: "fact:x", Text: "t", Paths: []string{"p.q"}, Author: "mallory"}}
+	out := SanitizeForEgress(in)
+	if out[0].Author != "" {
+		t.Fatalf("attribution is server-stamped; a client-claimed author must never egress, got %q", out[0].Author)
+	}
+	if in[0].Author != "mallory" {
+		t.Fatal("the caller's in-memory record must not be mutated")
 	}
 }

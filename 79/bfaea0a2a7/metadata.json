@@ -1,0 +1,42 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "79bfaea0a2a7",
+  "strategy": "manual-commit",
+  "branch": "fix/setup-wires-agents",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/getting-started.md",
+    "internal/cli/agent_setup.go",
+    "internal/cli/agent_wiring.go",
+    "internal/cli/agent_wiring_test.go",
+    "internal/cli/hook_cmd.go",
+    "internal/cli/setup.go",
+    "internal/cli/setup_render.go",
+    "internal/cli/setup_render_test.go",
+    "internal/cli/setup_test.go",
+    "internal/cli/testdata/render/setup.json"
+  ],
+  "sessions": [
+    {
+      "metadata": "/79/bfaea0a2a7/0/metadata.json",
+      "transcript": "/79/bfaea0a2a7/0/full.jsonl",
+      "compact_transcript": "/79/bfaea0a2a7/0/transcript.jsonl",
+      "content_hash": "/79/bfaea0a2a7/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9374,
+    "cache_creation_tokens": 45103288,
+    "cache_read_tokens": 2467848790,
+    "output_tokens": 3743809,
+    "api_call_count": 4710,
+    "subagent_tokens": {
+      "input_tokens": 262,
+      "cache_creation_tokens": 1098939,
+      "cache_read_tokens": 31406789,
+      "output_tokens": 18939,
+      "api_call_count": 131
+    }
+  }
+}

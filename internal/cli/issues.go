@@ -204,6 +204,9 @@ func getIssueEvidence(brainDir, id string) (unifiedResult, bool, error) {
 		}
 	}
 	s, ok, err := issueStore(brainDir).Get(ref)
+	if paged && err == nil && !ok {
+		return unifiedResult{}, false, errors.New("issue continuation requires an existing exact snapshot")
+	}
 	if err != nil || !ok {
 		return unifiedResult{}, ok, err
 	}

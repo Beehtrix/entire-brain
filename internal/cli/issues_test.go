@@ -78,6 +78,20 @@ func TestIssueDefaultRetrievalAndExactOfflineGet(t *testing.T) {
 	}
 }
 
+func TestIssueContinuationRequiresExistingSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	s := seedIssueTest(t, dir)
+	for _, ref := range []string{"invalid@hash", s.Key() + "@" + strings.Repeat("0", 64)} {
+		_, ok, err := getIssueEvidence(dir, ref+issuePageMarker+"0")
+		if ok || err == nil || !strings.Contains(err.Error(), "issue continuation") {
+			t.Fatalf("unavailable continuation %q: found=%v err=%v", ref, ok, err)
+		}
+	}
+	if _, ok, err := getIssueEvidence(dir, s.Ref+issuePageMarker+"0"); err != nil || !ok {
+		t.Fatalf("valid continuation: found=%v err=%v", ok, err)
+	}
+}
+
 func TestIssueThreadDiversityFallbackAndSemanticCache(t *testing.T) {
 	dir := t.TempDir()
 	s := seedIssueTest(t, dir)

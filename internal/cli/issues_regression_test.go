@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +36,9 @@ func TestIssueRankingRejectsConcurrentDisconnect(t *testing.T) {
 			hits, err := retrieveIssues(dir, "retry", 5, modeHybrid, e)
 			if err != nil || len(hits) != 0 {
 				t.Fatalf("disconnected evidence returned: %d, %v", len(hits), err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "issues", "derived", "vectors.json")); !os.IsNotExist(err) {
+				t.Fatalf("disconnected evidence republished in vector cache: %v", err)
 			}
 		})
 	}

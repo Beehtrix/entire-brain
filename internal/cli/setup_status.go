@@ -90,6 +90,8 @@ type brainStatusOnboarding struct {
 	AgentsUnwired bool `json:"-"`
 	// AgentsMissing names what is absent, so the line can say which half.
 	AgentsMissing []string `json:"-"`
+	// json:"-" for the same published-contract reason as WatchPlan.
+	Paused bool `json:"-"`
 }
 
 // factsBackfillStatusForBrain counts how many exported sessions have already
@@ -168,6 +170,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir))
+	onboarding.Paused = backgroundPaused(opts.Env)
 	return onboarding
 }
 

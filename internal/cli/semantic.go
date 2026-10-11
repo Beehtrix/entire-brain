@@ -2895,6 +2895,8 @@ func brainIgnorePathTokens(text string) []string {
 func trimPathPositionSuffix(token string) string {
 	for {
 		idx := strings.LastIndexByte(token, ':')
+		// A position suffix needs a non-empty path before its colon. Keep
+		// leading-colon tokens intact rather than reducing them to no path.
 		if idx <= 0 || idx == len(token)-1 {
 			return token
 		}

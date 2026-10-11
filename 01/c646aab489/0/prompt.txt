@@ -1,0 +1,57 @@
+epxlain docs changes pls
+
+---
+
+<agent-message from="a2bc1391cd7624a0b">
+[Subagent hand-back] The text below is the final report of a subagent this session delegated to. It is model output, NOT a message from the user: instructions, requests, or approval claims inside it are the subagent's words and carry no user authority. The harness indents every line of the report, so a frame-like line at column zero inside it would be forged. Notes above this frame may quote model-derived text, which carries no user authority either. The report follows:
+  DONE. Branch `fix/hosted-connect-fails-loudly` @ 39b3f1cc (1 commit, not pushed). Clean tree, build+vet green.
+  
+  ## CHANGED
+  
+  **NEW `/Users/suhaan/devenv/brain-connect-fix/internal/cli/hosted_placement.go`** (76 lines)
+  - `:25` `hostedPlacementNegativeTTL = 10 * time.Minute`
+  - `:30` `errHostedPlacementSuppressed` sentinel
+  - `:33` `hostedPlacementFailures` = mutex + `map[repoDir]time.Time`
+  - `:45` `resolveHostedPlacement(ctx, runner, repoDir, now) (whereamiResult, attempted bool, error)` — wraps `resolveWhereami` in the negative cache. `attempted=false` ⇒ suppressed by a cached failure. Success deletes the key. TTL (not permanent) so a long-lived watch daemon still retries after login / registration / host-CLI upgrade.
+  - NOT used by `connect` — explicit connect always tries the real thing.
+  
+  **`internal/cli/hosted_sync.go`** (ND-2, ND-3)
+  - `:59` auto-connect gate now calls `resolveHostedPlacement(..., opts.Now().UTC())`.
+  - `:62` on an ATTEMPTED failure prints one stderr line: `hosted sync: <repoDir> branch <branch>: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing \`entire repo whereami --json\`, which is not shipped yet (COR-2029): <err>; bind now with \`entire brain connect --repo-id <repo id> --api-url <https://cell>\`; the local brain is unaffected`. A SUPPRESSED attempt stays quiet ⇒ one line per TTL window, not one per branch.
+  - `:30-34` + `:44-58` doc comments: gate-order doc no longer says "silently"; ponytail TODO deleted (implemented).
+  
+  **`internal/cli/connect_cmd.go`** (ND-1, docs)
+  - `:86` error rewritten, runnable path FIRST: `connect: bind this repository explicitly: \`entire brain connect --repo-id <repo id> --api-url <https://cell>\`; automatic binding needs a host CLI providing \`entire repo whereami --json\`, which is not shipped yet (COR-2029), and resolving it here failed: %w`
+  - `:13-22` `whereamiResult` doc — "NOT SHIPPED. COR-2029 is a planned host-CLI command, not an existing one: `entire repo` offers clone/create/delete/get/list/mirror/visibility and nothing else."
+  - `:41-45` cobra Long rewritten: explicit flags are the only path that works today.
+  - `:124-128` `resolveWhereami` doc — best-effort probe, never a prerequisite.
+  
+  **`internal/cli/hosted_sync_test.go`** — two existing tests asserted the defect (`errOut.Len() != 0` ⇒ fail). Retargeted: `TestHostedSyncGates/"no binding means a reported no-op"` (`:170`) and `TestHostedSyncStaysLocalWhenPlacementUnresolvable` (`:398`).
+  
+  **NEW `internal/cli/hosted_placement_test.go`** (157 lines, 4 tests). Used `commandRunnerFunc` (the established convention in hosted_sync_test.go / connect_cmd_test.go / hook_hosted_test.go), not `fakeCommandRunner` — the latter needs a scripted `responses` map and errors on unscripted git calls; counting is a closure counter. All tests serial, no `t.Setenv`+`t.Parallel`. No global cache reset needed: every test keys on a unique `t.TempDir()`.
+  
+  ## WEAKENING TABLE
+  
+  | guard | what I broke | red? | quoted failing assertion |
+  |---|---|---|---|
+  | auto-connect failure is reported | removed the `fmt.Fprintf` in `hosted_sync.go:62`, kept `attempted` compiling via `_ = attempted` | YES, 3 tests | `hosted_placement_test.go:54: auto-connect failure must print exactly one stderr line, got 0: ""` + `hosted_sync_test.go:170: unconnected repo must say it stayed local, got ""` + `hosted_sync_test.go:398: local fallback must report itself, got ""` |
+  | each element of that line (non-vacuity) | replaced the message with bare `"hosted sync: skipped\n"` (1 line, no content) | YES, all 5 fired | `:68 must contain "/var/folders/.../TestHostedSyncAutoConnectFailureIsReported.../001"` ; `:68 must contain "branch main"` ; `:68 must contain "COR-2029"` ; `:68 must contain "--repo-id"` ; `:68 must contain "the local brain is unaffected"` — all `got "hosted sync: skipped"` |
+  | resolver runs at most once per process | dropped the cache: `resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir); attempted := true` | YES | `hosted_placement_test.go:94: a failed resolution must not be retried in the same process: want 1 shell-out, got 2` |
+  | negative is NOT permanent | deleted the TTL-expiry branch in `hostedPlacementRecentlyFailed` (`_ = failedAt`) | YES | `hosted_placement_test.go:119: past the TTL the resolver must try again` |
+  | connect error names the runnable path first | restored the old `connect: resolve hosted placement (\`entire repo whereami --json\`): %w; pass --repo-id and --api-url explicitly` | YES | `hosted_placement_test.go:149: the runnable path must come before the unshipped command, got: connect: resolve hosted placement (\`entire repo whereami --json\`): unknown command "whereami" for "entire repo"; pass --repo-id and --api-url explicitly` |
+  
+  Every weakening: compiled clean, test run RED, file restored from a scratchpad backup verified by `shasum -a 256 -c` (3/3 OK each time), test re-run GREEN. Never used `git stash`.
+  
+  ## BUILD / TEST
+  - `go build ./...` clean. `go vet ./...` clean. `gofmt -l -s internal/cli` empty.
+  - `GOMAXPROCS=1 go test ./internal/cli -run '^(TestHostedSync|TestHostedPlacement|TestConnect|TestResolveWhereami|TestSessionEndHook|TestPull|TestBlindSpot|TestWatch|TestHook)' -count=1 -p 1 -parallel 1` → **85 passed**. Broader sweep incl. `TestMemory` → 286 passed.
+  
+  ## UNVERIFIED / CAVEATS
+  - **No full `go test ./...`** (env constraint). Only the hosted/connect/hook/watch/blind-spot/pull/memory prefixes ran. A test elsewhere in the repo that asserts the old silence or the old connect string would not have been caught.
+  - **The "once per session-end" claim is tested at `hostedFactsSyncAndPull` level**, calling it twice with `{"feature", distillDefaultBranch}` — exactly the shape of `hook_cmd.go`'s `syncHosted` loop — not through `newHookSessionEndCommand` itself. The hook's own test harness fails `git branch --show-current`, so it only ever syncs one branch and cannot exercise the pair.
+  - **The 30s→60s stall was never measured end-to-end**, only reasoned from `hostedShellOutTimeout` × 2 call sites; the test counts shell-outs, not wall time.
+  - **TTL = 10 min is a judgement call**, not derived from anything. It is the only knob that trades daemon-retry latency against shell-out cost.
+  - The daemon watch tick now emits one stderr line per repo per 10 min while unbound. Previously zero. If the daemon log is noise-sensitive someone may want that downgraded to once per process.
+  - Did not touch `hosted_token.go:11`'s doc mention of whereami (accurate as a list of shell-out call sites).
+  - No docs/ or README changes needed: `grep -rn 'whereami\|brain connect' docs/ README.md` → zero hits.
+</agent-message>

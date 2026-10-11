@@ -3,7 +3,7 @@
   "checkpoint_id": "72669317ed34",
   "session_id": "6ca2c8fb-c97b-4bf3-a992-0e3c6d1967e2",
   "strategy": "manual-commit",
-  "created_at": "2026-10-11T22:04:46.11112Z",
+  "created_at": "2026-10-11T22:05:45.492684Z",
   "branch": "fix/setup-status-output-truth",
   "checkpoints_count": 1,
   "save_step_count": 1,
@@ -13,11 +13,11 @@
   "turn_id": "22a8b6614f1b",
   "compact_transcript_start": 0,
   "token_usage": {
-    "input_tokens": 9352,
-    "cache_creation_tokens": 45087777,
-    "cache_read_tokens": 2464739339,
-    "output_tokens": 3734620,
-    "api_call_count": 4699
+    "input_tokens": 9360,
+    "cache_creation_tokens": 45091295,
+    "cache_read_tokens": 2465850566,
+    "output_tokens": 3736983,
+    "api_call_count": 4703
   },
   "skill_events_version": 1,
   "skill_events": [

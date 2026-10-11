@@ -1,0 +1,39 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "7fb25c8854f3",
+  "strategy": "manual-commit",
+  "branch": "fix/doctor-actionable",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/doctor.go",
+    "internal/cli/doctor_actionable_test.go",
+    "internal/cli/doctor_honest_reporting_test.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/memory_admin_contract_test.go",
+    "internal/cli/root_test.go",
+    "internal/cli/setup_firstrun_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/7f/b25c8854f3/0/metadata.json",
+      "transcript": "/7f/b25c8854f3/0/full.jsonl",
+      "compact_transcript": "/7f/b25c8854f3/0/transcript.jsonl",
+      "content_hash": "/7f/b25c8854f3/0/content_hash.txt",
+      "prompt": "/7f/b25c8854f3/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 9316,
+    "cache_creation_tokens": 45052523,
+    "cache_read_tokens": 2460112757,
+    "output_tokens": 3711721,
+    "api_call_count": 4681,
+    "subagent_tokens": {
+      "input_tokens": 548,
+      "cache_creation_tokens": 726499,
+      "cache_read_tokens": 43837731,
+      "output_tokens": 35635,
+      "api_call_count": 274
+    }
+  }
+}

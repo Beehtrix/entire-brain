@@ -36,14 +36,15 @@ class EscapeAuditTests(unittest.TestCase):
         return json.loads(result.stdout)
 
     def test_parent_directory_commands_contaminate_run(self):
-        for command in ("cd ..", "cd '../..'", "cd ../..", "cd ..; cat summary.json"):
+        for command in ("cd ..", "cd '../..'", "cd ../..", "cd ..; cat summary.json",
+                        "cd ./..", "cd ./../..", "cd docs/../.."):
             with self.subTest(command=command):
                 summary = self.parse([command, "cat summary.json"])
                 self.assertTrue(summary["contaminated"], summary)
                 self.assertTrue(summary["escape_paths"], summary)
 
     def test_clone_and_system_paths_remain_allowed(self):
-        summary = self.parse(["cat ./README.md", "cat ..notes", "echo ...",
+        summary = self.parse(["cat ./README.md", "cat ..notes", "echo ...", "cd docs/..",
                               f"cat {self.clone}/README.md", "/usr/bin/git status"])
         self.assertFalse(summary["contaminated"], summary)
         self.assertEqual(summary["escape_paths"], [])

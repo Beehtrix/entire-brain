@@ -37,8 +37,8 @@ case "$sub" in
     for a in "$@"; do
       n=$((n + 1))
       case "$a" in
-        -*) front="$front \"\$$n\"" ;;
-        *) if is_path "$a"; then paths="$paths \"\$$n\""; else front="$front \"\$$n\""; fi ;;
+        -*) front="$front \"\${$n}\"" ;;
+        *) if is_path "$a"; then paths="$paths \"\${$n}\""; else front="$front \"\${$n}\""; fi ;;
       esac
     done
     eval "set -- $front -- $paths \":!\$HARNESS\""

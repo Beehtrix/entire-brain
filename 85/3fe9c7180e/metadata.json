@@ -1,0 +1,27 @@
+{
+  "cli_version": "dev",
+  "checkpoint_id": "853fe9c7180e",
+  "strategy": "manual-commit",
+  "branch": "fix/setup-wires-agents",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/agent_wiring_test.go",
+    "internal/cli/setup.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/85/3fe9c7180e/0/metadata.json",
+      "transcript": "/85/3fe9c7180e/0/full.jsonl",
+      "compact_transcript": "/85/3fe9c7180e/0/transcript.jsonl",
+      "content_hash": "/85/3fe9c7180e/0/content_hash.txt",
+      "prompt": "/85/3fe9c7180e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 256,
+    "cache_creation_tokens": 772086,
+    "cache_read_tokens": 26267425,
+    "output_tokens": 137165,
+    "api_call_count": 129
+  }
+}

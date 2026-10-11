@@ -12,6 +12,13 @@ import (
 
 // whereamiResult is the host CLI's `entire repo whereami --json` contract
 // (COR-2029): the repo's region-local ULID and its cell API base URL.
+//
+// NOT SHIPPED. COR-2029 is a planned host-CLI command, not an existing one:
+// `entire repo` offers clone/create/delete/get/list/mirror/visibility and
+// nothing else, so every call below fails on a stock host CLI. Treat this
+// struct as the contract we will decode WHEN the host ships it, and treat
+// resolution failure as the normal first-run outcome rather than a local
+// misconfiguration to be diagnosed.
 type whereamiResult struct {
 	RepoID string `json:"repo_id"`
 	APIURL string `json:"api_url"`
@@ -31,11 +38,11 @@ func newConnectCommand(opts Options) *cobra.Command {
 API base URL (non-secrets only — the host CLI's own login mints a fresh token
 per sync), then runs one immediate sync so the first pull happens right away.
 
-Running connect is OPTIONAL: the daemon and session-end hook resolve the
-binding automatically through the host CLI (entire repo whereami) and fall
-back to local-only until that succeeds. Use connect to bind explicitly —
-a non-default cell, a staging target, or before the host CLI supports
-whereami. Pass --repo-id and --api-url to bypass resolution entirely.`,
+Pass --repo-id and --api-url to bind explicitly. That is the only path that
+works today: automatic resolution asks the host CLI for "entire repo whereami
+--json" (COR-2029), which is not shipped yet, so the daemon and session-end
+hook stay local-only until this repository is bound by hand. Explicit flags are
+also how you reach a non-default cell or a staging target.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConnect(cmd, opts, connectOpts)
@@ -71,7 +78,12 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present {
 				resolved = whereamiResult{RepoID: existing.RepoID, APIURL: existing.BaseURL}
 			} else {
-				return fmt.Errorf("connect: resolve hosted placement (`entire repo whereami --json`): %w; pass --repo-id and --api-url explicitly", whereamiErr)
+				// The runnable path comes FIRST. The previous message led
+				// with the shell-out it had just tried, which reads as a
+				// local breakage to fix; the command it named does not exist
+				// anywhere yet, so there is nothing to fix and no reason to
+				// go looking.
+				return fmt.Errorf("connect: bind this repository explicitly: `entire brain connect --repo-id <repo id> --api-url <https://cell>`; automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029), and resolving it here failed: %w", whereamiErr)
 			}
 		}
 		if repoID == "" {
@@ -111,6 +123,10 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 }
 
 // resolveWhereami shells out to the host CLI for this repo's hosted placement.
+// It fails on every stock host CLI because the command is unshipped (see
+// whereamiResult), so it is a best-effort probe, never a prerequisite: the
+// auto-connect path wraps it in resolveHostedPlacement's negative cache and
+// `connect` falls back to the explicit flags.
 func resolveWhereami(ctx context.Context, runner CommandRunner, repoDir string) (whereamiResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
 	defer cancel()

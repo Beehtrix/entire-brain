@@ -29,9 +29,9 @@ const hostEntireBinary = "entire"
 //
 // Gate order is fixed: (1) the local-only kill switch always wins; (2) the
 // repo binding is the connection state — absent, each run tries to resolve it
-// through the host CLI and falls back to local-only, silently, until that
-// succeeds; (3) apiurl.Validate before any client exists. A fresh token is
-// minted per call via the host CLI's own login and held only in memory.
+// through the host CLI and falls back to local-only, REPORTING why like every
+// other gate here; (3) apiurl.Validate before any client exists. A fresh token
+// is minted per call via the host CLI's own login and held only in memory.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
 	if brainNoEgressMode() {
 		return nil
@@ -42,13 +42,25 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		return nil
 	}
 	if !present {
-		// Auto-connect: placement comes from the host CLI (whereami), which
-		// fails for a logged-out user, an unregistered repo, or a CLI without
-		// the command — all of which mean "stay local and retry next run".
-		// ponytail: an unresolvable repo re-runs whereami on every throttled
-		// sync attempt; cache a negative result if that ever gets expensive.
-		resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir)
+		// Auto-connect: placement comes from the host CLI's `entire repo
+		// whereami --json`, which is NOT SHIPPED (COR-2029) — so on a stock
+		// host CLI this gate is the one that always fires. It also fails for a
+		// logged-out user or an unregistered repo. All of them mean "stay
+		// local", and all of them used to mean it SILENTLY: this was the only
+		// gate in this function that returned without a word, so the hosted
+		// loop appeared to work and simply never engaged.
+		//
+		// resolveHostedPlacement carries the negative cache: a failure
+		// suppresses the next shell-out for hostedPlacementNegativeTTL, which
+		// is what stops the session-end pair (current branch, then default
+		// branch) spending two hostedShellOutTimeout windows per session end.
+		// A suppressed attempt stays quiet so the note appears once per
+		// window, not once per branch.
+		resolved, attempted, whereamiErr := resolveHostedPlacement(ctx, opts.Runner, repoDir, opts.Now().UTC())
 		if whereamiErr != nil {
+			if attempted {
+				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029): %v; bind now with `entire brain connect --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, whereamiErr)
+			}
 			return nil
 		}
 		binding, err = bindHostedRepo(storage.BrainDir, resolved.RepoID, resolved.APIURL)

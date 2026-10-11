@@ -1,6 +1,6 @@
 package factsync
 
-import "github.com/entireio/entire-brain/internal/factmerge"
+import "github.com/entireio/entire-brain/factmerge"
 
 // SanitizeForEgress redacts a fact's LOCAL-ONLY provenance coordinates before its
 // facts leave this member for the shared, cross-member head. A provenance Anchor mixes
@@ -29,6 +29,10 @@ func SanitizeForEgress(records []factmerge.Record) []factmerge.Record {
 	out := make([]factmerge.Record, len(records))
 	for i, r := range records {
 		r.Provenance = sanitizeAnchors(r.Provenance)
+		// Attribution is server-stamped from the verified JWT, never
+		// client-claimed: a client-written Author must not reach the shared
+		// head, where it would masquerade as server attribution.
+		r.Author = ""
 		out[i] = r
 	}
 	return out

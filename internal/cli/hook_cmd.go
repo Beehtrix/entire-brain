@@ -224,9 +224,16 @@ wires it.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Read the event when asked to, and also when no --file was given
 			// and stdin is a pipe: a harness that invokes the bare verb then
-			// still works instead of failing on a missing flag. A terminal
-			// stdin is never read — that would hang a hand-run.
-			if claudeHook || (strings.TrimSpace(file) == "" && stdinIsPipe(cmd.InOrStdin())) {
+			// still works instead of failing on a missing flag.
+			//
+			// A terminal stdin is never read, on EITHER path. --claude-hook used
+			// to bypass this guard, so hand-running the exact command the docs
+			// suggest -- the flag's own documented testing route -- blocked for
+			// ever on a read that would never return. Say so instead.
+			if claudeHook && !stdinIsPipe(cmd.InOrStdin()) && strings.TrimSpace(file) == "" {
+				return fmt.Errorf("--claude-hook reads the host's PreToolUse event from stdin, and stdin is a terminal here; pipe an event in, or pass --file <path> to check one file by hand")
+			}
+			if (claudeHook || strings.TrimSpace(file) == "") && stdinIsPipe(cmd.InOrStdin()) {
 				if path, ok := decodeClaudeHookEventPath(cmd.InOrStdin()); ok && strings.TrimSpace(file) == "" {
 					file = path
 				}

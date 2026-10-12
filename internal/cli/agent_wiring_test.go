@@ -468,3 +468,41 @@ func setupLineContaining(t *testing.T, out, want string) string {
 	t.Fatalf("no line containing %q in setup output:\n%s", want, out)
 	return ""
 }
+
+// --claude-hook used to bypass the terminal-stdin guard, so hand-running the
+// exact command the docs suggest blocked for ever on a read that never returns,
+// while the comment two lines above claimed a terminal stdin is never read.
+// Raised as a finding on this PR, and correct.
+//
+// stdinIsPipe treats ANY non-*os.File reader as a pipe, so a stub cannot stand
+// in for a terminal here — it would take the pipe branch and prove nothing.
+// /dev/null is a real character device, which is exactly what the guard tests.
+func TestClaudeHookOnATerminalSaysSoInsteadOfHanging(t *testing.T) {
+	t.Parallel()
+	tty, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Skipf("no character device available: %v", err)
+	}
+	defer tty.Close()
+	if stdinIsPipe(tty) {
+		// Not a character device here. On Windows os.DevNull is "NUL", whose
+		// mode does not necessarily report ModeCharDevice, so stdinIsPipe takes
+		// the pipe branch and there is no terminal to simulate. Skip rather than
+		// fail: the guard is about POSIX terminal stdin, and a fixture that
+		// cannot represent one proves nothing either way.
+		t.Skip("no character device available to stand in for a terminal on this platform")
+	}
+
+	opts, _, _ := commandRegressionFixture(t)
+	cmd := newHookCommand(opts)
+	cmd.SetIn(tty)
+	out, err := execute(t, cmd, "pre-edit", "--claude-hook")
+	if err == nil {
+		t.Fatalf("a terminal stdin must be refused, not read: this is the hand-run that used to hang\n%s", out)
+	}
+	for _, want := range []string{"stdin is a terminal", "--file"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must say what to do instead; missing %q in: %v", want, err)
+		}
+	}
+}

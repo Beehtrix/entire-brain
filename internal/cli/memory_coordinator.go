@@ -233,8 +233,15 @@ func loadMemoryCoordinatorState(brainDir string) (memoryCoordinatorState, error)
 	return state, nil
 }
 
-// appendMemoryWorkerLog stores only operational event names and an opaque
-// owner prefix. It contains no paths, prompts, session IDs, or error text.
+// appendMemoryWorkerLog stores an operational event name and an opaque owner
+// prefix, and nothing else.
+//
+// Its sibling appendMemoryWorkerLogReason adds one bounded `reason` field, so
+// the log as a whole is no longer content-free: a reason is error text, and
+// error text carries paths. It is redacted (memoryWorkerLogReason) and bounded,
+// never prompts, transcripts or session IDs. Saying "no error text" here while
+// the file next to it wrote exactly that is how a reader comes to trust a
+// claim the bytes do not support.
 // memoryWorkerLogReasonMax bounds the reason recorded beside an event. The log
 // is a bounded ring (memoryWorkerLogMaxBytes), so an unbounded error -- a Go
 // error can carry a whole command's stderr -- would evict the history it is
@@ -248,6 +255,13 @@ const memoryWorkerLogReasonMax = 240
 // would be read as the event itself, and a newline would forge a whole log
 // entry. Both are neutralised here rather than trusted.
 func memoryWorkerLogReason(reason string) string {
+	// Redact BEFORE truncating. Truncation can cut a credential in half, and
+	// half a token no longer matches the patterns that recognise it, so a
+	// reason trimmed first would persist a fragment nothing redacts. Every
+	// other durable free-form path here (pattern corpus, dossiers, skill
+	// bridges) runs through redactText for the same reason; this one is a
+	// worker log a reader is asked to paste into an issue.
+	reason = redactText(reason)
 	reason = strings.Join(strings.Fields(reason), " ")
 	reason = strings.ReplaceAll(reason, "event=", "event:")
 	if reason == "" {

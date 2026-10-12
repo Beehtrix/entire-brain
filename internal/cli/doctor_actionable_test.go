@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -289,13 +290,17 @@ func TestTheDirectoryRemedyMatchesTheFailure(t *testing.T) {
 
 	// Does not exist: the detail names the nearest existing PARENT as the thing
 	// denying writes, so chmodding the missing path is advice about nothing.
+	// filepath.Dir is separator-dependent, so the expected parent is derived the
+	// same way the remedy derives it. Spelling it as a literal "/var/..." made
+	// this assertion unsatisfiable on Windows, where Dir yields backslashes.
+	missingPath := filepath.Join("/var", "root", "entire", "plugins", "data")
 	missing := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
-		Path: "/var/root/entire/plugins/data", State: "creatable_unproven", Exists: false,
+		Path: missingPath, State: "creatable_unproven", Exists: false,
 	})
-	if !strings.Contains(missing, shellQuote("/var/root/entire/plugins")) {
+	if !strings.Contains(missing, shellQuote(filepath.Dir(missingPath))) {
 		t.Errorf("a path that cannot be created must point at its parent: %q", missing)
 	}
-	if strings.Contains(missing, shellQuote("/var/root/entire/plugins/data")) {
+	if strings.Contains(missing, shellQuote(missingPath)) {
 		t.Errorf("chmod was suggested on a path that does not exist: %q", missing)
 	}
 

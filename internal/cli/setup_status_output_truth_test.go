@@ -26,16 +26,30 @@ import (
 // Pointing either writer back at a real stream still compiles, and fails here.
 func TestSetupInstantSubcommandAlwaysDiscardsItsOutput(t *testing.T) {
 	t.Parallel()
-	sub := newSetupInstantCommand(context.Background())
-	// Writer IDENTITY, not a captured buffer: a buffer this test owns is not
-	// wired to anything the sub-command could reach, so it would pass whatever
-	// the writers were. io.Discard is the contract, and pointing either writer
-	// at a real stream still compiles.
+	sub, captured := newSetupInstantCommand(context.Background())
+	// Writer IDENTITY for stdout: a buffer this test owns is not wired to
+	// anything the sub-command could reach, so it would pass whatever the
+	// writer was. io.Discard is the contract, and pointing it at a real stream
+	// still compiles.
 	if got := sub.OutOrStdout(); got != io.Discard {
 		t.Fatalf("the nested refresh must write stdout to io.Discard, got %T", got)
 	}
-	if got := sub.ErrOrStderr(); got != io.Discard {
-		t.Fatalf("the nested refresh must write stderr to io.Discard, got %T", got)
+	// stderr is CAPTURED, not discarded: the same stream carries real warnings
+	// (a coordinator that could not launch, a skipped entity index), and
+	// discarding it lost them silently. It must reach the buffer the caller
+	// reads, and must NOT reach a real stream.
+	if captured == nil {
+		t.Fatal("the nested refresh's stderr must be captured so its warnings can be re-emitted")
+	}
+	if got := sub.ErrOrStderr(); got != io.Writer(captured) {
+		t.Fatalf("the nested refresh's stderr must be the captured buffer, got %T", got)
+	}
+	sub.ErrOrStderr().Write([]byte("warning: memory coordinator: worker launch failed\n"))
+	if got := setupWarningsFrom(captured); len(got) != 1 || got[0] != "memory coordinator: worker launch failed" {
+		t.Fatalf("a warning on the nested stderr must be recoverable, got %q", got)
+	}
+	if got := setupWarningsFrom(captured); len(got) == 0 {
+		t.Fatal("non-vacuity: the extractor matched nothing")
 	}
 	if sub.Context() == nil {
 		t.Fatal("the sub-command must carry the setup context")
@@ -351,5 +365,76 @@ func TestDirtyWorktreeRemedyNamesBothWaysOut(t *testing.T) {
 		if !strings.Contains(remedy, want) {
 			t.Fatalf("the single remedy must name %q: %s", want, remedy)
 		}
+	}
+}
+
+// Moving the remedy out of axis.Detail (so the short status would not print it
+// twice) left `status --verbose` showing the cause with no way out: it renders
+// Detail directly and never re-pairs the hint. Raised as a finding on this PR,
+// and correct.
+func TestVerboseAxesStillNameTheWayOut(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	renderFreshnessAxes(&buf, map[string]staleAxis{
+		"seed": {State: dirtyUnindexedAxisState, Detail: "seed and docs are based on committed HEAD"},
+	})
+	line := buf.String()
+
+	if !strings.Contains(line, "dirty-unindexed") {
+		t.Fatalf("fixture did not render the axis under test: %q", line)
+	}
+	for _, want := range []string{"--worktree", "commit or stash"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("the verbose axis states a cause with no remedy; missing %q in: %s", want, line)
+		}
+	}
+}
+
+// A healthy axis must not gain a dirty-worktree remedy it has no use for.
+func TestACleanAxisGetsNoDirtyRemedy(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	renderFreshnessAxes(&buf, map[string]staleAxis{"seed": {State: "current"}})
+	if strings.Contains(buf.String(), "--worktree") {
+		t.Fatalf("a clean axis was given the dirty-worktree remedy: %s", buf.String())
+	}
+}
+
+// A dirty working tree fails BOTH seed and semantic — the common first run this
+// release's own docs describe — and each failed component carries the identical
+// hint, so the reader was told the same thing twice within six lines.
+// status_render.go was given a dedup guard in this change; setup's own summary
+// was missed. Raised as a finding on this PR, and correct.
+func TestTheSetupSummaryStatesOneRemedyOnce(t *testing.T) {
+	t.Parallel()
+	hint := setupDirtyWorktreeHint("entire brain")
+	report := setupReport{
+		Instant: setupPhase{Components: []setupComponent{
+			{Name: "seed", State: "failed", Detail: "dirty_worktree: refusing to seed", Hint: hint},
+			{Name: "semantic", State: "failed", Detail: "dirty_worktree: refusing to index", Hint: hint},
+		}},
+	}
+	out := renderSetupSummaryPlain(t, report, &setupTimings{})
+
+	if !strings.Contains(out, "refusing to seed") || !strings.Contains(out, "refusing to index") {
+		t.Fatalf("both failures must still be named, so this guard is not vacuous:\n%s", out)
+	}
+	if n := strings.Count(out, "hint: "); n != 1 {
+		t.Fatalf("one remedy, one appearance; printed %d times:\n%s", n, out)
+	}
+}
+
+// Two DIFFERENT remedies must both still be shown — dedup is not suppression.
+func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
+	t.Parallel()
+	report := setupReport{
+		Instant: setupPhase{Components: []setupComponent{
+			{Name: "seed", State: "failed", Detail: "a", Hint: "first remedy"},
+			{Name: "semantic", State: "failed", Detail: "b", Hint: "second remedy"},
+		}},
+	}
+	out := renderSetupSummaryPlain(t, report, &setupTimings{})
+	if n := strings.Count(out, "hint: "); n != 2 {
+		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)
 	}
 }

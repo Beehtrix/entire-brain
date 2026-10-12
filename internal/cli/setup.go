@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1347,20 +1348,45 @@ func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, 
 //
 // Discarding unconditionally is also why the --json contract is untouched:
 // that path already discarded, so its bytes cannot move.
-func newSetupInstantCommand(ctx context.Context) *cobra.Command {
+func newSetupInstantCommand(ctx context.Context) (*cobra.Command, *bytes.Buffer) {
+	// stdout is discarded: it is the nested refresh's progress, which setup
+	// reports itself. stderr is CAPTURED rather than discarded, because the
+	// same stream carries genuine warnings -- a memory coordinator that could
+	// not launch, an entity index that was skipped -- and discarding it lost
+	// them silently. Raised as a finding on this change.
+	var captured bytes.Buffer
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(io.Discard)
-	sub.SetErr(io.Discard)
-	return sub
+	sub.SetErr(&captured)
+	return sub, &captured
+}
+
+// setupWarningsFrom picks the warnings out of the nested refresh's stderr.
+//
+// Everything else on that stream is progress setup reports itself, so only
+// lines the refresh explicitly marked as a warning are carried up.
+func setupWarningsFrom(captured *bytes.Buffer) []string {
+	if captured == nil {
+		return nil
+	}
+	var out []string
+	for _, line := range strings.Split(captured.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "warning: ") {
+			out = append(out, strings.TrimPrefix(line, "warning: "))
+		}
+	}
+	return out
 }
 
 // resolveSetupSteps fills any injection point the caller left nil with the real
 // implementation.
-// The cobra command is used again: one branch stopped needing it (the nested
-// refresh now writes to io.Discard) and renamed it `_`, while another added
-// the agent announcement below, which writes to its stderr. The merge of the
-// two was textually clean and did not compile.
+// The cobra command is used for two things, and both arrived separately: the
+// agent announcement writes to its stderr, and the nested refresh's captured
+// stderr has its WARNINGS re-emitted here, on the command the user is actually
+// reading. It had been renamed `_` when the last use of it went away, and the
+// merge that reintroduced one was textually clean and did not compile.
 func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandOptions, repoDir, brainCmd string, steps setupSteps) setupSteps {
 	if steps.now == nil {
 		steps.now = opts.Now
@@ -1376,13 +1402,22 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// failure does not abort the build. History is the one difference from
 			// a tick: onboarding builds the projection now rather than leaving the
 			// first `brief` to answer without it.
-			sub := newSetupInstantCommand(ctx)
+			sub, capturedStderr := newSetupInstantCommand(ctx)
 			var components []setupComponent
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)
 			})
+			// The nested refresh's progress is discarded, but a warning on that
+			// stream is not progress -- a memory coordinator that could not
+			// launch, an entity index that was skipped -- and it reaches nobody
+			// unless it is re-emitted on the command the user is reading.
+			if cmd != nil && !setupOpts.json {
+				for _, warning := range setupWarningsFrom(capturedStderr) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+				}
+			}
 			return components, err
 		}
 	}

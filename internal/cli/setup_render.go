@@ -186,13 +186,22 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	_, failed := partitionSetupComponents(report.Instant.Components)
 	if len(report.Instant.Components) > 0 {
 		row("instant", setupComponentRow(render, report.Instant.Components), phaseTiming(timings, "instant"))
+		// One remedy, one appearance. A dirty working tree fails BOTH seed and
+		// semantic -- the common first run this release's own docs describe --
+		// and every failed component then carries the identical hint, so the
+		// reader was told the same thing twice in six lines. status_render.go
+		// was given the same guard in this change; this path was missed.
+		said := map[string]bool{}
 		for _, component := range failed {
 			fmt.Fprintf(out, "  %-*s %s %s\n", setupSummaryLabelWidth, "",
 				render.Mark(tui.MarkFailed),
 				render.PhasePaint(tui.PhaseFailed, setupComponentLabel(component.Name)+": "+component.Detail))
-			if hint := strings.TrimSpace(component.Hint); hint != "" {
-				fmt.Fprintf(out, "  %-*s   %s\n", setupSummaryLabelWidth, "", render.Dim("hint: "+hint))
+			hint := strings.TrimSpace(component.Hint)
+			if hint == "" || said[hint] {
+				continue
 			}
+			said[hint] = true
+			fmt.Fprintf(out, "  %-*s   %s\n", setupSummaryLabelWidth, "", render.Dim("hint: "+hint))
 		}
 	}
 

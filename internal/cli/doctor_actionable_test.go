@@ -25,7 +25,9 @@ func healthyDoctorReport() doctorReport {
 			{Name: "plugin config dir", State: "ok", Detail: "/cfg"},
 			{Name: "plugin data dir", State: "ok", Detail: "/data"},
 		},
-		DirectoryHealth: []memoryInstallDirectoryHealth{{Path: "/cfg"}, {Path: "/data"}},
+		// Exists: a directory that DENIES writes necessarily exists; without it
+		// the fixture describes a missing path, whose remedy is its parent.
+		DirectoryHealth: []memoryInstallDirectoryHealth{{Path: "/cfg", Exists: true}, {Path: "/data", Exists: true}},
 		Checks: []doctorCheckResult{
 			{Name: "manifest", State: "ok", Detail: "/data"},
 			{Name: "capture", State: "ok", Detail: "263 exported sessions"},
@@ -264,18 +266,58 @@ func TestTheDirectoryRemedyIsSafeToPaste(t *testing.T) {
 		{"backtick", "/tmp/x`whoami`", "chmod u+w '/tmp/x`whoami`'"},
 		{"semicolon", "/tmp/a;rm -rf b", `chmod u+w '/tmp/a;rm -rf b'`},
 	} {
-		if got := doctorDirectoryRemedy(c.path); got != c.want {
+		if got := doctorDirectoryRemedy(memoryInstallDirectoryHealth{Path: c.path, Exists: true}); got != c.want {
 			t.Errorf("%s: got %q want %q", c.name, got, c.want)
 		}
 	}
 	// A path containing a single quote must close, escape and reopen, or the
 	// quoting itself becomes the injection.
-	got := doctorDirectoryRemedy("/tmp/it's")
+	got := doctorDirectoryRemedy(memoryInstallDirectoryHealth{Path: "/tmp/it's", Exists: true})
 	if strings.Contains(got, "it's'") && !strings.Contains(got, `'\''`) {
 		t.Errorf("an embedded single quote escapes the quoting: %q", got)
 	}
 	// And an empty path must still fall back rather than suggest chmod on ''.
-	if r := doctorDirectoryRemedy("  "); strings.Contains(r, "chmod") {
+	if r := doctorDirectoryRemedy(memoryInstallDirectoryHealth{Path: "  "}); strings.Contains(r, "chmod") {
 		t.Errorf("an empty path produced a chmod suggestion: %q", r)
+	}
+}
+
+// Not every unhealthy directory is a permission problem, and chmod was being
+// suggested for all of them. Raised as a finding, and correct.
+func TestTheDirectoryRemedyMatchesTheFailure(t *testing.T) {
+	t.Parallel()
+
+	// Does not exist: the detail names the nearest existing PARENT as the thing
+	// denying writes, so chmodding the missing path is advice about nothing.
+	missing := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
+		Path: "/var/root/entire/plugins/data", State: "creatable_unproven", Exists: false,
+	})
+	if !strings.Contains(missing, shellQuote("/var/root/entire/plugins")) {
+		t.Errorf("a path that cannot be created must point at its parent: %q", missing)
+	}
+	if strings.Contains(missing, shellQuote("/var/root/entire/plugins/data")) {
+		t.Errorf("chmod was suggested on a path that does not exist: %q", missing)
+	}
+
+	// Unsafe: a symlink or non-directory is not fixed by a mode change.
+	unsafe := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
+		Path: "/tmp/linked", State: "unsafe", Exists: true,
+	})
+	if strings.Contains(unsafe, "chmod") {
+		t.Errorf("chmod cannot fix an unsafe path: %q", unsafe)
+	}
+
+	// An explicit recommendation from the health check always wins.
+	own := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
+		Path: "/tmp/x", State: "unavailable", RecommendedAction: "inspect the directory path",
+	})
+	if own != "inspect the directory path" {
+		t.Errorf("the health check's own recommendation was discarded: %q", own)
+	}
+
+	// The ordinary case is unchanged.
+	plain := doctorDirectoryRemedy(memoryInstallDirectoryHealth{Path: "/cfg", State: "denied", Exists: true})
+	if plain != "chmod u+w "+shellQuote("/cfg") {
+		t.Errorf("an existing unwritable directory must still name the chmod: %q", plain)
 	}
 }

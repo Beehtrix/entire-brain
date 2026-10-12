@@ -190,6 +190,25 @@ func mergeSetupWatchPlanEntry(existing, incoming setupWatchPlanEntry) setupWatch
 	if strings.TrimSpace(merged.Model) == "" {
 		merged.Model = existing.Model
 	}
+	// Interval, DistillEvery and Effort are written only when the run names
+	// them (see setupWatchPlanEntryFor), so a second repo adopting the same
+	// workspace without those flags arrives with them empty — and without a
+	// fallback it would blank tuning the first repo deliberately set. That is
+	// the "same workspace, different tuning" case this file's header describes.
+	if strings.TrimSpace(merged.Interval) == "" {
+		merged.Interval = existing.Interval
+	}
+	if strings.TrimSpace(merged.DistillEvery) == "" {
+		merged.DistillEvery = existing.DistillEvery
+	}
+	if strings.TrimSpace(merged.Effort) == "" {
+		merged.Effort = existing.Effort
+	}
+	// MaxSessions is deliberately NOT merged. It is always concrete
+	// (setupResolvedBackfillBudget never returns zero), and it carries the budget
+	// THIS run showed the user and paid the foreground backfill with. Falling
+	// back to a previous repo's cap would let the daemon keep spending against a
+	// number nobody was shown.
 	return merged
 }
 

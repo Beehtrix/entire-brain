@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -253,7 +254,15 @@ func memoryWorkerLogReason(reason string) string {
 		return ""
 	}
 	if len(reason) > memoryWorkerLogReasonMax {
-		reason = reason[:memoryWorkerLogReasonMax] + "..."
+		// Rune-safe: a byte slice can cut a multi-byte character in half, and
+		// strconv.Quote then renders the trailing fragment as a replacement
+		// character instead of text. Errors carry paths and messages that are
+		// routinely not ASCII.
+		cut := memoryWorkerLogReasonMax
+		for cut > 0 && !utf8.RuneStart(reason[cut]) {
+			cut--
+		}
+		reason = reason[:cut] + "..."
 	}
 	return " reason=" + strconv.Quote(reason)
 }

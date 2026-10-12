@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // A worker whose prepass fails relaunches on a 1m..30m backoff for about two
@@ -110,4 +111,28 @@ func readWorkerLogLine(t *testing.T, brainDir string) string {
 	}
 	_ = filepath.Join
 	return lines[0]
+}
+
+// A byte-level cut can split a multi-byte character, and strconv.Quote then
+// renders the trailing fragment as a replacement character rather than text.
+// Error strings carry paths and messages that are routinely not ASCII.
+// Raised as a finding, and correct.
+func TestALongReasonIsTruncatedOnACharacterBoundary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// Three-byte runes, so a byte-level cut at the limit lands mid-character.
+	reason := strings.Repeat("日", memoryWorkerLogReasonMax)
+	if err := appendMemoryWorkerLogReason(dir, time.Now().UTC(), "prepass_failed", "owner1", reason); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	line := readWorkerLogLine(t, dir)
+	if !strings.Contains(line, "日") {
+		t.Fatalf("the reason was dropped rather than truncated: %q", line)
+	}
+	if strings.ContainsRune(line, '�') {
+		t.Fatalf("truncation split a character: %q", line)
+	}
+	if !utf8.ValidString(line) {
+		t.Fatalf("the log line is not valid UTF-8 after truncation: %q", line)
+	}
 }

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
+	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
@@ -340,5 +342,94 @@ func TestTheImportNoteStopsLeadingOnceWorkWasDistilledSince(t *testing.T) {
 		distilled.Add(1*time.Hour).Format(time.RFC3339)+`","layers":["facts"]}`)
 	if note := emptyResultBlindSpot(newer); !strings.HasPrefix(note, "note: a bundle import") {
 		t.Errorf("an import NEWER than the last distillation must still lead: %s", note)
+	}
+}
+
+// The audit records the layers an import REPLACED, not the layers the bundle
+// carried, and the difference is the whole point: the note it feeds claims
+// facts recorded here before the import are gone.
+//
+// Raised twice on this PR as "record what was imported instead". That change
+// would fire the note at a brain that never held facts -- telling a reader
+// their remembered facts were destroyed when nothing was lost, in preference
+// to the coverage advice that would have helped. This pins the behaviour so
+// the reasoning does not have to be rediscovered a third time.
+func TestAnImportIntoABrainWithNoFactsExplainsNothing(t *testing.T) {
+	t.Parallel()
+
+	// Receiver held seed and docs but no facts; the bundle carried facts too,
+	// so a "what the bundle contained" record would have listed facts here.
+	noFactsBefore := t.TempDir()
+	writeAuditLine(t, noFactsBefore, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","docs"]}`)
+	if _, ok := lastBundleImportAt(noFactsBefore); ok {
+		t.Error("an import that replaced no facts was reported as having destroyed some")
+	}
+
+	// The same brain, had the audit recorded the bundle's contents instead.
+	asImported := t.TempDir()
+	writeAuditLine(t, asImported, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","docs","facts"]}`)
+	if _, ok := lastBundleImportAt(asImported); !ok {
+		t.Fatal("the contrast case does not fire, so this test proves nothing about the difference")
+	}
+}
+
+// The end-to-end half: run a REAL import into a brain that holds no facts and
+// read what the audit actually recorded.
+//
+// The hand-written-audit test above pins how lastBundleImportAt reads the
+// entry; it says nothing about what the import WRITES, so adopting the
+// repeatedly-proposed "record the layers the bundle carried" change left it
+// green. This one does not.
+func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
+	t.Parallel()
+
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+
+	// A bundle that CARRIES facts, into a brain that has none.
+	archive := filepath.Join(t.TempDir(), "with-facts.tar")
+	writeTestBundle(t, archive, map[string]string{
+		exportManifestFileName: `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"` +
+			semanticSchemaVersion + `","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot(semanticSchemaVersion),
+		"facts/taxonomy.json":                       `{"version":1}`,
+		"facts/main-0000/" + factsFileName:          "{}\n",
+	})
+	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"},
+		Options{Version: "test", Env: env, Runner: runner, Now: time.Now},
+		archive, bundleSHA256(t, archive), true); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+
+	brainDir := bundleTestBrainDir(env)
+	raw, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	if err != nil {
+		t.Fatalf("no audit was written at all, so this guard proves nothing: %v", err)
+	}
+	var entry struct {
+		Action string   `json:"action"`
+		Layers []string `json:"layers"`
+	}
+	seen := false
+	for _, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err == nil && entry.Action == "bundle_import" {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("no bundle_import entry was recorded: %s", raw)
+	}
+	for _, layer := range entry.Layers {
+		if layer == bundleLayerFacts {
+			t.Errorf("the audit claims facts were REPLACED in a brain that held none, which makes the "+
+				"empty-recall note assert a loss that did not happen: %v", entry.Layers)
+		}
+	}
+	if _, ok := lastBundleImportAt(brainDir); ok {
+		t.Error("an import into a brain with no facts was recorded as having destroyed facts")
 	}
 }

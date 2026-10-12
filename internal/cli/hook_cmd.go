@@ -233,8 +233,15 @@ wires it.`,
 			if claudeHook && !stdinIsPipe(cmd.InOrStdin()) && strings.TrimSpace(file) == "" {
 				return fmt.Errorf("--claude-hook reads the host's PreToolUse event from stdin, and stdin is a terminal here; pipe an event in, or pass --file <path> to check one file by hand")
 			}
-			if (claudeHook || strings.TrimSpace(file) == "") && stdinIsPipe(cmd.InOrStdin()) {
-				if path, ok := decodeClaudeHookEventPath(cmd.InOrStdin()); ok && strings.TrimSpace(file) == "" {
+			// Only read when the answer is still missing. Keying this on
+			// claudeHook as well meant `--file X --claude-hook` read the event
+			// anyway and then discarded it, because the inner guard refuses to
+			// overwrite a --file that was given. On a pipe that does not reach
+			// EOF -- one inherited from a parent that has not closed it -- that
+			// read blocks for up to maxClaudeHookEventBytes, which is the
+			// hand-run hang the check above this one exists to prevent.
+			if strings.TrimSpace(file) == "" && stdinIsPipe(cmd.InOrStdin()) {
+				if path, ok := decodeClaudeHookEventPath(cmd.InOrStdin()); ok {
 					file = path
 				}
 			}

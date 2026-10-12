@@ -142,8 +142,11 @@ func TestEveryActionableLineNamesACommand(t *testing.T) {
 			t.Fatalf("an actionable line names no command to run: %q", line)
 		}
 	}
-	if !strings.Contains(out.String(), "chmod u+w /cfg") {
-		t.Fatalf("an unwritable plugin directory must name the chmod:\n%s", out)
+	// The path is shell-quoted now (an unquoted path with a space chmods the
+	// wrong thing), so this asserts the INTENT — the chmod and the directory are
+	// both named — rather than the exact concatenation it used to produce.
+	if !strings.Contains(out.String(), "chmod u+w "+shellQuote("/cfg")) {
+		t.Fatalf("an unwritable plugin directory must name the chmod and the path:\n%s", out)
 	}
 }
 
@@ -247,4 +250,32 @@ func nonEmptyLines(s string) []string {
 		}
 	}
 	return lines
+}
+
+// Raised as a shell-injection finding. The stated threat model is weak — the
+// path comes from the reader's own ENTIRE_PLUGIN_* variables or home directory
+// — but the quoting is right for a duller reason that bites far more often: an
+// unquoted path containing a SPACE chmods the wrong thing, and "/Users/me/My
+// Brain" is an ordinary path on a Mac.
+func TestTheDirectoryRemedyIsSafeToPaste(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ name, path, want string }{
+		{"space", "/Users/me/My Brain/data", `chmod u+w '/Users/me/My Brain/data'`},
+		{"backtick", "/tmp/x`whoami`", "chmod u+w '/tmp/x`whoami`'"},
+		{"semicolon", "/tmp/a;rm -rf b", `chmod u+w '/tmp/a;rm -rf b'`},
+	} {
+		if got := doctorDirectoryRemedy(c.path); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+	// A path containing a single quote must close, escape and reopen, or the
+	// quoting itself becomes the injection.
+	got := doctorDirectoryRemedy("/tmp/it's")
+	if strings.Contains(got, "it's'") && !strings.Contains(got, `'\''`) {
+		t.Errorf("an embedded single quote escapes the quoting: %q", got)
+	}
+	// And an empty path must still fall back rather than suggest chmod on ''.
+	if r := doctorDirectoryRemedy("  "); strings.Contains(r, "chmod") {
+		t.Errorf("an empty path produced a chmod suggestion: %q", r)
+	}
 }

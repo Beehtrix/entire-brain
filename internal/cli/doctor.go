@@ -553,20 +553,31 @@ func truncateDoctorDetail(detail string) string {
 // or path problem on a named directory, and the mode bits are the part doctor
 // can actually see.
 func doctorDirectoryRemedy(health memoryInstallDirectoryHealth) string {
-	// Not every unhealthy directory is a permission problem, and chmod was
-	// being suggested for all of them. Raised as a finding: for a path that
-	// does not exist the detail says its PARENT denies writes, so chmodding the
-	// path itself is advice about something that is not there; and an unsafe
-	// state (a symlink, a non-directory) is not fixed by a mode change at all.
-	if action := strings.TrimSpace(health.RecommendedAction); action != "" {
-		return action
-	}
+	// The remedy is rendered as "run `<remedy>`", so it must be something a
+	// reader can actually run.
+	//
+	// This used to return health.RecommendedAction whenever it was set, which
+	// a previous finding asked for. Every constructor seeds that field and then
+	// overwrites it on each path, so it is NEVER empty for a real doctor run:
+	// the branches below were unreachable outside hand-built fixtures, and the
+	// line rendered as
+	//
+	//   run `grant write access before running a mutation; mode bits currently deny writes`
+	//
+	// presenting a sentence as a command, which is the defect this whole
+	// report set out to remove.
+	//
+	// Nothing is lost by not repeating it here: doctorDirectoryFinding already
+	// puts that guidance in the Detail this remedy is appended to, either in
+	// its own words for the two warn states or verbatim for the error state.
 	path := strings.TrimSpace(health.Path)
 	if path == "" {
 		return doctorVerboseInvocation
 	}
 	if strings.Contains(health.State, "unsafe") {
-		return "inspect " + shellQuote(path) + "; it is not a plain writable directory, which no mode change fixes"
+		// A symlink, a non-directory, or a relative path. No mode change fixes
+		// any of them, and what the reader needs first is to see what is there.
+		return "ls -ld " + shellQuote(path)
 	}
 	if !health.Exists {
 		// The detail names the nearest existing parent as the thing denying

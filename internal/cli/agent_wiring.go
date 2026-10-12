@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -164,6 +165,9 @@ var errSettingsShape = errors.New("unexpected shape")
 // Returns the settings path, whether this call changed it, and an error only
 // when the file exists and cannot be understood — never when it is simply
 // absent.
+// installPreEditHookRaceHook is nil outside tests.
+var installPreEditHookRaceHook func()
+
 func installPreEditHook(repoDir string) (string, bool, error) {
 	path := filepath.Join(repoDir, claudeSettingsDir, claudeSettingsFile)
 	// Everything below goes through an os.Root: `.claude/settings.json` is a
@@ -234,6 +238,33 @@ func installPreEditHook(repoDir string) (string, bool, error) {
 	tmp := claudeSettingsDir + "/.settings.json.entire-brain." + randomSuffix() + ".tmp"
 	if err := root.WriteFile(tmp, encoded, mode); err != nil {
 		return path, false, err
+	}
+	// Re-read before swapping. Between the read above and this rename another
+	// writer -- Claude Code itself, or another tool editing permissions -- can
+	// have changed the file, and renaming over it would silently drop their
+	// edit. Raised as a finding on this change.
+	//
+	// Optimistic rather than locked: there is no lock protocol shared with the
+	// other writers of this file, so inventing one here would protect nothing.
+	// Comparing what we read against what is there now closes the window we
+	// actually opened, and refuses rather than overwriting when it has moved.
+	// Test seam: lets a guard land a concurrent write in exactly the window
+	// between the read above and the rename below.
+	if installPreEditHookRaceHook != nil {
+		installPreEditHookRaceHook()
+	}
+	switch current, rerr := readBoundedRootFile(root, name, maxClaudeSettingsBytes); {
+	case rerr == nil && !bytes.Equal(current, existing):
+		_ = root.Remove(tmp)
+		return path, false, fmt.Errorf("%s changed while the pre-edit hook was being merged; nothing was written — re-run to merge against the current file", path)
+	case rerr != nil && !errors.Is(rerr, os.ErrNotExist):
+		_ = root.Remove(tmp)
+		return path, false, fmt.Errorf("%s: %w", path, rerr)
+	case rerr != nil && len(existing) > 0:
+		// It existed when read and does not now: someone removed it. Writing
+		// our merge back would resurrect settings they just deleted.
+		_ = root.Remove(tmp)
+		return path, false, fmt.Errorf("%s was removed while the pre-edit hook was being merged; nothing was written", path)
 	}
 	if err := root.Rename(tmp, name); err != nil {
 		_ = root.Remove(tmp)

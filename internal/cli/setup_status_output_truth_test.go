@@ -26,16 +26,30 @@ import (
 // Pointing either writer back at a real stream still compiles, and fails here.
 func TestSetupInstantSubcommandAlwaysDiscardsItsOutput(t *testing.T) {
 	t.Parallel()
-	sub := newSetupInstantCommand(context.Background())
-	// Writer IDENTITY, not a captured buffer: a buffer this test owns is not
-	// wired to anything the sub-command could reach, so it would pass whatever
-	// the writers were. io.Discard is the contract, and pointing either writer
-	// at a real stream still compiles.
+	sub, captured := newSetupInstantCommand(context.Background())
+	// Writer IDENTITY for stdout: a buffer this test owns is not wired to
+	// anything the sub-command could reach, so it would pass whatever the
+	// writer was. io.Discard is the contract, and pointing it at a real stream
+	// still compiles.
 	if got := sub.OutOrStdout(); got != io.Discard {
 		t.Fatalf("the nested refresh must write stdout to io.Discard, got %T", got)
 	}
-	if got := sub.ErrOrStderr(); got != io.Discard {
-		t.Fatalf("the nested refresh must write stderr to io.Discard, got %T", got)
+	// stderr is CAPTURED, not discarded: the same stream carries real warnings
+	// (a coordinator that could not launch, a skipped entity index), and
+	// discarding it lost them silently. It must reach the buffer the caller
+	// reads, and must NOT reach a real stream.
+	if captured == nil {
+		t.Fatal("the nested refresh's stderr must be captured so its warnings can be re-emitted")
+	}
+	if got := sub.ErrOrStderr(); got != io.Writer(captured) {
+		t.Fatalf("the nested refresh's stderr must be the captured buffer, got %T", got)
+	}
+	sub.ErrOrStderr().Write([]byte("warning: memory coordinator: worker launch failed\n"))
+	if got := setupWarningsFrom(captured); len(got) != 1 || got[0] != "memory coordinator: worker launch failed" {
+		t.Fatalf("a warning on the nested stderr must be recoverable, got %q", got)
+	}
+	if got := setupWarningsFrom(captured); len(got) == 0 {
+		t.Fatal("non-vacuity: the extractor matched nothing")
 	}
 	if sub.Context() == nil {
 		t.Fatal("the sub-command must carry the setup context")

@@ -156,3 +156,39 @@ func TestTheImportRefusalNamesOnlyReachableChoices(t *testing.T) {
 		}
 	}
 }
+
+// The audit entry must be written BEFORE the layers are replaced.
+//
+// Written afterwards, a failed audit write leaves the receiver's facts already
+// destroyed with no record that an import did it — and the empty `recall` that
+// follows goes back to blaming distillation coverage, which is the exact defect
+// the entry exists to prevent. Raised as a HIGH finding on this PR, and correct.
+//
+// This asserts ORDER, which no fixture can observe after the fact, so it reads
+// the source: the audit call must appear before the walk that writes layers.
+func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
+	t.Parallel()
+	raw, err := os.ReadFile("semantic.go")
+	if err != nil {
+		t.Fatalf("read semantic.go: %v", err)
+	}
+	src := string(raw)
+
+	fn := src[strings.Index(src, "func runSemanticBundleImport("):]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+	if fn == "" {
+		t.Fatal("could not isolate runSemanticBundleImport, so this guard proves nothing")
+	}
+
+	audit := strings.Index(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`)
+	walk := strings.Index(fn, "filepath.WalkDir(tmpDir")
+	if audit < 0 || walk < 0 {
+		t.Fatalf("expected both the audit write and the layer walk in this function (audit=%d walk=%d)", audit, walk)
+	}
+	if audit > walk {
+		t.Fatal("the import is recorded AFTER layers are replaced: a failed audit write destroys the facts and leaves no trace of why")
+	}
+	if strings.Count(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`) != 1 {
+		t.Fatal("the import must be recorded exactly once")
+	}
+}

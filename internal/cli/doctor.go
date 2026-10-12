@@ -532,6 +532,14 @@ type doctorActionableLine struct {
 
 func (l doctorActionableLine) detail() string {
 	detail := truncateDoctorDetail(l.finding.Detail)
+	// Whether the detail names its own command is decided on the text that is
+	// actually PRINTED. Deciding it on the untruncated detail meant a line
+	// whose command had been cut in half still suppressed the remedy, and the
+	// reader got "...; run `entire brain ref…" and nothing else.
+	// Truncation never cuts inside a span, so a backtick here means a whole one.
+	if strings.Contains(detail, "`") {
+		return detail
+	}
 	if l.remedy == "" {
 		return detail
 	}
@@ -546,7 +554,27 @@ func truncateDoctorDetail(detail string) string {
 	if len(runes) <= doctorActionableDetailBudget {
 		return detail
 	}
-	return strings.TrimRight(string(runes[:doctorActionableDetailBudget]), " ,;") + "\u2026"
+	cut := doctorActionableDetailBudget
+	// Never cut inside a `command` span. Half a command is worse than none: it
+	// cannot be run, and it still looks like the line answered the question.
+	// Backticks are balanced, so an odd count before the cut means it lands
+	// inside one; back up to that span's opening backtick and drop it whole.
+	if strings.Count(string(runes[:cut]), "`")%2 == 1 {
+		for cut > 0 && runes[cut-1] != '`' {
+			cut--
+		}
+		cut--
+	}
+	if cut < 0 {
+		cut = 0
+	}
+	kept := strings.TrimRight(string(runes[:cut]), " ,;`")
+	// Dropping the command can leave the word that introduced it, so the line
+	// read "...; run\u2026; run `entire brain refresh`". Trim the dangling lead-in.
+	for _, lead := range []string{"; run", " run", "; try", " try"} {
+		kept = strings.TrimSuffix(kept, lead)
+	}
+	return strings.TrimRight(kept, " ,;") + "\u2026"
 }
 
 // doctorDirectoryRemedy: every non-ok plugin-directory finding is a permission
@@ -648,10 +676,8 @@ var doctorRemedies = map[string]string{
 }
 
 func doctorRemedy(check doctorCheckResult) string {
-	// A detail that already quotes its own command does not get a second one.
-	if strings.Contains(check.Detail, "`") {
-		return ""
-	}
+	// The "detail already names a command" case is NOT decided here: it depends
+	// on the truncated text, which only doctorActionableLine.detail sees.
 	// `setup <component>` findings are one per failed setup component.
 	if strings.HasPrefix(check.Name, "setup ") {
 		return "entire brain setup"

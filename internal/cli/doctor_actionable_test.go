@@ -382,3 +382,49 @@ func TestTheRealInspectionProducesARunnableRemedy(t *testing.T) {
 		}
 	}
 }
+
+// Every non-ok line is supposed to end with a command the reader can run.
+// doctorRemedy declined to add one whenever the detail already contained a
+// backtick, and truncateDoctorDetail cut that same detail at 160 runes knowing
+// nothing about where the command sat. The history_freshness warning carries an
+// unbounded incompleteness clause before its command, so the printed line ended
+//
+//	...; run `entire brain ref…
+//
+// a command that cannot be run, with no remedy after it because the untruncated
+// detail had a backtick. Raised as a finding on this PR, and correct.
+func TestATruncatedDetailNeverPrintsHalfACommand(t *testing.T) {
+	t.Parallel()
+
+	detail := "short-term memory covers the gap only partially (3 of 11 transcripts consolidated; " +
+		"8 pending and 2 unreadable after the last delta build); run `entire brain refresh` to consolidate"
+	if len([]rune(detail)) <= doctorActionableDetailBudget {
+		t.Fatalf("fixture must exceed the budget: %d <= %d", len([]rune(detail)), doctorActionableDetailBudget)
+	}
+
+	check := doctorCheckResult{Name: "history_freshness", State: "warn", Detail: detail}
+	printed := doctorActionableLine{finding: check, remedy: doctorRemedy(check)}.detail()
+
+	// Backticks are balanced: an odd count is a span that was cut open.
+	if strings.Count(printed, "`")%2 == 1 {
+		t.Errorf("the line ends inside an unterminated command span: %s", printed)
+	}
+	if !strings.HasSuffix(printed, "`") {
+		t.Errorf("the line does not end with a command: %s", printed)
+	}
+	if strings.Contains(printed, "run`") || strings.Contains(printed, "run…") {
+		t.Errorf("a dangling lead-in was left where the command was cut: %s", printed)
+	}
+
+	// A detail that keeps whole commands after truncation gets no second one.
+	twoCommands := "exported sessions changed since the last index build; run `entire brain refresh delta` for " +
+		"immediate freshness or `entire brain refresh` to consolidate (a missed session-end hook is repaired the same way)"
+	c2 := doctorCheckResult{Name: "history_freshness", State: "warn", Detail: twoCommands}
+	p2 := doctorActionableLine{finding: c2, remedy: doctorRemedy(c2)}.detail()
+	if strings.Count(p2, "`")%2 == 1 {
+		t.Errorf("a multi-command detail was cut open: %s", p2)
+	}
+	if strings.Count(p2, "entire brain refresh") < 2 {
+		t.Errorf("truncation dropped a command the budget could hold: %s", p2)
+	}
+}

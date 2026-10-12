@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,6 +255,28 @@ func errRepositoryGone(err error) bool {
 	if err == nil {
 		return false
 	}
+	// The common orphan case never reaches git at all. When the repository
+	// DIRECTORY is gone the subprocess fails at chdir, and runExecCommand only
+	// folds stderr into the message when stderr is non-empty -- which it is not
+	// here -- so the error reads
+	//
+	//	entire [checkpoint explain --json --search-all]: chdir /path: no such file or directory
+	//
+	// and neither string below appears in it. That left the exact scenario this
+	// function exists for -- a brain whose repository is gone, relaunching on a
+	// 1m..30m chain, ~2,650 recorded failures apiece -- classified as transient.
+	//
+	// Matched by type rather than by text: a chdir that cannot find its target
+	// is precisely "the working directory is not there", and will not drift
+	// with a git or Go message change. Narrow on purpose -- any other missing
+	// file is NOT a durable failure, and calling it one sends the reader to
+	// `entire brain reset`, which deletes the brain.
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) && pathErr.Op == "chdir" && errors.Is(pathErr, fs.ErrNotExist) {
+		return true
+	}
+	// A directory that exists but holds no repository DOES reach git, which
+	// writes to stderr, which runExecCommand folds into the error.
 	msg := err.Error()
 	return strings.Contains(msg, "not a git repository") ||
 		strings.Contains(msg, "repository does not exist")

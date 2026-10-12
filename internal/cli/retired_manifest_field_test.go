@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -251,5 +254,53 @@ func TestABarePrepassErrorStillGetsTheRemedy(t *testing.T) {
 	msg := durablePrepassMessage(bare)
 	if n := strings.Count(msg, "refresh --force"); n != 1 {
 		t.Fatalf("the bare error must gain the remedy exactly once, got %d: %s", n, msg)
+	}
+}
+
+// TestAMissingRepositoryIsDurable above builds its error by hand, and the hand
+// built one says "not a git repository". The REAL orphan does not: when the
+// repository directory is gone the subprocess never reaches git, it fails at
+// chdir with empty stderr, and runExecCommand only folds stderr into the
+// message when there is some. So the string match that test exercised could
+// not fire on the scenario it was written for, and ~2,650 recorded failures
+// per orphaned brain kept being classified as transient.
+//
+// Raised as a HIGH finding on this PR, and correct. This drives the real
+// runner against a directory that is not there.
+func TestADeletedRepositoryDirectoryIsDurable(t *testing.T) {
+	t.Parallel()
+
+	gone := filepath.Join(t.TempDir(), "repository-was-deleted")
+	_, _, runErr := ExecRunner{}.Run(context.Background(), gone, "git", "status")
+	if runErr == nil {
+		t.Fatal("running in a directory that does not exist must fail")
+	}
+
+	// Non-vacuity: if the raw error happened to carry the old substrings, this
+	// would pass without the typed check doing anything.
+	if strings.Contains(runErr.Error(), "not a git repository") ||
+		strings.Contains(runErr.Error(), "repository does not exist") {
+		t.Fatalf("the real error already carries the old text, so this guard proves nothing: %v", runErr)
+	}
+
+	// Wrapped the way the production chain wraps it.
+	err := fmt.Errorf("delta session export: %w",
+		fmt.Errorf("complete routed checkpoint discovery failed: list checkpoints: %w", runErr))
+
+	if !errRepositoryGone(err) {
+		t.Fatalf("a brain whose repository directory is gone must stop relaunching: %v", err)
+	}
+	if !errDurablePrepassFailure(err) {
+		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
+	}
+	if msg := durablePrepassMessage(err); !strings.Contains(msg, "entire brain reset") {
+		t.Fatalf("the message names no way to clear the orphan: %s", msg)
+	}
+
+	// Narrow on purpose: any other missing file is NOT durable. Calling it
+	// durable sends the reader to a command that deletes the brain.
+	other := fmt.Errorf("read manifest: %w", &fs.PathError{Op: "open", Path: "/x/manifest.json", Err: fs.ErrNotExist})
+	if errRepositoryGone(other) {
+		t.Errorf("a missing file that is not the working directory was called a gone repository: %v", other)
 	}
 }

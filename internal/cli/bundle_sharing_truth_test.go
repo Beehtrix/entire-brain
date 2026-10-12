@@ -169,10 +169,14 @@ func TestTheImportRefusalNamesOnlyReachableChoices(t *testing.T) {
 func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
 	t.Parallel()
 	// Reads the source, because ORDER is not observable from the outside once
-	// the function has run. The Windows CI shards execute prebuilt test binaries
-	// from a bundle rather than from the package directory, so the source is not
-	// beside them — skip there rather than fail. Linux and macOS run from source
-	// and do enforce this.
+	// the function has run.
+	//
+	// This used to claim the windows shards run prebuilt binaries away from the
+	// package directory and would therefore skip. They do not: the shard that
+	// failed got past this read and panicked further down, so the source was
+	// beside it and this guard runs on every platform. The skip is kept for an
+	// environment that genuinely has no source, but it is not the windows case
+	// and saying so invited the next reader to dismiss a real windows failure.
 	raw, err := os.ReadFile("semantic.go")
 	if err != nil {
 		t.Skipf("package source not available in this environment, so the order cannot be inspected: %v", err)

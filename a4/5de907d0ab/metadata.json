@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "a45de907d0ab",
+  "strategy": "manual-commit",
+  "branch": "denpasar",
+  "checkpoints_count": 11,
+  "files_touched": [
+    "factmerge/dedup.go",
+    "factmerge/record.go",
+    "internal/cli/hook_cmd.go",
+    "internal/cli/root.go",
+    "internal/cli/watch.go",
+    "internal/cli/watch_hosted_test.go",
+    "internal/factsync/egress.go",
+    "internal/factsync/httpserver.go",
+    "internal/factsync/httpserver_authors_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a4/5de907d0ab/0/metadata.json",
+      "transcript": "/a4/5de907d0ab/0/full.jsonl",
+      "compact_transcript": "/a4/5de907d0ab/0/transcript.jsonl",
+      "content_hash": "/a4/5de907d0ab/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 682,
+    "cache_creation_tokens": 7613520,
+    "cache_read_tokens": 110458574,
+    "output_tokens": 246414,
+    "api_call_count": 341
+  }
+}

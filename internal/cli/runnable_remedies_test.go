@@ -18,7 +18,11 @@ import (
 // hardcodedBrainVerb is a literal "entire brain" followed by a verb this binary
 // really has. Prose about the product ("entire brain viz — url") is not matched
 // because it carries no verb from this list.
-var hardcodedBrainVerb = regexp.MustCompile(`entire brain (refresh|distill|status|setup|connect|repair|dash|search|publish|patterns|workspace|privacy|entities|inspect)\b`)
+// Any verb, not an enumeration. The list used to name fifteen and the guard
+// was then blind to every verb nobody remembered to add -- `reset` among them,
+// which is how a hardcoded `entire brain reset` reached a printed remedy with
+// this test passing. A new subcommand must not silently fall outside the rule.
+var hardcodedBrainVerb = regexp.MustCompile(`entire brain [a-z][a-z-]*\b`)
 
 // deliberatelyHardcoded names the lines that keep the literal spelling, and why.
 // Each reason is a category, not a per-line excuse.
@@ -28,6 +32,9 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"mcp.go", "entire brain", "MCP tool descriptions are pinned by TestMCPToolSurfaceGolden; env-dependent descriptions would make the golden vary by shell"},
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
 	{"capabilities.go", `"entire brain status --details --json"`, "machine-readable capabilities contract pinned by capabilities_report_regression_test.go"},
+	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
+	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
+	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {

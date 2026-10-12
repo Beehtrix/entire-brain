@@ -269,7 +269,16 @@ func errDurablePrepassFailure(err error) bool {
 }
 
 // durablePrepassMessage states the failure and what to do about it.
+// durablePrepassMessage renders a durable failure for the worker log and for
+// `entire memory worker --json`. Both are durable and both get pasted into
+// issues, so every branch below is redacted at the return rather than at the
+// call sites -- a second caller added later would otherwise reintroduce the
+// leak this closed.
 func durablePrepassMessage(err error) string {
+	return redactText(durablePrepassText(err))
+}
+
+func durablePrepassText(err error) string {
 	if err == nil {
 		return ""
 	}

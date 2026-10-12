@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -139,5 +140,79 @@ func TestALongReasonIsTruncatedOnACharacterBoundary(t *testing.T) {
 	// the first two versions of this guard passed with the bug restored.
 	if strings.Contains(line, `\x`) {
 		t.Fatalf("truncation split a character, leaving escaped bytes in the log: %q", line)
+	}
+}
+
+// A reason is error text, and error text carries whatever the failing call had
+// in hand: a home directory with a username in it, a bearer token from a failed
+// request, a key read off disk. The worker log is durable and the reader is
+// asked to paste it into an issue, so it gets the same redaction every other
+// persisted free-form path here already applies.
+//
+// Raised as two findings on this PR -- one for the log, one for the `--json`
+// field -- and correct: the log's own doc comment still claimed it held no
+// error text at all.
+func TestTheWorkerLogReasonIsRedacted(t *testing.T) {
+	t.Parallel()
+
+	for name, probe := range map[string]struct{ raw, leaked string }{
+		"bearer token":  {"request failed: Authorization: Bearer abcDEF123456ghiJKL789", "abcDEF123456ghiJKL789"},
+		"github token":  {"push rejected: ghp_0123456789abcdefghijklmnopqrstuvwxyz", "ghp_0123456789abcdefghijklmnopqrstuvwxyz"},
+		"secret in env": {"spawn failed: ANTHROPIC_API_KEY=sk-ant-0123456789abcdef", "sk-ant-0123456789abcdef"},
+	} {
+		got := memoryWorkerLogReason(probe.raw)
+		if strings.Contains(got, probe.leaked) {
+			t.Errorf("%s: the reason persisted a credential verbatim: %s", name, got)
+		}
+		if !strings.Contains(got, "REDACTED") {
+			t.Errorf("%s: nothing was redacted, so the guard proves nothing: %s", name, got)
+		}
+	}
+
+	// Redaction must run BEFORE truncation, and the interesting case is a
+	// credential the cut lands inside. reGitHubTok needs twenty characters
+	// after the prefix, so a fragment shorter than that no longer matches the
+	// pattern that recognises it: redacting afterwards would leave `ghp_aaa`
+	// sitting in the log, under the length any redactor would catch.
+	//
+	// The assertion is therefore that NO part of it survives, not that some
+	// minimum-length prefix does not -- a floor is exactly how this guard
+	// passed against the defect it was written for.
+	token := "ghp_" + strings.Repeat("a", 36)
+
+	// Non-vacuity, at a length where the marker itself survives: the token is
+	// recognised and replaced rather than merely trimmed off the end. Asserting
+	// this inside the loop below instead would fail on the long pads, where the
+	// cut lands inside "[REDACTED TOKEN]".
+	if short := memoryWorkerLogReason("push rejected: " + token); !strings.Contains(short, "REDACTED") {
+		t.Fatalf("the token was not recognised at all, so the loop below proves nothing: %s", short)
+	}
+
+	for _, pad := range []int{memoryWorkerLogReasonMax - 8, memoryWorkerLogReasonMax - 16, memoryWorkerLogReasonMax - 30} {
+		if got := memoryWorkerLogReason(strings.Repeat("x", pad) + " " + token); strings.Contains(got, "ghp_") {
+			t.Errorf("pad %d: a token fragment survived truncation: %s", pad, got)
+		}
+	}
+}
+
+// The same text reaches `entire memory worker --json` as prepass_error, and a
+// durable failure reaches it through durablePrepassMessage. Both are pasted
+// into issues, so neither may carry a credential the log path strips.
+//
+// Two assignments feed that field; the finding named one. Redacting at the
+// message constructor covers both, and a third caller added later.
+func TestTheDurablePrepassMessageIsRedacted(t *testing.T) {
+	t.Parallel()
+
+	token := "ghp_" + strings.Repeat("b", 36)
+	got := durablePrepassMessage(errors.New("refresh failed for " + token))
+	if strings.Contains(got, token) {
+		t.Errorf("the durable message carries a credential verbatim: %s", got)
+	}
+	if !strings.Contains(got, "REDACTED") {
+		t.Errorf("nothing was redacted, so this guard proves nothing: %s", got)
+	}
+	if durablePrepassMessage(nil) != "" {
+		t.Error("a nil error must still render as empty")
 	}
 }

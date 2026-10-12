@@ -291,15 +291,18 @@ func TestTheDirectoryRemedyMatchesTheFailure(t *testing.T) {
 
 	// Does not exist: the detail names the nearest existing PARENT as the thing
 	// denying writes, so chmodding the missing path is advice about nothing.
-	// filepath.Dir is separator-dependent, so the expected parent is derived the
-	// same way the remedy derives it. Spelling it as a literal "/var/..." made
-	// this assertion unsatisfiable on Windows, where Dir yields backslashes.
-	missingPath := filepath.Join("/var", "root", "entire", "plugins", "data")
+	// Rooted in a real temp directory so the ancestor is deterministic: the
+	// remedy climbs to the nearest EXISTING one, which for a literal
+	// "/var/root/..." depends on the host. Separator handling comes free from
+	// filepath.Join -- spelling it as "/var/..." made this unsatisfiable on
+	// Windows, where Dir yields backslashes.
+	existingRoot := t.TempDir()
+	missingPath := filepath.Join(existingRoot, "entire", "plugins", "data")
 	missing := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
 		Path: missingPath, State: "creatable_unproven", Exists: false,
 	})
-	if !strings.Contains(missing, shellQuote(filepath.Dir(missingPath))) {
-		t.Errorf("a path that cannot be created must point at its parent: %q", missing)
+	if !strings.Contains(missing, shellQuote(existingRoot)) {
+		t.Errorf("a path that cannot be created must point at an ancestor that exists: %q", missing)
 	}
 	if strings.Contains(missing, shellQuote(missingPath)) {
 		t.Errorf("chmod was suggested on a path that does not exist: %q", missing)
@@ -359,7 +362,9 @@ func TestTheRealInspectionProducesARunnableRemedy(t *testing.T) {
 
 	for name, probe := range map[string]struct{ path, wantCmd, wantTarget string }{
 		"exists but denies writes": {denied, "chmod u+w ", denied},
-		"cannot be created":        {filepath.Join(denied, "child", "data"), "chmod u+w ", filepath.Join(denied, "child")},
+		// "child" does not exist either, so the remedy must name `denied`, the
+		// nearest ancestor that does.
+		"cannot be created": {filepath.Join(denied, "child", "data"), "chmod u+w ", denied},
 	} {
 		health := inspectAbsoluteInstallDirectory(probe.path)
 		if health.RecommendedAction == "" {
@@ -426,5 +431,75 @@ func TestATruncatedDetailNeverPrintsHalfACommand(t *testing.T) {
 	}
 	if strings.Count(p2, "entire brain refresh") < 2 {
 		t.Errorf("truncation dropped a command the budget could hold: %s", p2)
+	}
+}
+
+// Every remedy is printed inside "run `...`". A remedy carrying an unquoted
+// `<` or `>` is not a command: the shell reads it as a redirection and the line
+// fails with a redirection error instead of doing anything. `repo` carried
+// `cd <your repository>` and did exactly that.
+//
+// This is the third separate "the remedy is not actually runnable" finding on
+// this branch, so it guards the CLASS rather than the instance: a placeholder
+// added later has to survive being pasted.
+func TestEveryRemedySurvivesBeingPasted(t *testing.T) {
+	t.Parallel()
+
+	unquoted := func(s string) string {
+		var out strings.Builder
+		inQuote := false
+		for _, r := range s {
+			if r == '\'' {
+				inQuote = !inQuote
+				continue
+			}
+			if !inQuote {
+				out.WriteRune(r)
+			}
+		}
+		return out.String()
+	}
+
+	checked := 0
+	for name, remedy := range doctorRemedies {
+		checked++
+		if bare := unquoted(remedy); strings.ContainsAny(bare, "<>") {
+			t.Errorf("remedy for %q redirects when pasted: %s", name, remedy)
+		}
+	}
+	if checked < 15 {
+		t.Fatalf("only %d remedies walked; the table is not being read", checked)
+	}
+
+	// Non-vacuity: the detector must actually catch the shape it describes.
+	if bare := unquoted("cd <your repository> && entire brain doctor"); !strings.ContainsAny(bare, "<>") {
+		t.Fatal("the unquoted-metacharacter check cannot see a bare redirect, so this guard proves nothing")
+	}
+	if bare := unquoted("cd '<your repository>' && entire brain doctor"); strings.ContainsAny(bare, "<>") {
+		t.Fatal("a quoted placeholder was reported as a redirect")
+	}
+}
+
+// filepath.Dir climbs exactly one level. The default data directory sits
+// several missing components deep, so the suggested chmod named a directory
+// that did not exist either and failed with "No such file or directory" --
+// contradicting the comment's own claim of "the nearest existing parent".
+// Raised as a finding on this PR, and correct.
+func TestTheRemedyNamesAnAncestorThatExists(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	missing := filepath.Join(root, "entire", "plugins", "data", "brain")
+
+	remedy := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
+		Path: missing, State: "creatable_unproven", Exists: false,
+	})
+	if !strings.Contains(remedy, shellQuote(root)) {
+		t.Errorf("the remedy does not name the nearest existing ancestor %s: %s", root, remedy)
+	}
+	for _, absent := range []string{"entire", "plugins", "data", "brain"} {
+		if strings.Contains(remedy, shellQuote(filepath.Join(root, absent))) {
+			t.Errorf("the remedy names %q, which does not exist: %s", absent, remedy)
+		}
 	}
 }

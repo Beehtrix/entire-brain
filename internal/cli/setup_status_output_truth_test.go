@@ -438,3 +438,38 @@ func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
 		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)
 	}
 }
+
+// A Go error is routinely multi-line: errors.Join concatenates its causes with
+// a newline, and the memory path joins a deterministic failure with a run
+// failure before it reaches a `warning: %v` line. Keeping only the lines that
+// carry the prefix dropped every cause after the first — the same information
+// loss this re-emission exists to repair, one layer down. Raised as a finding
+// on this PR, and correct.
+func TestAMultiLineWarningKeepsItsCauses(t *testing.T) {
+	t.Parallel()
+
+	got := setupWarningsFrom(bytes.NewBufferString(
+		"warning: memory coordinator could not launch: exec failed\npermission denied\nno such file\n"))
+	if len(got) != 1 {
+		t.Fatalf("expected one warning carrying its causes, got %d: %q", len(got), got)
+	}
+	for _, cause := range []string{"exec failed", "permission denied", "no such file"} {
+		if !strings.Contains(got[0], cause) {
+			t.Errorf("the re-emitted warning lost a cause %q: %s", cause, got[0])
+		}
+	}
+
+	// A continuation ends at a blank line, so unrelated stderr written after a
+	// warning is not swept into it.
+	sep := setupWarningsFrom(bytes.NewBufferString(
+		"warning: first: a\nb\n\nunrelated progress noise\nwarning: second\n"))
+	if len(sep) != 2 {
+		t.Fatalf("expected two warnings, got %d: %q", len(sep), sep)
+	}
+	if strings.Contains(sep[0], "unrelated progress noise") {
+		t.Errorf("stderr after a blank line was swept into the warning: %s", sep[0])
+	}
+	if sep[1] != "second" {
+		t.Errorf("the second warning was altered: %q", sep[1])
+	}
+}

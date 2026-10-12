@@ -5,6 +5,64 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+24 pull requests and 253 commits since 0.1.0.
+
+The hosted-brain commands (`connect`, `publish`, `facts sync`) have a live
+server: brainstore is deployed across five production regions and three
+nonprod. Confirm the client in this release points at the right cells.
+
+### Added
+
+- **Documents beyond Markdown.** PDF, Word, Excel and PowerPoint are read into
+  the brain.
+- **A REST API, with Python and TypeScript clients.**
+- **MCP over HTTP**, opt-in and authenticated, alongside the existing stdio
+  transport.
+- **`brain_remember` over MCP**: an agent can record a durable fact without
+  shelling out to the CLI.
+- **Webhooks**: notify another service when the brain changes.
+- **Facts as plain Markdown files**, written out for reading and diffing.
+- **Cross-repository facts**: remember something that is not about one repo.
+- **Memory import from another tool.**
+- **Time-weighted retrieval ranking.**
+- **`brain stop` / `brain start`** to pause background work machine-wide.
+- **Hosted sync client** — `brain connect`, per-sync token mint, pull-into-local,
+  daemon and hook wiring (COR-2030/COR-2031). See "Known gaps".
+- **Benchmarks**: `memory-ladder`, a five-condition probe of agent memory
+  surfaces, and index size / query latency measured against codebase size.
+
+### Changed
+
+- `brief --json` puts facts and history before status, and the guides name
+  `recall`.
+- Developer commands are hidden from the default help.
+- `factmerge` is exported for the brainstore service (COR-2023).
+- Semantic generations are verified once per file version rather than once per
+  query.
+
+### Fixed
+
+- `remember` returns the persisted merged fact in JSON.
+- An empty fact query names the branches that do hold facts.
+- The ollama chunk-size limits are real, and the advice that breaks them is
+  corrected.
+
+### Documentation
+
+- A contributor concepts guide.
+- What the install script does, rather than what it is not.
+- What we measure, what we found, and what we do not claim.
+
+### Known gaps
+
+- **Hosted brain client ships against a deployed server.** brainstore runs in
+  five prod regions. Verify end-to-end (`connect`, then `facts sync`) before
+  tagging — this client half has not been exercised against a live cell here.
+- **Sharing a brain is lossy.** `bundle import --overwrite` replaces the
+  receiver's fact layer rather than merging it. The import now says so at the
+  moment it happens, but one-way copy is the only sharing that works today.
+
+
 ## [0.1.0] - 2026-09-19
 
 First numbered release of the public line. Work that shipped as 0.2.0 and 0.3.0

@@ -177,13 +177,21 @@ func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
 	if err != nil {
 		t.Skipf("package source not available in this environment, so the order cannot be inspected: %v", err)
 	}
-	src := string(raw)
+	// A Windows checkout gets CRLF here: .gitattributes pins LF for templates
+	// and golden fixtures but not for .go source. Searching for "\n}\n" then
+	// found nothing, and slicing on the -1 panicked the whole package process.
+	src := strings.ReplaceAll(string(raw), "\r\n", "\n")
 
-	fn := src[strings.Index(src, "func runSemanticBundleImport("):]
-	fn = fn[:strings.Index(fn, "\n}\n")]
-	if fn == "" {
-		t.Fatal("could not isolate runSemanticBundleImport, so this guard proves nothing")
+	start := strings.Index(src, "func runSemanticBundleImport(")
+	if start < 0 {
+		t.Fatal("could not find runSemanticBundleImport, so this guard proves nothing")
 	}
+	fn := src[start:]
+	end := strings.Index(fn, "\n}\n")
+	if end < 0 {
+		t.Fatal("could not find the end of runSemanticBundleImport, so this guard proves nothing")
+	}
+	fn = fn[:end]
 
 	audit := strings.Index(fn, `appendSemanticAuditLayers(storage.BrainDir, "bundle_import"`)
 	walk := strings.Index(fn, "filepath.WalkDir(tmpDir")

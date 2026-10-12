@@ -111,3 +111,33 @@ func readWorkerLogLine(t *testing.T, brainDir string) string {
 	_ = filepath.Join
 	return lines[0]
 }
+
+// A byte-level cut can split a multi-byte character, and strconv.Quote then
+// renders the trailing fragment as a replacement character rather than text.
+// Error strings carry paths and messages that are routinely not ASCII.
+// Raised as a finding, and correct.
+func TestALongReasonIsTruncatedOnACharacterBoundary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A single ASCII byte first, so the limit does NOT land on a rune boundary.
+	// Without it 240 is divisible by 3 and a byte-level cut aligns by accident —
+	// the first version of this test passed with the bug restored.
+	reason := "x" + strings.Repeat("日", memoryWorkerLogReasonMax)
+	if memoryWorkerLogReasonMax%3 == 0 && (memoryWorkerLogReasonMax-1)%3 == 0 {
+		t.Fatal("fixture cannot land mid-character at this limit, so it would prove nothing")
+	}
+	if err := appendMemoryWorkerLogReason(dir, time.Now().UTC(), "prepass_failed", "owner1", reason); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	line := readWorkerLogLine(t, dir)
+	if !strings.Contains(line, "日") {
+		t.Fatalf("the reason was dropped rather than truncated: %q", line)
+	}
+	// NOT a replacement character: strconv.Quote escapes an invalid byte as
+	// \xNN, so the quoted line stays valid UTF-8 and U+FFFD never appears. The
+	// real symptom of a split rune is those escapes. Checking for U+FFFD is why
+	// the first two versions of this guard passed with the bug restored.
+	if strings.Contains(line, `\x`) {
+		t.Fatalf("truncation split a character, leaving escaped bytes in the log: %q", line)
+	}
+}

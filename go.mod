@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/go-git/go-billy/v6 v6.0.0-alpha.1.0.20260519112248-0095b064a6c6
+	github.com/go-git/go-billy/v6 v6.0.0-beta.1
 	github.com/go-git/go-git/v6 v6.0.0-alpha.4.0.20260529215654-6923824fe448
 	github.com/mattn/go-isatty v0.0.20
 	github.com/mattn/go-runewidth v0.0.19
@@ -19,7 +19,7 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/sys v0.45.0
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.51.0
 )
 

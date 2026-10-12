@@ -1,0 +1,1 @@
+Check the Dependabot setup for entire-graph and compare to entire-brain. Adapt entire-brain to match entire-graph's setup unless it's already ahead. If entire-brain needs additional config, let me know which one.

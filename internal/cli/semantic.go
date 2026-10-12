@@ -6051,8 +6051,16 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// --sha256 is REQUIRED on import, and the digest is only printed here, so a
 	// reader who keeps the archive and not this output cannot import it without
 	// recomputing the hash. Print the whole command rather than the ingredient.
+	// The path is quoted because this line is meant to be copy-pasted: an
+	// --output with a space in it produced a command that ran against the
+	// wrong path. The label above is prose, not a command, so it is not quoted.
+	//
+	// shellQuotedRepoDir is the package's existing single-quoter; its name says
+	// repo dir but it quotes any path, and adding a third one for this would be
+	// worse than reusing it. output is a required flag, so its empty-input
+	// fallback is not reachable here.
 	fmt.Fprintf(out, "import it with: %s bundle import %s --sha256 %s\n",
-		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), output, checksum)
+		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), shellQuotedRepoDir(output), checksum)
 	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
 	if len(sessionFamily) > 0 {
 		sort.Strings(sessionFamily)

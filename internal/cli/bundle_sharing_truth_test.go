@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -236,5 +237,48 @@ func TestOnlyAnImportThatTouchedFactsExplainsAMissingFact(t *testing.T) {
 	writeAuditLine(t, legacy, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z"}`)
 	if _, ok := lastBundleImportAt(legacy); ok {
 		t.Error("an entry that names no layers must not be read as proof the facts were replaced")
+	}
+}
+
+// The import line is printed to be copy-pasted, and --sha256 is required on
+// import, so it is the only record of the digest a reader keeps. An --output
+// path with a space in it produced a command that ran against a different path
+// than the one just written. Raised as a finding on this PR, and correct.
+//
+// This drives the real export and reads what it actually printed. A first
+// version built the line by hand and passed with the fix reverted, which is
+// the whole failure mode this file keeps running into.
+func TestThePrintedImportCommandSurvivesASpaceInThePath(t *testing.T) {
+	_, opts, cmd, _, _ := bundleTestIndexedBrain(t)
+
+	dir := filepath.Join(t.TempDir(), "with space")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(dir, "my bundle.tar")
+
+	var printed bytes.Buffer
+	cmd.SetOut(&printed)
+	if err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false); err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	var line string
+	for _, l := range strings.Split(printed.String(), "\n") {
+		if strings.HasPrefix(l, "import it with:") {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("no import command was printed, so this guard proves nothing:\n%s", printed.String())
+	}
+
+	// The copy-pasted command must carry the path as ONE argument.
+	if strings.Contains(line, "bundle import "+output+" ") {
+		t.Errorf("the printed command splits on the space in the path: %s", line)
+	}
+	if !strings.Contains(line, shellQuotedRepoDir(output)) {
+		t.Errorf("the printed command does not carry the quoted path: %s", line)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -233,7 +234,46 @@ func loadMemoryCoordinatorState(brainDir string) (memoryCoordinatorState, error)
 
 // appendMemoryWorkerLog stores only operational event names and an opaque
 // owner prefix. It contains no paths, prompts, session IDs, or error text.
+// memoryWorkerLogReasonMax bounds the reason recorded beside an event. The log
+// is a bounded ring (memoryWorkerLogMaxBytes), so an unbounded error -- a Go
+// error can carry a whole command's stderr -- would evict the history it is
+// meant to explain.
+const memoryWorkerLogReasonMax = 240
+
+// memoryWorkerLogReason renders a reason as one trailing key=value field.
+//
+// The reader splits a line with strings.Fields and takes the field prefixed
+// "event=", so extra fields are ignored -- but a reason containing "event="
+// would be read as the event itself, and a newline would forge a whole log
+// entry. Both are neutralised here rather than trusted.
+func memoryWorkerLogReason(reason string) string {
+	reason = strings.Join(strings.Fields(reason), " ")
+	reason = strings.ReplaceAll(reason, "event=", "event:")
+	if reason == "" {
+		return ""
+	}
+	if len(reason) > memoryWorkerLogReasonMax {
+		reason = reason[:memoryWorkerLogReasonMax] + "..."
+	}
+	return " reason=" + strconv.Quote(reason)
+}
+
+// appendMemoryWorkerLogReason records an event together with WHY it happened.
+//
+// `prepass_failed` used to say only THAT a pass failed. A brain whose
+// background projection fails keeps relaunching on a 1m..30m backoff, so the
+// silence is not one missing line but a retry storm no reader can diagnose --
+// the comment at the call site records 1285 consecutive failures accumulating
+// behind exactly this kind of quiet.
+func appendMemoryWorkerLogReason(brainDir string, now time.Time, event, owner, reason string) error {
+	return appendMemoryWorkerLogLine(brainDir, now, event, owner, memoryWorkerLogReason(reason))
+}
+
 func appendMemoryWorkerLog(brainDir string, now time.Time, event, owner string) error {
+	return appendMemoryWorkerLogLine(brainDir, now, event, owner, "")
+}
+
+func appendMemoryWorkerLogLine(brainDir string, now time.Time, event, owner, suffix string) error {
 	var previous []byte
 	if data, present, err := readMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes+1); err == nil && present {
 		previous = data
@@ -259,7 +299,7 @@ func appendMemoryWorkerLog(brainDir string, now time.Time, event, owner string) 
 	if len(owner) > 8 {
 		owner = owner[:8]
 	}
-	line := []byte(fmt.Sprintf("%s event=%s owner=%s\n", now.UTC().Format(time.RFC3339), event, owner))
+	line := []byte(fmt.Sprintf("%s event=%s owner=%s%s\n", now.UTC().Format(time.RFC3339), event, owner, suffix))
 	return writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, append(previous, line...), 0o600)
 }
 

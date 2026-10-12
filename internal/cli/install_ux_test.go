@@ -256,7 +256,7 @@ func TestDirtyWorktreeRefusalNamesOffendingPathsAndRemedy(t *testing.T) {
 		}
 	}
 	// A tree with hundreds of dirty files needs the shape, not the list.
-	many := make([]string, 0, dirtyWorktreePathSampleLimit+3)
+	many := make([]string, 0, dirtyWorktreeRefusalPathLimit+3)
 	for i := 0; i < cap(many); i++ {
 		many = append(many, "src/file"+string(rune('a'+i))+".go")
 	}

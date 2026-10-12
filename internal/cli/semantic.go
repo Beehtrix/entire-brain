@@ -2710,10 +2710,6 @@ func worktreeStatusPathList(status []byte) []string {
 	return paths
 }
 
-// dirtyWorktreePathSampleLimit bounds how many paths a refusal names. A user
-// with 400 uncommitted files needs the shape of the problem, not the list.
-const dirtyWorktreePathSampleLimit = 5
-
 // dirtyWorktreeRefusal builds the message both gates raise. It used to name a
 // flag and nothing else — not which files were in the way, and not what to do
 // instead — so a reader could clear one offending file, hit the second gate,

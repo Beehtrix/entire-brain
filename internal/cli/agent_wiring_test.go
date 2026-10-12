@@ -506,3 +506,45 @@ func TestClaudeHookOnATerminalSaysSoInsteadOfHanging(t *testing.T) {
 		}
 	}
 }
+
+// Between reading .claude/settings.json and renaming over it, another writer —
+// Claude Code itself, or another tool editing permissions — can change the
+// file, and the rename would silently drop their edit. Raised as a finding on
+// this change, and correct.
+//
+// Simulated by changing the file during the merge, which is the window the
+// finding describes.
+func TestAConcurrentSettingsEditIsNotOverwritten(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	settingsDir := filepath.Join(repo, claudeSettingsDir)
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(settingsDir, claudeSettingsFile)
+	if err := os.WriteFile(settings, []byte(`{"model":"opus"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another writer lands between our read and our rename.
+	original := []byte(`{"model":"opus","permissions":{"allow":["Bash(ls:*)"]}}`)
+	installPreEditHookRaceHook = func() {
+		_ = os.WriteFile(settings, original, 0o644)
+	}
+	defer func() { installPreEditHookRaceHook = nil }()
+
+	_, changed, err := installPreEditHook(repo)
+	if err == nil {
+		t.Fatal("a settings file that moved under us must be refused, not overwritten")
+	}
+	if changed {
+		t.Fatal("a refused merge must not report a change")
+	}
+	got, readErr := os.ReadFile(settings)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if string(got) != string(original) {
+		t.Fatalf("the concurrent writer's edit was lost:\n got %s\nwant %s", got, original)
+	}
+}

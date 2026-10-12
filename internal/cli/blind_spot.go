@@ -99,20 +99,33 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	// and re-distilling cannot bring back what an import replaced. Ordered
 	// after the integrity and branch checks: a lost store or a wrong branch is
 	// still the more precise answer when either applies.
-	if at, ok := lastBundleImportAt(brainDir); ok {
-		return fmt.Sprintf("note: a bundle import on %s replaced this brain's fact layer with the bundle's, so facts recorded here before then are no longer present; this empty result is not evidence of absence", at.Format("2006-01-02"))
-	}
+	importedAt, imported := lastBundleImportAt(brainDir)
 	last, undigested, ok := distillCoverage(manifest)
+	// Only while the import is still the most recent thing that happened. It
+	// stays TRUE forever -- those facts really are gone -- but it stops being
+	// the most useful answer once work has been distilled since, and returning
+	// it unconditionally masked coverage information permanently. Raised as a
+	// finding, and correct.
+	if imported && (!ok || importedAt.After(last)) {
+		return fmt.Sprintf("note: a bundle import on %s replaced this brain's fact layer with the bundle's, so facts recorded here before then are no longer present; this empty result is not evidence of absence", importedAt.Format("2006-01-02"))
+	}
+	// Past that point the coverage note leads, but the import is still named:
+	// re-distilling cannot bring back what the import replaced, and a reader
+	// sent to distill without being told that would try it and find nothing.
+	suffix := ""
+	if imported {
+		suffix = fmt.Sprintf(" (a bundle import on %s replaced the fact layer; anything recorded before then is gone whatever distillation reports)", importedAt.Format("2006-01-02"))
+	}
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `entire brain distill`", len(manifest.Sources.Sessions.Sessions))
+			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `entire brain distill`", len(manifest.Sources.Sessions.Sessions)) + suffix
 		}
-		return "note: no distillation timestamp is recorded; run `entire brain refresh`, then `distill`"
+		return "note: no distillation timestamp is recorded; run `entire brain refresh`, then `distill`" + suffix
 	}
 	if undigested > 0 {
-		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
+		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested) + suffix
 	}
-	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
+	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02")) + suffix
 }
 
 // otherBranchBlindSpot reports active facts held on branches other than the one

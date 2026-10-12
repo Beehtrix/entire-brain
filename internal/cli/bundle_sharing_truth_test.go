@@ -97,8 +97,12 @@ func TestEmptyRecallNamesTheImportThatReplacedTheFacts(t *testing.T) {
 	if note == "" {
 		t.Fatal("an empty result after an import must still be explained")
 	}
-	if strings.Contains(note, "distillation") {
-		t.Fatalf("re-distilling cannot restore what an import replaced; got: %s", note)
+	// The point is not that the word "distillation" is absent -- once work has
+	// been distilled SINCE the import, coverage is the more useful lead and the
+	// import rides along as a qualifier. The point is that a reader is never
+	// sent to re-distill without being told it cannot bring those facts back.
+	if strings.Contains(note, "distillation") && !strings.Contains(note, "whatever distillation reports") {
+		t.Fatalf("re-distilling cannot restore what an import replaced, and the note does not say so; got: %s", note)
 	}
 	for _, want := range []string{"bundle import", "2026-10-11", "not evidence of absence"} {
 		if !strings.Contains(note, want) {
@@ -280,5 +284,61 @@ func TestThePrintedImportCommandSurvivesASpaceInThePath(t *testing.T) {
 	}
 	if !strings.Contains(line, shellQuotedRepoDir(output)) {
 		t.Errorf("the printed command does not carry the quoted path: %s", line)
+	}
+}
+
+// The import note is true forever -- those facts really are gone -- but it
+// stopped being the most useful answer once work had been distilled since, and
+// returning it unconditionally masked coverage information permanently.
+// Raised as a finding on this PR, and correct.
+//
+// It still has to be NAMED after that point: re-distilling cannot bring back
+// what the import replaced, and a reader sent to distill without being told
+// would try it and find nothing.
+func TestTheImportNoteStopsLeadingOnceWorkWasDistilledSince(t *testing.T) {
+	distilled := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+
+	// distillCoverage reads Sources.Facts.LastDistilledAt, which the fixture
+	// helper does not set; without it coverage is "unknown" and the import note
+	// leads for the right reason, which would make this test prove nothing.
+	withDistillation := func(t *testing.T) string {
+		t.Helper()
+		dir := writeDistillFixture(t, distilled)
+		m, err := loadBrainManifest(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Sources == nil {
+			t.Fatal("fixture has no sources at all")
+		}
+		if m.Sources.Facts == nil {
+			m.Sources.Facts = &factSourceManifest{}
+		}
+		m.Sources.Facts.LastDistilledAt = distilled
+		if err := writeBrainManifestAndReadme(dir, *m); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, ok := distillCoverage(m); !ok {
+			t.Fatal("coverage is still unknown, so this test would pass for the wrong reason")
+		}
+		return dir
+	}
+
+	older := withDistillation(t)
+	writeAuditLine(t, older, `{"action":"bundle_import","generated_at":"`+
+		distilled.Add(-48*time.Hour).Format(time.RFC3339)+`","layers":["facts"]}`)
+	note := emptyResultBlindSpot(older)
+	if strings.HasPrefix(note, "note: a bundle import") {
+		t.Errorf("an import older than the last distillation still led the note: %s", note)
+	}
+	if !strings.Contains(note, "bundle import") {
+		t.Errorf("the import was not mentioned at all, so a reader is sent to distill for facts it replaced: %s", note)
+	}
+
+	newer := withDistillation(t)
+	writeAuditLine(t, newer, `{"action":"bundle_import","generated_at":"`+
+		distilled.Add(1*time.Hour).Format(time.RFC3339)+`","layers":["facts"]}`)
+	if note := emptyResultBlindSpot(newer); !strings.HasPrefix(note, "note: a bundle import") {
+		t.Errorf("an import NEWER than the last distillation must still lead: %s", note)
 	}
 }

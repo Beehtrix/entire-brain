@@ -93,6 +93,15 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
 		return note
 	}
+	// An import with --overwrite replaced the fact layer wholesale, so facts
+	// remembered here before it are gone. Every note below this point talks
+	// about distillation coverage, which would send the reader to re-distill --
+	// and re-distilling cannot bring back what an import replaced. Ordered
+	// after the integrity and branch checks: a lost store or a wrong branch is
+	// still the more precise answer when either applies.
+	if at, ok := lastBundleImportAt(brainDir); ok {
+		return fmt.Sprintf("note: a bundle import on %s replaced this brain's fact layer with the bundle's, so facts recorded here before then are no longer present; this empty result is not evidence of absence", at.Format("2006-01-02"))
+	}
 	last, undigested, ok := distillCoverage(manifest)
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {

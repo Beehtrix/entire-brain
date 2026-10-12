@@ -6048,6 +6048,11 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	sort.Strings(included)
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "exported bundle: %s\nsha256: %s\n", output, checksum)
+	// --sha256 is REQUIRED on import, and the digest is only printed here, so a
+	// reader who keeps the archive and not this output cannot import it without
+	// recomputing the hash. Print the whole command rather than the ingredient.
+	fmt.Fprintf(out, "import it with: %s bundle import %s --sha256 %s\n",
+		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), output, checksum)
 	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
 	if len(sessionFamily) > 0 {
 		sort.Strings(sessionFamily)
@@ -6717,7 +6722,15 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if len(conflicts) > 0 && !overwrite {
-		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that, or import into a brain without them", strings.Join(conflicts, ", "))
+		// "import into a brain without them" named a state a real receiver is
+		// never in: a brain that has run `setup` always holds seed and docs, so
+		// the only reachable choice is to accept the replacement or not make it.
+		return bundleImportConflictError(conflicts)
+	}
+	if len(conflicts) > 0 {
+		// The loss is silent otherwise: the layers are replaced, and the next
+		// empty `recall` blames distillation coverage rather than this import.
+		fmt.Fprintf(cmd.OutOrStdout(), "replacing this brain's %s with the bundle's; anything recorded here and absent from the bundle is no longer retrievable\n", strings.Join(conflicts, ", "))
 	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -7610,6 +7623,56 @@ func bundleEntryPathAllowed(clean, cleanSlash string) bool {
 		}
 	}
 	return false
+}
+
+// bundleImportConflictError refuses an import that would replace layers.
+//
+// The old wording ended "or import into a brain without them", naming a state
+// a real receiver is never in: `setup` always writes seed and docs, so by the
+// time anyone has a brain to import into, the empty-brain path is gone. What
+// was missing is the part that matters -- what accepting costs.
+func bundleImportConflictError(conflicts []string) error {
+	return fmt.Errorf("bundle import would replace brain layers this brain already has (%s); re-run with --overwrite to accept that. --overwrite replaces each named layer with the bundle's copy, so anything recorded here and absent from the bundle -- facts remembered locally, for instance -- stops being retrievable. A brain that has been set up always holds seed and docs, so there is no empty-brain path once setup has run", strings.Join(conflicts, ", "))
+}
+
+// lastBundleImportAt reports when a bundle last replaced layers in this brain.
+//
+// An import with --overwrite replaces the fact layer wholesale, so facts the
+// reader remembered here before it are simply gone. Without this the next empty
+// recall blames distillation coverage and sends them to re-distill, which
+// cannot bring back what an import replaced.
+//
+// Best effort by design: the audit log is local operational state and may be
+// absent, truncated or partly unreadable. A malformed line is skipped rather
+// than failing the caller, because a missing explanation must never turn a
+// working recall into an error.
+func lastBundleImportAt(brainDir string) (time.Time, bool) {
+	data, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var newest time.Time
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Action      string `json:"action"`
+			GeneratedAt string `json:"generated_at"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Action != "bundle_import" {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, entry.GeneratedAt)
+		if err != nil {
+			continue
+		}
+		if at.After(newest) {
+			newest = at
+		}
+	}
+	return newest, !newest.IsZero()
 }
 
 func appendSemanticAudit(brainDir, action, path, checksum string) error {

@@ -53,7 +53,7 @@ func TestHealthyDoctorSaysSoInTwoLines(t *testing.T) {
 	if !strings.Contains(out.String(), "6 check(s) passed") {
 		t.Fatalf("the short report dropped the number of checks that ran:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "`"+doctorVerboseInvocation+"`") {
+	if !strings.Contains(out.String(), "`"+doctorVerboseInvocation()+"`") {
 		t.Fatalf("the short report must name the flag that restores the long one:\n%s", out)
 	}
 }
@@ -154,10 +154,10 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	root := NewRootCommand(Options{Version: "test"})
 	checked := 0
 	for name, remedy := range doctorRemedies {
-		rest, ok := strings.CutPrefix(remedy, "entire brain ")
-		if !ok {
-			continue // a host-CLI or shell remedy; not ours to resolve
-		}
+		// The table holds VERBS now, not whole commands: how the verb is
+		// spelled depends on the reader's install, so the invocation is built
+		// where the line is printed. Resolve the verb itself.
+		rest := remedy
 		var path []string
 		for _, field := range strings.Fields(rest) {
 			if strings.HasPrefix(field, "-") || strings.HasPrefix(field, "<") {
@@ -191,7 +191,7 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	// The flag the short report advertises has to exist too.
 	doctor, _, err := root.Find([]string{"doctor"})
 	if err != nil || doctor.Flags().Lookup("verbose") == nil {
-		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", doctorVerboseInvocation)
+		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", doctorVerboseInvocation())
 	}
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
@@ -83,7 +84,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 				// local breakage to fix; the command it named does not exist
 				// anywhere yet, so there is nothing to fix and no reason to
 				// go looking.
-				return fmt.Errorf("connect: bind this repository explicitly: `entire brain connect --repo-id <repo id> --api-url <https://cell>`; automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029), and resolving it here failed: %w", whereamiErr)
+				return fmt.Errorf("connect: bind this repository explicitly: `"+brainInvocation(os.LookupEnv, "connect")+" --repo-id <repo id> --api-url <https://cell>`; automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029), and resolving it here failed: %w", whereamiErr)
 			}
 		}
 		if repoID == "" {

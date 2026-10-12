@@ -435,7 +435,10 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 // doctorVerboseInvocation is the one command that turns the short report back
 // into the long one. It is named on every short report, so the detail a reader
 // does not see is always one documented command away.
-const doctorVerboseInvocation = "entire brain doctor --verbose"
+// A func, not a const: the spelling depends on how the reader dispatches.
+func doctorVerboseInvocation() string {
+	return brainInvocation(os.LookupEnv, "doctor --verbose")
+}
 
 // doctorActionableDetailBudget caps one short line's detail. The blind-spot
 // groups carry every skipped path -- 3.5KB on this repository alone -- which is
@@ -514,13 +517,13 @@ func renderDoctorActionable(out io.Writer, report doctorReport) {
 		lines = append(lines, doctorActionableLine{finding: check, remedy: doctorRemedy(check)})
 	}
 	if len(lines) == 0 {
-		fmt.Fprintf(out, "healthy: %d check(s) passed, nothing to fix; run `%s` for the full report\n", okCount, doctorVerboseInvocation)
+		fmt.Fprintf(out, "healthy: %d check(s) passed, nothing to fix; run `%s` for the full report\n", okCount, doctorVerboseInvocation())
 		return
 	}
 	for _, line := range lines {
 		fmt.Fprintf(out, "%s: %s (%s)\n", line.finding.Name, line.finding.State, line.detail())
 	}
-	fmt.Fprintf(out, "%d ok, %d warn, %d error; run `%s` for the full report\n", okCount, warnCount, errorCount, doctorVerboseInvocation)
+	fmt.Fprintf(out, "%d ok, %d warn, %d error; run `%s` for the full report\n", okCount, warnCount, errorCount, doctorVerboseInvocation())
 }
 
 // doctorActionableLine is one short-report line: the finding, and the command
@@ -554,7 +557,7 @@ func truncateDoctorDetail(detail string) string {
 // can actually see.
 func doctorDirectoryRemedy(path string) string {
 	if strings.TrimSpace(path) == "" {
-		return doctorVerboseInvocation
+		return doctorVerboseInvocation()
 	}
 	return "chmod u+w " + path
 }
@@ -566,42 +569,57 @@ func doctorDirectoryRemedy(path string) string {
 // contract and gains no field, so adding a remedy to the human report cannot
 // change a byte of the machine one.
 //
-// TestDoctorRemediesAreRealCommands resolves every `entire brain ...` value
-// here against the live command tree, so a renamed verb fails the build rather
-// than sending a user to a command that no longer exists.
+// Values are VERBS, not whole commands. How the verb is spelled -- `entire
+// brain refresh` when dispatched by the host CLI, `entire-brain refresh` on a
+// standalone install -- depends on the reader, so it is decided by
+// brainInvocation where the line is printed. A package-level var would freeze
+// whatever the environment happened to say at init.
+//
+// TestDoctorRemediesAreRealCommands resolves every verb here against the live
+// command tree, so a renamed verb fails the build rather than sending a user to
+// a command that no longer exists.
 var doctorRemedies = map[string]string{
-	"brain":                  "entire brain setup",
-	"manifest":               "entire brain refresh",
-	"capture":                "entire brain refresh sessions",
-	"docs_index":             "entire brain refresh",
-	"facts":                  "entire brain refresh",
-	"history_index":          "entire brain refresh history",
-	"history_integrity":      "entire brain refresh history",
-	"history_freshness":      "entire brain refresh",
-	"short_term_memory":      "entire brain refresh delta",
-	"conversation":           "entire brain refresh",
-	"history_fts":            "entire brain refresh history",
-	"semantic":               "entire brain refresh index",
-	"semantic blind spots":   "entire brain refresh index",
-	"memory_coordinator":     "entire brain memory status",
-	"write_lock":             "entire brain memory status",
-	"memory_provider_egress": "entire brain config show",
-	"memory_schemas":         "entire brain memory migrate",
-	"memory_overlay":         "entire brain memory rebuild",
-	"memory_fts":             "entire brain memory rebuild",
-	"memory_jobs":            "entire brain memory jobs",
-	"memory_vectors":         "entire brain memory rebuild",
-	"memory_migrations":      "entire brain memory migrate --dry-run",
-	"memory_worker_log":      "entire brain memory status",
-	"memory_sessions":        "entire brain refresh sessions",
-	"memory_reconciliation":  "entire brain memory reconcile",
-	// Host-environment findings. entire-brain neither installs nor repairs the
-	// Entire CLI or the Graph provider, so the command is the one the README
-	// gives for installing them -- not an entire-brain verb that would quietly
-	// do nothing.
+	"brain":                  "setup",
+	"manifest":               "refresh",
+	"capture":                "refresh sessions",
+	"docs_index":             "refresh",
+	"facts":                  "refresh",
+	"history_index":          "refresh history",
+	"history_integrity":      "refresh history",
+	"history_freshness":      "refresh",
+	"short_term_memory":      "refresh delta",
+	"conversation":           "refresh",
+	"history_fts":            "refresh history",
+	"semantic":               "refresh index",
+	"semantic blind spots":   "refresh index",
+	"memory_coordinator":     "memory status",
+	"write_lock":             "memory status",
+	"memory_provider_egress": "config show",
+	"memory_schemas":         "memory migrate",
+	"memory_overlay":         "memory rebuild",
+	"memory_fts":             "memory rebuild",
+	"memory_jobs":            "memory jobs",
+	"memory_vectors":         "memory rebuild",
+	"memory_migrations":      "memory migrate --dry-run",
+	"memory_worker_log":      "memory status",
+	"memory_sessions":        "refresh sessions",
+	"memory_reconciliation":  "memory reconcile",
+}
+
+// doctorHostRemedies are findings entire-brain cannot fix. It neither installs
+// nor repairs the Entire CLI or the Graph provider, so the command is the one
+// the README gives -- not a brain verb that would quietly do nothing.
+//
+// Kept apart from doctorRemedies rather than mixed in with a comment, because
+// the table above now holds bare VERBS that get a brain invocation prefixed to
+// them. Left in the same map, the curl line would have been rendered with a
+// brain invocation in front of it, producing a command that cannot be run.
+// (Deliberately not quoted here: TestEveryCommandPrintedInSourceResolves reads
+// comments as well as strings, and rightly refuses a backticked command that
+// does not resolve -- even one quoted only to say it would be wrong.)
+var doctorHostRemedies = map[string]string{
 	"memory_install":    "curl -fsSL https://entire.io/install.sh | bash",
 	"semantic provider": "entire plugin install graph",
-	"repo":              "cd <your repository> && entire brain doctor",
 }
 
 func doctorRemedy(check doctorCheckResult) string {
@@ -611,14 +629,22 @@ func doctorRemedy(check doctorCheckResult) string {
 	}
 	// `setup <component>` findings are one per failed setup component.
 	if strings.HasPrefix(check.Name, "setup ") {
-		return "entire brain setup"
+		return brainInvocation(os.LookupEnv, "setup")
 	}
-	if remedy, ok := doctorRemedies[check.Name]; ok {
-		return remedy
+	if raw, ok := doctorHostRemedies[check.Name]; ok {
+		return raw
+	}
+	// Not a bare verb: it tells the reader to change directory first, so it
+	// composes the invocation rather than naming one.
+	if check.Name == "repo" {
+		return "cd <your repository> && " + brainInvocation(os.LookupEnv, "doctor")
+	}
+	if verb, ok := doctorRemedies[check.Name]; ok {
+		return brainInvocation(os.LookupEnv, verb)
 	}
 	// A check added later without a table entry still gets a command, because
 	// "no remedy" is the one answer a diagnostic must never give.
-	return doctorVerboseInvocation
+	return doctorVerboseInvocation()
 }
 
 // doctorGateResult wraps a tripped gate the way `status --fail-on` does: the

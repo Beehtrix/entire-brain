@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
@@ -59,7 +60,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		resolved, attempted, whereamiErr := resolveHostedPlacement(ctx, opts.Runner, repoDir, opts.Now().UTC())
 		if whereamiErr != nil {
 			if attempted {
-				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029): %v; bind now with `entire brain connect --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, whereamiErr)
+				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029): %v; bind now with `"+brainInvocation(os.LookupEnv, "connect")+" --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, whereamiErr)
 			}
 			return nil
 		}

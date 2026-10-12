@@ -34,8 +34,8 @@ func TestLastBundleImportReadsTheNewestEntry(t *testing.T) {
 	brainDir := t.TempDir()
 
 	writeAuditLine(t, brainDir, `{"action":"bundle_export","generated_at":"2026-10-09T10:00:00Z"}`)
-	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-10T10:00:00Z"}`)
-	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z"}`)
+	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-10T10:00:00Z","layers":["facts"]}`)
+	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","docs","facts"]}`)
 
 	at, ok := lastBundleImportAt(brainDir)
 	if !ok {
@@ -64,7 +64,7 @@ func TestLastBundleImportToleratesAnUnusableLog(t *testing.T) {
 		t.Fatal("no parseable import was recorded, so none may be reported")
 	}
 
-	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T12:00:00Z"}`)
+	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T12:00:00Z","layers":["facts"]}`)
 	if _, ok := lastBundleImportAt(brainDir); !ok {
 		t.Fatal("a good line after bad ones must still be read, or one truncated write hides every import")
 	}
@@ -90,7 +90,7 @@ func TestEmptyRecallNamesTheImportThatReplacedTheFacts(t *testing.T) {
 	}
 	writeDistillFixtureAt(t, brainDir, now)
 	declareFactsAt(t, brainDir, now, now, 1, "main")
-	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z"}`)
+	writeAuditLine(t, brainDir, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","docs","facts"]}`)
 
 	note := emptyResultBlindSpotOnBranch(brainDir, "main")
 	if note == "" {
@@ -185,7 +185,7 @@ func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
 		t.Fatal("could not isolate runSemanticBundleImport, so this guard proves nothing")
 	}
 
-	audit := strings.Index(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`)
+	audit := strings.Index(fn, `appendSemanticAuditLayers(storage.BrainDir, "bundle_import"`)
 	walk := strings.Index(fn, "filepath.WalkDir(tmpDir")
 	if audit < 0 || walk < 0 {
 		t.Fatalf("expected both the audit write and the layer walk in this function (audit=%d walk=%d)", audit, walk)
@@ -193,7 +193,36 @@ func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
 	if audit > walk {
 		t.Fatal("the import is recorded AFTER layers are replaced: a failed audit write destroys the facts and leaves no trace of why")
 	}
-	if strings.Count(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`) != 1 {
+	if strings.Count(fn, `appendSemanticAuditLayers(storage.BrainDir, "bundle_import"`) != 1 {
 		t.Fatal("the import must be recorded exactly once")
+	}
+}
+
+// An import that replaced only docs is not an explanation for a missing FACT.
+// The audit entry used to carry no layer list, so every bundle_import read as
+// proof the facts had been replaced — a note explaining an empty result with
+// something that did not happen, which is worse than the distillation advice it
+// set out to correct. Raised as a HIGH finding on this PR, and correct.
+func TestOnlyAnImportThatTouchedFactsExplainsAMissingFact(t *testing.T) {
+	t.Parallel()
+
+	docsOnly := t.TempDir()
+	writeAuditLine(t, docsOnly, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["docs"]}`)
+	if _, ok := lastBundleImportAt(docsOnly); ok {
+		t.Error("an import that replaced only docs was reported as having replaced facts")
+	}
+
+	withFacts := t.TempDir()
+	writeAuditLine(t, withFacts, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z","layers":["seed","facts"]}`)
+	if _, ok := lastBundleImportAt(withFacts); !ok {
+		t.Error("an import that DID replace facts must still be found")
+	}
+
+	// An entry with no layers predates the field. Unknown is not yes: asserting
+	// a replacement the record does not describe is the bug being fixed.
+	legacy := t.TempDir()
+	writeAuditLine(t, legacy, `{"action":"bundle_import","generated_at":"2026-10-11T10:00:00Z"}`)
+	if _, ok := lastBundleImportAt(legacy); ok {
+		t.Error("an entry that names no layers must not be read as proof the facts were replaced")
 	}
 }

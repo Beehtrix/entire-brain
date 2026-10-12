@@ -6994,7 +6994,9 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// distillation coverage -- the exact defect this entry exists to prevent.
 	// An entry for an import that then fails part way is the honest record:
 	// layers may already have been touched, and the reader needs to know.
-	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
+	// Record WHICH layers this import replaces, so the empty-recall note can
+	// tell an import that touched facts from one that did not.
+	if err := appendSemanticAuditLayers(storage.BrainDir, "bundle_import", archive, sum, conflicts); err != nil {
 		return err
 	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
@@ -7920,10 +7922,17 @@ func lastBundleImportAt(brainDir string) (time.Time, bool) {
 			continue
 		}
 		var entry struct {
-			Action      string `json:"action"`
-			GeneratedAt string `json:"generated_at"`
+			Action      string   `json:"action"`
+			GeneratedAt string   `json:"generated_at"`
+			Layers      []string `json:"layers"`
 		}
 		if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Action != "bundle_import" {
+			continue
+		}
+		// Only an import that replaced the FACT layer explains a missing fact.
+		// An entry with no layers predates this field: treat it as unknown and
+		// skip, rather than asserting something the record does not say.
+		if !slices.Contains(entry.Layers, bundleLayerFacts) {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, entry.GeneratedAt)
@@ -7938,11 +7947,25 @@ func lastBundleImportAt(brainDir string) (time.Time, bool) {
 }
 
 func appendSemanticAudit(brainDir, action, path, checksum string) error {
-	entry := map[string]string{
+	return appendSemanticAuditLayers(brainDir, action, path, checksum, nil)
+}
+
+// appendSemanticAuditLayers records which layers an action replaced.
+//
+// Without this an import of docs alone and an import that destroyed the fact
+// layer were indistinguishable in the log, so the empty-recall note read every
+// bundle_import as proof the facts had been replaced. A note that explains an
+// empty result with something that did not happen is worse than the
+// distillation advice it set out to correct.
+func appendSemanticAuditLayers(brainDir, action, path, checksum string, layers []string) error {
+	entry := map[string]any{
 		"action":       action,
 		"path":         path,
 		"sha256":       checksum,
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(layers) > 0 {
+		entry["layers"] = layers
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {

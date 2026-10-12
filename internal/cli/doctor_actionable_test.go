@@ -142,8 +142,11 @@ func TestEveryActionableLineNamesACommand(t *testing.T) {
 			t.Fatalf("an actionable line names no command to run: %q", line)
 		}
 	}
-	if !strings.Contains(out.String(), "chmod u+w /cfg") {
-		t.Fatalf("an unwritable plugin directory must name the chmod:\n%s", out)
+	// The path is shell-quoted now (an unquoted path with a space chmods the
+	// wrong thing), so this asserts the INTENT — the chmod and the directory are
+	// both named — rather than the exact concatenation it used to produce.
+	if !strings.Contains(out.String(), "chmod u+w "+shellQuote("/cfg")) {
+		t.Fatalf("an unwritable plugin directory must name the chmod and the path:\n%s", out)
 	}
 }
 

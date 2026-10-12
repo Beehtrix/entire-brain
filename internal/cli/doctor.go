@@ -611,9 +611,12 @@ func doctorDirectoryRemedy(health memoryInstallDirectoryHealth) string {
 		return "ls -ld " + shellQuote(path)
 	}
 	if !health.Exists {
-		// The detail names the nearest existing parent as the thing denying
-		// writes, so that is what the reader has to change.
-		return "chmod u+w " + shellQuote(filepath.Dir(path))
+		// The detail names the nearest EXISTING parent as the thing denying
+		// writes, so that is what the reader has to change. filepath.Dir climbs
+		// exactly one level, which was wrong whenever more than one component
+		// was missing -- the default data dir is three levels deep, so the
+		// suggested chmod named a directory that did not exist either.
+		return "chmod u+w " + shellQuote(nearestExistingAncestor(path))
 	}
 	return "chmod u+w " + shellQuote(path)
 }
@@ -706,7 +709,10 @@ func doctorRemedy(check doctorCheckResult) string {
 	// Not a bare verb: it tells the reader to change directory first, so it
 	// composes the invocation rather than naming one.
 	if check.Name == "repo" {
-		return "cd <your repository> && " + brainInvocation(os.LookupEnv, "doctor")
+		// Quoted: unquoted, `<your` is an input redirection, so the line failed
+		// with a redirection error instead of saying anything. A placeholder
+		// still has to survive being pasted.
+		return "cd '<your repository>' && " + brainInvocation(os.LookupEnv, "doctor")
 	}
 	if verb, ok := doctorRemedies[check.Name]; ok {
 		return brainInvocation(os.LookupEnv, verb)
@@ -725,4 +731,25 @@ func doctorGateResult(report doctorReport, failOn string) error {
 		return renderedCommandError{err: err}
 	}
 	return nil
+}
+
+// nearestExistingAncestor walks up until it finds a directory that exists.
+// inspectAbsoluteInstallDirectory's creatable_unproven state can sit under
+// arbitrarily many missing components, and a chmod against one of those fails
+// with "No such file or directory" rather than fixing anything.
+//
+// Returns the last path examined if it runs out of ancestors, so the caller
+// always has something to name.
+func nearestExistingAncestor(path string) string {
+	dir := filepath.Dir(path)
+	for {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return dir
+		}
+		dir = parent
+	}
 }

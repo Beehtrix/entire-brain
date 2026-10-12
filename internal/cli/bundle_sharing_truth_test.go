@@ -156,3 +156,44 @@ func TestTheImportRefusalNamesOnlyReachableChoices(t *testing.T) {
 		}
 	}
 }
+
+// The audit entry must be written BEFORE the layers are replaced.
+//
+// Written afterwards, a failed audit write leaves the receiver's facts already
+// destroyed with no record that an import did it — and the empty `recall` that
+// follows goes back to blaming distillation coverage, which is the exact defect
+// the entry exists to prevent. Raised as a HIGH finding on this PR, and correct.
+//
+// This asserts ORDER, which no fixture can observe after the fact, so it reads
+// the source: the audit call must appear before the walk that writes layers.
+func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
+	t.Parallel()
+	// Reads the source, because ORDER is not observable from the outside once
+	// the function has run. The Windows CI shards execute prebuilt test binaries
+	// from a bundle rather than from the package directory, so the source is not
+	// beside them — skip there rather than fail. Linux and macOS run from source
+	// and do enforce this.
+	raw, err := os.ReadFile("semantic.go")
+	if err != nil {
+		t.Skipf("package source not available in this environment, so the order cannot be inspected: %v", err)
+	}
+	src := string(raw)
+
+	fn := src[strings.Index(src, "func runSemanticBundleImport("):]
+	fn = fn[:strings.Index(fn, "\n}\n")]
+	if fn == "" {
+		t.Fatal("could not isolate runSemanticBundleImport, so this guard proves nothing")
+	}
+
+	audit := strings.Index(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`)
+	walk := strings.Index(fn, "filepath.WalkDir(tmpDir")
+	if audit < 0 || walk < 0 {
+		t.Fatalf("expected both the audit write and the layer walk in this function (audit=%d walk=%d)", audit, walk)
+	}
+	if audit > walk {
+		t.Fatal("the import is recorded AFTER layers are replaced: a failed audit write destroys the facts and leaves no trace of why")
+	}
+	if strings.Count(fn, `appendSemanticAudit(storage.BrainDir, "bundle_import"`) != 1 {
+		t.Fatal("the import must be recorded exactly once")
+	}
+}

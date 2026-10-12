@@ -6988,6 +6988,15 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		// empty `recall` blames distillation coverage rather than this import.
 		fmt.Fprintf(cmd.OutOrStdout(), "replacing this brain's %s with the bundle's; anything recorded here and absent from the bundle is no longer retrievable\n", strings.Join(conflicts, ", "))
 	}
+	// Record the import BEFORE replacing anything. Written afterwards, a failed
+	// audit write leaves the facts already destroyed with no trace that an
+	// import did it, and the empty `recall` that follows goes back to blaming
+	// distillation coverage -- the exact defect this entry exists to prevent.
+	// An entry for an import that then fails part way is the honest record:
+	// layers may already have been touched, and the reader needs to know.
+	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
+		return err
+	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -7036,9 +7045,6 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		if err := writeBrainBundleLayerSources(storage.BrainDir, storage.Key, restored, importManifest); err != nil {
 			return err
 		}
-	}
-	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
-		return err
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)

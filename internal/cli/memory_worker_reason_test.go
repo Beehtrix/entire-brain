@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 )
 
 // A worker whose prepass fails relaunches on a 1m..30m backoff for about two
@@ -120,8 +119,13 @@ func readWorkerLogLine(t *testing.T, brainDir string) string {
 func TestALongReasonIsTruncatedOnACharacterBoundary(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	// Three-byte runes, so a byte-level cut at the limit lands mid-character.
-	reason := strings.Repeat("日", memoryWorkerLogReasonMax)
+	// A single ASCII byte first, so the limit does NOT land on a rune boundary.
+	// Without it 240 is divisible by 3 and a byte-level cut aligns by accident —
+	// the first version of this test passed with the bug restored.
+	reason := "x" + strings.Repeat("日", memoryWorkerLogReasonMax)
+	if memoryWorkerLogReasonMax%3 == 0 && (memoryWorkerLogReasonMax-1)%3 == 0 {
+		t.Fatal("fixture cannot land mid-character at this limit, so it would prove nothing")
+	}
 	if err := appendMemoryWorkerLogReason(dir, time.Now().UTC(), "prepass_failed", "owner1", reason); err != nil {
 		t.Fatalf("append: %v", err)
 	}
@@ -129,10 +133,11 @@ func TestALongReasonIsTruncatedOnACharacterBoundary(t *testing.T) {
 	if !strings.Contains(line, "日") {
 		t.Fatalf("the reason was dropped rather than truncated: %q", line)
 	}
-	if strings.ContainsRune(line, '�') {
-		t.Fatalf("truncation split a character: %q", line)
-	}
-	if !utf8.ValidString(line) {
-		t.Fatalf("the log line is not valid UTF-8 after truncation: %q", line)
+	// NOT a replacement character: strconv.Quote escapes an invalid byte as
+	// \xNN, so the quoted line stays valid UTF-8 and U+FFFD never appears. The
+	// real symptom of a split rune is those escapes. Checking for U+FFFD is why
+	// the first two versions of this guard passed with the bug restored.
+	if strings.Contains(line, `\x`) {
+		t.Fatalf("truncation split a character, leaving escaped bytes in the log: %q", line)
 	}
 }

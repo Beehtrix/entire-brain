@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -312,17 +313,72 @@ func TestTheDirectoryRemedyMatchesTheFailure(t *testing.T) {
 		t.Errorf("chmod cannot fix an unsafe path: %q", unsafe)
 	}
 
-	// An explicit recommendation from the health check always wins.
+	// This used to assert that an explicit RecommendedAction always won, which
+	// an earlier finding asked for. That was wrong, and the model it encoded is
+	// corrected here rather than deleted: the field is never empty on a real
+	// run, so "always wins" meant the remedy was ALWAYS prose, rendered inside
+	// "run `...`" as though a sentence were a command. The guidance belongs in
+	// the Detail, which doctorDirectoryFinding already carries.
 	own := doctorDirectoryRemedy(memoryInstallDirectoryHealth{
-		Path: "/tmp/x", State: "unavailable", RecommendedAction: "inspect the directory path",
+		Path: "/tmp/x", State: "unavailable", Exists: true, RecommendedAction: "inspect the directory path",
 	})
-	if own != "inspect the directory path" {
-		t.Errorf("the health check's own recommendation was discarded: %q", own)
+	if own == "inspect the directory path" {
+		t.Errorf("a prose recommendation was returned as the command to run: %q", own)
+	}
+	if !strings.HasPrefix(own, "chmod u+w ") {
+		t.Errorf("the remedy is not a runnable command: %q", own)
 	}
 
 	// The ordinary case is unchanged.
 	plain := doctorDirectoryRemedy(memoryInstallDirectoryHealth{Path: "/cfg", State: "denied", Exists: true})
 	if plain != "chmod u+w "+shellQuote("/cfg") {
 		t.Errorf("an existing unwritable directory must still name the chmod: %q", plain)
+	}
+}
+
+// The fixture-built cases above all leave RecommendedAction empty. No real
+// doctor run ever does: every constructor seeds the field and then overwrites
+// it, so an earlier version of this remedy returned that prose for EVERY real
+// finding and the chmod branches were unreachable. The line rendered as
+//
+//	run `grant write access before running a mutation; mode bits currently deny writes`
+//
+// Raised as a HIGH finding on this PR, and correct. This drives the REAL
+// inspection functions instead, which is the only way that defect is visible.
+func TestTheRealInspectionProducesARunnableRemedy(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores mode bits, so no directory here is unwritable")
+	}
+	t.Parallel()
+
+	denied := filepath.Join(t.TempDir(), "denied")
+	if err := os.Mkdir(denied, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(denied, 0o700) })
+
+	for name, probe := range map[string]struct{ path, wantCmd, wantTarget string }{
+		"exists but denies writes": {denied, "chmod u+w ", denied},
+		"cannot be created":        {filepath.Join(denied, "child", "data"), "chmod u+w ", filepath.Join(denied, "child")},
+	} {
+		health := inspectAbsoluteInstallDirectory(probe.path)
+		if health.RecommendedAction == "" {
+			t.Fatalf("%s: the real inspection left RecommendedAction empty, so this guard proves nothing", name)
+		}
+		remedy := doctorDirectoryRemedy(health)
+		if !strings.HasPrefix(remedy, probe.wantCmd) {
+			t.Errorf("%s: remedy is not a runnable command: %q", name, remedy)
+		}
+		if !strings.Contains(remedy, shellQuote(probe.wantTarget)) {
+			t.Errorf("%s: remedy does not name %s: %q", name, probe.wantTarget, remedy)
+		}
+		if remedy == health.RecommendedAction {
+			t.Errorf("%s: the prose recommendation was rendered as a command: %q", name, remedy)
+		}
+		// The guidance is not lost -- it is the Detail this remedy is appended to.
+		finding := doctorDirectoryFinding("plugin data directory", health)
+		if finding.Detail == "" {
+			t.Errorf("%s: the finding carries no detail, so dropping the prose loses it", name)
+		}
 	}
 }

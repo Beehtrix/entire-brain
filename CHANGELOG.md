@@ -46,6 +46,13 @@ nonprod. Confirm the client in this release points at the right cells.
 - An empty fact query names the branches that do hold facts.
 - The ollama chunk-size limits are real, and the advice that breaks them is
   corrected.
+- Credentials no longer reach the worker log or `memory worker --json`. The
+  reason recorded beside a worker event is error text, and error text carries
+  whatever the failing call had in hand; it is now redacted before it is
+  truncated, because a credential the cut lands inside stops matching the
+  pattern that would have caught it.
+- A warning raised during `setup` keeps its causes. Errors are routinely
+  multi-line, and re-emitting only the first line dropped every cause after it.
 
 ### Documentation
 

@@ -65,7 +65,7 @@ func TestSetupSummaryPlainGolden(t *testing.T) {
 	const want = "\nBrain ready (degraded) in 730ms\n" +
 		"  repo        /repo  (gh/demo-org/brain-demo)\n" +
 		"  brain       /brain\n" +
-		"  instant     x sessions  + seed  + docs  + semantic  (700ms)\n" +
+		"  instant     x session export  + seed baseline  + doc index  + semantic index  (700ms)\n" +
 		"              x session export: checkpoint_scope_incomplete\n" +
 		"                hint: add a git remote\n" +
 		"  agents      + .entire/agent-guide.md, AGENTS.md, CLAUDE.md + pre-edit hook\n" +

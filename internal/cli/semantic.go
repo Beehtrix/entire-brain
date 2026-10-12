@@ -1247,9 +1247,9 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 	case "provider_doctor_failed":
 		switch {
 		case semanticDetailMeansBinaryNotFound(detail):
-			return fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+			return fmt.Errorf("%s: graph binary %q was not found: %s; install the provider with `entire plugin install graph`", code, graphBinary, detail)
 		case semanticDetailMeansBinaryNotExecutable(detail):
-			return fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+			return fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
 			return fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
 		}
@@ -1321,8 +1321,7 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 		}
 		message += fmt.Sprintf(
 			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-				" (it builds and registers entire-graph from the sibling clone),"+
+				" -- install it with `entire plugin install graph`,"+
 				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
 	}
 	return errors.New(message)
@@ -3105,7 +3104,7 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if unknownPaths > 0 {
 		spots = append(spots, brainBlindSpot{
 			Code:   "E_PATH_UNAVAILABLE",
-			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+brainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
 		})
 	}
 	return spots, nil
@@ -3222,7 +3221,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		if identityErr != nil {
 			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
 		} else if revision != source.IdentityRevision {
-			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run " + brainInvocation(os.LookupEnv, "refresh")}
 		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {

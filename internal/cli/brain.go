@@ -311,7 +311,7 @@ func durablePrepassText(err error) string {
 		return retiredManifestFieldMessage(err)
 	}
 	if errRepositoryGone(err) {
-		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `entire brain reset` if the repository is not coming back"
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + brainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
 	}
 	return err.Error()
 }

@@ -134,13 +134,32 @@ const maxClaudeSettingsBytes = 4 << 20
 // and exits 0 when neither is installed — a hook that prints "command not
 // found" on every edit gets deleted within a day, and the hook contract is that
 // an environment problem is silence, never noise.
-func preEditHookCommand() string {
-	if runtime.GOOS == "windows" {
-		// cmd.exe has no `command -v`, and a quoted sh pipeline would not
-		// survive it. The bare spelling is honest there: windows has no
-		// managed-plugin PATH problem, because the daemon this file's siblings
-		// install is not supported there either.
-		return setupBrainBinaryName + " hook pre-edit --claude-hook"
+func preEditHookCommand() string { return preEditHookCommandFor(runtime.GOOS) }
+
+// preEditHookCommandFor takes the platform as an argument so BOTH branches are
+// reachable from a test on any host. The windows branch shipped wrong because
+// nothing here could execute it: the only guard that ran was the POSIX one.
+func preEditHookCommandFor(goos string) string {
+	if goos == "windows" {
+		// cmd.exe has no `command -v`, so the POSIX pipeline cannot run here --
+		// but the fallback is still needed. This used to wire the bare spelling
+		// and justify it with "windows has no managed-plugin PATH problem,
+		// because the daemon is not supported there". That conflated two
+		// different things: the daemon is unsupported on windows, but the
+		// managed PLUGIN install is not. setupCommandPrefix detects it from an
+		// environment marker with no GOOS condition at all, and windows release
+		// binaries ship, so a windows reader with a managed install got a hook
+		// that failed on every edit.
+		//
+		// cmd /c is the direct analogue of the sh -c below: naming the
+		// interpreter explicitly means this does not depend on whether the host
+		// runs hook commands through a shell. `||` is cmd.exe's run-on-failure
+		// operator, and a missing command exits 9009, so the chain advances.
+		// `exit /b 0` is the counterpart of the POSIX `exit 0`: a reader with
+		// neither binary gets a hook that does nothing, not one that errors on
+		// every edit.
+		return `cmd /c "` + setupBrainBinaryName + " hook pre-edit --claude-hook || " +
+			setupEntireBinaryName + " " + setupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
 	}
 	plugin := setupEntireBinaryName + " " + setupBrainPluginVerb
 	return "sh -c 'if command -v " + setupBrainBinaryName + " >/dev/null 2>&1; then exec " + setupBrainBinaryName +

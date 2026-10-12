@@ -313,20 +313,37 @@ func TestInstallPreEditHookRefusesSettingsItCannotUnderstand(t *testing.T) {
 // brain binary is only on PATH inside the Entire CLI's own process, so a bare
 // `entire-brain ...` hook command would be "command not found" on every edit.
 func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
+	// Both branches, on every host. Keying the assertions on runtime.GOOS meant
+	// the windows one never ran anywhere we build, which is exactly how it came
+	// to wire a command that fails on every edit for a managed install.
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		assertPreEditHookCommand(t, goos, preEditHookCommandFor(goos))
+	}
 	command := preEditHookCommand()
-	// The fallback is a `sh -c` pipeline, which cmd.exe cannot run. Windows
-	// deliberately wires the bare spelling instead -- it has no managed-plugin
-	// PATH problem, because the daemon that creates one is not supported there.
-	// Asserting the pipeline on every platform tested the host, not the rule.
+	// Both platforms need the fallback: a managed plugin install puts the brain
+	// binary off PATH, and setupCommandPrefix detects that from an environment
+	// marker with no GOOS condition, so windows reaches it too. Only the
+	// interpreter differs -- cmd.exe cannot run the sh pipeline.
+	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+		t.Fatalf("the wired command has no host-CLI fallback for a managed install: %s", command)
+	}
+	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+		t.Fatalf("the wired command never tries the brain binary directly: %s", command)
+	}
 	if runtime.GOOS == "windows" {
-		if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
-			t.Fatalf("the wired command does not invoke the brain binary: %s", command)
-		}
-		if strings.Contains(command, "sh -c") {
+		if strings.Contains(command, "sh -c") || strings.Contains(command, "command -v") {
 			t.Fatalf("a POSIX shell pipeline was wired on windows, where cmd.exe cannot run it: %s", command)
 		}
-	} else if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
-		t.Fatalf("the wired command has no host-CLI fallback for a managed install: %s", command)
+		if !strings.HasPrefix(command, "cmd /c ") {
+			t.Fatalf("the interpreter is not named, so this depends on how the host runs hooks: %s", command)
+		}
+		// A reader with neither binary must get a hook that does nothing, not
+		// one that errors on every edit.
+		if !strings.Contains(command, "exit /b 0") {
+			t.Fatalf("a missing binary fails the hook instead of exiting clean: %s", command)
+		}
+	} else if !strings.Contains(command, "exit 0") {
+		t.Fatalf("a missing binary fails the hook instead of exiting clean: %s", command)
 	}
 	if !commandInvokesPreEditHook(command) {
 		t.Fatalf("the command we write is not recognised by our own idempotence check: %s", command)
@@ -601,5 +618,38 @@ func TestAGivenFileIsNotWaitedOnByAnEventRead(t *testing.T) {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("--file with --claude-hook blocked on an event read whose result it discards")
+	}
+}
+
+// assertPreEditHookCommand holds for the named platform regardless of the host
+// this test runs on.
+func assertPreEditHookCommand(t *testing.T, goos, command string) {
+	t.Helper()
+	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+		t.Errorf("%s: no host-CLI fallback for a managed install: %s", goos, command)
+	}
+	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+		t.Errorf("%s: never tries the brain binary directly: %s", goos, command)
+	}
+	if !commandInvokesPreEditHook(command) {
+		t.Errorf("%s: our own idempotence check does not recognise it, so setup would rewire it every run: %s", goos, command)
+	}
+	if goos == "windows" {
+		if strings.Contains(command, "sh -c") || strings.Contains(command, "command -v") {
+			t.Errorf("windows: a POSIX shell pipeline cmd.exe cannot run: %s", command)
+		}
+		if !strings.HasPrefix(command, "cmd /c ") {
+			t.Errorf("windows: the interpreter is not named, so this depends on how the host runs hooks: %s", command)
+		}
+		if !strings.Contains(command, "exit /b 0") {
+			t.Errorf("windows: a missing binary fails the hook instead of exiting clean: %s", command)
+		}
+		return
+	}
+	if !strings.HasPrefix(command, "sh -c ") {
+		t.Errorf("%s: the interpreter is not named: %s", goos, command)
+	}
+	if !strings.Contains(command, "exit 0") {
+		t.Errorf("%s: a missing binary fails the hook instead of exiting clean: %s", goos, command)
 	}
 }

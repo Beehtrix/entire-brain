@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -311,7 +312,18 @@ func TestInstallPreEditHookRefusesSettingsItCannotUnderstand(t *testing.T) {
 // `entire-brain ...` hook command would be "command not found" on every edit.
 func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 	command := preEditHookCommand()
-	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+	// The fallback is a `sh -c` pipeline, which cmd.exe cannot run. Windows
+	// deliberately wires the bare spelling instead -- it has no managed-plugin
+	// PATH problem, because the daemon that creates one is not supported there.
+	// Asserting the pipeline on every platform tested the host, not the rule.
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+			t.Fatalf("the wired command does not invoke the brain binary: %s", command)
+		}
+		if strings.Contains(command, "sh -c") {
+			t.Fatalf("a POSIX shell pipeline was wired on windows, where cmd.exe cannot run it: %s", command)
+		}
+	} else if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
 		t.Fatalf("the wired command has no host-CLI fallback for a managed install: %s", command)
 	}
 	if !commandInvokesPreEditHook(command) {

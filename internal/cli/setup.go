@@ -1370,11 +1370,27 @@ func setupWarningsFrom(captured *bytes.Buffer) []string {
 	if captured == nil {
 		return nil
 	}
+	// A warning is one `warning: ` line plus any continuation lines under it.
+	// Go errors are routinely multi-line -- errors.Join concatenates with a
+	// newline, and the memory path joins a deterministic failure with a run
+	// failure -- so keeping only prefixed lines dropped every cause after the
+	// first, reproducing in miniature the information loss this re-emission
+	// exists to repair.
+	//
+	// A continuation ends at a blank line or at the next warning, so unrelated
+	// stderr written after a warning is not swept into it.
 	var out []string
+	inWarning := false
 	for _, line := range strings.Split(captured.String(), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "warning: ") {
+		switch {
+		case strings.HasPrefix(line, "warning: "):
 			out = append(out, strings.TrimPrefix(line, "warning: "))
+			inWarning = true
+		case line == "":
+			inWarning = false
+		case inWarning:
+			out[len(out)-1] += "; " + line
 		}
 	}
 	return out

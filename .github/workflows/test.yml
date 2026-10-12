@@ -57,7 +57,7 @@ jobs:
       - run: go build -o "$RUNNER_TEMP/entire-brain" ./cmd/entire-brain
       - name: Exercise the embedded UI in Chromium
         run: BRAIN_VIZ_BINARY="$RUNNER_TEMP/entire-brain" npm --prefix webui run test:browser
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-smoke-traces
@@ -103,7 +103,7 @@ jobs:
         run: python3 -B tools/coverage/run.py --race --output "${{ runner.temp }}/brain-coverage"
       - name: Retain coverage and test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-default-${{ matrix.os }}
           path: |
@@ -159,7 +159,7 @@ jobs:
           "value=$matrix" | Out-File -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8 -Append
       - name: Upload immutable Windows test bundle
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-test-bundle
           path: ${{ runner.temp }}/windows-test-bundle
@@ -208,7 +208,7 @@ jobs:
           exit $LASTEXITCODE
       - name: Upload shard evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-test-shard-${{ matrix.shard }}
           path: ${{ runner.temp }}/windows-test-shard-${{ matrix.shard }}
@@ -252,7 +252,7 @@ jobs:
         run: python -B tools/coverage/run.py --race --binary-only --output "${{ runner.temp }}/windows-test-other/binary-coverage"
       - name: Upload non-heavy package evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-test-other
           path: ${{ runner.temp }}/windows-test-other
@@ -313,14 +313,14 @@ jobs:
         run: go tool cover -html="${{ runner.temp }}/windows-statement-coverage/combined.out" -o="${{ runner.temp }}/windows-statement-coverage/coverage.html"
       - name: Upload Windows statement coverage
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-windows-sharded
           path: ${{ runner.temp }}/windows-statement-coverage/
           if-no-files-found: warn
       - name: Upload verification report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: windows-test-verification
           path: ${{ runner.temp }}/windows-test-verification.json
@@ -369,7 +369,7 @@ jobs:
         run: python3 -B tools/coverage/run.py --race --tags "brain_cgo sqlite_fts5" --output "${{ runner.temp }}/brain-coverage"
       - name: Retain CGO coverage and test results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-cgo-${{ matrix.os }}
           path: |
@@ -431,7 +431,7 @@ jobs:
           python3 -B tools/coverage/python_run.py --output "${{ runner.temp }}/python-coverage"
       - name: Retain Python coverage and module outcomes
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-python-benchmarks
           path: |

@@ -556,7 +556,22 @@ func doctorDirectoryRemedy(path string) string {
 	if strings.TrimSpace(path) == "" {
 		return doctorVerboseInvocation
 	}
-	return "chmod u+w " + path
+	return "chmod u+w " + shellQuote(path)
+}
+
+// shellQuote makes a path safe to paste into a shell.
+//
+// Raised as a shell-injection finding. As stated the threat model is weak: the
+// path comes from the reader's OWN ENTIRE_PLUGIN_* variables or home directory,
+// and anyone who can set those can already run code. The quoting is right for a
+// duller reason that bites far more often — a path containing a SPACE produces a
+// command that silently chmods the wrong thing, and "/Users/me/My Brain" is an
+// ordinary path on a Mac.
+//
+// Single quotes, because inside them a shell expands nothing at all; an embedded
+// single quote is closed, escaped and reopened.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // doctorRemedies maps a finding to the command that addresses it, for the

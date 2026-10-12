@@ -95,6 +95,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Backstop only. go test -timeout fires first and prints which tests were
+    # still running, which is the useful artefact; neither job had any cap, so
+    # a genuine hang ran to GitHub's 360-minute default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
@@ -359,6 +363,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # Backstop only; see the note on the `test` job.
+    timeout-minutes: 45
     env:
       CGO_ENABLED: "1"
     steps:

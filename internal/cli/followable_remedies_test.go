@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -85,7 +86,10 @@ func TestOnlyACorruptRecordIsWorthDeleting(t *testing.T) {
 			t.Errorf("a transient read was classed corrupt, so the reader is told to delete recoverable state: %v", err)
 		}
 		msg := setupRecordRemedy(err, "/state", "entire brain")
-		if strings.Contains(msg, "delete /state") {
+		// Joined, not a literal slash. As a NEGATIVE assertion a hardcoded "/"
+		// would not fail on Windows — it would simply stop matching, and the
+		// guard would quietly pass whatever the code did.
+		if strings.Contains(msg, "delete "+filepath.Join("/state", setupRecordFile)) {
 			t.Errorf("transient failure advises deletion: %s", msg)
 		}
 		if !strings.Contains(msg, "re-run") {
@@ -112,8 +116,11 @@ func TestOnlyACorruptRecordIsWorthDeleting(t *testing.T) {
 func TestTheRecordRemedyNamesTheFile(t *testing.T) {
 	t.Parallel()
 	for _, err := range []error{fs.ErrPermission, errors.New(`json: unknown field "x"`)} {
-		if msg := setupRecordRemedy(err, "/state", "entire brain"); !strings.Contains(msg, "/state/"+setupRecordFile) {
-			t.Errorf("remedy does not say which file: %s", msg)
+		// filepath.Join, not a literal "/": the production remedy joins the path,
+		// so a hardcoded forward slash passes on Unix and fails on Windows.
+		want := filepath.Join("/state", setupRecordFile)
+		if msg := setupRecordRemedy(err, "/state", "entire brain"); !strings.Contains(msg, want) {
+			t.Errorf("remedy does not name %s: %s", want, msg)
 		}
 	}
 }

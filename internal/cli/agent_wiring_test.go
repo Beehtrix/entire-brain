@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 )
@@ -558,5 +560,46 @@ func TestAConcurrentSettingsEditIsNotOverwritten(t *testing.T) {
 	}
 	if string(got) != string(original) {
 		t.Fatalf("the concurrent writer's edit was lost:\n got %s\nwant %s", got, original)
+	}
+}
+
+// blockingReader never reaches EOF, which is what a pipe inherited from a
+// parent that has not closed its end behaves like.
+type blockingReader struct{ release chan struct{} }
+
+func (b blockingReader) Read([]byte) (int, error) { <-b.release; return 0, io.EOF }
+
+// --file says what to check, so there is nothing left to learn from the event.
+// Reading it anyway blocked until EOF or maxClaudeHookEventBytes and then threw
+// the result away, because the inner guard refuses to overwrite a given --file.
+// That is the same hand-run hang the terminal-stdin check above it prevents,
+// reached through a different door. Raised as a finding on this PR, and correct.
+func TestAGivenFileIsNotWaitedOnByAnEventRead(t *testing.T) {
+	t.Parallel()
+
+	repo := t.TempDir()
+	target := filepath.Join(repo, "checked.go")
+	if err := os.WriteFile(target, []byte("package x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := blockingReader{release: make(chan struct{})}
+	t.Cleanup(func() { close(blocked.release) })
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		cmd := newHookCommand(Options{Env: EntireEnv{RepoRoot: repo}, Runner: ExecRunner{}, Now: time.Now})
+		cmd.SetIn(blocked)
+		cmd.SetOut(io.Discard)
+		cmd.SetErr(io.Discard)
+		cmd.SetArgs([]string{"pre-edit", "--claude-hook", "--file", target})
+		_ = cmd.Execute()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("--file with --claude-hook blocked on an event read whose result it discards")
 	}
 }

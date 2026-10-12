@@ -495,11 +495,11 @@ func renderDoctorActionable(out io.Writer, report doctorReport) {
 		}
 		// Dirs and DirectoryHealth are appended in lockstep, so the health that
 		// produced this finding -- and the path to chmod -- is at the same index.
-		path := ""
+		var health memoryInstallDirectoryHealth
 		if i < len(report.DirectoryHealth) {
-			path = report.DirectoryHealth[i].Path
+			health = report.DirectoryHealth[i]
 		}
-		lines = append(lines, doctorActionableLine{finding: dir, remedy: doctorDirectoryRemedy(path)})
+		lines = append(lines, doctorActionableLine{finding: dir, remedy: doctorDirectoryRemedy(health)})
 	}
 	for _, check := range report.Checks {
 		switch check.State {
@@ -552,9 +552,26 @@ func truncateDoctorDetail(detail string) string {
 // doctorDirectoryRemedy: every non-ok plugin-directory finding is a permission
 // or path problem on a named directory, and the mode bits are the part doctor
 // can actually see.
-func doctorDirectoryRemedy(path string) string {
-	if strings.TrimSpace(path) == "" {
+func doctorDirectoryRemedy(health memoryInstallDirectoryHealth) string {
+	// Not every unhealthy directory is a permission problem, and chmod was
+	// being suggested for all of them. Raised as a finding: for a path that
+	// does not exist the detail says its PARENT denies writes, so chmodding the
+	// path itself is advice about something that is not there; and an unsafe
+	// state (a symlink, a non-directory) is not fixed by a mode change at all.
+	if action := strings.TrimSpace(health.RecommendedAction); action != "" {
+		return action
+	}
+	path := strings.TrimSpace(health.Path)
+	if path == "" {
 		return doctorVerboseInvocation
+	}
+	if strings.Contains(health.State, "unsafe") {
+		return "inspect " + shellQuote(path) + "; it is not a plain writable directory, which no mode change fixes"
+	}
+	if !health.Exists {
+		// The detail names the nearest existing parent as the thing denying
+		// writes, so that is what the reader has to change.
+		return "chmod u+w " + shellQuote(filepath.Dir(path))
 	}
 	return "chmod u+w " + shellQuote(path)
 }

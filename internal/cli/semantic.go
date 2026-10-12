@@ -6746,8 +6746,18 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// distillation coverage -- the exact defect this entry exists to prevent.
 	// An entry for an import that then fails part way is the honest record:
 	// layers may already have been touched, and the reader needs to know.
-	// Record WHICH layers this import replaces, so the empty-recall note can
-	// tell an import that touched facts from one that did not.
+	// Record WHICH layers this import REPLACES -- `conflicts`, the layers
+	// present on BOTH sides -- not the layers the bundle happens to carry.
+	//
+	// This has been raised twice as "it should record what was imported". It
+	// must not. The note this feeds says "facts recorded here before then are
+	// no longer present", which is only true if this brain HELD facts and the
+	// import overwrote them. Recording the bundle's contents instead would fire
+	// that note at a brain that never had facts, telling a reader their
+	// remembered facts are gone when nothing was lost -- and telling them so in
+	// preference to the distillation advice that would actually have helped.
+	//
+	// Pinned by TestAnImportIntoABrainWithNoFactsExplainsNothing.
 	if err := appendSemanticAuditLayers(storage.BrainDir, "bundle_import", archive, sum, conflicts); err != nil {
 		return err
 	}

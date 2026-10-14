@@ -1244,11 +1244,11 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	if h := report.Hosted; h != nil {
 		fmt.Fprintln(out, "\nHosted")
+		suffix := ""
 		if h.State == hostedStateLocalOnly {
-			fmt.Fprintf(out, "  state: %s (no binding; will auto-connect when placement resolves)\n", hostedStateLabel(h.State))
-		} else {
-			fmt.Fprintf(out, "  state: %s\n", hostedStateLabel(h.State))
+			suffix = " (no binding; will auto-connect when placement resolves)"
 		}
+		fmt.Fprintf(out, "  state: %s%s\n", hostedStateLabel(h.State), suffix)
 		if h.RepoID != "" {
 			fmt.Fprintf(out, "  target: repo %s via %s\n", h.RepoID, h.BaseURL)
 		}
@@ -4613,9 +4613,11 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		factBranches = manifest.Sources.Facts.Branches
 	}
-	hosted, hostedWarnings := buildHostedStatus(storage.BrainDir, factBranches)
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches)
 	report.Hosted = hosted
-	report.Warnings = append(report.Warnings, hostedWarnings...)
+	if hostedWarning != "" {
+		report.Warnings = append(report.Warnings, hostedWarning)
+	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {
 		report.Warnings = append(report.Warnings, "live state unavailable: "+liveErr.Error())

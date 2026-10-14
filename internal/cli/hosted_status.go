@@ -25,13 +25,13 @@ const (
 // decides. The binding stays visible under the kill switch so the reader sees
 // what it suppresses. A corrupt binding degrades to local_only with a warning
 // rather than failing status over a sync-state file.
-func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, []string) {
-	var warnings []string
+func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, string) {
+	var warning string
 	hosted := &brainStatusHosted{State: hostedStateLocalOnly}
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
-		warnings = append(warnings, "hosted binding unreadable: "+err.Error())
+		warning = "hosted binding unreadable: " + err.Error()
 	case present:
 		hosted.State = hostedStateConnected
 		hosted.RepoID = binding.RepoID
@@ -45,7 +45,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	if brainNoEgressMode() {
 		hosted.State = hostedStateDisconnected
 	}
-	return hosted, warnings
+	return hosted, warning
 }
 
 // hostedStateLabel is the human spelling of a hosted state, shared by the

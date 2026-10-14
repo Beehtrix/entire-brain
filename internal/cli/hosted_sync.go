@@ -56,9 +56,14 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		if placementErr != nil {
 			return nil
 		}
-		binding, err = bindHostedRepo(storage.BrainDir, resolved.RepoID, resolved.APIURL)
+		var bound bool
+		binding, bound, err = bindHostedRepoIfNotOptedOut(storage.BrainDir, resolved.RepoID, resolved.APIURL)
 		if err != nil {
 			fmt.Fprintf(errW, "hosted sync: auto-connect skipped: %v\n", err)
+			return nil
+		}
+		if !bound {
+			// A disconnect landed while placement was resolving; honor it.
 			return nil
 		}
 	}

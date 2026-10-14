@@ -24,14 +24,39 @@ type hostedRepoBinding struct {
 const hostedRepoBindingFile = "hosted.json"
 
 func writeHostedRepoBinding(brainDir string, binding hostedRepoBinding) error {
+	return withBrainWriteLock(brainDir, func() error {
+		return writeHostedRepoBindingLocked(brainDir, binding)
+	})
+}
+
+// writeHostedRepoBindingLocked is the write half for callers that already hold
+// the brain write lock (it is not reentrant).
+func writeHostedRepoBindingLocked(brainDir string, binding hostedRepoBinding) error {
 	binding.BaseURL = strings.TrimRight(binding.BaseURL, "/")
 	data, err := json.Marshal(binding)
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(brainDir, func() error {
-		return writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
+	return writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
+}
+
+// setHostedOptOut records an explicit disconnect as one locked
+// read-modify-write, so a concurrent writer cannot interleave between reading
+// the coordinates and marking them opted out. A corrupt state file must not
+// block the opt-out — the user's intent is unambiguous — so it is replaced by
+// a bare one. Returns the binding as written.
+func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
+	var binding hostedRepoBinding
+	err := withBrainWriteLock(brainDir, func() error {
+		existing, _, readErr := readHostedRepoBinding(brainDir)
+		if readErr != nil {
+			existing = hostedRepoBinding{}
+		}
+		existing.OptedOut = true
+		binding = existing
+		return writeHostedRepoBindingLocked(brainDir, existing)
 	})
+	return binding, err
 }
 
 func readHostedRepoBinding(brainDir string) (hostedRepoBinding, bool, error) {

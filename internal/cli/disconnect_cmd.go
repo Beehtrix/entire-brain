@@ -39,15 +39,10 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 	if err != nil {
 		return err
 	}
-	// A corrupt state file must not block the opt-out — the user's intent is
-	// unambiguous, so overwrite it with a bare one. Works unconnected too: the
-	// opt-out is exactly the "never auto-bind me" record.
-	binding, _, err := readHostedRepoBinding(storage.BrainDir)
+	// Works unconnected too: the opt-out is exactly the "never auto-bind me"
+	// record.
+	binding, err := setHostedOptOut(storage.BrainDir)
 	if err != nil {
-		binding = hostedRepoBinding{}
-	}
-	binding.OptedOut = true
-	if err := writeHostedRepoBinding(storage.BrainDir, binding); err != nil {
 		return fmt.Errorf("disconnect: %w", err)
 	}
 

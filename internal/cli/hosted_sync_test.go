@@ -424,6 +424,63 @@ func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 	}
 }
 
+func TestHostedSyncAutoConnectDoesNotOverrideADisconnectDuringResolution(t *testing.T) {
+	// The consent race: the tick sees no binding, spends seconds resolving
+	// placement, and the user disconnects in that window. The resolved
+	// placement must NOT overwrite the fresh opt-out.
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			if _, err := setHostedOptOut(storage.BrainDir); err != nil {
+				t.Error(err)
+			}
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present || !binding.OptedOut {
+		t.Fatalf("a disconnect during placement resolution must survive auto-connect: present=%v err=%v binding=%+v", present, err, binding)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("auto-connect must not sync past a fresh opt-out, got %d requests", fake.requestCount())
+	}
+}
+
+func TestSetHostedOptOutKeepsCoordinatesAndHealsCorruption(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(brainDir)
+	if err != nil || !present || !binding.OptedOut || binding.RepoID != "repo1" {
+		t.Fatalf("opt-out must keep the coordinates: present=%v err=%v binding=%+v", present, err, binding)
+	}
+
+	if err := writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatalf("a corrupt state file must not block the opt-out, got %v", err)
+	}
+	binding, present, err = readHostedRepoBinding(brainDir)
+	if err != nil || !present || !binding.OptedOut {
+		t.Fatalf("corrupt file must be replaced by a bare opt-out: present=%v err=%v binding=%+v", present, err, binding)
+	}
+}
+
 func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)

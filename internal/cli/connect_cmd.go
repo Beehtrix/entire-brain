@@ -97,11 +97,12 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
 }
 
-// bindHostedRepo validates and normalizes the target, then writes the
-// repo-level binding. Cell URLs are commonly quoted with their /api/v1 prefix
-// (repo view's apiUrl, docs examples), but the factsync client appends
-// /api/v1/repos/... itself — storing the suffix would 404 every sync.
-func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) {
+// normalizeHostedBinding validates the target and strips a quoted /api/v1
+// suffix. Cell URLs are commonly quoted with that prefix (repo view's apiUrl,
+// docs examples), but the factsync client appends /api/v1/repos/... itself —
+// storing the suffix would 404 every sync. OptedOut is false: a fresh binding
+// is an opt-in.
+func normalizeHostedBinding(repoID, apiURL string) (hostedRepoBinding, error) {
 	if strings.TrimSpace(repoID) == "" {
 		return hostedRepoBinding{}, fmt.Errorf("hosted repo id is empty")
 	}
@@ -109,11 +110,43 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 	if err != nil {
 		return hostedRepoBinding{}, err
 	}
-	binding := hostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}
+	return hostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}, nil
+}
+
+// bindHostedRepo is the EXPLICIT connect write: it overwrites whatever is
+// there, including an opt-out — running connect is how the user opts back in.
+func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) {
+	binding, err := normalizeHostedBinding(repoID, apiURL)
+	if err != nil {
+		return hostedRepoBinding{}, err
+	}
 	if err := writeHostedRepoBinding(brainDir, binding); err != nil {
 		return hostedRepoBinding{}, err
 	}
 	return binding, nil
+}
+
+// bindHostedRepoIfNotOptedOut is the AUTO-CONNECT write: it re-checks for an
+// opt-out under the write lock, so a disconnect issued while placement was
+// resolving survives. Auto-connect may only maintain an existing opt-in, never
+// override an explicit opt-out. ok=false means the write was declined.
+func bindHostedRepoIfNotOptedOut(brainDir, repoID, apiURL string) (hostedRepoBinding, bool, error) {
+	binding, err := normalizeHostedBinding(repoID, apiURL)
+	if err != nil {
+		return hostedRepoBinding{}, false, err
+	}
+	declined := false
+	err = withBrainWriteLock(brainDir, func() error {
+		if existing, _, readErr := readHostedRepoBinding(brainDir); readErr == nil && existing.OptedOut {
+			declined = true
+			return nil
+		}
+		return writeHostedRepoBindingLocked(brainDir, binding)
+	})
+	if err != nil || declined {
+		return hostedRepoBinding{}, false, err
+	}
+	return binding, true, nil
 }
 
 // resolveHostedPlacement shells out to the host CLI for this repo's hosted

@@ -223,9 +223,9 @@ func TestRefreshStillFailsWhenTheHostCLIIsPresentAndTheExportBreaks(t *testing.T
 // aborted the run for the identical reason.
 //
 // The distinction is the same one the export draws, arrived at by probe rather
-// than by inference: a host CLI that is present but has no `graph` subcommand
-// is an installable plugin, the error already names `scripts/install.sh`, and
-// that stays fatal.
+// than by inference. A host CLI that is present but has no graph plugin
+// degrades too, by error shape — see
+// TestSemanticProviderAbsentErrorsAreTypedForDegradation.
 func TestSemanticProviderAbsenceFollowsTheHostCLI(t *testing.T) {
 	t.Parallel()
 	if hostCLISemanticProviderAbsent("some-other-graph-binary") {
@@ -236,5 +236,46 @@ func TestSemanticProviderAbsenceFollowsTheHostCLI(t *testing.T) {
 	}
 	if hostCLIOnPath() != !hostCLISemanticProviderAbsent(entireBinaryName) {
 		t.Error("naming the host CLI explicitly must answer the same as defaulting to it")
+	}
+}
+
+// TestSemanticProviderAbsentErrorsAreTypedForDegradation pins the error-shape
+// half of the line: an ABSENT graph provider (host CLI without the plugin, or
+// a graph binary missing from PATH) is typed errSemanticProviderAbsent so
+// refresh degrades the semantic stage instead of aborting the run. A provider
+// that is present and misbehaves is not typed and stays fatal.
+func TestSemanticProviderAbsentErrorsAreTypedForDegradation(t *testing.T) {
+	t.Parallel()
+	pluginMissing := semanticDoctorFailureError(entireBinaryName, []semanticWarning{{
+		Code:   "provider_doctor_failed",
+		Detail: "entire [graph doctor --json]: exit status 1: the entire-graph plugin is not installed; run 'entire plugin install graph' and retry",
+	}})
+	if !errors.Is(pluginMissing, errSemanticProviderAbsent) {
+		t.Errorf("a host CLI without the graph plugin is an absent provider: %v", pluginMissing)
+	}
+	if !strings.Contains(pluginMissing.Error(), "entire plugin install graph") {
+		t.Errorf("the degraded error must keep the CLI's own install command: %v", pluginMissing)
+	}
+	if strings.Contains(pluginMissing.Error(), "scripts/install.sh") {
+		t.Errorf("the CLI already named its install command; no second, older remedy: %v", pluginMissing)
+	}
+	notFound := semanticDoctorFailureError("entire-graph", []semanticWarning{{
+		Code:   "provider_doctor_failed",
+		Detail: `exec: "entire-graph": executable file not found in $PATH`,
+	}})
+	if !errors.Is(notFound, errSemanticProviderAbsent) {
+		t.Errorf("a graph binary missing from PATH is an absent provider: %v", notFound)
+	}
+	for _, present := range []struct {
+		name, code, detail string
+	}{
+		{"malformed doctor output", "provider_doctor_malformed", "unexpected end of JSON input"},
+		{"network required", "provider_network_required", "provider doctor reports network access is required"},
+		{"doctor crashed", "provider_doctor_failed", "exit status 2: panic: runtime error"},
+	} {
+		err := semanticDoctorFailureError("entire-graph", []semanticWarning{{Code: present.code, Detail: present.detail}})
+		if errors.Is(err, errSemanticProviderAbsent) {
+			t.Errorf("%s is a present-and-broken provider and must stay fatal: %v", present.name, err)
+		}
 	}
 }

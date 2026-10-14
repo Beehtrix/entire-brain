@@ -174,23 +174,18 @@ func parseRetrievalSource(value string) (string, error) {
 	}
 }
 
-// retrieveUnified ranks across facts + history + docs. Lexical (search) and
-// hybrid (query) include all three; vector (vsearch) covers facts + docs always,
-// and history only behind the fusion gate (a fusion-eligible embedder plus the
-// brain_cgo vec0 store with refresh-built vectors — see history_vec.go). The
-// gate exists because Model2Vec on history is a measured closed negative and
-// embedding hundreds of thousands of records per query is hours of work that
-// belongs in refresh. Missing layers are skipped, not errors.
+// retrieveUnified ranks across facts + history + docs, lexically: BM25 for
+// facts (facts_bm25.go), BM25/FTS with an in-memory fallback for history and
+// docs. Semantic retrieval was removed (trail #278), so every mode ranks the
+// same way; vsearch and --semantic survive only as compatibility aliases.
+// Missing layers are skipped, not errors.
 func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode retrievalMode) ([]unifiedResult, error) {
 	return retrieveUnifiedWithOptions(repoDir, brainDir, branch, query, limit, mode, retrievalOptions{})
 }
 
-// errConversationVectorUnsupported is the structured answer for explicit
-// vector search over the conversation source when the semantic arm is
-// unavailable: the arm requires the fusion-eligible embedder opt-in
-// (ENTIRE_BRAIN_EMBEDDER with a Gemma-class server), the brain_cgo build's
-// vec0 store, and refresh-built conversation vectors. Lexical search and query
-// keep working without any of that.
+// errConversationVectorUnsupported answers a direct modeVector call on the
+// conversation source. No CLI/MCP surface produces modeVector anymore (the
+// verbs alias to the lexical ranking); this guards internal callers.
 var errConversationVectorUnsupported = errors.New(`vector search was removed with semantic retrieval (trail #278); use query --source conversation for lexical recall`)
 
 func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {

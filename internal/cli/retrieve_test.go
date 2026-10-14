@@ -261,6 +261,15 @@ func executeExpectingMissing(t *testing.T, cmd *cobra.Command, args ...string) s
 	return out
 }
 
+// stripRetrievalWarnings drops leading warning lines the combined test writer
+// captures from stderr (real consumers read the streams separately).
+func stripRetrievalWarnings(out string) string {
+	if i := strings.IndexAny(out, "{["); i > 0 {
+		return out[i:]
+	}
+	return out
+}
+
 func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -288,7 +297,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 				t.Fatal(err)
 			}
 			var payload map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			if err := json.Unmarshal([]byte(stripRetrievalWarnings(out)), &payload); err != nil {
 				t.Fatal(err)
 			}
 			results = append(results, string(payload["results"]))
@@ -322,7 +331,7 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 				Branch  string          `json:"branch"`
 				Results []unifiedResult `json:"results"`
 			}
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			if err := json.Unmarshal([]byte(stripRetrievalWarnings(out)), &payload); err != nil {
 				t.Fatalf("decode retrieval JSON: %v\n%s", err, out)
 			}
 			if payload.Branch != "feature" {
@@ -427,7 +436,7 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 	assertPayload := func(t *testing.T, out string, wantBranch string, wantID string, forbiddenID string) payload {
 		t.Helper()
 		var got payload
-		if err := json.Unmarshal([]byte(out), &got); err != nil {
+		if err := json.Unmarshal([]byte(stripRetrievalWarnings(out)), &got); err != nil {
 			t.Fatalf("decode JSON: %v\n%s", err, out)
 		}
 		if got.Branch != wantBranch {
@@ -523,7 +532,7 @@ func TestQMDLimitAliasesAndPrecedence(t *testing.T) {
 			var payload struct {
 				Results []unifiedResult `json:"results"`
 			}
-			if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			if err := json.Unmarshal([]byte(stripRetrievalWarnings(out)), &payload); err != nil {
 				t.Fatalf("decode retrieval JSON: %v\n%s", err, out)
 			}
 			if len(payload.Results) != tc.want {

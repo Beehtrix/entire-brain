@@ -114,6 +114,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
+			warnRemovedSemanticAlias(cmd, use, selection.semantic)
 			return runRetrieve(cmd.Context(), cmd, opts, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
@@ -847,6 +848,16 @@ func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 			fmt.Fprintf(out, "      details: %s\n", strings.Join(details, "  "))
 		}
 	}
+}
+
+// warnRemovedSemanticAlias prints the one-line deprecation notice when a
+// caller reaches retrieval through a removed-semantic surface (the vsearch
+// verb or --semantic). stderr only, so JSON/CSV consumers are unaffected.
+func warnRemovedSemanticAlias(cmd *cobra.Command, use string, semanticFlag bool) {
+	if use != "vsearch" && !semanticFlag {
+		return
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), "warning: semantic retrieval was removed (trail #278); running the standard BM25 lexical ranking")
 }
 
 // querySelection is shared by local and workspace query commands.

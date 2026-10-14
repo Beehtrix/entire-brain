@@ -71,7 +71,9 @@ Re-run the benchmark to evaluate your current build and corpus.
 > retained as the historical record that gated earlier ship decisions; the
 > superseding row and its caveats (a marginal haiku-class recall edge for the
 > embedder, p=0.051) are in the [eval ledger](eval_ledger.md), and the
-> implementation is tracked in trail #278.
+> implementation is tracked in trail #278. The doc source was measured only
+> indirectly: its lexical-only ranking after the removal is an inference from
+> the facts result, not a doc-side eval.
 
 
 These are Brain measured against Brain — one retrieval arm against another on

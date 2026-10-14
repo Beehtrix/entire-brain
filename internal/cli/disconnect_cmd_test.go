@@ -106,6 +106,9 @@ func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
 		}
 	}
+	if !strings.Contains(out, "as before.\n\nRun") {
+		t.Fatalf("the hint must be its own paragraph, like the connected variant, got:\n%s", out)
+	}
 	assertHostedBannerLayout(t, out)
 }
 

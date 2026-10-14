@@ -1,0 +1,24 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "144c34cfe13e",
+  "strategy": "manual-commit",
+  "branch": "feat/bm25-facts-ranker",
+  "checkpoints_count": 1,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/14/4c34cfe13e/0/metadata.json",
+      "transcript": "/14/4c34cfe13e/0/full.jsonl",
+      "compact_transcript": "/14/4c34cfe13e/0/transcript.jsonl",
+      "content_hash": "/14/4c34cfe13e/0/content_hash.txt",
+      "prompt": "/14/4c34cfe13e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 76,
+    "cache_creation_tokens": 1435243,
+    "cache_read_tokens": 25161975,
+    "output_tokens": 16027,
+    "api_call_count": 38
+  }
+}

@@ -1,0 +1,24 @@
+2 things:
+
+!. what is the backwards compatability like here? it's all localy so there really shoudln't be an issue anyways? the fact fiel isn't changing format or anything...
+
+2. form this session: conductor://workspace?id=6be40f94-ec27-45e3-b2c6-5d99e8b21994
+
+we decided:
+
+Confirmed — yes, exactly, and it costs nothing: FTS isn’t a fallback for docs, it’s the always-on arm.
+
+The code at retrieve.go:447-485 runs docs through two independent arms:
+
+Lexical arm — runs in search and default query (hybrid) regardless of the embedder: FTS first, with an in-memory lexical scorer behind it (the comment is explicit: “FTS is an optimization, never load-bearing: fall back… so docs don’t vanish”).
+Vector arm — only adds an extra ranked list into the RRF fusion, and only when e != nil.
+So if you delete the embedder and docsVectorRanked, every existing consumer of the doc source (brain query, search, brief freshness checks) keeps working unchanged — results just come from lexical ranking alone. No API or output-shape change; capabilities --json reports doc semantic false per the same pattern plan step 4 already uses for facts.
+
+Two loose ends to fold into the plan:
+
+vsearch (vector mode) is the one real casualty. In vector mode docs get only the vector arm (mode != modeVector excludes FTS), and facts’ vector arm is being replaced too — so post-deletion, vsearch has no vector arm left at all. Retire it or alias it to keyword mode with a deprecation warning, mirroring the --semantic no-op treatment. The retrieve.go:184-185 contract comment (“vector (vsearch) covers facts + docs always”) needs updating either way.
+Quality caveat, stated honestly: doc-side lexical-only ranking is unmeasured — the eval only validated BM25 parity on facts. Doc chunks are heading-rich prose, which is favorable terrain for lexical matching, and the agent-reformulation finding should transfer, but it’s an inference, not a measured result. Fine to accept; just don’t cite the facts eval as proof for docs.
+So the revised plan step is: delete doc vectors + the doc embed cache, keep the doc source lexical-only, retire/alias vsearch — that’s what makes the 31 MB asset removal real without touching any doc-source consumer.
+
+
+ensure that the implementation covers these deciisons as well.

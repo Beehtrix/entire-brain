@@ -1,0 +1,17 @@
+this is merged: https://github.com/entireio/entire-brain/pull/366
+
+can we test and validate this locally now
+
+---
+
+<task-notification>
+<task-id>blb5gtxbh</task-id>
+<tool-use-id>toolu_01JnrjkW6aza5JnVn1yNCbqr</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kingstown/1152b409-736e-4941-90db-31fb5da3cc17/tasks/blb5gtxbh.output</output-file>
+<status>completed</status>
+<summary>Background command "Run one real watch tick with merged binary" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+how do we fix the provider foctor failed? i think that means that we shoudl remove graph as a required dependency.  we should still strongly encourgae graph use, but we shouldn't fail hard becaus eo fit

@@ -137,6 +137,46 @@ func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
 	}
 }
 
+func TestStatusHostedCorruptBranchMarkerWarnsInsteadOfNeverSynced(t *testing.T) {
+	opts, repoDir, brainDir := hostedStatusFixture(t)
+	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
+	const baseURL = "https://cell.api.example.com"
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedFactsBinding(brainDir, "feature", repoID, baseURL); err != nil {
+		t.Fatal(err)
+	}
+	markerPath := filepath.Join(brainDir, filepath.FromSlash(hostedFactsBindingPath("main")))
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := report.Hosted
+	if h == nil || h.State != "connected" {
+		t.Fatalf("state = %+v, want connected", h)
+	}
+	if len(h.SyncedBranches) != 1 || h.SyncedBranches[0] != "feature" {
+		t.Fatalf("synced branches = %v, want [feature]", h.SyncedBranches)
+	}
+	found := false
+	for _, w := range report.Warnings {
+		if strings.Contains(w, "main") && strings.Contains(w, "marker") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a corrupt branch marker must warn, not pose as never-synced: %v", report.Warnings)
+	}
+}
+
 func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"

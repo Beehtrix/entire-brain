@@ -1,5 +1,10 @@
 package cli
 
+import (
+	"fmt"
+	"strings"
+)
+
 // brainStatusHosted is the status report's hosted-brain connection section.
 // States: "connected" (repo binding present), "local_only" (no binding yet;
 // auto-connect keeps retrying), "disconnected" (the egress kill switch is set;
@@ -42,10 +47,26 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 		hosted.State = hostedStateConnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
+		// A broken marker is corruption, not "never synced" — report it like
+		// the unreadable top-level binding above instead of posing as a
+		// healthy unsynced branch. The two warnings cannot co-occur: markers
+		// are only inspected when the binding itself was readable.
+		var broken []string
+		var brokenErr error
 		for _, branch := range factBranches {
-			if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {
+			marker, markerPresent, markerErr := readHostedFactsBinding(brainDir, branch)
+			switch {
+			case markerErr != nil:
+				broken = append(broken, branch)
+				if brokenErr == nil {
+					brokenErr = markerErr
+				}
+			case markerPresent && marker.RepoID == binding.RepoID && marker.BaseURL == binding.BaseURL:
 				hosted.SyncedBranches = append(hosted.SyncedBranches, branch)
 			}
+		}
+		if len(broken) > 0 {
+			warning = fmt.Sprintf("hosted sync marker unreadable for branch(es) %s: %v", strings.Join(broken, ", "), brokenErr)
 		}
 	}
 	if brainNoEgressMode() {

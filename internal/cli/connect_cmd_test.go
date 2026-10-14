@@ -60,6 +60,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
 		}
 	}
+	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
 		t.Fatal(err)

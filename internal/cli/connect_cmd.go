@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
-	"github.com/entireio/entire-brain/internal/tui"
 
 	"github.com/spf13/cobra"
 )
@@ -87,11 +86,9 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	out := cmd.OutOrStdout()
-	render := tui.NewRenderer(out)
-	fmt.Fprintf(out, "%s %s\n\n", render.Mark(tui.MarkDone),
-		render.Bold("Connected: repo "+binding.RepoID+" is now syncing memories"))
-	fmt.Fprintln(out, render.Dim("  Memories sync periodically and at session end. Teammates' memories merge into this repo's local brain."))
+	renderHostedBanner(cmd.OutOrStdout(),
+		"Connected: repo "+binding.RepoID+" is now syncing memories",
+		"Memories sync periodically and at session end. Teammates' memories merge into this repo's local brain.")
 	// Connect doubles as the initial pull so a fresh clone receives team
 	// memories immediately; failures note and never fail the connect.
 	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))

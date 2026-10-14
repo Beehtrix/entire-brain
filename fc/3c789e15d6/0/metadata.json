@@ -1,0 +1,164 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "fc3c789e15d6",
+  "session_id": "3f79f69b-f188-41be-8f55-9c411c9603bb",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-14T20:58:38.641914Z",
+  "branch": "cor-2109-banner-spacing",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "d841bf4cec37",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 250,
+    "cache_creation_tokens": 1915912,
+    "cache_read_tokens": 20646548,
+    "output_tokens": 104486,
+    "api_call_count": 125
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_014NUBNrUDXyPYqj8MHfWgHN",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8037dbfc7eea",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 42,
+        "end": 43,
+        "entry_ids": [
+          "74787574-e94a-48c0-a972-514168a9e74a"
+        ],
+        "tool_use_id": "toolu_014NUBNrUDXyPYqj8MHfWgHN"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_014NUBNrUDXyPYqj8MHfWgHN"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01QbFc4aJ2jbXSBhkTD58oF2",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:test-driven-development"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8037dbfc7eea",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 160,
+        "end": 161,
+        "entry_ids": [
+          "e4aa1d2b-74e0-45c6-9f0d-5f9498a1b4d1"
+        ],
+        "tool_use_id": "toolu_01QbFc4aJ2jbXSBhkTD58oF2"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01QbFc4aJ2jbXSBhkTD58oF2"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:test-driven-development",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01BY7C6kZd44mLrAr2UrFHo1",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "commit-commands:commit"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8037dbfc7eea",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 329,
+        "end": 330,
+        "entry_ids": [
+          "0f0c6e7a-14c4-4c33-b6fa-c0b8f1d1ac79"
+        ],
+        "tool_use_id": "toolu_01BY7C6kZd44mLrAr2UrFHo1"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01BY7C6kZd44mLrAr2UrFHo1"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: commit-commands:commit",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01WpGKoTsmDZkW9TrTYjErWT",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "8037dbfc7eea",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 406,
+        "end": 407,
+        "entry_ids": [
+          "182f5013-b852-43b2-9dfa-3e110f5f300d"
+        ],
+        "tool_use_id": "toolu_01WpGKoTsmDZkW9TrTYjErWT"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01WpGKoTsmDZkW9TrTYjErWT"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 29,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/attachments/comments/github-PRRT_kwDOSm5-5c6sKWOV-4266745653.md": 29
+      }
+    }
+  ]
+}

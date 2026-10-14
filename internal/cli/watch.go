@@ -284,10 +284,13 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	cursor := loadWatchCursor(cursorPath)
 	// The hosted step pulls teammates' facts as much as it publishes local
 	// ones, so it must run on idle (no-change) ticks too — a machine that only
-	// receives would otherwise never sync. It is skipped on a failed refresh
-	// (callers below return before invoking it) and throttled by its own
-	// cursor timestamp, advanced regardless of outcome so a failing hosted
-	// endpoint cannot turn every tick into an egress attempt.
+	// receives would otherwise never sync. It runs on every exit path,
+	// including a failed refresh: a failed refresh never advances the main
+	// cursor, so a machine whose refresh always fails (e.g. the graph plugin
+	// is missing) takes that path on every tick and would otherwise be starved
+	// of the team's facts forever (COR-2114). It is token-free and throttled
+	// by its own cursor timestamp, advanced regardless of outcome so a failing
+	// hosted endpoint cannot turn every tick into an egress attempt.
 	runFactsSync := func() {
 		now := steps.now().UTC()
 		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
@@ -339,7 +342,9 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if err := steps.refresh(ctx); err != nil {
 			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
 			// The next tick retries the free refresh before attempting pending agent work.
+			// Hosted fact sync is not agent work and must not starve with refresh.
 			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+			runFactsSync()
 			return
 		}
 	}

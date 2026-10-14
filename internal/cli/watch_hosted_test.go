@@ -28,7 +28,7 @@ func TestWatchTickRunsHostedSyncAfterRefresh(t *testing.T) {
 	}
 }
 
-func TestWatchTickSkipsHostedSyncWhenRefreshFails(t *testing.T) {
+func TestWatchTickRunsHostedSyncWhenRefreshFails(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
@@ -36,9 +36,18 @@ func TestWatchTickSkipsHostedSyncWhenRefreshFails(t *testing.T) {
 	steps.factsSync = func(context.Context) error { synced++; return nil }
 	var out bytes.Buffer
 	var agentCalls int
+	// A failed refresh never advances the main cursor, so on a machine whose
+	// refresh always fails every tick takes this path: hosted sync must still
+	// run or the member never receives teammates' facts (COR-2114).
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
-	if synced != 0 {
-		t.Fatalf("hosted sync must not run when refresh failed, got %d", synced)
+	if synced != 1 {
+		t.Fatalf("hosted sync must run even when refresh failed, got %d", synced)
+	}
+	if !strings.Contains(out.String(), "refresh failed (skipping agent work this tick)") {
+		t.Fatalf("refresh failure must still skip agent work, got %q", out.String())
+	}
+	if readWatchCursor(t, cursorPath).LastFactsSyncAt.IsZero() {
+		t.Fatal("cursor must record the sync attempt so the throttle applies")
 	}
 }
 

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "894d40b7d422",
+  "strategy": "manual-commit",
+  "branch": "hosted-brain-local-connect-ux",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/89/4d40b7d422/0/metadata.json",
+      "transcript": "/89/4d40b7d422/0/full.jsonl",
+      "compact_transcript": "/89/4d40b7d422/0/transcript.jsonl",
+      "content_hash": "/89/4d40b7d422/0/content_hash.txt",
+      "prompt": "/89/4d40b7d422/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 9570,
+    "cache_read_tokens": 1502731,
+    "output_tokens": 5014,
+    "api_call_count": 9
+  }
+}

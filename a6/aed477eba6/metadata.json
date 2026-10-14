@@ -1,0 +1,36 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "a6aed477eba6",
+  "strategy": "manual-commit",
+  "branch": "cor-2109-linear-ticket",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/blind_spot.go",
+    "internal/cli/blind_spot_hosted_test.go",
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go",
+    "internal/cli/disconnect_cmd.go",
+    "internal/cli/disconnect_cmd_test.go",
+    "internal/cli/hosted_binding.go",
+    "internal/cli/hosted_binding_test.go",
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go",
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/a6/aed477eba6/0/metadata.json",
+      "transcript": "/a6/aed477eba6/0/full.jsonl",
+      "compact_transcript": "/a6/aed477eba6/0/transcript.jsonl",
+      "content_hash": "/a6/aed477eba6/0/content_hash.txt",
+      "prompt": "/a6/aed477eba6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 94,
+    "cache_creation_tokens": 475424,
+    "cache_read_tokens": 4541282,
+    "output_tokens": 44960,
+    "api_call_count": 47
+  }
+}

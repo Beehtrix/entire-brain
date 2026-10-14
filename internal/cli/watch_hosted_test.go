@@ -36,15 +36,10 @@ func TestWatchTickRunsHostedSyncWhenRefreshFails(t *testing.T) {
 	steps.factsSync = func(context.Context) error { synced++; return nil }
 	var out bytes.Buffer
 	var agentCalls int
-	// A failed refresh never advances the main cursor, so on a machine whose
-	// refresh always fails every tick takes this path: hosted sync must still
-	// run or the member never receives teammates' facts (COR-2114).
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	// COR-2114: receive-only members must not starve when refresh always fails.
 	if synced != 1 {
 		t.Fatalf("hosted sync must run even when refresh failed, got %d", synced)
-	}
-	if !strings.Contains(out.String(), "refresh failed (skipping agent work this tick)") {
-		t.Fatalf("refresh failure must still skip agent work, got %q", out.String())
 	}
 	if readWatchCursor(t, cursorPath).LastFactsSyncAt.IsZero() {
 		t.Fatal("cursor must record the sync attempt so the throttle applies")

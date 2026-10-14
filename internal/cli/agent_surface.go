@@ -76,6 +76,7 @@ type brainStatusReport struct {
 	Brain       brainStatusBrain      `json:"brain"`
 	Sources     brainStatusSources    `json:"sources"`
 	Facts       *brainStatusFacts     `json:"facts,omitempty"`
+	Hosted      *brainStatusHosted    `json:"hosted,omitempty"`
 	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
 	// Onboarding is the `setup` progress projection: fact-backfill counters,
@@ -1239,6 +1240,20 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		}
+	}
+	if h := report.Hosted; h != nil {
+		fmt.Fprintln(out, "\nHosted")
+		if h.State == hostedStateLocalOnly {
+			fmt.Fprintf(out, "  state: %s (no binding; will auto-connect when placement resolves)\n", hostedStateLabel(h.State))
+		} else {
+			fmt.Fprintf(out, "  state: %s\n", hostedStateLabel(h.State))
+		}
+		if h.RepoID != "" {
+			fmt.Fprintf(out, "  target: repo %s via %s\n", h.RepoID, h.BaseURL)
+		}
+		if len(h.SyncedBranches) > 0 {
+			fmt.Fprintf(out, "  synced branches: %s\n", strings.Join(h.SyncedBranches, ", "))
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
@@ -4594,6 +4609,13 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		report.Sources.Docs = manifest.Sources.Docs != nil
 	}
+	var factBranches []string
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		factBranches = manifest.Sources.Facts.Branches
+	}
+	hosted, hostedWarnings := buildHostedStatus(storage.BrainDir, factBranches)
+	report.Hosted = hosted
+	report.Warnings = append(report.Warnings, hostedWarnings...)
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {
 		report.Warnings = append(report.Warnings, "live state unavailable: "+liveErr.Error())

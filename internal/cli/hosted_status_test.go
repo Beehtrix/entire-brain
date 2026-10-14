@@ -1,0 +1,161 @@
+package cli
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// hostedStatusFixture builds the smallest brain whose status report can carry
+// hosted state: a manifest declaring two fact branches and nothing else.
+func hostedStatusFixture(t *testing.T) (Options, string, string) {
+	t.Helper()
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	env.RepoRoot = repoDir
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	now := time.Date(2026, 10, 14, 2, 0, 0, 0, time.UTC)
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manifest := exportManifest{
+		SchemaVersion: brainManifestSchemaVersion,
+		RepoKey:       storage.Key,
+		GeneratedAt:   now,
+		Sources: &brainSources{
+			Facts: &factSourceManifest{GeneratedAt: now, Branches: []string{"feature", "main"}},
+		},
+	}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
+		t.Fatal(err)
+	}
+	return opts, repoDir, storage.BrainDir
+}
+
+func TestStatusHostedLocalOnlyWithoutBinding(t *testing.T) {
+	opts, repoDir, _ := hostedStatusFixture(t)
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Hosted == nil {
+		t.Fatal("status must always report hosted state")
+	}
+	if report.Hosted.State != "local_only" {
+		t.Fatalf("state = %q, want local_only: %+v", report.Hosted.State, report.Hosted)
+	}
+	if report.Hosted.RepoID != "" || report.Hosted.BaseURL != "" {
+		t.Fatalf("local_only must not carry a target: %+v", report.Hosted)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "hosted: local-only") {
+		t.Fatalf("short status does not show hosted state:\n%s", out)
+	}
+}
+
+func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
+	opts, repoDir, brainDir := hostedStatusFixture(t)
+	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
+	const baseURL = "https://cell.api.example.com"
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: baseURL}); err != nil {
+		t.Fatal(err)
+	}
+	// main synced against this target; feature never synced; a stale marker
+	// pointing at another target must not count as synced.
+	if err := writeHostedFactsBinding(brainDir, "main", repoID, baseURL); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedFactsBinding(brainDir, "feature", "01OTHERREPOID0000000000000", "https://other.example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := report.Hosted
+	if h == nil || h.State != "connected" {
+		t.Fatalf("state = %+v, want connected", h)
+	}
+	if h.RepoID != repoID || h.BaseURL != baseURL {
+		t.Fatalf("target mismatch: %+v", h)
+	}
+	if len(h.SyncedBranches) != 1 || h.SyncedBranches[0] != "main" {
+		t.Fatalf("synced branches = %v, want [main]", h.SyncedBranches)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "status", "--verbose")
+	if err != nil {
+		t.Fatalf("status --verbose: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "Hosted") || !strings.Contains(out, "state: connected") {
+		t.Fatalf("verbose status has no Hosted section:\n%s", out)
+	}
+	if !strings.Contains(out, repoID) {
+		t.Fatalf("verbose status does not name the hosted target:\n%s", out)
+	}
+}
+
+func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
+	opts, repoDir, brainDir := hostedStatusFixture(t)
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := report.Hosted
+	if h == nil || h.State != "disconnected" {
+		t.Fatalf("state = %+v, want disconnected", h)
+	}
+	// The binding stays visible so the reader sees what the switch suppresses.
+	if h.RepoID == "" || h.BaseURL == "" {
+		t.Fatalf("disconnected must keep the suppressed target visible: %+v", h)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "hosted: disconnected") || !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("short status does not explain the kill switch:\n%s", out)
+	}
+}
+
+func TestStatusHostedCorruptBindingFallsBackWithWarning(t *testing.T) {
+	opts, repoDir, brainDir := hostedStatusFixture(t)
+	if err := os.WriteFile(filepath.Join(brainDir, hostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Hosted == nil || report.Hosted.State != "local_only" {
+		t.Fatalf("corrupt binding must fall back to local_only: %+v", report.Hosted)
+	}
+	found := false
+	for _, w := range report.Warnings {
+		if strings.Contains(w, "hosted") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("corrupt binding must surface a warning: %v", report.Warnings)
+	}
+}

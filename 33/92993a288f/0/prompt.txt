@@ -1,0 +1,147 @@
+wher eis the trail?
+
+---
+
+/review-pr
+
+---
+
+<task-notification>
+<task-id>aa79a1424bff6495b</task-id>
+<tool-use-id>toolu_01GP6ok9efU6Hepdo3jJ7ufi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-guangzhou/3f79f69b-f188-41be-8f55-9c411c9603bb/tasks/aa79a1424bff6495b.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings (3 material, all simplification-only):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd.go:56-68` — two full copy-pasted output blocks that differ only in three strings.**
+Cost: the banner format (`Mark(MarkDone)` + `Bold` headline + `Dim` detail lines) is written out twice in this function, plus a third time in `connect_cmd.go:92-94`; the mid-function `return nil` exists only to skip the second copy, and any future tweak to spacing/marks has to be made in three places (the tests already pin both variants' wording separately).
+Simpler form: pick the varying strings, then print once —
+```go
+headline := "Disconnected: this repository will not auto-connect to a hosted brain"
+details := []string{"  Your local brain keeps working exactly as before.", "  Run `entire brain connect` to join."}
+if binding.RepoID != "" {
+    headline = "Disconnected: repo " + binding.RepoID + " no longer syncs memories"
+    details = []string{"  Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.", "", "  Run `entire brain connect` to resume syncing."}
+}
+```
+followed by a single `Fprintf` + loop. Better still, since the diff introduces this shape three times, a tiny package-local helper (`printHostedNotice(out, headline string, details ...string)`) shared by connect and disconnect removes all the duplication and the early `return nil`.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/hosted_sync.go:46` — `if present &amp;&amp; binding.OptedOut` has a redundant conjunct.**
+Cost: it implies `OptedOut` can be true when `present` is false, so a reader has to go check `readHostedRepoBinding` to confirm it can't; it also visually competes with the `if !present` block right below it, suggesting the two gates are coupled when they aren't.
+Simpler form: `if binding.OptedOut { return nil }` — `readHostedRepoBinding` returns the zero binding whenever `present` is false, so the flag is already false there.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/connect_cmd.go:73` — same redundancy in the re-connect fallback: `readErr == nil &amp;&amp; present &amp;&amp; existing.RepoID != ""`.**
+Cost: three conditions where two carry information; `present` is strictly implied by the newly added `existing.RepoID != ""` (an absent file yields the zero binding), so the condition reads as if the empty-RepoID case were only possible when present.
+Simpler form: `if existing, _, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil &amp;&amp; existing.RepoID != "" {`.
+
+Nothing else material: no dead code left from the `whereami` → `repo view` rename (the type, function, comments and tests were all renamed consistently), and `OptedOut` isn't derivable from other state so the new field is justified.</result>
+<usage><subagent_tokens>51754</subagent_tokens><tool_uses>8</tool_uses><duration_ms>59092</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a34a6d78023813270</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-guangzhou/3f79f69b-f188-41be-8f55-9c411c9603bb/tasks/a34a6d78023813270.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Altitude review: `entire brain disconnect`
+
+Overall the depth is mostly right: the opt-out lives in the existing binding file (no new state file, no new resolution path), `disconnect` works whether or not the repo was ever connected, and the gate sits at the top of the one shared sync entry point rather than in each of its three callers (watch tick, session hook, connect). Four places where the change sits a layer shallower than it should.
+
+---
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/hosted_sync.go:46`** — the opt-out is enforced per-consumer, not at the hosted-egress policy layer.
+
+- Cost: `hostedFactsSyncAndPull` and `unsyncedHostedFactsBlindSpot` each got their own check, but the other hosted egress path — `buildFactsSyncBackend`'s http case at `internal/cli/facts_sync_cmd.go:566` — never reads the binding and so publishes happily from an opted-out repo. `disconnect`'s own help text ("memories stop publishing and pulling") is already wrong for that path. Symmetrically, `blind_spot.go` checks the opt-out but not `brainNoEgressMode()`, so a no-egress repo still gets nagged to "run `entire brain connect`". The predicate "may this repo talk to a hosted brain" is now spelled three different partial ways.
+- Deeper alternative: put a repo-scoped `hostedEgressDisabled(brainDir) bool` next to `brainNoEgressMode()` in `agent_policy.go` (kill switch OR recorded opt-out) and have all three sites call it. One predicate, and future hosted callers inherit it instead of having to remember.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/hosted_binding.go:37`** — `readHostedRepoBinding` still returns a two-flag encoding of what is now a three-state value.
+
+- Cost: callers must combine `present` with `binding.OptedOut` and each does it differently: `hosted_sync.go:46` writes `present &amp;&amp; binding.OptedOut` (the `present &amp;&amp;` is unreachable — `OptedOut` can only be true when the file exists), `blind_spot.go:250` writes `!connected || binding.OptedOut`. A caller that forgets the field gets the silent-sync failure mode, with nothing in the signature to stop it.
+- Deeper alternative: return the tri-state the file actually encodes (`hostedBindingAbsent / Active / OptedOut`), or keep `readHostedRepoBinding` for coordinate readers and add `hostedSyncTarget(brainDir) (hostedRepoBinding, bool, error)` that returns `ok=false` for an opted-out repo. Then `connect` (which deliberately wants the coordinates *through* the opt-out) is the one explicit exception rather than two sites enforcing a rule by convention.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/connect_cmd.go:112`** — connect clears the opt-out by accident of struct construction, not by intent.
+
+- Cost: `bindHostedRepo` builds a fresh `hostedRepoBinding{RepoID:..., BaseURL:...}`, so `OptedOut` resets because the literal omits it. The documented "connect clears the opt-out" behavior is invisible at the call site and untraceable by grep from `OptedOut`. The next field added to `hostedRepoBinding` (last-synced time, cell region, anything) will be silently wiped by every connect for the same reason.
+- Deeper alternative: make the clear explicit (`binding.OptedOut = false` with the one-line why), or make `bindHostedRepo` a read-modify-write that only touches the fields it owns, so "what connect resets" is a statement rather than an omission.
+
+**4. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd.go:45-52`** — the command owns the read-modify-write and the corrupt-file policy.
+
+- Cost: the opt-out mutation and the "a corrupt binding is replaced by a bare one" rule sit in the cobra handler, where only `disconnect` benefits, and the opposite mutation (clear) lives in `connect_cmd.go` with no shared home. It also means the corrupt-file branch silently discards the coordinates the file comment at `hosted_binding.go:14-17` says an opt-out preserves — a policy decision made at the UI layer about data the binding layer owns.
+- Deeper alternative: one `setHostedOptOut(brainDir string, out bool) error` in `hosted_binding.go` that does the locked read-modify-write and owns the corrupt-file policy; `disconnect` calls it with `true`, `connect` with `false`. The command keeps only the thing it is for — resolving the repo and printing the result.</result>
+<usage><subagent_tokens>54050</subagent_tokens><tool_uses>10</tool_uses><duration_ms>86129</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ad26592385d6e9ee1</task-id>
+<tool-use-id>toolu_01CPQ7eAMonJrYA1eRmvpWuL</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-guangzhou/3f79f69b-f188-41be-8f55-9c411c9603bb/tasks/ad26592385d6e9ee1.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings (efficiency only, 4 material):
+
+**1. `internal/cli/watch.go:464-477` (via new gate at `internal/cli/hosted_sync.go:46`) — the opt-out is checked too deep, so an opted-out repo still pays the tick's full setup.**
+The daemon tick's `factsSync` closure runs `repoStoragePaths` (git shell-outs for repo identity) and `hostedSyncBranch` (a `git branch --show-current` subprocess), then calls `hostedFactsSyncAndPull` twice — each call opens, reads and unmarshals `hosted.json` only to hit the new `if present &amp;&amp; binding.OptedOut { return nil }` and do nothing. Cost: ~1 extra subprocess plus 2 redundant state-file reads per repo per 15-minute tick, forever, for a repo the user explicitly told the daemon to leave alone (multiplied by repo count in the workspace fan-out).
+Cheaper: read the binding once in the `factsSync` closure right after `repoStoragePaths`, return early on `OptedOut` before `hostedSyncBranch`, and pass the already-read `hostedRepoBinding` into `hostedFactsSyncAndPull` instead of having it re-read the file per branch.
+
+**2. `internal/cli/hosted_sync.go:41` — `hostedFactsSyncAndPull` re-reads and re-parses `hosted.json` on every invocation, and all three callers invoke it per-branch.**
+`internal/cli/hook_cmd.go:159` loops 2 branches at session end (a per-session path) and `watch.go:470/474` does the same per tick; the binding is identical for both branches, so the second read is pure waste — and with the new opt-out it is now a read whose only outcome is an immediate `return nil`.
+Cheaper: hoist the read to the caller (or add a `hostedFactsSyncAndPullWithBinding(binding, ...)` variant) so the file is read once per trigger rather than once per branch.
+
+**3. `internal/cli/connect_cmd.go:73 / 86 / 97` — connect reads `hosted.json`, writes it, then immediately reads it back.**
+The no-flag fallback reads the binding (line 73), `bindHostedRepo` validates and writes it under `withBrainWriteLock` (line 86), and then `hostedFactsSyncAndPull` (line 97) opens and unmarshals the exact bytes just written, discarding the in-hand `binding` value. Three I/O round trips plus a lock acquisition where one write suffices; one-shot command so the cost is small, but it is free to remove.
+Cheaper: same fix as #2 — pass `binding` (already returned at line 86) into the sync call.
+
+**4. `internal/cli/hosted_sync.go:50-57` — `entire repo view --json` is now the per-tick auto-connect probe, un-cached, and it is a broader command than the `whereami` it replaces.**
+`repo view` returns the whole repo record (the test fixture shows `name` and friends alongside `repoId`/`apiUrl`) where only two fields are consumed, and it is still spawned on every throttled tick for any repo that cannot resolve (logged out, unregistered, old host CLI) — the retained "ponytail" comment acknowledges this but the diff does not act on it, even though it just introduced the state file field where a negative could live.
+Cheaper: record a `placement_unresolved_at` stamp next to the new `opted_out` field in `hosted.json` (or a `LastPlacementProbeAt` on the watch cursor, which is already lock-managed) and back the probe off to e.g. hourly instead of per 15-minute tick.
+
+Nothing material found on the long-lived-closure or sequential-independent-operations axes: the new `disconnect` command is a single read/modify/write with no added shell-outs, and the `tui.NewRenderer` calls in `connect_cmd.go:91` and `disconnect_cmd.go:57` are one-per-command (`DetectCaps` + one env lookup), not hot.</result>
+<usage><subagent_tokens>63315</subagent_tokens><tool_uses>16</tool_uses><duration_ms>110494</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a6ce02ae9a9f49f5c</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-guangzhou/3f79f69b-f188-41be-8f55-9c411c9603bb/tasks/a6ce02ae9a9f49f5c.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reuse review of `git diff origin/main...HEAD` (disconnect command, hosted opt-out, connect output, `repo view` rename). Five findings, highest value first.
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd.go:61,67` — hardcoded `entire brain connect` in printed hints instead of the resolved command prefix.**
+The repo already resolves which of the two spellings the reader actually typed. On a standalone install (no `ENTIRE_CLI_VERSION`), the binary is `entire-brain` and `entire brain connect` is a command the user's shell cannot run — exactly the failure the existing helper was written to prevent (see the doc comment on `setupCommandPrefix`). Cost: a dead-end next step printed at the one moment the user most needs it.
+Use: `brainCmd := setupCommandPrefix(os.LookupEnv)` then `setupBrainCommand(brainCmd)+" connect"`, as `internal/cli/setup.go:512-514` and `internal/cli/status_render.go:313` do. (`internal/cli/setup_invocation.go:43,58`.) The `Long` text at line 21 is prose and can stay.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd.go:57-67` + `connect_cmd.go:92-94` — the same "done mark + bold headline + indented dim detail" banner is open-coded three times.**
+Cost: three copies of the `"%s %s\n\n"` + two-space-indent convention that will drift (the disconnect branches already differ in whether a blank line separates the hint), and no test seam — the tests assert on substrings of raw output instead.
+Use: the codebase's own convention of a `*_render.go` function taking `(out io.Writer, render *tui.Renderer, ...)` — e.g. `renderSetupSummary` (`internal/cli/setup_render.go:147`), `renderBrainStatusShort` (`internal/cli/status_render.go:402`). One `renderHostedConnectionResult(out, render, binding, connected, brainCmd)` covers all three sites and pairs naturally with fix 1.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd_test.go:11-20` — `runDisconnectCommand` re-implements the package's existing cobra exec/capture helper.**
+Cost: a fourth private spelling of the same five lines; new commands keep copying it.
+Use: `execute(t, cmd, args...)` at `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/root_test.go:17` — `execute(t, newDisconnectCommand(opts))` is a drop-in here (disconnect writes only to stdout). Related: `disconnectTestOptions` (line 23) rebuilds the `env + failing runner + Options + repoStoragePaths` quadruple that `connect_cmd_test.go` builds inline in every test; since both files already share `connectTestEnv`, one shared `hostedTestOptions(t, repoDir)` would serve both.
+
+**4. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/hosted_sync.go:46` and `blind_spot.go:250` — the "is this repo actually hosted-active?" predicate is now spelled three different ways.**
+`hosted_sync.go` says `present &amp;&amp; binding.OptedOut`, `blind_spot.go` says `!connected || binding.OptedOut`, and `connect_cmd.go:73` says `present &amp;&amp; existing.RepoID != ""`. Cost: the next consumer of `hosted.json` (status/doctor surfaces already read bindings) has to re-derive the gate and will likely forget `OptedOut`, silently re-enabling sync or re-raising the blind spot for a disconnected repo.
+Use: put the gate on the type in `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/hosted_binding.go` next to `readHostedRepoBinding` — e.g. a `func (b hostedRepoBinding) syncEnabled(present bool) bool` — and call it from all three sites. That file is already the single owner of this state's shape and normalization.
+
+**5. `/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/disconnect_cmd.go:30-41` — the resolve/local-check/storage preamble is copied verbatim from `connect_cmd.go:52-63`.**
+Low priority and honest caveat: this 12-line block is the house idiom at ~30 call sites, so the diff is consistent with the codebase and I would not block on it. Cost is only that hosted commands now have four copies. If you want it factored, the natural home is next to `repoStoragePaths` (`/Users/evisdrenova/conductor/workspaces/entire-brain/guangzhou/internal/cli/env.go:296`) as a `localRepoStorage(ctx, opts, verb) (string, repoStorage, error)`, following the precedent of `openEntityIndexStore` (`internal/cli/entities_cmd.go:548`), which already bundles the same three steps for one subsystem.
+
+Nothing else in the diff re-implements an existing helper — the binding read/write, atomic state-file write, `decodeHostCLIJSON`, `hostedShellOutTimeout`, and `hostedFactsSyncAndPull` reuse are all correct, and the `whereami` → `repo view` rename is a faithful in-place rename rather than a parallel code path.</result>
+<usage><subagent_tokens>73957</subagent_tokens><tool_uses>25</tool_uses><duration_ms>134703</duration_ms></usage>
+</task-notification>
+
+---
+
+apply the race fixes

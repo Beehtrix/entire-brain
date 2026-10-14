@@ -53,6 +53,7 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 	}
 	renderHostedBanner(cmd.OutOrStdout(),
 		"Disconnected: this repository will not auto-connect to a hosted brain",
-		"Your local brain keeps working exactly as before.\nRun `entire brain connect` to join.")
+		"Your local brain keeps working exactly as before.",
+		"Run `entire brain connect` to join.")
 	return nil
 }

@@ -1,0 +1,37 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "3d94de152ec0",
+  "strategy": "manual-commit",
+  "branch": "cor-2109-banner-layout",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "internal/cli/connect_cmd.go",
+    "internal/cli/connect_cmd_test.go",
+    "internal/cli/disconnect_cmd.go",
+    "internal/cli/disconnect_cmd_test.go",
+    "internal/cli/hosted_render.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3d/94de152ec0/0/metadata.json",
+      "transcript": "/3d/94de152ec0/0/full.jsonl",
+      "compact_transcript": "/3d/94de152ec0/0/transcript.jsonl",
+      "content_hash": "/3d/94de152ec0/0/content_hash.txt",
+      "prompt": "/3d/94de152ec0/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 224,
+    "cache_creation_tokens": 1658711,
+    "cache_read_tokens": 17445843,
+    "output_tokens": 96682,
+    "api_call_count": 112,
+    "subagent_tokens": {
+      "input_tokens": 94,
+      "cache_creation_tokens": 222065,
+      "cache_read_tokens": 1972054,
+      "output_tokens": 29434,
+      "api_call_count": 47
+    }
+  }
+}

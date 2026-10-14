@@ -425,9 +425,6 @@ func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
 // holds — rewriting it could silently replace an explicitly configured custom
 // target with default placement and redirect publishes to another repo.
 func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("file-permission read errors do not apply to root")
-	}
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -439,11 +436,10 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 		}
 		return nil, nil, errors.New("not available")
 	})
+	// A directory at the binding path fails the read with a non-parse error on
+	// every platform; chmod 0o000 is a read no-op on Windows.
 	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
-	if err := os.WriteFile(bindingPath, []byte(`{"repo_id":"custom","base_url":"https://staging.example.com"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(bindingPath, 0o000); err != nil {
+	if err := os.Mkdir(bindingPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -454,15 +450,12 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 	if fake.requestCount() != 0 {
 		t.Fatalf("an unreadable binding must not sync anywhere, got %d requests", fake.requestCount())
 	}
-	if err := os.Chmod(bindingPath, 0o600); err != nil {
-		t.Fatal(err)
+	if info, err := os.Stat(bindingPath); err != nil || !info.IsDir() {
+		t.Fatalf("unreadable binding must survive untouched: info=%v err=%v", info, err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
-	if err != nil || !present || binding.RepoID != "custom" {
-		t.Fatalf("unreadable binding must survive untouched, got present=%v err=%v %+v", present, err, binding)
-	}
-	if !strings.Contains(errOut.String(), "skipped") {
-		t.Fatalf("skip must be reported: %q", errOut.String())
+	out := errOut.String()
+	if !strings.Contains(out, "skipped") || strings.Contains(out, "re-resolving") {
+		t.Fatalf("a read failure must skip without re-resolution: %q", out)
 	}
 }
 

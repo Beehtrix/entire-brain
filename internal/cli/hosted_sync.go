@@ -38,8 +38,11 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		// A corrupt binding must not strand the repo: status reports it as
+		// local_only ("auto-connect will retry"), so treat it exactly like an
+		// absent binding and let a successful resolution rewrite the file.
+		fmt.Fprintf(errW, "hosted sync: invalid binding, attempting re-resolve: %v\n", err)
+		present = false
 	}
 	if !present {
 		// Auto-connect: placement comes from the host CLI (whereami), which

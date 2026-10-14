@@ -380,6 +380,45 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	}
 }
 
+// TestHostedSyncRepairsCorruptBinding pins the self-heal contract status
+// relies on: status reports a corrupt binding as local_only ("auto-connect
+// will retry"), so the sync path must actually treat it as absent and
+// re-resolve, not return early and leave the repo stuck.
+func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
+	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
+	remoteFact := hostedSyncTestFact("team fact after repair", now)
+	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
+	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
+			return []byte(`{"repo_id":"repo1","api_url":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, hostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present {
+		t.Fatalf("corrupt binding must be repaired by auto-connect: present=%v err=%v\nstderr: %s", present, err, errOut.String())
+	}
+	if binding.RepoID != "repo1" || binding.BaseURL != baseURL {
+		t.Fatalf("repaired binding mismatch: %+v", binding)
+	}
+	if fake.requestCount() == 0 {
+		t.Fatal("repair must continue into the sync, not just rewrite the file")
+	}
+}
+
 func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)

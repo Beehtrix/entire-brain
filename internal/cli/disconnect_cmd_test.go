@@ -66,6 +66,21 @@ func TestDisconnectRecordsOptOutKeepingCoordinates(t *testing.T) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
 		}
 	}
+	assertHostedBannerLayout(t, out)
+}
+
+// assertHostedBannerLayout pins the shared banner shape: one blank line before
+// the headline, and every line left-aligned (no indentation).
+func assertHostedBannerLayout(t *testing.T, out string) {
+	t.Helper()
+	if !strings.HasPrefix(out, "\n") {
+		t.Fatalf("banner must open with a blank line, got %q", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, " ") {
+			t.Fatalf("banner lines must be left-aligned, got indented line %q in:\n%s", line, out)
+		}
+	}
 }
 
 func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
@@ -91,6 +106,7 @@ func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
 		}
 	}
+	assertHostedBannerLayout(t, out)
 }
 
 func TestDisconnectIsIdempotent(t *testing.T) {

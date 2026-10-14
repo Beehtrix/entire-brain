@@ -3,8 +3,6 @@ package cli
 import (
 	"fmt"
 
-	"github.com/entireio/entire-brain/internal/tui"
-
 	"github.com/spf13/cobra"
 )
 
@@ -46,19 +44,15 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 		return fmt.Errorf("disconnect: %w", err)
 	}
 
-	out := cmd.OutOrStdout()
-	render := tui.NewRenderer(out)
 	if binding.RepoID != "" {
-		fmt.Fprintf(out, "%s %s\n\n", render.Mark(tui.MarkDone),
-			render.Bold("Disconnected: repo "+binding.RepoID+" no longer syncs memories"))
-		fmt.Fprintln(out, render.Dim("  Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store."))
-		fmt.Fprintln(out)
-		fmt.Fprintln(out, render.Dim("  Run `entire brain connect` to resume syncing."))
+		renderHostedBanner(cmd.OutOrStdout(),
+			"Disconnected: repo "+binding.RepoID+" no longer syncs memories",
+			"Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.",
+			"Run `entire brain connect` to resume syncing.")
 		return nil
 	}
-	fmt.Fprintf(out, "%s %s\n\n", render.Mark(tui.MarkDone),
-		render.Bold("Disconnected: this repository will not auto-connect to a hosted brain"))
-	fmt.Fprintln(out, render.Dim("  Your local brain keeps working exactly as before."))
-	fmt.Fprintln(out, render.Dim("  Run `entire brain connect` to join."))
+	renderHostedBanner(cmd.OutOrStdout(),
+		"Disconnected: this repository will not auto-connect to a hosted brain",
+		"Your local brain keeps working exactly as before.\nRun `entire brain connect` to join.")
 	return nil
 }

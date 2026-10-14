@@ -344,9 +344,9 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			// whereami quotes the cell URL with its /api/v1 prefix; binding must strip it.
-			return []byte(`{"repo_id":"repo1","api_url":"` + baseURL + `/api/v1"}` + "\n"), nil, nil
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			// repo view quotes the cell URL with its /api/v1 prefix; binding must strip it.
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `/api/v1","name":"test/repo"}` + "\n"), nil, nil
 		}
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
@@ -383,8 +383,8 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	// Harness runner answers only `auth token`; whereami fails like a CLI
-	// without COR-2029, a logged-out user, or an unregistered repo.
+	// Harness runner answers only `auth token`; repo view fails like a CLI
+	// without placement support, a logged-out user, or an unregistered repo.
 	var errOut bytes.Buffer
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("unresolvable placement must be a graceful local fallback, got %v", err)
@@ -400,12 +400,36 @@ func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	}
 }
 
+func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: baseURL, OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+	shellOuts := 0
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		shellOuts++
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if shellOuts != 0 || fake.requestCount() != 0 {
+		t.Fatalf("an opted-out repo must make no shell-outs and no requests, got shellOuts=%d requests=%d", shellOuts, fake.requestCount())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("an opted-out repo must be silent, got %q", errOut.String())
+	}
+}
+
 func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	whereamiCalls := 0
+	placementCalls := 0
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		whereamiCalls++
+		placementCalls++
 		return nil, nil, errors.New("not available")
 	})
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
@@ -413,8 +437,8 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	if whereamiCalls != 0 || fake.requestCount() != 0 {
-		t.Fatalf("NO_EGRESS must block even placement resolution, got whereami=%d requests=%d", whereamiCalls, fake.requestCount())
+	if placementCalls != 0 || fake.requestCount() != 0 {
+		t.Fatalf("NO_EGRESS must block even placement resolution, got placement=%d requests=%d", placementCalls, fake.requestCount())
 	}
 }
 

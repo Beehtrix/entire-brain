@@ -6,13 +6,19 @@ import (
 	"strings"
 )
 
-// hostedRepoBinding is the repo-level "connected to a hosted brain" marker,
-// written once by `entire brain connect`. Only non-secrets live here; tokens
-// are minted per call (see mintHostedToken). The per-branch
+// hostedRepoBinding is the repo-level hosted-brain connection state, written
+// by `entire brain connect` and `entire brain disconnect`. Only non-secrets
+// live here; tokens are minted per call (see mintHostedToken). The per-branch
 // hosted-target.json (hostedFactsBinding) records which branches have synced.
+//
+// OptedOut records an explicit `disconnect`: no sync and no auto-connect until
+// `connect` rewrites the binding. The coordinates are kept through an opt-out
+// so re-connecting works without placement resolution. Disconnect never purges
+// memories already pulled into the local store.
 type hostedRepoBinding struct {
-	RepoID  string `json:"repo_id"`
-	BaseURL string `json:"base_url"`
+	RepoID   string `json:"repo_id"`
+	BaseURL  string `json:"base_url"`
+	OptedOut bool   `json:"opted_out,omitempty"`
 }
 
 const hostedRepoBindingFile = "hosted.json"

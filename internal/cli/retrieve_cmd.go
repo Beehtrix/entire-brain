@@ -69,11 +69,11 @@ type retrievalTaskHints struct {
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
 func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 for history and docs; token-overlap for facts)")
+	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across facts and docs (history and conversation join with a Gemma-class embedder on the brain_cgo build)")
+	return newRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
@@ -863,7 +863,9 @@ func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
 		return modeLexical, nil
 	}
 	if s.semantic {
-		return modeVector, nil
+		// Semantic retrieval was removed (trail #278); the flag is honored as
+		// a compatibility alias for the default BM25 ranking.
+		return modeHybrid, nil
 	}
 	return fallback, nil
 }
@@ -880,7 +882,7 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 	cmd.Long = cmd.Short + ". Supply the text positionally or with --query. Flags may appear before or after the text."
 	cmd.Flags().StringVar(&selection.text, "query", "", "Query text (alternative to the positional query)")
 	cmd.Flags().BoolVar(&selection.keyword, "keyword", false, "Match keywords and identifiers only")
-	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Match meaning using vector similarity only")
+	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Compatibility alias: semantic retrieval was removed; ranking is BM25 lexical")
 	cmd.MarkFlagsMutuallyExclusive("keyword", "semantic")
 	cmd.Args = func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().Changed("query") {

@@ -416,7 +416,7 @@ func memoryVectorProgressHealth(brainDir string, source *historySourceManifest) 
 			switch loadErr.State {
 			case memoryVectorProgressUnsupported:
 				state = "unsupported"
-			case memoryVectorProgressUnsafe:
+			case memoryVectorProgressReadState("unsafe"):
 				state = "unsafe"
 			}
 		}

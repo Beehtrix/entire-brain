@@ -34,51 +34,6 @@ func (*wrongDimensionQueryEmbedder) EmbedQuery(string) []float32 { return []floa
 func (*wrongDimensionQueryEmbedder) Dim() int                    { return 2 }
 func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong-query-dimension" }
 
-func TestVectorRankedReturnsNothingWhenEmbedderUnavailable(t *testing.T) {
-	dir := t.TempDir()
-	facts := []factRecord{{ID: "fact:a", Text: "alpha"}, {ID: "fact:b", Text: "beta"}}
-	if out := factsVectorRanked(dir, "main", facts, "q", emptyEmbedder{}, 10, nil); len(out) != 0 {
-		t.Fatalf("facts: empty embedder must yield no semantic results, got %d (arbitrary top-N)", len(out))
-	}
-	idx := docIndex{Records: []docRecord{{ID: "d1", Text: "x"}, {ID: "d2", Text: "y"}}}
-	if out := docsVectorRanked(dir, idx, "q", emptyEmbedder{}, 10, false, nil); len(out.ranked) != 0 {
-		t.Fatalf("docs: empty embedder must yield no semantic results, got %d", len(out.ranked))
-	}
-}
-
-func TestVectorRankedWrongDimensionQueryPreservesCaches(t *testing.T) {
-	dir := t.TempDir()
-	e := &wrongDimensionQueryEmbedder{}
-	fact := factRecord{ID: "fact:valid", Text: "valid fact", Status: factStatusActive}
-	factStore := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	factPresent := map[string]struct{}{fact.ID: {}}
-	if err := factStore.savePresent(map[string][]float32{fact.ID: {1, 0}}, factPresent); err != nil {
-		t.Fatal(err)
-	}
-	doc := docRecord{ID: "valid", Text: "valid doc"}
-	docStore := newDocEmbedStore(dir, e.ID(), e.Dim())
-	docPresent := map[string]struct{}{doc.ID: {}}
-	if err := docStore.savePresent(map[string][]float32{doc.ID: {1, 0}}, docPresent); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := factsVectorRanked(dir, "main", []factRecord{fact}, "bad query", e, 1, nil); len(got) != 0 {
-		t.Fatalf("wrong-dimension fact query returned semantic results: %+v", got)
-	}
-	if got := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "bad query", e, 1, false, nil); len(got.ranked) != 0 {
-		t.Fatalf("wrong-dimension doc query returned semantic results: %+v", got.ranked)
-	}
-	if got := factStore.load()[fact.ID]; !vectorHasMagnitude(got) {
-		t.Fatalf("wrong-dimension query damaged the valid fact cache: %v", got)
-	}
-	if got := docStore.load()[doc.ID]; !vectorHasMagnitude(got) {
-		t.Fatalf("wrong-dimension query damaged the valid doc cache: %v", got)
-	}
-	if len(e.embeds) != 0 {
-		t.Fatalf("wrong-dimension query should fail before re-embedding documents: %v", e.embeds)
-	}
-}
-
 func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, docDirName), 0o755); err != nil {
@@ -138,123 +93,6 @@ func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 	out := rrfMergeUnified(lists, 10)
 	if len(out) != 3 || out[0].ID != "b" {
 		t.Fatalf("expected b (in both lists) ranked first, got %v", out)
-	}
-}
-
-func TestFactsVectorRankedRanksActiveButCachesAll(t *testing.T) {
-	dir := t.TempDir()
-	e := defaultEmbedder()
-	facts := []factRecord{
-		{ID: "fact:act", Text: "active checkpoint logic", Status: factStatusActive},
-		{ID: "fact:sup", Text: "superseded note", Status: factStatusSuperseded},
-	}
-	out := factsVectorRanked(dir, "main", facts, "checkpoint", e, 10, nil)
-	// vsearch ranks active facts only.
-	if len(out) != 1 || out[0].ID != "fact:act" {
-		t.Fatalf("expected only the active fact ranked, got %v", out)
-	}
-	// But every present fact is cached on the shared store, matching the reranker's
-	// retain-all convention (so vsearch doesn't churn the recall/brief cache).
-	cache := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim()).load()
-	if _, ok := cache["fact:act"]; !ok {
-		t.Fatal("active fact vector should be cached")
-	}
-	if _, ok := cache["fact:sup"]; !ok {
-		t.Fatal("superseded fact vector should still be cached, not evicted")
-	}
-}
-
-func TestFactsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
-	dir := t.TempDir()
-	fact := factRecord{ID: "fact:repair", Text: "durable checkpoint policy", Status: factStatusActive}
-	e := &fakeFusionEmbedder{vecs: map[string][]float32{
-		"repair query":          {1, 0},
-		factEmbeddingText(fact): {1, 0},
-	}}
-	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
-
-	out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1, nil)
-	if len(out) != 1 || out[0].ID != fact.ID {
-		t.Fatalf("invalid cached fact vector was not repaired: %+v", out)
-	}
-	if got := store.load()[fact.ID]; !vectorHasMagnitude(got) {
-		t.Fatalf("repaired fact vector was not persisted: %v", got)
-	}
-	if len(e.embeds) != 2 || e.embeds[1] != factEmbeddingText(fact) {
-		t.Fatalf("expected query plus one fact re-embed, got %v", e.embeds)
-	}
-}
-
-func TestFactsVectorRankedRejectsInvalidCachedVectorWhenRepairFails(t *testing.T) {
-	dir := t.TempDir()
-	fact := factRecord{ID: "fact:invalid", Text: "durable checkpoint policy", Status: factStatusActive}
-	e := &fakeFusionEmbedder{
-		vecs: map[string][]float32{"repair query": {1, 0}},
-		fail: func(text string) bool { return text == factEmbeddingText(fact) },
-	}
-	store := newVectorStore(dir, "main", factEmbeddingModelID(e.ID()), e.Dim())
-	seedPersistedZeroVector(t, store, fact.ID, e.Dim())
-
-	if out := factsVectorRanked(dir, "main", []factRecord{fact}, "repair query", e, 1, nil); len(out) != 0 {
-		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out)
-	}
-	if _, ok := store.load()[fact.ID]; ok {
-		t.Fatal("failed repair exposed an invalid fact vector")
-	}
-}
-
-func TestDocsVectorRankedRepairsInvalidCachedVector(t *testing.T) {
-	dir := t.TempDir()
-	doc := docRecord{ID: "repair", Text: "durable checkpoint policy"}
-	e := &fakeFusionEmbedder{vecs: map[string][]float32{
-		"repair query": {1, 0},
-		doc.Text:       {1, 0},
-	}}
-	store := newDocEmbedStore(dir, e.ID(), e.Dim())
-	seedPersistedZeroVector(t, store, doc.ID, e.Dim())
-
-	out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil)
-	if len(out.ranked) != 1 || out.ranked[0].ID != "doc:"+doc.ID {
-		t.Fatalf("invalid cached doc vector was not repaired: %+v", out.ranked)
-	}
-	if got := store.load()[doc.ID]; !vectorHasMagnitude(got) {
-		t.Fatalf("repaired doc vector was not persisted: %v", got)
-	}
-	if len(e.embeds) != 2 || e.embeds[1] != doc.Text {
-		t.Fatalf("expected query plus one doc re-embed, got %v", e.embeds)
-	}
-}
-
-func TestDocsVectorRankedRejectsInvalidCachedVectorWhenRepairFails(t *testing.T) {
-	dir := t.TempDir()
-	doc := docRecord{ID: "invalid", Text: "durable checkpoint policy"}
-	e := &fakeFusionEmbedder{
-		vecs: map[string][]float32{"repair query": {1, 0}},
-		fail: func(text string) bool { return text == doc.Text },
-	}
-	store := newDocEmbedStore(dir, e.ID(), e.Dim())
-	seedPersistedZeroVector(t, store, doc.ID, e.Dim())
-
-	if out := docsVectorRanked(dir, docIndex{Records: []docRecord{doc}}, "repair query", e, 1, false, nil); len(out.ranked) != 0 {
-		t.Fatalf("failed repair returned an invalid semantic hit: %+v", out.ranked)
-	}
-	if _, ok := store.load()[doc.ID]; ok {
-		t.Fatal("failed repair exposed an invalid doc vector")
-	}
-}
-
-func TestPruneToPresentDropsDeparted(t *testing.T) {
-	cache := map[string][]float32{"a": {1}, "b": {2}, "gone": {3}}
-	present := map[string]struct{}{"a": {}, "b": {}}
-	if !pruneToPresent(cache, present) {
-		t.Fatal("expected pruneToPresent to report a removal")
-	}
-	if _, ok := cache["gone"]; ok {
-		t.Fatal("departed id should be pruned")
-	}
-	if len(cache) != 2 {
-		t.Fatalf("expected 2 entries after prune, got %d", len(cache))
 	}
 }
 
@@ -472,8 +310,8 @@ func TestQMDAliasesAcrossRetrievalVerbs(t *testing.T) {
 		{name: "keyword after", args: []string{"query", "alpha checkpoint", "--keyword", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
 		{name: "named keyword", args: []string{"query", "--keyword", "--query", "alpha checkpoint", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
 		{name: "named hybrid", args: []string{"query", "--query", "alpha checkpoint", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
-		{name: "named semantic", args: []string{"query", "--query", "alpha checkpoint", "--semantic", "--json", "-n", "1"}},
-		{name: "vsearch format json", args: []string{"vsearch", "alpha checkpoint", "-n", "1", "--format", "json"}},
+		{name: "named semantic alias", args: []string{"query", "--query", "alpha checkpoint", "--semantic", "--json", "-n", "1"}, wantResult: true, wantLimit: true},
+		{name: "vsearch format json", args: []string{"vsearch", "alpha checkpoint", "-n", "1", "--format", "json"}, wantResult: true, wantLimit: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := execute(t, NewRootCommand(opts), tc.args...)
@@ -619,7 +457,7 @@ func TestQMDBranchOverrideAcrossRetrievalVerbs(t *testing.T) {
 	}{
 		{name: "search", args: []string{"search", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
 		{name: "query", args: []string{"query", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
-		{name: "vsearch", args: []string{"vsearch", "zephyr branch override feature", "--branch", branch, "--format", "json", "-n", "5"}},
+		{name: "vsearch", args: []string{"vsearch", "zephyr branch override", "--branch", branch, "--format", "json", "-n", "5"}},
 		{name: "get", args: []string{"get", featureFact.ID, "--branch", branch, "--format", "json"}},
 		{name: "multi-get", args: []string{"multi-get", featureFact.ID, mainFact.ID, "--branch", branch, "--format", "json"}, wantMissing: true},
 	} {

@@ -1,0 +1,92 @@
+<task-notification>
+<task-id>a047a0afc87b8f1c6</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hangzhou/f2665e68-9a7d-4d30-860c-48bc704e5f64/tasks/a047a0afc87b8f1c6.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reviewed the diff (364 lines across `agent_surface.go`, `hosted_status.go`, `hosted_status_test.go`, `hosted_sync.go`, `hosted_sync_test.go`, `status_render.go`).
+
+Findings:
+
+1. `internal/cli/hosted_status.go:28` (`buildHostedStatus`) returns `(*brainStatusHosted, []string)` for warnings, but the function can only ever produce zero or one warning (the single `err != nil` branch). A slice return plus `append(...)` + variadic spread at the call site (`internal/cli/agent_surface.go:4616-4618`) is more machinery than the data needs.
+   Simpler form: return `(*brainStatusHosted, string)` (empty string = no warning); call site becomes `if warning != "" { report.Warnings = append(report.Warnings, warning) }`.
+
+2. `internal/cli/agent_surface.go:1245-1250` — the `if h.State == hostedStateLocalOnly { ... } else { ... }` block duplicates the same `fmt.Fprintf(out, "  state: %s...")` call with only the trailing explanatory text differing.
+   Simpler form: compute a suffix string once (`suffix := ""; if h.State == hostedStateLocalOnly { suffix = " (no binding; will auto-connect when placement resolves)" }`) and use a single `fmt.Fprintf(out, "  state: %s%s\n", hostedStateLabel(h.State), suffix)`.
+
+Everything else is minimal for what it does:
+- `buildHostedStatus`'s three-state assignment (`local_only` → maybe `connected` → maybe `disconnected`) is a straight-line sequence with a documented gate order, not nested branching.
+- The `hostedFactsSyncAndPull` change in `hosted_sync.go` removes an early return rather than adding complexity.
+- `hostedStateLabel`'s switch is already the minimal 3-case form, shared correctly between the short and verbose renderers.
+- The new tests in `hosted_status_test.go`/`hosted_sync_test.go` cover four genuinely distinct scenarios (no binding, connected, kill-switch, corrupt binding) — not copy-paste variants of the same case.
+
+No deep nesting, dead code, or redundant derivable state beyond the two items above.</result>
+<usage><subagent_tokens>41660</subagent_tokens><tool_uses>2</tool_uses><duration_ms>36708</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>ade1dd7c705dbb7e3</task-id>
+<tool-use-id>toolu_018oLpHxCGSREasGp4EnDJpN</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hangzhou/f2665e68-9a7d-4d30-860c-48bc704e5f64/tasks/ade1dd7c705dbb7e3.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>No pre-existing state-enum helper there either — all correctly reused. Based on this review, the diff correctly reuses the existing helpers (`readHostedRepoBinding`, `checkHostedFactsBinding`, `brainNoEgressMode`, the `report.Warnings` append convention, and the per-section inline rendering style). I did not find new code that re-implements something the codebase already has.
+
+**clean** — no reuse violations found. The new code in `hosted_status.go`, `agent_surface.go`, `status_render.go`, and `hosted_sync.go` consistently calls the existing binding readers (`readHostedRepoBinding`), branch-marker checker (`checkHostedFactsBinding`), egress-gate check (`brainNoEgressMode`), and the established `report.Warnings` append / per-section `fmt.Fprintln` rendering conventions rather than reinventing them.</result>
+<usage><subagent_tokens>56142</subagent_tokens><tool_uses>16</tool_uses><duration_ms>79155</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af02a16e7fb904f1d</task-id>
+<tool-use-id>toolu_01SHG6G16YnsRSKotWdvw9Yx</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hangzhou/f2665e68-9a7d-4d30-860c-48bc704e5f64/tasks/af02a16e7fb904f1d.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>I reviewed the diff (`/tmp/pr363.diff`) plus the surrounding code it touches: `internal/cli/hosted_status.go`, `internal/cli/agent_surface.go` (call site in `buildBrainStatusReportWithAvailability`, around line 4609), `internal/cli/facts_hosted_binding.go`, `internal/cli/hosted_binding.go`, `internal/cli/memory_state_io.go`, and `internal/cli/hosted_sync.go`.
+
+Efficiency verdict: clean.
+
+Reasoning, to show the angles I checked and ruled out:
+
+- `buildHostedStatus` (`internal/cli/hosted_status.go:20-44`) only enters the per-branch `checkHostedFactsBinding` loop in the `present` (connected) branch of the switch — when there's no binding or the binding is unreadable, it short-circuits with zero extra I/O. So the N-branch read cost is already gated behind the one case where it's meaningful, not unconditional.
+- The per-branch reads are bounded by `factBranches`, which comes from the manifest's declared fact branches — a small, operator-controlled list, not something that scales with repo size or history. One local file read per declared branch on an interactive `status` call is not meaningful overhead.
+- All I/O here is local file reads (`readMemoryStateFile`/`readHostedRepoBinding`), no network or subprocess calls, so there's no blocking-work-on-hot-path concern; it sits alongside other already-sequential, already-local steps in the same function (fact integrity check, onboarding read) and doesn't change the sequencing/blocking profile of the heavier network/subprocess calls (`brainLiveStateReport`, `semanticStaleReport`) that follow it.
+- Checked for duplicate reads of `hosted.json`/per-branch markers within the same status build: `unsyncedHostedFactsBlindSpot` in `internal/cli/blind_spot.go:242` does the same read pattern but is only reachable from the `recall` path (`blind_spot.go:70`), not from `status`, so there's no redundant double-read within one `status` invocation.
+- No closures capturing `report` or other long-lived objects were introduced; `buildHostedStatus` takes plain strings and returns a fresh struct.
+- The `hosted_sync.go` change (treating a corrupt binding as absent and re-resolving instead of early-returning) adds work only on the rare corrupt-binding recovery path, not steady state, so it's not a wasted-work regression either.
+
+Nothing here rises to a flag given status is an interactive, non-hot-loop command.</result>
+<usage><subagent_tokens>51434</subagent_tokens><tool_uses>10</tool_uses><duration_ms>76998</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>af6615174b288351a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hangzhou/f2665e68-9a7d-4d30-860c-48bc704e5f64/tasks/af6615174b288351a.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of PR diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>This is clean and follows the established pattern (one label function shared by both renderers). No altitude issue here.
+
+Overall assessment complete.
+
+## Findings
+
+**1. internal/cli/hosted_status.go:30-47 (`buildHostedStatus`) vs internal/cli/hosted_sync.go:39-48 (`hostedFactsSyncAndPull`)** — The "kill switch wins, then binding decides" connection-state precedence is hand-duplicated in two places (one returns early, the other overrides the field after computing state from the binding), kept in sync only by a prose comment ("same gate order as hostedFactsSyncAndPull"). This is exactly the kind of drift the PR itself is trying to eliminate (status must stay truthful about what sync actually does). **Deeper change:** extract a single `hostedConnectionGate(brainDir) (state, binding, err)` (or similar) that both the sync path and the status builder call, so the precedence rule has one implementation instead of two that must be remembered to match.
+
+Everything else in the diff is at the right altitude:
+- The hosted_sync.go fix (treat a corrupt binding as absent rather than skipping) fixes the actual root cause — a parse error used to short-circuit sync entirely, now it falls into the same auto-connect/re-resolve path an absent binding takes — rather than adding a special case.
+- `hostedStateLabel` is correctly factored once and shared by both the short identity line (`status_render.go`) and the verbose section (`agent_surface.go`), so the two can't disagree — this is the right place for that logic (shared helper, not duplicated per-renderer).
+- `buildHostedStatus` lives in the builder (`agent_surface.go` calls it while assembling `report.Hosted`), and both renderers only format already-computed fields — no decision logic leaked into the renderers.
+- `SyncedBranches` computation reuses the existing `checkHostedFactsBinding` primitive (already shared with `blind_spot.go`’s per-branch check) rather than re-deriving sync status by hand.</result>
+<usage><subagent_tokens>54786</subagent_tokens><tool_uses>12</tool_uses><duration_ms>75035</duration_ms></usage>
+</task-notification>

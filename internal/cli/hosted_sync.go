@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -40,10 +41,17 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
-		// A corrupt binding must not strand the repo: status reports it as
-		// local_only ("auto-connect will retry"), so treat it exactly like an
-		// absent binding and let a successful resolution rewrite the file.
-		fmt.Fprintf(errW, "hosted sync: invalid binding, attempting re-resolve: %v\n", err)
+		// Only corrupt CONTENT may self-heal: the custom target it may have
+		// held is unrecoverable, so re-resolving is the best remaining option
+		// and keeps status's "local_only: auto-connect will retry" truthful.
+		// Any other read failure (permissions, path safety) proves nothing
+		// about the file's contents — rewriting could replace an explicitly
+		// configured custom target with default placement, so skip loudly.
+		if !errors.Is(err, errHostedBindingInvalid) {
+			fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
+			return nil
+		}
+		fmt.Fprintf(errW, "hosted sync: corrupt binding, re-resolving placement (re-run 'entire brain connect' with --repo-id/--api-url if this repo used a custom target): %v\n", err)
 		present = false
 	}
 	if present && binding.OptedOut {

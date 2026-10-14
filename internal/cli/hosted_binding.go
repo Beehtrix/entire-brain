@@ -2,9 +2,16 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
+
+// errHostedBindingInvalid marks a binding whose CONTENT is unrecoverable
+// (corrupt JSON). Only this error may trigger the sync path's self-heal; any
+// other read failure (path safety, permissions) says nothing about what the
+// file holds and must not cause a rewrite.
+var errHostedBindingInvalid = errors.New("invalid hosted repo binding")
 
 // hostedRepoBinding is the repo-level hosted-brain connection state, written
 // by `entire brain connect` and `entire brain disconnect`. Only non-secrets
@@ -66,7 +73,7 @@ func readHostedRepoBinding(brainDir string) (hostedRepoBinding, bool, error) {
 		return binding, false, err
 	}
 	if err := json.Unmarshal(data, &binding); err != nil {
-		return binding, false, fmt.Errorf("invalid hosted repo binding: %w", err)
+		return binding, false, fmt.Errorf("%w: %v", errHostedBindingInvalid, err)
 	}
 	binding.BaseURL = strings.TrimRight(binding.BaseURL, "/")
 	return binding, true, nil

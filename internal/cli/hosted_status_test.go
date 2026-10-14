@@ -137,6 +137,39 @@ func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
 	}
 }
 
+func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
+	opts, repoDir, brainDir := hostedStatusFixture(t)
+	const repoID = "01M2Q9WATHXVM46CD8Y4D3AX8W"
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: repoID, BaseURL: "https://cell.api.example.com", OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := report.Hosted
+	if h == nil || h.State != "disconnected" {
+		t.Fatalf("opted-out binding must report disconnected, got %+v", h)
+	}
+	// Coordinates survive an opt-out (reconnect works without placement
+	// resolution), so status keeps them visible too.
+	if h.RepoID != repoID {
+		t.Fatalf("opted-out state must keep the target visible: %+v", h)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "hosted: disconnected") || !strings.Contains(out, "entire brain disconnect") {
+		t.Fatalf("short status must attribute the opt-out to disconnect:\n%s", out)
+	}
+	if strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("an opt-out must not be blamed on the kill switch:\n%s", out)
+	}
+}
+
 func TestStatusHostedCorruptBindingFallsBackWithWarning(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	if err := os.WriteFile(filepath.Join(brainDir, hostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {

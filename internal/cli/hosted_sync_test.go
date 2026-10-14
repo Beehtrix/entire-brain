@@ -391,8 +391,8 @@ func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
 	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			return []byte(`{"repo_id":"repo1","api_url":"` + baseURL + `"}` + "\n"), nil, nil
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
 		}
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
@@ -416,6 +416,53 @@ func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
 	}
 	if fake.requestCount() == 0 {
 		t.Fatal("repair must continue into the sync, not just rewrite the file")
+	}
+}
+
+// TestHostedSyncSkipsUnreadableBindingWithoutRewrite bounds the self-heal:
+// only a PARSE error (corrupt JSON, content unrecoverable) may fall through to
+// re-resolution. Any other read failure says nothing about what the binding
+// holds — rewriting it could silently replace an explicitly configured custom
+// target with default placement and redirect publishes to another repo.
+func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("file-permission read errors do not apply to root")
+	}
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.WriteFile(bindingPath, []byte(`{"repo_id":"custom","base_url":"https://staging.example.com"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(bindingPath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("an unreadable binding must not sync anywhere, got %d requests", fake.requestCount())
+	}
+	if err := os.Chmod(bindingPath, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present || binding.RepoID != "custom" {
+		t.Fatalf("unreadable binding must survive untouched, got present=%v err=%v %+v", present, err, binding)
+	}
+	if !strings.Contains(errOut.String(), "skipped") {
+		t.Fatalf("skip must be reported: %q", errOut.String())
 	}
 }
 

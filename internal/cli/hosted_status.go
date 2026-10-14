@@ -32,6 +32,12 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	switch {
 	case err != nil:
 		warning = "hosted binding unreadable: " + err.Error()
+	case present && binding.OptedOut:
+		// Coordinates survive an opt-out (reconnect needs no placement
+		// resolution), so the target stays visible here too.
+		hosted.State = hostedStateDisconnected
+		hosted.RepoID = binding.RepoID
+		hosted.BaseURL = binding.BaseURL
 	case present:
 		hosted.State = hostedStateConnected
 		hosted.RepoID = binding.RepoID
@@ -55,7 +61,12 @@ func hostedStateLabel(state string) string {
 	case hostedStateConnected:
 		return "connected"
 	case hostedStateDisconnected:
-		return "disconnected (ENTIRE_BRAIN_NO_EGRESS/LOCAL_ONLY set)"
+		// Two causes share the state; the kill switch wins the gate order, so
+		// it also wins the blame line.
+		if brainNoEgressMode() {
+			return "disconnected (ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY set)"
+		}
+		return "disconnected (via 'entire brain disconnect'; run 'entire brain connect' to rejoin)"
 	default:
 		return "local-only"
 	}

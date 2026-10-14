@@ -10,11 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// whereamiResult is the host CLI's `entire repo whereami --json` contract
-// (COR-2029): the repo's region-local ULID and its cell API base URL.
-type whereamiResult struct {
-	RepoID string `json:"repo_id"`
-	APIURL string `json:"api_url"`
+// hostedPlacement is the slice of the host CLI's `entire repo view --json`
+// output this plugin needs (entireio/cli#2758): the repo's region-local ULID
+// and its cell API base URL, both top-level fields.
+type hostedPlacement struct {
+	RepoID string `json:"repoId"`
+	APIURL string `json:"apiUrl"`
 }
 
 type connectOptions struct {
@@ -32,10 +33,10 @@ API base URL (non-secrets only — the host CLI's own login mints a fresh token
 per sync), then runs one immediate sync so the first pull happens right away.
 
 Running connect is OPTIONAL: the daemon and session-end hook resolve the
-binding automatically through the host CLI (entire repo whereami) and fall
-back to local-only until that succeeds. Use connect to bind explicitly —
-a non-default cell, a staging target, or before the host CLI supports
-whereami. Pass --repo-id and --api-url to bypass resolution entirely.`,
+binding automatically through the host CLI (entire repo view) and fall back
+to local-only until that succeeds. Use connect to bind explicitly — a
+non-default cell, a staging target, or to re-join after 'entire brain
+disconnect'. Pass --repo-id and --api-url to bypass resolution entirely.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConnect(cmd, opts, connectOpts)
@@ -63,15 +64,15 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	repoID := strings.TrimSpace(connectOpts.repoID)
 	apiURL := strings.TrimSpace(connectOpts.apiURL)
 	if repoID == "" || apiURL == "" {
-		resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir)
-		if whereamiErr != nil {
-			// An already-connected repo stays re-connectable without flags:
-			// re-connect means re-sync (the blind-spot note's remedy), not
-			// re-resolve.
-			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present {
-				resolved = whereamiResult{RepoID: existing.RepoID, APIURL: existing.BaseURL}
+		resolved, placementErr := resolveHostedPlacement(ctx, opts.Runner, repoDir)
+		if placementErr != nil {
+			// An already-connected (or disconnected — the opt-out keeps its
+			// coordinates) repo stays re-connectable without flags: re-connect
+			// means re-sync, not re-resolve.
+			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present && existing.RepoID != "" {
+				resolved = hostedPlacement{RepoID: existing.RepoID, APIURL: existing.BaseURL}
 			} else {
-				return fmt.Errorf("connect: resolve hosted placement (`entire repo whereami --json`): %w; pass --repo-id and --api-url explicitly", whereamiErr)
+				return fmt.Errorf("connect: resolve hosted placement (`entire repo view --json`): %w; pass --repo-id and --api-url explicitly", placementErr)
 			}
 		}
 		if repoID == "" {
@@ -85,17 +86,20 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "connected: repo %s via %s\n", binding.RepoID, binding.BaseURL)
+	renderHostedBanner(cmd.OutOrStdout(),
+		"Connected: repo "+binding.RepoID+" is now syncing memories",
+		"Memories sync periodically and at session end. Teammates' memories merge into this repo's local brain.")
 	// Connect doubles as the initial pull so a fresh clone receives team
 	// memories immediately; failures note and never fail the connect.
 	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
 }
 
-// bindHostedRepo validates and normalizes the target, then writes the
-// repo-level binding. Cell URLs are commonly quoted with their /api/v1 prefix
-// (whereami's api_url, docs examples), but the factsync client appends
-// /api/v1/repos/... itself — storing the suffix would 404 every sync.
-func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) {
+// normalizeHostedBinding validates the target and strips a quoted /api/v1
+// suffix. Cell URLs are commonly quoted with that prefix (repo view's apiUrl,
+// docs examples), but the factsync client appends /api/v1/repos/... itself —
+// storing the suffix would 404 every sync. OptedOut is false: a fresh binding
+// is an opt-in.
+func normalizeHostedBinding(repoID, apiURL string) (hostedRepoBinding, error) {
 	if strings.TrimSpace(repoID) == "" {
 		return hostedRepoBinding{}, fmt.Errorf("hosted repo id is empty")
 	}
@@ -103,24 +107,57 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 	if err != nil {
 		return hostedRepoBinding{}, err
 	}
-	binding := hostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}
+	return hostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}, nil
+}
+
+// bindHostedRepo is the EXPLICIT connect write: it overwrites whatever is
+// there, including an opt-out — running connect is how the user opts back in.
+func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) {
+	binding, err := normalizeHostedBinding(repoID, apiURL)
+	if err != nil {
+		return hostedRepoBinding{}, err
+	}
 	if err := writeHostedRepoBinding(brainDir, binding); err != nil {
 		return hostedRepoBinding{}, err
 	}
 	return binding, nil
 }
 
-// resolveWhereami shells out to the host CLI for this repo's hosted placement.
-func resolveWhereami(ctx context.Context, runner CommandRunner, repoDir string) (whereamiResult, error) {
+// bindHostedRepoIfNotOptedOut is the AUTO-CONNECT write: it re-checks for an
+// opt-out under the write lock, so a disconnect issued while placement was
+// resolving survives. Auto-connect may only maintain an existing opt-in, never
+// override an explicit opt-out. ok=false means the write was declined.
+func bindHostedRepoIfNotOptedOut(brainDir, repoID, apiURL string) (hostedRepoBinding, bool, error) {
+	binding, err := normalizeHostedBinding(repoID, apiURL)
+	if err != nil {
+		return hostedRepoBinding{}, false, err
+	}
+	declined := false
+	err = withBrainWriteLock(brainDir, func() error {
+		if existing, _, readErr := readHostedRepoBinding(brainDir); readErr == nil && existing.OptedOut {
+			declined = true
+			return nil
+		}
+		return writeHostedRepoBindingLocked(brainDir, binding)
+	})
+	if err != nil || declined {
+		return hostedRepoBinding{}, false, err
+	}
+	return binding, true, nil
+}
+
+// resolveHostedPlacement shells out to the host CLI for this repo's hosted
+// placement.
+func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir string) (hostedPlacement, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
 	defer cancel()
-	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "whereami", "--json")
+	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
 	if err != nil {
-		return whereamiResult{}, err
+		return hostedPlacement{}, err
 	}
-	var result whereamiResult
+	var result hostedPlacement
 	if err := decodeHostCLIJSON(stdout, &result); err != nil {
-		return whereamiResult{}, fmt.Errorf("parse whereami json: %w", err)
+		return hostedPlacement{}, fmt.Errorf("parse repo view json: %w", err)
 	}
 	return result, nil
 }

@@ -14,32 +14,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// memoryNotifyHostedSyncMinInterval throttles the checkpoint-hint hosted fact
-// sync across detached notify processes: a commit burst (a rebase, a scripted
-// series) must not become one sync per commit. A minute keeps the trail fresh
-// on the commit beat; the daemon tick remains the reconciliation floor.
+// memoryNotifyHostedSyncMinInterval throttles the push-hint hosted fact sync
+// across detached notify processes: a push burst (a rebase + force-push loop)
+// must not become one sync per push. A minute keeps the trail fresh on the
+// push beat; the daemon tick remains the reconciliation floor.
 const memoryNotifyHostedSyncMinInterval = time.Minute
 
 // memoryNotifySyncMarkerName is the brain-relative marker recording the last
-// checkpoint-hint sync. Shared by every notify process; read and claimed under
-// the brain write lock so concurrent hints race safely.
+// push-hint sync. Shared by every notify process; read and claimed under the
+// brain write lock so concurrent hints race safely.
 const memoryNotifySyncMarkerName = "hosted_sync_notify.json"
 
 // notifyHostedFactsSync is a test seam over hostedFactsSyncAndPull.
 var notifyHostedFactsSync = hostedFactsSyncAndPull
 
-// memoryCheckpointWorkLaunch spawns `memory checkpoint-work` detached, the same
-// shape as memoryWorkerLaunch: `memory notify` is a fast content-free hint and
-// must never carry the upload's network round trips inline — a host adapter
-// may invoke it synchronously. The child runs with the worker-origin
-// environment so nothing it shells out to re-notifies. Injectable for tests;
-// a launch failure never fails the host.
-var memoryCheckpointWorkLaunch = func(repoDir, branch string) error {
+// memoryPushWorkLaunch spawns `memory push-work` detached, the same shape as
+// memoryWorkerLaunch: `memory notify` is a fast content-free hint and must
+// never carry the upload's network round trips inline — a host adapter may
+// invoke it synchronously. The child runs with the worker-origin environment
+// so nothing it shells out to re-notifies. Injectable for tests; a launch
+// failure never fails the host.
+var memoryPushWorkLaunch = func(repoDir, branch string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	args := []string{"memory", "checkpoint-work"}
+	args := []string{"memory", "push-work"}
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}
@@ -57,16 +57,15 @@ var memoryCheckpointWorkLaunch = func(repoDir, branch string) error {
 	return nil
 }
 
-// newMemoryCheckpointWorkCommand is the detached half of the checkpoint hint:
-// notify records the hint and spawns this verb; this verb uploads the fact
-// store, throttled. Hidden — it is an internal dispatch target, not a user
-// surface.
-func newMemoryCheckpointWorkCommand(opts Options) *cobra.Command {
+// newMemoryPushWorkCommand is the detached half of the push hint: notify
+// dispatches this verb, and this verb uploads the fact store, throttled.
+// Hidden — it is an internal dispatch target, not a user surface.
+func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
-		Use:    "checkpoint-work",
+		Use:    "push-work",
 		Hidden: true,
-		Short:  "Upload the fact store for a checkpoint hint (internal)",
+		Short:  "Upload the fact store for a push hint (internal)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			storage, err := resolveSessionsBrain(cmd.Context(), opts)
@@ -77,7 +76,7 @@ func newMemoryCheckpointWorkCommand(opts Options) *cobra.Command {
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
 			}
-			hostedSyncOnCheckpointHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
+			hostedSyncOnPushHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
 			return nil
 		},
 	}
@@ -89,8 +88,8 @@ type memoryNotifySyncMarker struct {
 	LastSyncAt time.Time `json:"last_sync_at"`
 }
 
-// hostedSyncOnCheckpointHint uploads the fact store on a checkpoint hint: the
-// hinted branch, then the default branch, throttled by a shared marker. It
+// hostedSyncOnPushHint uploads the fact store on a push hint: the hinted
+// branch, then the default branch, throttled by a shared marker. It
 // deliberately does NOT distill — the hint is an upload beat for facts that
 // already exist. Fact creation stays on the session-end hook and the daemon
 // tick until it moves into the memory worker with the session-end deprecation.
@@ -102,7 +101,7 @@ type memoryNotifySyncMarker struct {
 // hint, so nothing here may fail the caller — every outcome is reported on
 // errW and swallowed. The return value says whether the work ran, for tests
 // and for the caller's log line only.
-func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
+func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
 	claimed := false
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		now := opts.Now().UTC()

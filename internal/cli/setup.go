@@ -767,6 +767,23 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	report.Hook = inspectSessionEndHook(repoDir)
 	reportSetupHook(progress, report.Hook)
 
+	// Install our own pre-push hook so a push uploads the fact store (the
+	// trail shows memories with the commits). Hosted-gated at runtime, so
+	// installing it on a local-only repo costs one no-op spawn per push.
+	if hookState, hookPath, hookErr := installPushHook(ctx, opts, repoDir); hookErr != nil {
+		progress.Skip("push hook: not installed (uploads ride the daemon tick): " + hookErr.Error())
+	} else {
+		switch hookState {
+		case pushHookUnchanged:
+			progress.Skip("push hook already installed (" + hookPath + ")")
+		case pushHookChainedIn:
+			progress.Skip("push hook runs via the host CLI's chain (" + hookPath + ")")
+		default:
+			task := progress.Begin("push hook: installing (" + hookPath + ")")
+			task.Finish(nil)
+		}
+	}
+
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
@@ -813,6 +830,13 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 		return steps.uninstall(ctx, plan)
 	}); err != nil {
 		return err
+	}
+	// Remove our pre-push hook (restoring any hook we had chained to).
+	// Best-effort: a hook problem must not block the daemon uninstall report.
+	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
+		}
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {

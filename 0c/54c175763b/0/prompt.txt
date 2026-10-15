@@ -1,0 +1,5 @@
+some of the checks are fialling in the traiL>? 
+
+https://github.com/entireio/entire-brain/pull/387
+
+and we have open cursor bugbot issues

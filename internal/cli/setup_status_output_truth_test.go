@@ -3,7 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
-	"io"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,41 +18,34 @@ import (
 
 // --- UX-24: the nested refresh is run, not read -----------------------------
 
-// TestSetupInstantSubcommandAlwaysDiscardsItsOutput: only --json used to
-// discard the nested deterministic refresh, so a human first run printed
-// setup's renderer AND the inner refresh's on top of it -- its own consent
-// text, its own component names, its own daemon identity.
+// TestSetupInstantOutputNeverReachesTheTerminal: only --json used to discard
+// the nested deterministic refresh, so a human first run printed setup's
+// renderer AND the inner refresh's on top of it -- its own consent text, its
+// own component names, its own daemon identity.
 //
-// Pointing either writer back at a real stream still compiles, and fails here.
-func TestSetupInstantSubcommandAlwaysDiscardsItsOutput(t *testing.T) {
+// The nested command's two streams now go to the step sink in every mode:
+// each line becomes a sub-step on the open phase's transient line, which on a
+// terminal is a repaint and in a pipe is nothing at all. Pointing either
+// writer back at a real stream still compiles, and fails here.
+func TestSetupInstantOutputNeverReachesTheTerminal(t *testing.T) {
 	t.Parallel()
-	sub, captured := newSetupInstantCommand(context.Background())
-	// Writer IDENTITY for stdout: a buffer this test owns is not wired to
-	// anything the sub-command could reach, so it would pass whatever the
-	// writer was. io.Discard is the contract, and pointing it at a real stream
-	// still compiles.
-	if got := sub.OutOrStdout(); got != io.Discard {
-		t.Fatalf("the nested refresh must write stdout to io.Discard, got %T", got)
+	sink := &setupStepSink{}
+	steps := resolveSetupSteps(nil, Options{}, defaultSetupOptions(), t.TempDir(), setupBrainBinaryName,
+		setupSteps{stepOutput: sink, observeComponent: &setupComponentObserver{}})
+	if steps.instant == nil {
+		t.Fatal("resolveSetupSteps left the instant step unfilled")
 	}
-	// stderr is CAPTURED, not discarded: the same stream carries real warnings
-	// (a coordinator that could not launch, a skipped entity index), and
-	// discarding it lost them silently. It must reach the buffer the caller
-	// reads, and must NOT reach a real stream.
-	if captured == nil {
-		t.Fatal("the nested refresh's stderr must be captured so its warnings can be re-emitted")
+	// The sub-command is built inside the step, so the contract is asserted
+	// where it is observable: nothing the nested refresh writes may become a
+	// permanent row, and a warning it writes must still survive.
+	fmt.Fprintf(sink, "refresh: semantic index: parsing sources\n")
+	fmt.Fprintf(sink, "warning: memory coordinator: worker launch failed\n")
+	got := sink.Warnings()
+	if len(got) != 1 || got[0] != "memory coordinator: worker launch failed" {
+		t.Fatalf("a warning on the nested stream must be recoverable, got %q", got)
 	}
-	if got := sub.ErrOrStderr(); got != io.Writer(captured) {
-		t.Fatalf("the nested refresh's stderr must be the captured buffer, got %T", got)
-	}
-	sub.ErrOrStderr().Write([]byte("warning: memory coordinator: worker launch failed\n"))
-	if got := setupWarningsFrom(captured); len(got) != 1 || got[0] != "memory coordinator: worker launch failed" {
-		t.Fatalf("a warning on the nested stderr must be recoverable, got %q", got)
-	}
-	if got := setupWarningsFrom(captured); len(got) == 0 {
-		t.Fatal("non-vacuity: the extractor matched nothing")
-	}
-	if sub.Context() == nil {
-		t.Fatal("the sub-command must carry the setup context")
+	if strings.Contains(strings.Join(got, "|"), "parsing sources") {
+		t.Fatalf("non-vacuity: the nested chatter was kept as a warning: %q", got)
 	}
 }
 
@@ -83,132 +76,119 @@ func TestSetupAndStatusNeverPrintTheHashedDaemonID(t *testing.T) {
 	}
 }
 
-// TestSetupSummaryCallsEachComponentByOneName: the live phase line said
+// TestSetupBuildPhaseCallsEachComponentByOneName: the live phase line said
 // "instant core: semantic index", the failure line said "semantic index", and
 // the tick row between them said "semantic" -- three lines, one component, two
-// names, in a single run.
-func TestSetupSummaryCallsEachComponentByOneName(t *testing.T) {
+// names, in a single run. The tick row is gone with the old summary block; the
+// Build phase's count clause took over naming what failed, and it must use the
+// same vocabulary as every other line.
+func TestSetupBuildPhaseCallsEachComponentByOneName(t *testing.T) {
 	t.Parallel()
-	report := setupRenderFixtureReport()
-	got := renderSetupSummaryPlain(t, report, nil)
+	built, failed := partitionSetupComponents(setupRenderFixtureReport().Instant.Components)
+	summary := setupComponentCountSummary(built, failed)
+	details := strings.Join(setupComponentFailureDetails(failed, "-", setupBrainBinaryName), "\n")
 
-	var row string
-	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instant ") {
-			row = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "instant"))
-			break
+	checked := 0
+	for _, component := range failed {
+		label := setupComponentLabel(component.Name)
+		if label == component.Name {
+			continue
+		}
+		checked++
+		if !strings.Contains(summary, "FAILED "+label) {
+			t.Fatalf("the build clause calls %q something other than %q: %s", component.Name, label, summary)
+		}
+		if !strings.Contains(details, label+" failed") {
+			t.Fatalf("the failure detail calls %q something other than %q:\n%s", component.Name, label, details)
 		}
 	}
-	if row == "" {
-		t.Fatalf("no instant tick row in the summary:\n%s", got)
-	}
-	entries := strings.Split(row, "  ")
-	if len(entries) != len(report.Instant.Components) {
-		t.Fatalf("tick row has %d entries for %d components: %q", len(entries), len(report.Instant.Components), row)
-	}
-	for i, component := range report.Instant.Components {
-		name := strings.TrimSpace(entries[i][1:])
-		want := setupComponentLabel(component.Name)
-		if name != want {
-			// The failure lines under this row, and the live phase line above
-			// it, both use setupComponentLabel. Anything else here is the same
-			// component answering to two names in one run.
-			t.Fatalf("tick row calls %q %q; every other line calls it %q", component.Name, name, want)
-		}
+	if checked == 0 {
+		t.Fatal("non-vacuity: no failed component in the fixture has a label distinct from its id")
 	}
 }
 
 // --- UX-25: do not claim queryability this brain does not have --------------
 
-// unqueryableReport is a brain whose code index and baseline BOTH failed: one
-// component survived, so setup exits 0 and the old summary said "Brain ready
-// (degraded)" over a brain that cannot answer anything about this repository.
-func unqueryableReport() setupReport {
-	report := setupRenderFixtureReport()
-	report.Instant.Components = []setupComponent{
-		{Name: brainComponentSessions, State: "ok"},
-		{Name: brainComponentSeed, State: "failed", Detail: "dirty_worktree: refusing to seed uncommitted content"},
-		{Name: brainComponentSemantic, State: "failed", Detail: "dirty_worktree: refusing to index uncommitted content"},
-	}
-	return report
-}
-
-func TestSetupSummaryDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
-	t.Parallel()
-	got := renderSetupSummaryPlain(t, unqueryableReport(), nil)
-	headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-	if strings.Contains(headline, "Brain ready") {
-		t.Fatalf("no code index and no baseline is not a ready brain: %q", headline)
-	}
-	if !strings.Contains(headline, "not queryable") {
-		t.Fatalf("the headline must say the brain cannot be queried: %q", headline)
-	}
-	for _, want := range []string{"semantic index", "seed baseline"} {
-		if !strings.Contains(got, "no "+want) {
-			t.Fatalf("the summary must name what is unavailable (%q):\n%s", want, got)
-		}
-	}
-}
-
-// TestSetupSummaryStillSaysReadyWhenOnlyOneCoreComponentFailed is the
-// over-application guard. One of the two gone is a degraded brain, which is
-// still a brain that answers; only BOTH gone is unqueryable.
-func TestSetupSummaryStillSaysReadyWhenOnlyOneCoreComponentFailed(t *testing.T) {
-	t.Parallel()
-	for _, survivor := range []string{brainComponentSeed, brainComponentSemantic} {
-		report := unqueryableReport()
-		for i := range report.Instant.Components {
-			if report.Instant.Components[i].Name == survivor {
-				report.Instant.Components[i] = setupComponent{Name: survivor, State: "ok"}
-			}
-		}
-		got := renderSetupSummaryPlain(t, report, nil)
-		headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-		if !strings.Contains(headline, "Brain ready (degraded)") {
-			t.Fatalf("with %s built the brain still answers: %q", survivor, headline)
-		}
-		if strings.Contains(got, "not queryable") {
-			t.Fatalf("with %s built the brain must not be called unqueryable:\n%s", survivor, got)
-		}
-	}
-}
-
-// TestSetupSummaryUnchangedWhenNoComponentsWereReported keeps the pre-component
-// contract: a phase that reports nothing built fine, and must not be accused.
-func TestSetupSummaryUnchangedWhenNoComponentsWereReported(t *testing.T) {
-	t.Parallel()
-	report := setupRenderFixtureReport()
-	report.Instant = setupPhase{State: "ok"}
-	got := renderSetupSummaryPlain(t, report, nil)
-	if strings.Contains(got, "not queryable") {
-		t.Fatalf("no components reported is not evidence of failure:\n%s", got)
-	}
-}
-
-// TestSetupExitsZeroButSaysWhatIsUnavailable is the whole-run property: the
-// exit code is deliberately unchanged (one component built, so the brain is
-// worth keeping) and the words are not.
-func TestSetupExitsZeroButSaysWhatIsUnavailable(t *testing.T) {
+// setupRunPrinted runs a whole setup over the given instant components. The
+// summary renderer these guards used to call is gone -- the seven-phase run IS
+// the renderer now -- so the claim is asserted where it is made.
+func setupRunPrinted(t *testing.T, components []setupComponent) (string, error) {
+	t.Helper()
 	f := newSetupTestFixture(t, "s1")
-	rec := &recordedSetup{instantComponents: []setupComponent{
-		{Name: brainComponentSessions, State: "ok"},
-		{Name: brainComponentSeed, State: "failed", Detail: "dirty_worktree: refusing to seed uncommitted content"},
-		{Name: brainComponentSemantic, State: "failed", Detail: "dirty_worktree: refusing to index uncommitted content"},
-	}}
+	rec := &recordedSetup{instantComponents: components}
 	opts := defaultSetupOptions()
 	opts.noDaemon = true
 	opts.noBackfill = true
-
 	out := &bytes.Buffer{}
-	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
-		t.Fatalf("one surviving component still exits 0: %v", err)
+	err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f))
+	return out.String(), err
+}
+
+// unqueryableComponents is a brain whose code index and baseline BOTH failed:
+// one component survived, so the old summary said "Brain ready (degraded)" over
+// a brain that cannot answer anything about this repository.
+func unqueryableComponents() []setupComponent {
+	return []setupComponent{
+		{Name: brainComponentSessions, State: "ok"},
+		{Name: brainComponentSeed, State: "failed", Detail: "dirty_worktree: refusing to seed uncommitted content"},
+		{Name: brainComponentSemantic, State: "failed", Detail: "dirty_worktree: refusing to index uncommitted content"},
 	}
-	printed := out.String()
+}
+
+func TestSetupDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
+	printed, err := setupRunPrinted(t, unqueryableComponents())
 	if strings.Contains(printed, "the brain is queryable now") {
-		t.Fatalf("setup claimed queryability with no index and no baseline:\n%s", printed)
+		t.Fatalf("no code index and no baseline is not a queryable brain:\n%s", printed)
 	}
-	if !strings.Contains(printed, "no semantic index and no seed baseline") {
-		t.Fatalf("setup must name what is unavailable:\n%s", printed)
+	for _, want := range []string{"semantic index", "seed baseline"} {
+		if !strings.Contains(printed, "no "+want) {
+			t.Fatalf("setup must name what is unavailable (%q):\n%s", want, printed)
+		}
+	}
+	// The exit code is #374's contract, not this test's subject: a brain with
+	// no source `query`, `brief` or `overview` reads from is not one a script
+	// may proceed on. The reason must still name the sources.
+	if err == nil {
+		t.Fatal("a brain with nothing to answer from must not exit 0")
+	}
+	if !strings.Contains(err.Error(), "semantic index") || !strings.Contains(err.Error(), "seed baseline") {
+		t.Fatalf("the exit reason must name what did not build: %v", err)
+	}
+}
+
+// TestSetupStillSaysQueryableWhenOnlyOneCoreComponentFailed is the
+// over-application guard. One of the two gone is a degraded brain, which is
+// still a brain that answers; only BOTH gone is unqueryable.
+func TestSetupStillSaysQueryableWhenOnlyOneCoreComponentFailed(t *testing.T) {
+	for _, survivor := range []string{brainComponentSeed, brainComponentSemantic} {
+		components := unqueryableComponents()
+		for i := range components {
+			if components[i].Name == survivor {
+				components[i] = setupComponent{Name: survivor, State: "ok"}
+			}
+		}
+		printed, err := setupRunPrinted(t, components)
+		if err != nil {
+			t.Fatalf("with %s built the brain still answers: %v", survivor, err)
+		}
+		if !strings.Contains(printed, "the brain is queryable now") {
+			t.Fatalf("with %s built setup must still say so:\n%s", survivor, printed)
+		}
+		if strings.Contains(printed, "no semantic index and no seed baseline") {
+			t.Fatalf("with %s built the brain must not be called unqueryable:\n%s", survivor, printed)
+		}
+	}
+}
+
+// TestSetupUnchangedWhenNoComponentsWereReported keeps the pre-component
+// contract: a phase that reports nothing built fine, and must not be accused.
+func TestSetupUnchangedWhenNoComponentsWereReported(t *testing.T) {
+	printed, err := setupRunPrinted(t, []setupComponent{})
+	if err != nil {
+		t.Fatalf("no components reported is not evidence of failure: %v", err)
+	}
+	if !strings.Contains(printed, "the brain is queryable now") {
+		t.Fatalf("no components reported is not evidence of failure:\n%s", printed)
 	}
 }
 
@@ -408,68 +388,72 @@ func TestACleanAxisGetsNoDirtyRemedy(t *testing.T) {
 func TestTheSetupSummaryStatesOneRemedyOnce(t *testing.T) {
 	t.Parallel()
 	hint := setupDirtyWorktreeHint("entire brain")
-	report := setupReport{
-		Instant: setupPhase{Components: []setupComponent{
-			{Name: "seed", State: "failed", Detail: "dirty_worktree: refusing to seed", Hint: hint},
-			{Name: "semantic", State: "failed", Detail: "dirty_worktree: refusing to index", Hint: hint},
-		}},
-	}
-	out := renderSetupSummaryPlain(t, report, &setupTimings{})
+	details := strings.Join(setupComponentFailureDetails([]setupComponent{
+		{Name: "seed", State: "failed", Detail: "dirty_worktree: refusing to seed", Hint: hint},
+		{Name: "semantic", State: "failed", Detail: "dirty_worktree: refusing to index", Hint: hint},
+	}, "-", setupBrainBinaryName), "\n")
 
-	if !strings.Contains(out, "refusing to seed") || !strings.Contains(out, "refusing to index") {
-		t.Fatalf("both failures must still be named, so this guard is not vacuous:\n%s", out)
+	if !strings.Contains(details, "refusing to seed") || !strings.Contains(details, "refusing to index") {
+		t.Fatalf("both failures must still be named, so this guard is not vacuous:\n%s", details)
 	}
-	if n := strings.Count(out, "hint: "); n != 1 {
-		t.Fatalf("one remedy, one appearance; printed %d times:\n%s", n, out)
+	if n := strings.Count(details, "hint: "); n != 1 {
+		t.Fatalf("one remedy, one appearance; printed %d times:\n%s", n, details)
 	}
 }
 
-// Two DIFFERENT remedies must both still be shown — dedup is not suppression.
+// Two DIFFERENT remedies must both still be shown -- dedup is not suppression.
 func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
 	t.Parallel()
-	report := setupReport{
-		Instant: setupPhase{Components: []setupComponent{
-			{Name: "seed", State: "failed", Detail: "a", Hint: "first remedy"},
-			{Name: "semantic", State: "failed", Detail: "b", Hint: "second remedy"},
-		}},
-	}
-	out := renderSetupSummaryPlain(t, report, &setupTimings{})
-	if n := strings.Count(out, "hint: "); n != 2 {
-		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)
+	details := strings.Join(setupComponentFailureDetails([]setupComponent{
+		{Name: "seed", State: "failed", Detail: "a", Hint: "first remedy"},
+		{Name: "semantic", State: "failed", Detail: "b", Hint: "second remedy"},
+	}, "-", setupBrainBinaryName), "\n")
+	if n := strings.Count(details, "hint: "); n != 2 {
+		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, details)
 	}
 }
 
 // A Go error is routinely multi-line: errors.Join concatenates its causes with
 // a newline, and the memory path joins a deterministic failure with a run
 // failure before it reaches a `warning: %v` line. Keeping only the lines that
-// carry the prefix dropped every cause after the first — the same information
-// loss this re-emission exists to repair, one layer down. Raised as a finding
-// on this PR, and correct.
+// carry the prefix dropped every cause after the first -- the same information
+// loss carrying the warning up exists to repair, one layer down. Raised as a
+// finding on this PR, and correct. The carrier is now the step sink the nested
+// refresh writes into; the rule is unchanged.
 func TestAMultiLineWarningKeepsItsCauses(t *testing.T) {
 	t.Parallel()
 
-	got := setupWarningsFrom(bytes.NewBufferString(
-		"warning: memory coordinator could not launch: exec failed\npermission denied\nno such file\n"))
+	sink := &setupStepSink{}
+	fmt.Fprint(sink, "warning: memory coordinator could not launch: exec failed\npermission denied\nno such file\n")
+	got := sink.Warnings()
 	if len(got) != 1 {
 		t.Fatalf("expected one warning carrying its causes, got %d: %q", len(got), got)
 	}
 	for _, cause := range []string{"exec failed", "permission denied", "no such file"} {
 		if !strings.Contains(got[0], cause) {
-			t.Errorf("the re-emitted warning lost a cause %q: %s", cause, got[0])
+			t.Errorf("the warning lost a cause %q: %s", cause, got[0])
 		}
 	}
 
-	// A continuation ends at a blank line, so unrelated stderr written after a
-	// warning is not swept into it.
-	sep := setupWarningsFrom(bytes.NewBufferString(
-		"warning: first: a\nb\n\nunrelated progress noise\nwarning: second\n"))
-	if len(sep) != 2 {
-		t.Fatalf("expected two warnings, got %d: %q", len(sep), sep)
+	// A continuation ends at a blank line, so unrelated output written after a
+	// warning is not swept into it -- and so does a line the nested REPORTER
+	// wrote, which carries its own prefix and is progress, never a cause.
+	sep := &setupStepSink{}
+	fmt.Fprint(sep, "warning: first: a\nb\n\nunrelated progress noise\nwarning: second\n")
+	lines := sep.Warnings()
+	if len(lines) != 2 {
+		t.Fatalf("expected two warnings, got %d: %q", len(lines), lines)
 	}
-	if strings.Contains(sep[0], "unrelated progress noise") {
-		t.Errorf("stderr after a blank line was swept into the warning: %s", sep[0])
+	if strings.Contains(lines[0], "unrelated progress noise") {
+		t.Errorf("output after a blank line was swept into the warning: %s", lines[0])
 	}
-	if sep[1] != "second" {
-		t.Errorf("the second warning was altered: %q", sep[1])
+	if lines[1] != "second" {
+		t.Errorf("the second warning was altered: %q", lines[1])
+	}
+
+	prefixed := &setupStepSink{}
+	fmt.Fprint(prefixed, "warning: first: a\nrefresh: doc index done\n")
+	if got := prefixed.Warnings(); len(got) != 1 || got[0] != "first: a" {
+		t.Errorf("a prefixed reporter line was swept into the warning: %q", got)
 	}
 }

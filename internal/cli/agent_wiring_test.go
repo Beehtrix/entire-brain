@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/setupui"
 )
 
 // agent_wiring_test.go covers the first-run defect that made a successful
@@ -458,33 +459,63 @@ func TestHookPreEditClaudeHookStaysSilentWithoutAMatch(t *testing.T) {
 	}
 }
 
-// TestWiringTheHookIsReportedAsDoneNotSkipped pins a line that contradicted
-// itself. progress.Skip appends "skipped", so reporting a hook it had just
+// TestWiringTheHookIsReportedAsDoneNotSkipped pins a row that contradicted
+// itself. progress.Skip appended "skipped", so reporting a hook it had just
 // WRITTEN through Skip rendered "pre-edit hook wired (...) skipped" -- a line
 // that both claims and denies the same action. Found by reading a live first
 // run, not by any test: every assertion here passed while the line was wrong.
+//
+// The seven-phase renderer states the outcome as a GLYPH rather than a word,
+// so that is what this holds: wired carries the done glyph, already-wired the
+// skipped one, and both rows still appear in a real run.
 func TestWiringTheHookIsReportedAsDoneNotSkipped(t *testing.T) {
+	wired := setupAgentsState{
+		Installed:   true,
+		Files:       []string{"AGENTS.md"},
+		Changed:     []string{"AGENTS.md"},
+		Hook:        "/repo/.claude/settings.json",
+		HookChanged: true,
+	}
+	_, _, rows, _ := setupAgentsOutcome(wired, setupHookState{}, false, "--", setupBrainBinaryName)
+	row := setupRowContaining(t, rows, "pre-edit hook wired")
+	if row.Glyph != setupui.GlyphOK {
+		t.Fatalf("wiring the hook is work and must report done, got glyph %v: %q", row.Glyph, row.Text)
+	}
+
+	// The other direction: a run that wired nothing really does skip, and must
+	// still say so.
+	already := wired
+	already.Changed = nil
+	already.HookChanged = false
+	_, _, rows, _ = setupAgentsOutcome(already, setupHookState{}, false, "--", setupBrainBinaryName)
+	row = setupRowContaining(t, rows, "pre-edit hook already wired")
+	if row.Glyph != setupui.GlyphSkipped {
+		t.Fatalf("a run that wired nothing must report skipped, got glyph %v: %q", row.Glyph, row.Text)
+	}
+
+	// Both rows reach a real run's output, so neither guard is asserting a
+	// string the command never prints.
 	f := newSetupTestFixture(t)
 	opts := defaultSetupOptions()
 	opts.noDaemon = true
 	opts.noBackfill = true
-
 	first := runSetupForTest(t, f, opts, &recordedSetup{})
-
-	line := setupLineContaining(t, first, "pre-edit hook wired")
-	if strings.Contains(line, "skipped") {
-		t.Fatalf("setup wrote the hook, then called it skipped: %q", line)
-	}
-	if !strings.Contains(line, "done") {
-		t.Fatalf("wiring the hook is work and must report done: %q", line)
-	}
-
-	// The other direction: a second run really does skip, and must still say so.
+	setupLineContaining(t, first, "pre-edit hook wired")
 	second := runSetupForTest(t, f, opts, &recordedSetup{})
-	already := setupLineContaining(t, second, "pre-edit hook already wired")
-	if !strings.Contains(already, "skipped") {
-		t.Fatalf("a run that wired nothing must say skipped: %q", already)
+	setupLineContaining(t, second, "pre-edit hook already wired")
+}
+
+// setupRowContaining returns the one composed row holding want, failing when it
+// is absent -- so a rename cannot turn this guard vacuous by matching nothing.
+func setupRowContaining(t *testing.T, rows []setupui.Line, want string) setupui.Line {
+	t.Helper()
+	for _, row := range rows {
+		if strings.Contains(row.Text, want) {
+			return row
+		}
 	}
+	t.Fatalf("no row contains %q: %+v", want, rows)
+	return setupui.Line{}
 }
 
 // setupLineContaining returns the one output line holding want, failing when it

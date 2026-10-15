@@ -13,13 +13,13 @@
   },
   "execution_contract_binding": {
     "artifact_file": "development-task-negative-control-execution-contract-v1.json",
-    "artifact_sha256": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+    "artifact_sha256": "c7f4227fa08e2aef92feb0e97514a3db68a1bce076fdfd85d57a1c81e7980cec",
     "attempt_count": 248,
     "authority_sha256": "422d6742432af499f9aec5e6b7ecc9d86ac0cf901e2accd0fedb611c580176de",
     "builder_sha256": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd",
     "candidate_bindings_sha256": "4fbde9876d4c91e9cedcf994de9cecd5442beee928c1cadc505116a25c2bef60",
     "candidate_count": 62,
-    "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+    "contract_sha256": "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397",
     "enforcement_requirements_sha256": "c23f32b102077254ef4eae322faa12101e3e24d688808ebf6bca31cf128185e2",
     "execution_status": "forbidden_missing_all_residual_gates_and_audited_execution_adapter",
     "profile": "agent_brain_negative_control_execution_contract_v1",
@@ -38,11 +38,11 @@
   "implementation": {
     "approval_schema": {
       "artifact_file": "negative-control-owner-approval-envelope-v1.schema.json",
-      "artifact_sha256": "1300806efed4cedfccbbd68291676f71eabfc1296dbbf054a721e18a20a4d675"
+      "artifact_sha256": "450542cfea21b15b4212ee3de648c2496e57f84230a86fb85472b34da3b71e8d"
     },
     "builder": {
       "artifact_file": "negative_control_owner_approval_v1.py",
-      "artifact_sha256": "569045e1c15366f93500fa030c8fcb1214c7c6a6e912a8b5499a32690e484119"
+      "artifact_sha256": "d4add3b71be355ec51e07ce4e9c398d79e97a0f6061d2a187a7e2ea99dc77168"
     },
     "draft202012_validator": {
       "artifact_file": "draft202012.py",
@@ -68,7 +68,7 @@
     },
     "verifier_contract_schema": {
       "artifact_file": "negative-control-owner-approval-verifier-contract-v1.schema.json",
-      "artifact_sha256": "e3b8e95e62cda252434e11bf190e4f248526486ba3c1f63415ce78d78f2b5707"
+      "artifact_sha256": "d153d99852549d25fc84048caa32fdb921db650b552f163f10158a6945766f9b"
     }
   },
   "profile": "agent_brain_negative_control_owner_approval_verifier_contract_v1",
@@ -127,5 +127,5 @@
     "trust_roots_max_bytes": 65536,
     "verification_report": "non_persistent_non_authorizing_execution_forbidden"
   },
-  "verifier_contract_sha256": "ed22928cfe42e29ba57f3c58fab62eecebe9fd1bee010a2708fe02773ec35093"
+  "verifier_contract_sha256": "4b023cffdcf65cfe4712e85046585a6360c984c9e1088eb8518737f95362df87"
 }

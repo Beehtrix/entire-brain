@@ -803,8 +803,8 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, coverage totals/blind spots, and live workspace state. Set details=true for the full status JSON contract.",
-			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
+			"description": "Lightweight local brain overview: recorded sources, semantic and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include staged, unstaged, and untracked file classifications without auditing index contents")}),
 		},
 		{
 			"name":        "brain_refresh",
@@ -884,8 +884,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_status",
-			"description": "Alias for brain_status with semantic and retrieval freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
-			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
+			"description": "Alias for lightweight brain_status: recorded coverage/counts and current freshness, not a content-integrity audit. Set details=true to include file classifications.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include staged, unstaged, and untracked file classifications without auditing index contents")}),
 		},
 		{
 			"name":        "brain_index_repository",

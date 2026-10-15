@@ -513,3 +513,39 @@ func (o *setupComponentObserver) seen() []setupComponent {
 	defer o.mu.Unlock()
 	return append([]setupComponent(nil), o.observed...)
 }
+
+// TestSetupFactsLineKeepsTheDistilledCounter: the closing block that was
+// deleted carried "300/618 sessions distilled" on its own row. That number is
+// the one thing in it no phase line said, so the collapse had to keep it
+// rather than hit a line target by dropping it.
+func TestSetupFactsLineKeepsTheDistilledCounter(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2", "s3")
+	f.markDistilled(t, "s1")
+	rec := &recordedSetup{} // no agent CLI: skipped, and still counted
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+
+	out := runSetupForTest(t, f, opts, rec)
+
+	if !strings.Contains(out, "1/3 sessions distilled") {
+		t.Fatalf("the Facts line must still carry how much is done:\n%s", out)
+	}
+	if got := setupPhaseRows(out, "Facts"); got != 1 {
+		t.Fatalf("and it must carry it as a clause, not as a second row, got %d:\n%s", got, out)
+	}
+}
+
+// TestSetupFactsCounterSaysNothingAboutNothing: a repository with no captured
+// sessions has no ratio, and "0/0 distilled" is noise on a line whose job is
+// to state a reason.
+func TestSetupFactsCounterSaysNothingAboutNothing(t *testing.T) {
+	t.Parallel()
+	theme, _ := tui.ThemeByName("default")
+	rend := setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200)
+	if got := setupFactsCounter(rend, factsBackfillStatus{}); got != "" {
+		t.Fatalf("no sessions means no counter, got %q", got)
+	}
+	if got := setupFactsCounter(rend, factsBackfillStatus{Sessions: 12, Distilled: 3}); !strings.Contains(got, "3/12 sessions distilled") {
+		t.Fatalf("the counter must read as a ratio, got %q", got)
+	}
+}

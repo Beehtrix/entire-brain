@@ -1128,13 +1128,14 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	rend := ui.Renderer()
 	dash := rend.Dash()
 	resume := setupBrainCommand(brainCmd) + " distill"
+	counter := setupFactsCounter(rend, report.Facts)
 	phase.Step("counting distillable sessions")
 
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
 	if backgroundPaused(opts.Env) {
 		return setupBackfillSkipped(phase, "background work paused",
-			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup")
+			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
 		return setupBackfillSkipped(phase, "all sessions already distilled",
@@ -1184,13 +1185,13 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		ResumeCommand: resume,
 	}, in, promptOut, rend)
 	if !outcome.Spend {
-		return setupBackfillSkipped(phase, setupui.FlattenText(outcome.Reason), outcome.Reason)
+		return setupBackfillSkipped(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter)
 	}
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
 		return setupBackfillSkipped(phase, "executable path unavailable",
-			"not distilled: could not resolve this executable's path")
+			"not distilled: could not resolve this executable's path"+counter)
 	}
 	// A human who answered the prompt has already read the cost. A run that
 	// was answered by --yes has not, and the cost still has to be on screen
@@ -1240,8 +1241,8 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			"capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `%s setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
 			budget, state.Sessions, setupBrainCommand(brainCmd)))
 	}
-	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)",
-		queued, setupBackfillSpendLabel(agent, setupOpts), pid), details...)
+	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)%s",
+		queued, setupBackfillSpendLabel(agent, setupOpts), pid, counter), details...)
 	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
 }
 
@@ -1251,6 +1252,21 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 func setupBackfillSkipped(phase *setupui.PhaseRun, detail, line string) setupPhase {
 	phase.Skip(line)
 	return setupPhase{State: "skipped", Detail: detail}
+}
+
+// setupFactsCounter is the "3/12 sessions distilled" the old summary block
+// carried on its own row.
+//
+// The block was deleted because it re-listed the phases; this number was the
+// one thing in it that no phase line said, and dropping it with the rest
+// would have been a collapse that lost something. It rides on the Facts line
+// as a clause rather than coming back as a row, and it is omitted where the
+// line already states the ratio or where there is nothing to count.
+func setupFactsCounter(rend *setupui.Renderer, facts factsBackfillStatus) string {
+	if facts.Sessions <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %s %d/%d sessions distilled", rend.Bullet(), facts.Distilled, facts.Sessions)
 }
 
 // setupBackfillSpendLabel names WHAT will be spent, in the terms the user chose:

@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "725239160318",
+  "strategy": "manual-commit",
+  "branch": "test-speed-pass-3",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/command_regression_test.go",
+    "internal/cli/memory_lifecycle_regression_test.go",
+    "internal/cli/memory_worker_hardening_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/72/5239160318/0/metadata.json",
+      "transcript": "/72/5239160318/0/full.jsonl",
+      "compact_transcript": "/72/5239160318/0/transcript.jsonl",
+      "content_hash": "/72/5239160318/0/content_hash.txt",
+      "prompt": "/72/5239160318/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 779,
+    "cache_creation_tokens": 5259412,
+    "cache_read_tokens": 117564611,
+    "output_tokens": 271073,
+    "api_call_count": 390,
+    "subagent_tokens": {
+      "input_tokens": 56,
+      "cache_creation_tokens": 189483,
+      "cache_read_tokens": 1011213,
+      "output_tokens": 27161,
+      "api_call_count": 28
+    }
+  }
+}

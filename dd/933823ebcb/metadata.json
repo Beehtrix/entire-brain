@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "dd933823ebcb",
+  "strategy": "manual-commit",
+  "branch": "test-speed-pass-2",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "internal/cli/distill_cmd.go",
+    "internal/cli/distill_cmd_test.go",
+    "internal/cli/distill_waitdelay_test.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_worker_hardening_test.go",
+    "internal/cli/production_defaults_test.go",
+    "internal/cli/retrieval_transport.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/dd/933823ebcb/0/metadata.json",
+      "transcript": "/dd/933823ebcb/0/full.jsonl",
+      "compact_transcript": "/dd/933823ebcb/0/transcript.jsonl",
+      "content_hash": "/dd/933823ebcb/0/content_hash.txt",
+      "prompt": "/dd/933823ebcb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 86,
+    "cache_creation_tokens": 596272,
+    "cache_read_tokens": 11707558,
+    "output_tokens": 41387,
+    "api_call_count": 43,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

@@ -1,0 +1,37 @@
+1 sentence summary of what we changd and the result. simple straight forwardc langugae
+
+---
+
+okay this si merged now: https://github.com/entireio/entire-brain/pull/375
+
+do the next pass of optimizations here without sacrificing dependeability, accruracy of tests and introducing potential flakes or racews
+
+---
+
+<task-notification>
+<task-id>bmmum7lcx</task-id>
+<tool-use-id>toolu_01RB9o4UR2Acpcrpotu48EVn</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bmmum7lcx.output</output-file>
+<status>completed</status>
+<summary>Background command "Run equivalence, transport, and distill tests under race" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bsr80jliw</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bsr80jliw.output</output-file>
+<status>completed</status>
+<summary>Background command "Profile full suite with JSON timing output" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>btwyle7xx</task-id>
+<tool-use-id>toolu_013k1z59zzqgf2FztEi1J4Z2</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/btwyle7xx.output</output-file>
+<status>completed</status>
+<summary>Background command "Full suite final gate under race" completed (exit code 0)</summary>
+</task-notification>

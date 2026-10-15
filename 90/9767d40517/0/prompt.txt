@@ -1,0 +1,137 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/gwangju directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+why do we have all of these shards? in our tests?
+
+https://github.com/entireio/entire-brain/pull/371
+
+---
+
+do we actually need this? What is it for?
+
+---
+
+do we need 7 shards though? like im not saying to not have windows tests. but we have a lot and they're very slow.
+
+---
+
+what is the downside of dropping to 4?
+
+---
+
+okay why is the macOS one so slow?
+
+---
+
+okay take a look at this and see what you can do to speed this up. test making changes and then come back with a report of how much you can speed it up by without sacrifiing correctness.
+
+---
+
+<task-notification>
+<task-id>bh5p7n1q9</task-id>
+<tool-use-id>toolu_013zRU3a1uhQZF3kNHTd9UQB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bh5p7n1q9.output</output-file>
+<status>completed</status>
+<summary>Background command "Baseline-time the slow tests under race detector" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxxmnxe4q</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bxxmnxe4q.output</output-file>
+<status>completed</status>
+<summary>Background command "Vet and run all touched tests with race detector" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbl0oeytu</task-id>
+<tool-use-id>toolu_01DvA9cA54agdsfPs88nVMuo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bbl0oeytu.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun vet and changed tests under race" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhave9o88</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bhave9o88.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for test run and show results" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bt1ep0lka</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bt1ep0lka.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun manifest shapes test under race" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bw3lhwg9e</task-id>
+<tool-use-id>toolu_017vWkY428YdRptx9We5to5B</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bw3lhwg9e.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for manifest test result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b0utog5f4</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/b0utog5f4.output</output-file>
+<status>completed</status>
+<summary>Monitor "manifest shapes test result" stream ended</summary>
+<event>--- PASS: TestBrainManifestObservedShapesRoundTrip (67.99s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/session-heavy (12.63s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/warning-heavy (10.18s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/larger-than-default-read-limit (45.17s)
+ok  	github.com/entireio/entire-brain/internal/cli	69.951s
+[exited with code 0]</event>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bl09dqlyf</task-id>
+<tool-use-id>toolu_012eVJ4eDCtnCaynffSR9eGv</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bl09dqlyf.output</output-file>
+<status>completed</status>
+<summary>Background command "Rerun manifest shapes with smaller stress case" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>beaf5nwjj</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/beaf5nwjj.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli suite under race detector" completed (exit code 0)</summary>
+</task-notification>

@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "909767d40517",
+  "strategy": "manual-commit",
+  "branch": "test-shards-pr-371",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "internal/cli/brain_manifest_read_test.go",
+    "internal/cli/demo_scripts_test.go",
+    "internal/cli/facts_import_test.go",
+    "internal/cli/privacy_verification_regression_test.go",
+    "internal/cli/safe_read.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_test.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/cli/workspace_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/90/9767d40517/0/metadata.json",
+      "transcript": "/90/9767d40517/0/full.jsonl",
+      "compact_transcript": "/90/9767d40517/0/transcript.jsonl",
+      "content_hash": "/90/9767d40517/0/content_hash.txt",
+      "prompt": "/90/9767d40517/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 216,
+    "cache_creation_tokens": 337195,
+    "cache_read_tokens": 13395576,
+    "output_tokens": 68543,
+    "api_call_count": 108
+  }
+}

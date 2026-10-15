@@ -1188,13 +1188,16 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 	// ONE place setup prints the watcher's identity.
 	what := "a background watcher"
 	if unit := strings.TrimSpace(plan.UnitPath); unit != "" {
-		what = "a background watcher at " + unit
+		// The line already begins "watcher:", so repeating "a background
+		// watcher at" before the path is three wasted words on a line that
+		// wraps because of that path.
+		what = unit
 	}
 	if before.Installed {
-		return fmt.Sprintf("watcher: keeping %s — a persistent %s service, starts again at every login · remove: %s setup --uninstall-daemon",
+		return fmt.Sprintf("watcher: keeping %s · persistent %s, starts again at every login · remove: %s setup --uninstall-daemon",
 			what, plan.Manager, setupBrainCommand(brainCmd))
 	}
-	return fmt.Sprintf("watcher: installing %s — a persistent %s service, starts again at every login · skip: --no-daemon · remove: %s setup --uninstall-daemon",
+	return fmt.Sprintf("watcher: installing %s · persistent %s, starts again at every login · skip --no-daemon · remove: %s setup --uninstall-daemon",
 		what, plan.Manager, setupBrainCommand(brainCmd))
 }
 

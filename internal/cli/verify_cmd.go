@@ -905,7 +905,8 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	if err != nil {
 		return verifySummary{}, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{all: true}, "")
+	// Verify every active fact: sampling and inclusion of retired facts are separate options.
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{}, "")
 	if err != nil {
 		return verifySummary{}, err
 	}

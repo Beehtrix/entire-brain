@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "fe3212f57133",
+  "strategy": "manual-commit",
+  "branch": "distill-chunk-cache",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/distill_chunk_cache_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/session_privacy.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/fe/3212f57133/0/metadata.json",
+      "transcript": "/fe/3212f57133/0/full.jsonl",
+      "compact_transcript": "/fe/3212f57133/0/transcript.jsonl",
+      "content_hash": "/fe/3212f57133/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 6,
+    "cache_creation_tokens": 1713,
+    "cache_read_tokens": 1898366,
+    "output_tokens": 1380,
+    "api_call_count": 3
+  }
+}

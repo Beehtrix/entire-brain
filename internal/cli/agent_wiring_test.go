@@ -505,6 +505,28 @@ func TestWiringTheHookIsReportedAsDoneNotSkipped(t *testing.T) {
 	setupLineContaining(t, second, "pre-edit hook already wired")
 }
 
+// TestNextStepsNameInitAgentsOnlyWhenTheWiringFailed: naming init-agents on a
+// run that already wrote the guide sends the reader to re-do work setup just
+// did; naming it on a run that failed is the only way they learn the brain is
+// invisible to every agent that opens the repo.
+func TestNextStepsNameInitAgentsOnlyWhenTheWiringFailed(t *testing.T) {
+	t.Parallel()
+	named := func(steps []setupui.NextStep) bool {
+		for _, step := range steps {
+			if strings.Contains(step.Command, "init-agents") {
+				return true
+			}
+		}
+		return false
+	}
+	if !named(setupNextSteps(setupBrainBinaryName, false, false, 0)) {
+		t.Fatal("a run whose agent wiring failed must name init-agents")
+	}
+	if named(setupNextSteps(setupBrainBinaryName, false, true, 0)) {
+		t.Fatal("a run that already wrote the guide must not send the reader to re-do it")
+	}
+}
+
 // setupRowContaining returns the one composed row holding want, failing when it
 // is absent -- so a rename cannot turn this guard vacuous by matching nothing.
 func setupRowContaining(t *testing.T, rows []setupui.Line, want string) setupui.Line {

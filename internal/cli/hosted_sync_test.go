@@ -147,7 +147,7 @@ func TestHostedSyncGates(t *testing.T) {
 		opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
 		t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 		var errOut bytes.Buffer
-		if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 			t.Fatal(err)
 		}
 		if fake.requestCount() != 0 {
@@ -158,7 +158,7 @@ func TestHostedSyncGates(t *testing.T) {
 		fake := &hostedFake{}
 		opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
 		var errOut bytes.Buffer
-		if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 			t.Fatal(err)
 		}
 		if fake.requestCount() != 0 {
@@ -177,7 +177,7 @@ func TestHostedSyncTokenMintFailureIsNonFatal(t *testing.T) {
 		return nil, nil, errors.New("not logged in")
 	})
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("mint failure must be non-fatal, got %v", err)
 	}
 	if fake.requestCount() != 0 {
@@ -207,7 +207,7 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -263,7 +263,7 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
@@ -297,7 +297,7 @@ func TestPullMergeFailsWithoutWrite(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("sync failure must be non-fatal, got %v", err)
 	}
 	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
@@ -323,7 +323,7 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	fake.mu.Unlock()
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
@@ -356,7 +356,7 @@ func TestHostedSyncNeverConnectsWithoutBinding(t *testing.T) {
 	})
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.requestCount() != 0 {
@@ -393,7 +393,7 @@ func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.requestCount() != 0 {
@@ -433,7 +433,7 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if fake.requestCount() != 0 {
@@ -461,7 +461,7 @@ func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 	})
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if shellOuts != 0 || fake.requestCount() != 0 {
@@ -507,7 +507,7 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	})
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	if placementCalls != 0 || fake.requestCount() != 0 {
@@ -532,7 +532,7 @@ func TestHostedSyncPersistsRaisedProposals(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	queue, err := loadFactProposals(storage.BrainDir, "main")
@@ -567,7 +567,7 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
@@ -599,7 +599,7 @@ func TestPullNeverRevivesFromAnActiveHead(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
@@ -627,7 +627,7 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("publish denial must be non-fatal, got %v", err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
@@ -672,7 +672,7 @@ func TestPullOnlyRejectsAForgedHead(t *testing.T) {
 	}
 
 	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("must be non-fatal, got %v", err)
 	}
 	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))

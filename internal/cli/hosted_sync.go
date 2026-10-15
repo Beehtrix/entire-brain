@@ -35,9 +35,13 @@ const hostEntireBinary = "entire"
 // never connect a repo. (4) apiurl.Validate before any client exists. A fresh
 // token is minted per call via the host CLI's own login and held only in
 // memory.
-func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
+//
+// The bool reports whether a sync was actually ATTEMPTED (gates passed, the
+// server was contacted): callers that log success must not report a gated
+// no-op as a sync that ran.
+func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (bool, error) {
 	if brainNoEgressMode() {
-		return nil
+		return false, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
@@ -46,26 +50,26 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		// survives a rewrite. Skip loudly; the remedy is an explicit
 		// `entire brain connect`.
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
 	if !present || binding.OptedOut {
-		return nil
+		return false, nil
 	}
 	baseURL, err := apiurl.Validate(binding.BaseURL)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
 	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
 
 	facts, err := loadFacts(storage.BrainDir, branch)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s: %v\n", branch, err)
-		return nil
+		return false, nil
 	}
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
 	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, "")
@@ -77,7 +81,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		// (the branch did not sync), no proposals, head verified fail-closed.
 		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; attempting pull-only\n", branch, err)
 		pullOnlyHostedFacts(ctx, errW, opts, storage, srv, binding.RepoID, branch)
-		return nil
+		return true, nil
 	}
 	// The per-branch marker records that this branch has synced against this
 	// target; the blind-spot note keys off its absence.
@@ -111,7 +115,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, merged) {
 		fmt.Fprintf(errW, "hosted sync: branch %s published=%v attempts=%d facts=%d\n", branch, res.Published, res.Attempts, len(res.Facts))
 	}
-	return nil
+	return true, nil
 }
 
 // pullOnlyHostedFacts is the degraded receive path when publish failed: read

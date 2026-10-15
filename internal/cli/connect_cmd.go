@@ -92,7 +92,8 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 		"Memories sync periodically and at session end. Teammates' memories merge into this repo's local brain.")
 	// Connect doubles as the initial pull so a fresh clone receives team
 	// memories immediately; failures note and never fail the connect.
-	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	_, err = hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	return err
 }
 
 // normalizeHostedBinding validates the target and strips a quoted /api/v1

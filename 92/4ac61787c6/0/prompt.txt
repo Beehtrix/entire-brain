@@ -1,0 +1,13 @@
+do you have any uncommitted changes locally?
+
+---
+
+okay we have bugbot findings we need rto resolve. 
+
+https://github.com/entireio/entire-brain/pull/386
+
+also what is up with this traiL?
+
+https://entire.io/gh/entireio/entire-brain/trails/299
+
+why doesn't it have commits and why isn't it working

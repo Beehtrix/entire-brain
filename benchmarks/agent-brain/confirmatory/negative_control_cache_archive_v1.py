@@ -24,6 +24,7 @@ import re
 import stat
 import sys
 import tempfile
+import time
 import types
 import unicodedata
 from collections import Counter
@@ -305,6 +306,28 @@ def _stable_stat_identity(value: os.stat_result) -> tuple[int, ...]:
     )
 
 
+# File timestamps advance at the kernel coarse-clock granularity (one jiffy,
+# up to 10ms at HZ=100). A same-size in-place rewrite within the tick that
+# produced the "before" fstat leaves every identity field equal, so the
+# before/after comparison cannot see it; on fast machines create, read, and
+# rewrite all fit inside one tick. Verification therefore starts only once
+# the file's timestamps are at least one tick old, which forces any
+# modification during the read onto a strictly newer timestamp.
+_TIMESTAMP_TICK_NS = 15_000_000
+
+
+def _quiescent_fstat(descriptor: int, *, label: str) -> os.stat_result:
+    for _ in range(8):
+        value = os.fstat(descriptor)
+        age = time.time_ns() - max(value.st_mtime_ns, value.st_ctime_ns)
+        if age >= _TIMESTAMP_TICK_NS:
+            return value
+        # A negative age is a future timestamp; sleeping cannot cure it, and
+        # the bounded attempts fail closed below rather than spinning.
+        time.sleep(_TIMESTAMP_TICK_NS / 1e9)
+    raise CacheArchiveVerificationError(f"{label} timestamps never settled")
+
+
 def _read_bounded(
     path: pathlib.Path,
     *,
@@ -315,7 +338,7 @@ def _read_bounded(
     _require(type(maximum) is int and maximum >= 1, f"{label} byte ceiling is invalid")
     descriptor, directories = _open_regular_descriptor(path, label=label)
     try:
-        before = os.fstat(descriptor)
+        before = _quiescent_fstat(descriptor, label=label)
         _require(before.st_size <= maximum, f"{label} exceeds the byte ceiling")
         if require_single_link:
             _require(before.st_nlink == 1, f"{label} link count differs")
@@ -352,7 +375,7 @@ def _stream_identity(path: pathlib.Path, *, maximum: int, label: str) -> dict[st
     _require(type(maximum) is int and maximum >= 1, f"{label} byte ceiling is invalid")
     descriptor, directories = _open_regular_descriptor(path, label=label)
     try:
-        before = os.fstat(descriptor)
+        before = _quiescent_fstat(descriptor, label=label)
         _require(1 <= before.st_size <= maximum, f"{label} size is outside the byte ceiling")
         _require(before.st_nlink == 1, f"{label} link count differs")
         digest = hashlib.sha256()

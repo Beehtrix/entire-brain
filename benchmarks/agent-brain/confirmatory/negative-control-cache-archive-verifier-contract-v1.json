@@ -29,7 +29,7 @@
   "implementation": {
     "builder": {
       "artifact_file": "negative_control_cache_archive_v1.py",
-      "artifact_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94"
+      "artifact_sha256": "2729f39e89a729c0191fe5e163f68df67caa844ecde615c81debd2b7f048f52e"
     },
     "draft202012_validator": {
       "artifact_file": "draft202012.py",
@@ -130,5 +130,5 @@
     "successful_verification_claim": "source_reviewed_actual_cache_manifest_and_archive_raw_identity",
     "unpacked_byte_count_max": 2147483648
   },
-  "verifier_contract_sha256": "56b5e019f65ef1afc0e4f265a705cdc1523585aad899d5c18ff7a5230463bb47"
+  "verifier_contract_sha256": "6fc260151f7375a3c6a5ae3be152259aeb92f022ba2e6d846caac68b7d9b8a77"
 }

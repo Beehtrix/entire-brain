@@ -50,17 +50,17 @@
     },
     {
       "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.json",
-      "artifact_sha256": "29d66a79f4c3083e006c823b44a5aeacb50538d426f0186e05fffa77226760ee",
+      "artifact_sha256": "a969fe019a88da0c7fd136b11bbb500982690490cb43eb6a15fdcebde38b9211",
       "role": "cache_bundle_verifier_contract"
     },
     {
       "artifact_file": "negative_control_cache_bundle_v2.py",
-      "artifact_sha256": "1236f3244be5d25cb72b7937aab159903a20cb97c2ce057023e4c4694f248bfc",
+      "artifact_sha256": "c9ed6ceda6013887f93d4d3aa5c02b5644dba957c2303ca6ef7fedb5a1b2de49",
       "role": "cache_bundle_verifier_source"
     },
     {
       "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.schema.json",
-      "artifact_sha256": "eca24ad3f0a50f4a9dcbd9e106715db8fee449d4735eaeee87912a95e7c564bd",
+      "artifact_sha256": "1c682996c8dad0a311a4b5533e7fb32e9c9cbcee69c17afcf909af207c1ccc85",
       "role": "cache_bundle_verifier_schema"
     },
     {
@@ -189,7 +189,7 @@
       "role": "cleanup_attestation_schema"
     }
   ],
-  "contract_sha256": "a563d6f7ed1deaeb40676dd567f2d23fbd7f827ca2719aeb83f7e4973af4f852",
+  "contract_sha256": "b57262885205d44c8b34565ca235027f8f6a62eaa0d3b33aa262da5cce0c7002",
   "cross_component_invariants": {
     "approval_consumption": {
       "cas_claim_is_journal_genesis": true,
@@ -201,7 +201,7 @@
       "verified_owner_report_atomic_consumption": false
     },
     "cache": {
-      "bundle_contract_sha256": "98de7291aceb5a84ff03d1862e66550fb4d67a55796634eacc4e610856829bdd",
+      "bundle_contract_sha256": "e2e3ec0255b7b4c8562698842a3010026ad42393c6a6c48dd9e9ea7c5b8a8d6a",
       "bundle_status": "verifier_compiled_raw_material_source_review_pending_bundle_access_forbidden",
       "format_contract_sha256": "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59",
       "format_status": "wire_format_frozen_no_material_no_authority",
@@ -272,12 +272,12 @@
     "artifact_render_profile": "sorted_keys_indent_2_utf8_lf_v1",
     "builder": {
       "artifact_file": "negative_control_run_storage_contract_v1.py",
-      "artifact_sha256": "1d96885d0e9a7a2ce675fd29657fb300abf43b44e4c41d1e168d564ebd83aed6"
+      "artifact_sha256": "c96a55192b45c0ca2f89645b6ac4d4ecb1f4ea26cc4c45e0b270402d8f9c0e08"
     },
     "canonical_json_profile": "sorted_keys_compact_utf8_no_float_v1",
     "contract_schema": {
       "artifact_file": "negative-control-run-storage-contract-v1.schema.json",
-      "artifact_sha256": "0036e470d0dcf5563877db9bed68a7d679e88dcc9169c016692b1f1d756f975e"
+      "artifact_sha256": "8a694a303239a059da34723017a08cdf60e19ad7a52a9e688d8a5ca9c8e4ac23"
     },
     "draft202012_validator": {
       "artifact_file": "draft202012.py",

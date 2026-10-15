@@ -1136,7 +1136,7 @@ class CheckedPendingContractAndPublicSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(
             first["verifier_contract_sha256"],
-            "98de7291aceb5a84ff03d1862e66550fb4d67a55796634eacc4e610856829bdd",
+            "e2e3ec0255b7b4c8562698842a3010026ad42393c6a6c48dd9e9ea7c5b8a8d6a",
         )
         checked, raw = bundle._checked_v1()._read_json(
             bundle.VERIFIER_CONTRACT_PATH,
@@ -1147,7 +1147,7 @@ class CheckedPendingContractAndPublicSurfaceTest(unittest.TestCase):
         )
         self.assertEqual(
             _sha256(raw),
-            "29d66a79f4c3083e006c823b44a5aeacb50538d426f0186e05fffa77226760ee",
+            "a969fe019a88da0c7fd136b11bbb500982690490cb43eb6a15fdcebde38b9211",
         )
         self.assertEqual(checked, first)
         self.assertEqual(raw, bundle._checked_v1()._render(first))

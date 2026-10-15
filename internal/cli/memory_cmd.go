@@ -34,6 +34,7 @@ func newMemoryCommand(opts Options) *cobra.Command {
 		Long:  "Inspect and drive the durable conversation-projection work record (hints, jobs, receipts)",
 	}
 	cmd.AddCommand(newMemoryNotifyCommand(opts))
+	cmd.AddCommand(newMemoryCheckpointWorkCommand(opts))
 	cmd.AddCommand(newMemoryStatusCommand(opts))
 	cmd.AddCommand(newMemoryReconcileCommand(opts))
 	cmd.AddCommand(newMemoryJobsCommand(opts))
@@ -289,6 +290,16 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			hint, warning, err := recordMemoryLifecycleAndLaunch(storage.BrainDir, repoDir, storage.Key, session, branch, event, opts.Now().UTC())
 			if err != nil {
 				return err
+			}
+			// A checkpoint hint means a commit just landed. The work (export,
+			// distill, hosted sync) runs in a detached child — notify is a fast
+			// content-free hint and a host adapter may invoke it synchronously,
+			// so nothing heavy may run inline here. Best-effort like the worker
+			// launch above; the daemon tick reconciles a failed spawn.
+			if event == "checkpoint" {
+				if err := memoryCheckpointWorkLaunch(repoDir, strings.TrimSpace(branch)); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint work launch failed (daemon tick will reconcile): %v\n", err)
+				}
 			}
 			if jsonOut {
 				payload := map[string]any{"recorded": hint.LastEvent, "session_id": hint.SessionID, "generation": hint.Generation}

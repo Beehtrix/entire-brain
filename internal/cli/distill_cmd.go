@@ -60,15 +60,17 @@ const (
 	// session cache). A distill run is hours of agent calls; flushing every ~50
 	// calls bounds what an interruption can lose to minutes instead of the run.
 	distillFlushCallInterval = 50
-
-	// distillAgentWaitDelay is how long Wait may keep waiting on an agent's
-	// output pipes after the agent process itself has been killed for exceeding
-	// its timeout. It exists because the pipes are inherited by whatever the
-	// agent spawned, which the kill does not reach. Long enough to collect the
-	// output of an agent that is merely finishing up, short enough that the
-	// timeout stays a bound.
-	distillAgentWaitDelay = 5 * time.Second
 )
+
+// distillAgentWaitDelay is how long Wait may keep waiting on an agent's
+// output pipes after the agent process itself has been killed for exceeding
+// its timeout. It exists because the pipes are inherited by whatever the
+// agent spawned, which the kill does not reach. Long enough to collect the
+// output of an agent that is merely finishing up, short enough that the
+// timeout stays a bound. A var so timeout tests whose orphaned grandchildren
+// always hold the pipes for the full delay can lower it; the default is
+// pinned by TestOverridableProductionBoundsKeepTheirDefaults.
+var distillAgentWaitDelay = 5 * time.Second
 
 // capWarnings truncates a warning list to max entries, replacing the overflow
 // with a single summary line so a systemic failure stays legible.

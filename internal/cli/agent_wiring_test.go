@@ -734,3 +734,37 @@ func assertPreEditHookCommand(t *testing.T, goos, command string) {
 		t.Errorf("%s: a missing binary fails the hook instead of exiting clean: %s", goos, command)
 	}
 }
+
+// TestABareReRunBlamesTheDaemonDeclineNotAFlag is the watcher's half of the
+// same defect. resolveSetupToggle flattens "typed --no-daemon" and "declined
+// on an earlier run" into one boolean before the Watcher row is rendered, so a
+// bare re-run credited a flag the reader never typed on this command line and
+// never named --daemon, the one way back.
+//
+// This asserts the WHOLE run, not the reason helper: a renderer-only test
+// passes even when the provenance is wired to a constant false, which is
+// exactly how the --no-backfill version of this first shipped under-guarded.
+func TestABareReRunBlamesTheDaemonDeclineNotAFlag(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	declined := defaultSetupOptions()
+	declined.noDaemon = true
+	declined.noBackfill = true
+	declined.agent = "codex"
+	typed := runSetupForTest(t, f, declined, &recordedSetup{agent: "codex"})
+	if !strings.Contains(typed, "--no-daemon") {
+		t.Fatalf("the run that typed --no-daemon must name it:\n%s", typed)
+	}
+	if strings.Contains(typed, "earlier run; --daemon") {
+		t.Fatalf("a typed flag must not be reported as remembered:\n%s", typed)
+	}
+
+	bare := defaultSetupOptions()
+	bare.agent = "codex"
+	out := runSetupForTest(t, f, bare, &recordedSetup{agent: "codex"})
+	if !strings.Contains(out, "--daemon installs it") {
+		t.Fatalf("a bare re-run must name the way back to the watcher:\n%s", out)
+	}
+	if strings.Contains(out, "watcher (--no-daemon)") {
+		t.Fatalf("a bare re-run must not blame a --no-daemon nobody typed:\n%s", out)
+	}
+}

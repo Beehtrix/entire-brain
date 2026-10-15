@@ -179,6 +179,17 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // changes", so one screen gave two contradictory instructions. The cause now
 // states the cause only (see buildBrainRetrievalStatus) and the remedy comes
 // from here.
+// setupWatcherDeclineReason distinguishes a typed --no-daemon from a decline a
+// previous run recorded. resolveSetupToggle folds the two into one boolean, so
+// without this a bare re-run credits a flag the reader never typed on this
+// command line -- and never names --daemon, the one way back.
+func setupWatcherDeclineReason(remembered bool) string {
+	if remembered {
+		return "background watcher (you declined on an earlier run; --daemon installs it)"
+	}
+	return "background watcher (--no-daemon)"
+}
+
 func setupDirtyWorktreeHint(brainCmd string) string {
 	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
 		" setup`, or `" + setupBrainCommand(brainCmd) +
@@ -457,7 +468,10 @@ type setupCommandOptions struct {
 	// noBackfillRemembered: noBackfill came from a previous run's recorded
 	// decline, not from a flag on this command line.
 	noBackfillRemembered bool
-	noAgentHooks         bool
+	// noDaemonRemembered: likewise for the watcher. Same resolver, same
+	// flattening, same defect if it goes unreported.
+	noDaemonRemembered bool
+	noAgentHooks       bool
 	// daemon/backfill/agentHooks are the AFFIRMATIVE overrides. A decline is
 	// remembered (see setupRecord), so without an affirmative spelling the only
 	// way back from one would be `--no-daemon=false`, which nothing documents
@@ -1000,7 +1014,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	watcherPhase := run.Begin(setupui.PhaseWatcher)
 	switch {
 	case setupOpts.noDaemon:
-		watcherPhase.Skip("background watcher (--no-daemon)")
+		watcherPhase.Skip(setupWatcherDeclineReason(setupOpts.noDaemonRemembered))
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: --no-daemon"}
 	case !report.Workspace.Registered:
 		watcherPhase.Skip("background watcher: workspace registration failed")
@@ -1979,6 +1993,7 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	if !changed(setupFlagEffort) && strings.TrimSpace(recorded.effort) != "" {
 		setupOpts.effort = recorded.effort
 	}
+	setupOpts.noDaemonRemembered = !changed(setupFlagNoDaemon) && !changed(setupFlagDaemon) && recorded.noDaemon
 	setupOpts.noDaemon = resolveSetupToggle(setupOpts.noDaemon, setupOpts.daemon, recorded.noDaemon, changed, setupFlagNoDaemon, setupFlagDaemon)
 	// Capture the PROVENANCE before resolving, because resolving destroys it:
 	// after this assignment "declined" and "typed --no-backfill" are the same

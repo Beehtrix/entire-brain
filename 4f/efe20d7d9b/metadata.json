@@ -1,0 +1,31 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "4fefe20d7d9b",
+  "strategy": "manual-commit",
+  "branch": "cor-2126-anchor-stamping",
+  "checkpoints_count": 7,
+  "files_touched": null,
+  "sessions": [
+    {
+      "metadata": "/4f/efe20d7d9b/0/metadata.json",
+      "transcript": "/4f/efe20d7d9b/0/full.jsonl",
+      "compact_transcript": "/4f/efe20d7d9b/0/transcript.jsonl",
+      "content_hash": "/4f/efe20d7d9b/0/content_hash.txt",
+      "prompt": "/4f/efe20d7d9b/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1247,
+    "cache_creation_tokens": 20638034,
+    "cache_read_tokens": 262934670,
+    "output_tokens": 576374,
+    "api_call_count": 628,
+    "subagent_tokens": {
+      "input_tokens": 116,
+      "cache_creation_tokens": 424216,
+      "cache_read_tokens": 2478848,
+      "output_tokens": 45318,
+      "api_call_count": 58
+    }
+  }
+}

@@ -35,6 +35,11 @@ const (
 	// spellings. See SetupCommand.
 	envCLIVersion = "ENTIRE_CLI_VERSION"
 
+	// InstallGraphCommand is the one runnable way to get the provider: `graph`
+	// is in the Entire CLI's official plugin index (`entire plugin search
+	// graph`), so this works for a reader who has only the CLI.
+	InstallGraphCommand = EntireBinaryName + " plugin install graph"
+
 	// MaxSummary caps a summarised detail so one failure cannot own the
 	// terminal even when the subprocess writes a single enormous line.
 	MaxSummary = 200
@@ -156,6 +161,12 @@ func SetupCommand(lookup EnvLookup) string {
 // missing, how the reader can tell, the command that fixes it, and the command
 // to run afterwards. One home, so the two components cannot disagree about the
 // remedy for the same cause.
+//
+// The command is InstallGraphCommand, NOT the `scripts/install.sh` form this
+// sentence used to carry. That form is not runnable for the reader who hits
+// this: it presupposes an entire-brain source checkout, which someone who
+// installed the brain as a plugin does not have. `graph` is in the official
+// plugin index, so one command installs it from anywhere.
 func MissingRemedy(graphBinary string, lookup EnvLookup) string {
 	binary := strings.TrimSpace(graphBinary)
 	if binary == "" {
@@ -163,7 +174,6 @@ func MissingRemedy(graphBinary string, lookup EnvLookup) string {
 	}
 	return fmt.Sprintf(
 		"the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-			" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-			" (it builds and registers entire-graph from the sibling clone),"+
-			" then re-run `%s setup`", binary, SetupCommand(lookup))
+			" -- install it with `%s`, then re-run `%s setup`",
+		binary, InstallGraphCommand, SetupCommand(lookup))
 }

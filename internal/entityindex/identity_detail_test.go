@@ -69,12 +69,18 @@ func TestProviderIdentityMissingProviderNamesRemedy(t *testing.T) {
 	for _, want := range []string{
 		"the entire-graph semantic provider is not installed",
 		"entire has no `graph` command",
-		"scripts/install.sh",
+		"entire plugin install graph",
 		"setup`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("remedy missing %q in: %s", want, got)
 		}
+	}
+	// The remedy must be runnable by the reader who hits this. The form this
+	// replaced, `scripts/install.sh` from the entire-brain checkout, is not:
+	// someone who installed the brain as a plugin has no source checkout.
+	if strings.Contains(got, "scripts/install.sh") {
+		t.Fatalf("remedy tells a plugin user to run a script from a checkout they do not have: %s", got)
 	}
 }
 

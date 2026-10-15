@@ -337,16 +337,17 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	}
 }
 
-func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
-	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	remoteFact := hostedSyncTestFact("auto-connected team fact", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+// TestHostedSyncNeverConnectsWithoutBinding pins the default-off model: the
+// ONLY ways a repo starts syncing are `entire brain connect` and the (future)
+// onboarding flow, both of which write the binding in the foreground. Even
+// with placement resolvable and a token available, a background trigger with
+// no binding must stay local, write nothing, and say nothing.
+func TestHostedSyncNeverConnectsWithoutBinding(t *testing.T) {
+	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
-			// repo view quotes the cell URL with its /api/v1 prefix; binding must strip it.
-			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `/api/v1","name":"test/repo"}` + "\n"), nil, nil
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
 		}
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
@@ -358,25 +359,14 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
-	if err != nil || !present {
-		t.Fatalf("auto-connect must write the binding: present=%v err=%v", present, err)
+	if fake.requestCount() != 0 {
+		t.Fatalf("an unbound repo must make zero hosted requests, got %d", fake.requestCount())
 	}
-	if binding.RepoID != "repo1" || binding.BaseURL != baseURL {
-		t.Fatalf("binding mismatch (api/v1 must be stripped): %+v", binding)
+	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
+		t.Fatal("a background trigger must never write the binding")
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, rec := range local {
-		if rec.ID == remoteFact.ID && rec.Author == "teammate" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("auto-connect must complete the first sync+pull, got %d local records", len(local))
+	if errOut.Len() != 0 {
+		t.Fatalf("staying local is the default, not an event: %q", errOut.String())
 	}
 }
 
@@ -458,26 +448,6 @@ func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
 	}
 }
 
-func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
-	fake := &hostedFake{}
-	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	// Harness runner answers only `auth token`; repo view fails like a CLI
-	// without placement support, a logged-out user, or an unregistered repo.
-	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
-		t.Fatalf("unresolvable placement must be a graceful local fallback, got %v", err)
-	}
-	if fake.requestCount() != 0 {
-		t.Fatalf("local fallback must make zero hosted requests, got %d", fake.requestCount())
-	}
-	if errOut.Len() != 0 {
-		t.Fatalf("local fallback must be silent, got %q", errOut.String())
-	}
-	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
-		t.Fatal("no binding may be written when placement is unresolved")
-	}
-}
-
 func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
@@ -499,38 +469,6 @@ func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
 	}
 	if errOut.Len() != 0 {
 		t.Fatalf("an opted-out repo must be silent, got %q", errOut.String())
-	}
-}
-
-func TestHostedSyncAutoConnectDoesNotOverrideADisconnectDuringResolution(t *testing.T) {
-	// The consent race: the tick sees no binding, spends seconds resolving
-	// placement, and the user disconnects in that window. The resolved
-	// placement must NOT overwrite the fresh opt-out.
-	fake := &hostedFake{}
-	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
-	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
-			if _, err := setHostedOptOut(storage.BrainDir); err != nil {
-				t.Error(err)
-			}
-			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
-		}
-		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
-			return []byte(fakeJWT + "\n"), nil, nil
-		}
-		return nil, nil, errors.New("not available")
-	})
-
-	var errOut bytes.Buffer
-	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
-		t.Fatal(err)
-	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
-	if err != nil || !present || !binding.OptedOut {
-		t.Fatalf("a disconnect during placement resolution must survive auto-connect: present=%v err=%v binding=%+v", present, err, binding)
-	}
-	if fake.requestCount() != 0 {
-		t.Fatalf("auto-connect must not sync past a fresh opt-out, got %d requests", fake.requestCount())
 	}
 }
 

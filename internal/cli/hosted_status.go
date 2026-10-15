@@ -6,8 +6,8 @@ import (
 )
 
 // brainStatusHosted is the status report's hosted-brain connection section.
-// States: "connected" (repo binding present), "local_only" (no binding yet;
-// auto-connect keeps retrying), "disconnected" (the egress kill switch is set;
+// States: "connected" (repo binding present), "local_only" (no binding; only
+// `entire brain connect` creates one), "disconnected" (the egress kill switch is set;
 // COR-2109 adds the explicit opt-out as a second cause of this state).
 type brainStatusHosted struct {
 	State   string `json:"state"`

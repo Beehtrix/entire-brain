@@ -1,0 +1,21 @@
+entire brain status is really slow, let's remediate
+
+---
+
+walk me through what the different parts are at the moment?
+
+---
+
+hmm, the easiest analogy is 'git status'...
+
+---
+
+what does doctor do today?
+
+---
+
+okay, let's split it along those lines
+
+---
+
+let's get to a PR

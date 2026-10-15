@@ -1,0 +1,42 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "f7055829a437",
+  "strategy": "manual-commit",
+  "branch": "alex/perf-status-too-slow",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "docs/reference.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/doctor.go",
+    "internal/cli/facts_integrity_test.go",
+    "internal/cli/lifecycle_ops.go",
+    "internal/cli/mcp.go",
+    "internal/cli/mcp_test.go",
+    "internal/cli/memory_admin_contract_test.go",
+    "internal/cli/review_source_availability_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/semantic_audit_test.go",
+    "internal/cli/status_lightweight_test.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_truth_test.go",
+    "internal/cli/testdata/mcp_tool_surface.golden.json",
+    "internal/cli/verify_cmd.go",
+    "internal/cli/verify_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/f7/055829a437/0/metadata.json",
+      "transcript": "/f7/055829a437/0/full.jsonl",
+      "compact_transcript": "/f7/055829a437/0/transcript.jsonl",
+      "content_hash": "/f7/055829a437/0/content_hash.txt",
+      "prompt": "/f7/055829a437/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 341693,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 18982656,
+    "output_tokens": 35798,
+    "api_call_count": 135
+  }
+}

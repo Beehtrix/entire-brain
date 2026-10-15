@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "e07990b80ee6",
+  "strategy": "manual-commit",
+  "branch": "feat/bm25-facts-ranker",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/memory_vectors_legacy.go",
+    "internal/cli/memory_vectors_legacy_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/e0/7990b80ee6/0/metadata.json",
+      "transcript": "/e0/7990b80ee6/0/full.jsonl",
+      "compact_transcript": "/e0/7990b80ee6/0/transcript.jsonl",
+      "content_hash": "/e0/7990b80ee6/0/content_hash.txt",
+      "prompt": "/e0/7990b80ee6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 1020,
+    "cache_creation_tokens": 7466606,
+    "cache_read_tokens": 205380607,
+    "output_tokens": 371270,
+    "api_call_count": 511
+  }
+}

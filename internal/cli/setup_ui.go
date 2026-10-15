@@ -106,7 +106,11 @@ func (s *setupSink) Begin(accent tui.Phase, label string) {
 	s.task = s.progress.BeginPhase(label, accent)
 }
 
-// Live repaints the transient line. It can never produce a permanent row.
+// Live updates the transient line. It can never produce a permanent row, and
+// it never touches the live terminal's lock: a sub-step can reach here from
+// inside printAroundLiveLine, which already holds that lock, and taking it
+// again deadlocks the process. The spinner repaints the new label within
+// 100ms. See refreshProgressTask.SetLabel.
 func (s *setupSink) Live(label string) {
 	if s == nil || !s.tty {
 		return
@@ -114,7 +118,7 @@ func (s *setupSink) Live(label string) {
 	s.mu.Lock()
 	task := s.task
 	s.mu.Unlock()
-	task.Update(label)
+	task.SetLabel(label)
 }
 
 // Settle closes the transient line and writes the composed row.
@@ -320,20 +324,38 @@ func setupBrainQueryable(components []setupComponent) bool {
 func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (facts setupui.RepoFacts, known bool) {
 	facts.Name = filepath.Base(repoDir)
 	facts.Path = repoDir
+	if dirty, err := worktreeDirty(ctx, runner, repoDir); err == nil {
+		facts.Dirty = dirty
+	}
+	branch, branchErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	branch = strings.TrimSpace(branch)
+
 	count, err := gitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
 	if err == nil {
 		if parsed, convErr := strconv.Atoi(strings.TrimSpace(count)); convErr == nil && parsed >= 0 {
 			facts.Commits = parsed
-			known = true
+			facts.Detached = branchErr != nil && parsed > 0
+			return facts, true
 		}
+		return facts, false
 	}
-	if _, err := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD"); err != nil && known && facts.Commits > 0 {
-		facts.Detached = true
+
+	// rev-list failed, and "no commits" must be SHOWN rather than inferred
+	// from that: it also fails when git is unavailable, and answering that
+	// with "no commits yet" is a confident wrong diagnosis that would skip
+	// every later phase. symbolic-ref SUCCEEDING is the positive evidence —
+	// git ran, the repository is readable, and it named the branch HEAD points
+	// at even though nothing has been committed to it. A detached HEAD has no
+	// symbolic ref and falls through as unknown, which is right: it is not
+	// this condition. (Same probe, same reasoning, as nameDegenerateRepoFailure.)
+	if branchErr != nil || branch == "" {
+		return facts, false
 	}
-	if dirty, err := worktreeDirty(ctx, runner, repoDir); err == nil {
-		facts.Dirty = dirty
+	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
+		facts.Commits = 0
+		return facts, true
 	}
-	return facts, known
+	return facts, false
 }
 
 // setupGraphProviderFacts asks the provider what it is. One subprocess, a hard

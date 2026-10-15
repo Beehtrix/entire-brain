@@ -312,9 +312,13 @@ func setupComponentNoun(n int) string {
 func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string) []string {
 	details := make([]string, 0, 2*len(failed))
 	for _, component := range failed {
-		details = append(details, setupComponentFailureLine(component, dash, brainCmd))
+		// Flattened, always. A component's Detail is another process's stderr,
+		// and a three-line git refusal pasted under a phase is the other half
+		// of the volume problem this file exists to remove — the row budget
+		// only governs width, so a newline inside one escapes it entirely.
+		details = append(details, setupui.FlattenText(setupComponentFailureLine(component, dash, brainCmd)))
 		if hint := strings.TrimSpace(component.Hint); hint != "" {
-			details = append(details, "hint: "+hint)
+			details = append(details, setupui.FlattenText("hint: "+hint))
 		}
 	}
 	return details

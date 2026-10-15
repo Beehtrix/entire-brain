@@ -683,6 +683,27 @@ func (p *refreshProgress) EmitLine(line string) {
 	fmt.Fprintln(p.out, line)
 }
 
+// SetLabel records the task's current label WITHOUT repainting.
+//
+// Update cannot be used by a caller that may be running INSIDE the live
+// terminal's lock, and one is: the nested refresh reporter's output is routed
+// into the enclosing phase's live line, and part of that output is written
+// through printAroundLiveLine, which holds that lock while it writes. Update
+// would then take it again and the process deadlocks on a non-reentrant mutex
+// — reproduced under a PTY, every run, with the whole of setup still to print.
+//
+// Not repainting costs nothing: the spinner repaints this task ten times a
+// second anyway, so the new label is on screen within 100ms, and the repaints
+// that no longer happen here were the ones being rate-limited away regardless.
+func (t *refreshProgressTask) SetLabel(label string) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.label = label
+	t.mu.Unlock()
+}
+
 // Abandon ends a task's live line and writes NOTHING in its place.
 //
 // Finish always emits label+" done" or label+" failed". A phase that was

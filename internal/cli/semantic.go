@@ -60,7 +60,6 @@ const (
 	// aborts promptly. Both are configurable via flags.
 	semanticSnapshotTimeout           = 30 * time.Minute
 	semanticSnapshotInactivityTimeout = 5 * time.Minute
-	semanticIndexLockTimeout          = 10 * time.Second
 
 	// semanticWorktreeModeName is the worktree_mode value recorded for an index
 	// built from dirty worktree content rather than committed HEAD. The two are
@@ -68,6 +67,10 @@ const (
 	// it by name.
 	semanticWorktreeModeName = "worktree"
 )
+
+// A var so lock-contention tests can fail fast instead of waiting out the
+// production retry window, matching the maxDocumentTranscriptBytes seam.
+var semanticIndexLockTimeout = 10 * time.Second
 
 var (
 	semanticBundleMaxEntry int64 = 128 * 1024 * 1024

@@ -22,16 +22,19 @@ import (
 // file.
 var maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
 
-const (
-	// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
-	defaultMaxReadBytes = 64 << 20 // 64 MiB
+// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
+// A var so the oversized-manifest test can prove manifests above this ceiling
+// still load without materializing a 64 MiB fixture under the race detector.
+var defaultMaxReadBytes int64 = 64 << 20 // 64 MiB
 
+// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
+// Canonical Brain manifests use the dedicated, uncapped manifest reader.
+// A var for the same oversized-fixture reason as defaultMaxReadBytes.
+var maxManifestBytes int64 = 16 << 20 // 16 MiB
+
+const (
 	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
 	maxSeedDocBytes = 32 << 20 // 32 MiB
-
-	// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
-	// Canonical Brain manifests use the dedicated, uncapped manifest reader.
-	maxManifestBytes = 16 << 20 // 16 MiB
 
 	// defaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is
 	// generous because a large monorepo's snapshot is legitimately big; operators

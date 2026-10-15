@@ -515,7 +515,7 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 	go func() {
 		defer w.Close()
 		chunk := make([]byte, 1<<20)
-		for i := 0; i < (maxManifestBytes>>20)+2; i++ {
+		for i := int64(0); i < (maxManifestBytes>>20)+2; i++ {
 			if _, err := w.Write(chunk); err != nil {
 				return
 			}

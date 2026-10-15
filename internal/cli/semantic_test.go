@@ -2922,7 +2922,6 @@ func TestSemanticIndexLockFailsFast(t *testing.T) {
 	env := semanticTestEnv(t, repoDir)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
-	shortSemanticLockTimeout(t)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err == nil || !strings.Contains(err.Error(), "index_locked") {
@@ -3035,7 +3034,6 @@ func TestBundleExportLockFailsFast(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
-	shortSemanticLockTimeout(t)
 
 	err := runSemanticBundleExport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle export"}, Options{Env: env, Runner: runner, Now: time.Now}, filepath.Join(t.TempDir(), "brain.tar"), false)
 	if err == nil || !strings.Contains(err.Error(), "index_locked") {
@@ -3110,7 +3108,6 @@ func TestSemanticGCLockFailsFast(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
-	shortSemanticLockTimeout(t)
 
 	err := runSemanticGC((&cobra.Command{}).Context(), &cobra.Command{Use: "gc"}, Options{Env: env, Runner: runner, Now: time.Now}, repoDir, "24h")
 	if err == nil || !strings.Contains(err.Error(), "index_locked") {
@@ -3204,7 +3201,6 @@ func TestBundleImportLockFailsFast(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
-	shortSemanticLockTimeout(t)
 	archive := filepath.Join(t.TempDir(), "semantic.tar")
 	writeTestBundle(t, archive, map[string]string{
 		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"generated_at":"2026-05-31T00:00:00Z","provider":"entire-graph","schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1}}}`,
@@ -4718,6 +4714,9 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 		t.Fatalf("acquire semantic test lock: %v", err)
 	}
 	t.Cleanup(unlock)
+	// Every caller either asserts fast lock-contention failure or never
+	// contends, so the lowered timeout is always safe and never forgotten.
+	shortSemanticLockTimeout(t)
 }
 
 // shortSemanticLockTimeout makes lock contention fail in milliseconds instead

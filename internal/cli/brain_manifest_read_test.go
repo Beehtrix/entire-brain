@@ -22,20 +22,21 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
 		name                                string
 		branches, sessions, warnings, bytes int
+		readCap                             int64 // when non-zero, lower defaultMaxReadBytes to this
 	}{
-		{"session-heavy", 870, 5305, 111, 18569433},
-		{"warning-heavy", 389, 2633, 6238, 17220291},
-		// Strictly larger than both observed shapes on every axis, and larger
-		// than the (test-lowered) default read cap below.
-		{"larger-than-default-read-limit", 2000, 6000, 12000, 24 << 20},
+		{"session-heavy", 870, 5305, 111, 18569433, 0},
+		{"warning-heavy", 389, 2633, 6238, 17220291, 0},
+		// Guards against a manifest reader ever routed through the capped
+		// default read path; only the fixture-above-cap relation matters.
+		{"larger-than-default-read-limit", 20, 200, 20, 5 << 20, 4 << 20},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.name == "larger-than-default-read-limit" {
-				// The guarded regression is a manifest reader routed through
-				// the capped default read path. Lowering the cap keeps the
-				// fixture above it without 80 MiB of race-instrumented JSON.
+			if tc.readCap > 0 {
+				if int64(tc.bytes) <= tc.readCap {
+					t.Fatalf("fixture of %d bytes does not exceed the lowered read cap %d", tc.bytes, tc.readCap)
+				}
 				prev := defaultMaxReadBytes
-				defaultMaxReadBytes = 16 << 20
+				defaultMaxReadBytes = tc.readCap
 				t.Cleanup(func() { defaultMaxReadBytes = prev })
 			}
 			repo := t.TempDir()
@@ -209,11 +210,11 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 func TestBrainManifestLargeUnknownFieldsRemainReadOnly(t *testing.T) {
 	// The unknown-field payload must exceed maxManifestBytes so the bounded
 	// reader below still refuses it; lowering the bound keeps that property
-	// without 17 MiB of race-instrumented JSON per decode pass.
+	// without megabytes of race-instrumented JSON per decode pass.
 	prev := maxManifestBytes
-	maxManifestBytes = 1 << 20
+	maxManifestBytes = 64 << 10
 	t.Cleanup(func() { maxManifestBytes = prev })
-	dir := writeTestManifest(t, `{"schema_version":3,"sessions":[],"future":"`+strings.Repeat("x", 2<<20)+`"}`)
+	dir := writeTestManifest(t, `{"schema_version":3,"sessions":[],"future":"`+strings.Repeat("x", 128<<10)+`"}`)
 	_, dropped, err := readBrainManifest(dir, true)
 	if err != nil || !dropped {
 		t.Fatalf("tolerant read: dropped=%v err=%v", dropped, err)

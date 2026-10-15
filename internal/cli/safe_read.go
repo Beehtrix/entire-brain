@@ -16,21 +16,22 @@ import (
 // legitimate input, so we fail loudly instead of letting a single read exhaust
 // process memory. Callers needing a different bound pass it explicitly.
 
-// maxDocumentTranscriptBytes bounds a single document-form session transcript
-// slurped into memory. Long sessions are large but never approach this. A var
-// so the oversized-fixture test can exercise the bound without a 256 MiB
-// file.
-var maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
+// Vars, not consts, so oversized-fixture tests can lower a bound instead of
+// materializing the full-size condition under the race detector. Production
+// never changes them; TestOverridableProductionBoundsKeepTheirDefaults pins
+// the values.
+var (
+	// maxDocumentTranscriptBytes bounds a single document-form session
+	// transcript slurped into memory. Long sessions never approach this.
+	maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
 
-// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
-// A var so the oversized-manifest test can prove manifests above this ceiling
-// still load without materializing a 64 MiB fixture under the race detector.
-var defaultMaxReadBytes int64 = 64 << 20 // 64 MiB
+	// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
+	defaultMaxReadBytes int64 = 64 << 20 // 64 MiB
 
-// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
-// Canonical Brain manifests use the dedicated, uncapped manifest reader.
-// A var for the same oversized-fixture reason as defaultMaxReadBytes.
-var maxManifestBytes int64 = 16 << 20 // 16 MiB
+	// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
+	// Canonical Brain manifests use the dedicated, uncapped manifest reader.
+	maxManifestBytes int64 = 16 << 20 // 16 MiB
+)
 
 const (
 	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.

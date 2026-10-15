@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 )
 
 // Sandboxed demo children must use noninteractive pager and Git settings.
@@ -210,7 +209,7 @@ func TestDemoCleanupPreservesSignalExitAndStopsSandboxChild(t *testing.T) {
 			// misses it (seen on CI runners), CombinedOutput would block for
 			// the child's full 60s sleep; the exit-code and cleaned-directory
 			// assertions below do not need the pipe to drain that long.
-			cmd.WaitDelay = 5 * time.Second
+			cmd.WaitDelay = commandWaitDelay
 			out, err := cmd.CombinedOutput()
 			if err == nil || cmd.ProcessState.ExitCode() != 143 {
 				t.Fatalf("signal exit: %v, %s", err, out)

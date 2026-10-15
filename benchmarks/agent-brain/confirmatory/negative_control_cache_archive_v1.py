@@ -24,6 +24,7 @@ import re
 import stat
 import sys
 import tempfile
+import time
 import types
 import unicodedata
 from collections import Counter
@@ -64,15 +65,15 @@ CANONICAL_ARTIFACT_PROFILE = "sorted_keys_indent_2_utf8_lf_v1"
 CANONICAL_JSON_PROFILE = "sorted_keys_compact_utf8_no_float_v1"
 
 CHECKED_EXECUTION_SOURCE_COMMIT = "f0552070921605cd9a0165ee29ca96e100675d58"
-CHECKED_EXECUTION_ARTIFACT_SHA256 = "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e"
-CHECKED_EXECUTION_CONTRACT_SHA256 = "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef"
+CHECKED_EXECUTION_ARTIFACT_SHA256 = "c7f4227fa08e2aef92feb0e97514a3db68a1bce076fdfd85d57a1c81e7980cec"
+CHECKED_EXECUTION_CONTRACT_SHA256 = "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397"
 CHECKED_EXECUTION_SCHEMA_SHA256 = "dbcb95119feeda4c436e90d8162ac0498577454ca9ccaab7a8254d55d90359f9"
 CHECKED_EXECUTION_BUILDER_SHA256 = "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd"
 CHECKED_RUN_PLAN_ARTIFACT_SHA256 = "f55b6e22a25daf8016305304adf3b7ac8d31675281d97cfc9bb78cc76b619790"
 CHECKED_RUN_PLAN_SHA256 = "a47311fa1f4553f8085ebea6e8ddd003a4ea5d0b2d269d91bbcdd414134a248e"
 CHECKED_RUN_PLAN_SCHEMA_SHA256 = "294f77f165676bec6053e9637578ca22f048a887d2a978bbf8b8e300f21a2dad"
 CHECKED_RUN_PLAN_BUILDER_SHA256 = "23d08e9d3d23935cdc86b53780b609fb35f6b3020ede6b1360af288939e34715"
-CHECKED_GATE_PRIMITIVE_SHA256 = "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd"
+CHECKED_GATE_PRIMITIVE_SHA256 = "07db2f44cc2d0cb925f6b1aeaeb0c6dcd48ed0be3af971c7f58e262eddc50d99"
 CHECKED_MANIFEST_SCHEMA_SHA256 = "37d3839411b2e30a99fdd7e93784d56f5fd525c0472717a24cc7b92213b98999"
 CHECKED_TOOLCHAIN_BINDINGS_SHA256 = "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c"
 CHECKED_DRAFT202012_SHA256 = "8688b67468b096427f758163174432e221d8197c6b13870a6427939f6ea281eb"
@@ -81,11 +82,11 @@ CHECKED_DRAFT202012_SIZE = 18_097
 # Filled with the reviewed raw identities after the concurrently authored
 # schemas and pending material declaration settle.  A mismatched dependency
 # always fails closed; there is no runtime override.
-CHECKED_MATERIAL_ARTIFACT_SHA256 = "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93"
-CHECKED_MATERIAL_SHA256 = "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852"
-CHECKED_MATERIAL_SCHEMA_SHA256 = "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5"
+CHECKED_MATERIAL_ARTIFACT_SHA256 = "18a0e9dc2f5ad68cef079c1e7fb6bab28145c1786b7afab80dfd73fb7ad41d1f"
+CHECKED_MATERIAL_SHA256 = "4ea54ccdca1516dcc793dc30b30fa41974bfa24041b9c1acae5fdd03c2c90e7d"
+CHECKED_MATERIAL_SCHEMA_SHA256 = "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58"
 CHECKED_REPORT_SCHEMA_SHA256 = "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d"
-CHECKED_VERIFIER_CONTRACT_SCHEMA_SHA256 = "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+CHECKED_VERIFIER_CONTRACT_SCHEMA_SHA256 = "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3"
 
 REPOSITORY_ORDER = ("entire-brain", "entire-db", "entire-graph")
 CACHE_ROOTS = ("gocache", "gomodcache")
@@ -305,6 +306,28 @@ def _stable_stat_identity(value: os.stat_result) -> tuple[int, ...]:
     )
 
 
+# File timestamps advance at the kernel coarse-clock granularity (one jiffy,
+# up to 10ms at HZ=100). A same-size in-place rewrite within the tick that
+# produced the "before" fstat leaves every identity field equal, so the
+# before/after comparison cannot see it; on fast machines create, read, and
+# rewrite all fit inside one tick. Verification therefore starts only once
+# the file's timestamps are at least one tick old, which forces any
+# modification during the read onto a strictly newer timestamp.
+_TIMESTAMP_TICK_NS = 15_000_000
+
+
+def _quiescent_fstat(descriptor: int, *, label: str) -> os.stat_result:
+    for _ in range(8):
+        value = os.fstat(descriptor)
+        age = time.time_ns() - max(value.st_mtime_ns, value.st_ctime_ns)
+        if age >= _TIMESTAMP_TICK_NS:
+            return value
+        # A negative age is a future timestamp; sleeping cannot cure it, and
+        # the bounded attempts fail closed below rather than spinning.
+        time.sleep(_TIMESTAMP_TICK_NS / 1e9)
+    raise CacheArchiveVerificationError(f"{label} timestamps never settled")
+
+
 def _read_bounded(
     path: pathlib.Path,
     *,
@@ -315,7 +338,7 @@ def _read_bounded(
     _require(type(maximum) is int and maximum >= 1, f"{label} byte ceiling is invalid")
     descriptor, directories = _open_regular_descriptor(path, label=label)
     try:
-        before = os.fstat(descriptor)
+        before = _quiescent_fstat(descriptor, label=label)
         _require(before.st_size <= maximum, f"{label} exceeds the byte ceiling")
         if require_single_link:
             _require(before.st_nlink == 1, f"{label} link count differs")
@@ -352,7 +375,7 @@ def _stream_identity(path: pathlib.Path, *, maximum: int, label: str) -> dict[st
     _require(type(maximum) is int and maximum >= 1, f"{label} byte ceiling is invalid")
     descriptor, directories = _open_regular_descriptor(path, label=label)
     try:
-        before = os.fstat(descriptor)
+        before = _quiescent_fstat(descriptor, label=label)
         _require(1 <= before.st_size <= maximum, f"{label} size is outside the byte ceiling")
         _require(before.st_nlink == 1, f"{label} link count differs")
         digest = hashlib.sha256()

@@ -468,7 +468,7 @@ func TestImportRefusesAnOversizedExport(t *testing.T) {
 	f.Close()
 
 	if _, err := readImportFile(path); err == nil {
-		t.Fatalf("an export over the %d-byte limit was read in full", int64(maxManifestBytes))
+		t.Fatalf("an export over the %d-byte limit was read in full", maxManifestBytes)
 	}
 }
 
@@ -509,13 +509,22 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 		r.Close()
 	})
 
+	// The limit is overridable; lowering it keeps this test from pushing the
+	// full production bound through the pipe.
+	prevMax := maxManifestBytes
+	maxManifestBytes = 2 << 20
+	t.Cleanup(func() { maxManifestBytes = prevMax })
+
 	// Write past the limit. The reader stops early, so the writer will block on
 	// a full pipe and be abandoned — closing the read end in cleanup releases
-	// it, and the write errors are expected rather than checked.
+	// it, and the write errors are expected rather than checked. The chunk
+	// count is snapshotted because the abandoned writer may re-check its bound
+	// after cleanup has already restored the var.
+	chunks := (maxManifestBytes >> 20) + 2
 	go func() {
 		defer w.Close()
 		chunk := make([]byte, 1<<20)
-		for i := 0; i < (maxManifestBytes>>20)+2; i++ {
+		for i := int64(0); i < chunks; i++ {
 			if _, err := w.Write(chunk); err != nil {
 				return
 			}
@@ -530,7 +539,7 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 	select {
 	case readErr := <-done:
 		if readErr == nil {
-			t.Fatalf("stdin past the %d-byte limit was read in full", int64(maxManifestBytes))
+			t.Fatalf("stdin past the %d-byte limit was read in full", maxManifestBytes)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("reading oversized stdin did not terminate")

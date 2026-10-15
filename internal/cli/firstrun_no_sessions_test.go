@@ -306,7 +306,11 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	if ran.State != "ok" {
 		t.Errorf("a repo that has captured nothing yet is not broken: %+v", ran)
 	}
-	if strings.Contains(ran.Detail, "entire brain refresh") {
+	// Rendered, not hardcoded: this stack prints every brain command in the
+	// spelling the reader reached the binary by (brainInvocation), so an
+	// assertion pinned to one spelling would pass vacuously in the other.
+	refreshCommand := brainInvocation(os.LookupEnv, "refresh")
+	if strings.Contains(ran.Detail, refreshCommand) {
 		t.Errorf("the remedy for 'nothing captured yet' cannot be a refresh that captures nothing: %s", ran.Detail)
 	}
 	for _, want := range []string{"no captured sessions", "entire checkpoint list"} {
@@ -316,7 +320,7 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	}
 	// The stage genuinely not having run still points at the stage.
 	never := captureCheckFor(t, false)
-	if never.State != "warn" || !strings.Contains(never.Detail, "entire brain refresh") {
+	if never.State != "warn" || !strings.Contains(never.Detail, refreshCommand) {
 		t.Errorf("a sessions stage that never ran is still a refresh away: %+v", never)
 	}
 }

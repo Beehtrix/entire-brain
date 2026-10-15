@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "2a169f207594",
+  "strategy": "manual-commit",
+  "branch": "cor-2143-state-model",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "SECURITY.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/hosted_status.go",
+    "internal/cli/hosted_status_test.go",
+    "internal/cli/hosted_target.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/169f207594/0/metadata.json",
+      "transcript": "/2a/169f207594/0/full.jsonl",
+      "compact_transcript": "/2a/169f207594/0/transcript.jsonl",
+      "content_hash": "/2a/169f207594/0/content_hash.txt",
+      "prompt": "/2a/169f207594/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 1090709,
+    "cache_read_tokens": 10298231,
+    "output_tokens": 42405,
+    "api_call_count": 52
+  }
+}

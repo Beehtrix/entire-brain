@@ -1,0 +1,23 @@
+explain this PR to me. start with 1-2 sentence tldr, then go into it
+
+---
+
+so we have 3 states now for entire brain - connected, local-only, disconnected. 
+
+what does this PR actually do and how does it match up to our states? are you on teh latest commit?
+
+---
+
+okay we shoudl unify this and clean it up across teh board. 
+
+list out the design. make it very concise. no extra wording or fluff. just smple speakl.
+
+---
+
+yes agree with your asessment to the binding.
+
+The thing im thinking abuot is whereh we need an env var escape hatch? i guess it's at the env level. if that is set then i guess that servevs as the global override. then you have specific repo level statuses liek we have today
+
+---
+
+yeah this makes sense. let's go with this .

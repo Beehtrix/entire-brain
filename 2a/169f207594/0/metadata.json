@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "2a169f207594",
+  "session_id": "c460c6d3-8277-424a-8312-69c48e58eddb",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T23:10:24.14454Z",
+  "branch": "cor-2143-state-model",
+  "checkpoints_count": 5,
+  "files_touched": [
+    "SECURITY.md",
+    "docs/getting-started.md",
+    "docs/reference.md",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/hosted_status.go",
+    "internal/cli/hosted_status_test.go",
+    "internal/cli/hosted_target.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "8d217369a5b9",
+  "checkpoint_transcript_start": 494,
+  "transcript_lines_at_start": 494,
+  "compact_transcript_start": 111,
+  "token_usage": {
+    "input_tokens": 104,
+    "cache_creation_tokens": 1090709,
+    "cache_read_tokens": 10298231,
+    "output_tokens": 42405,
+    "api_call_count": 52
+  },
+  "session_metrics": {
+    "turn_count": 7
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-15T23:10:24.099988Z",
+    "agent_lines": 277,
+    "agent_removed": 139,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 277,
+    "total_lines_changed": 416,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

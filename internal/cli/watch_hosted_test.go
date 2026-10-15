@@ -28,7 +28,7 @@ func TestWatchTickRunsHostedSyncAfterRefresh(t *testing.T) {
 	}
 }
 
-func TestWatchTickSkipsHostedSyncWhenRefreshFails(t *testing.T) {
+func TestWatchTickRunsHostedSyncWhenRefreshFails(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
@@ -37,8 +37,12 @@ func TestWatchTickSkipsHostedSyncWhenRefreshFails(t *testing.T) {
 	var out bytes.Buffer
 	var agentCalls int
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
-	if synced != 0 {
-		t.Fatalf("hosted sync must not run when refresh failed, got %d", synced)
+	// COR-2114: receive-only members must not starve when refresh always fails.
+	if synced != 1 {
+		t.Fatalf("hosted sync must run even when refresh failed, got %d", synced)
+	}
+	if readWatchCursor(t, cursorPath).LastFactsSyncAt.IsZero() {
+		t.Fatal("cursor must record the sync attempt so the throttle applies")
 	}
 }
 

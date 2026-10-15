@@ -977,6 +977,12 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain to hosted Entire; opt-in and off
   by default, requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+- `connect` binds a repository to its hosted brain; running it is optional,
+  because the daemon and session-end hook resolve the binding through the host
+  CLI (`entire repo view`) and stay local until that succeeds. `disconnect`
+  records an opt-out: sync stops and auto-connect will not re-bind the
+  repository. It is not a purge, so the local brain and facts already pulled
+  stay. `connect` opts back in
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay

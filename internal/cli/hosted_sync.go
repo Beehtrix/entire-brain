@@ -28,11 +28,13 @@ const hostEntireBinary = "entire"
 // must not fail on hosted outages. The error return exists for programming
 // errors only.
 //
-// Gate order is fixed: (1) the local-only kill switch always wins; (2) the
-// repo binding is the connection state — absent, each run tries to resolve it
-// through the host CLI and falls back to local-only, REPORTING why like every
-// other gate here; (3) apiurl.Validate before any client exists. A fresh token
-// is minted per call via the host CLI's own login and held only in memory.
+// Gate order is fixed: (1) the local-only kill switch always wins; (2) a
+// recorded opt-out (`entire brain disconnect`) stops sync AND auto-connect
+// until `connect` clears it; (3) the repo binding is the connection state —
+// absent, each run tries to resolve it through the host CLI and falls back to
+// local-only, until that succeeds, REPORTING why like every other gate here; (4) apiurl.Validate before any
+// client exists. A fresh token is minted per call via the host CLI's own login
+// and held only in memory.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
 	if brainNoEgressMode() {
 		return nil
@@ -42,31 +44,34 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return nil
 	}
+	if present && binding.OptedOut {
+		return nil
+	}
 	if !present {
-		// Auto-connect: placement comes from the host CLI's `entire repo
-		// whereami --json`, which is NOT SHIPPED (COR-2029) — so on a stock
-		// host CLI this gate is the one that always fires. It also fails for a
-		// logged-out user or an unregistered repo. All of them mean "stay
-		// local", and all of them used to mean it SILENTLY: this was the only
-		// gate in this function that returned without a word, so the hosted
-		// loop appeared to work and simply never engaged.
-		//
-		// resolveHostedPlacement carries the negative cache: a failure
-		// suppresses the next shell-out for hostedPlacementNegativeTTL, which
-		// is what stops the session-end pair (current branch, then default
-		// branch) spending two hostedShellOutTimeout windows per session end.
-		// A suppressed attempt stays quiet so the note appears once per
-		// window, not once per branch.
-		resolved, attempted, whereamiErr := resolveHostedPlacement(ctx, opts.Runner, repoDir, opts.Now().UTC())
-		if whereamiErr != nil {
+		// Auto-connect: placement comes from the host CLI (repo view), which
+		// fails for a logged-out user, an unregistered repo, or a CLI without
+		// the command — all of which mean "stay local and retry later". The
+		// failure is REPORTED (this was the one gate here that returned
+		// without a word), and resolveHostedPlacementCached's negative cache
+		// stops the session-end pair (current branch, then default branch)
+		// spending two hostedShellOutTimeout windows per session end. A
+		// suppressed attempt stays quiet so the note appears once per window,
+		// not once per branch.
+		resolved, attempted, placementErr := resolveHostedPlacementCached(ctx, opts.Runner, repoDir, opts.Now().UTC())
+		if placementErr != nil {
 			if attempted {
-				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo whereami --json`, which is not shipped yet (COR-2029): %v; bind now with `"+brainInvocation(os.LookupEnv, "connect")+" --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, whereamiErr)
+				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: could not resolve hosted placement via `entire repo view --json`: %v; bind now with `"+brainInvocation(os.LookupEnv, "connect")+" --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, placementErr)
 			}
 			return nil
 		}
-		binding, err = bindHostedRepo(storage.BrainDir, resolved.RepoID, resolved.APIURL)
+		var bound bool
+		binding, bound, err = bindHostedRepoIfNotOptedOut(storage.BrainDir, resolved.RepoID, resolved.APIURL)
 		if err != nil {
 			fmt.Fprintf(errW, "hosted sync: auto-connect skipped: %v\n", err)
+			return nil
+		}
+		if !bound {
+			// A disconnect landed while placement was resolving; honor it.
 			return nil
 		}
 	}

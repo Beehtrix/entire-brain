@@ -9,14 +9,15 @@ import (
 	"time"
 )
 
-// countingWhereamiRunner answers `entire auth token` like the hosted harness
-// does and fails `entire repo whereami` the way every stock host CLI does
-// (COR-2029 is unshipped), counting how often the resolver reached for it.
-func countingWhereamiRunner(calls *int) commandRunnerFunc {
+// countingPlacementRunner answers `entire auth token` like the hosted harness
+// does and fails `entire repo view` the way a logged-out user, an unregistered
+// repo, or a host CLI without the command does, counting how often the
+// resolver reached for it.
+func countingPlacementRunner(calls *int) commandRunnerFunc {
 	return commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
 			*calls++
-			return nil, nil, errors.New("unknown command \"whereami\" for \"entire repo\"")
+			return nil, nil, errors.New("repo not registered")
 		}
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
@@ -39,15 +40,15 @@ func stderrLines(errOut string) []string {
 func TestHostedSyncAutoConnectFailureIsReported(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	whereamiCalls := 0
-	opts.Runner = countingWhereamiRunner(&whereamiCalls)
+	viewCalls := 0
+	opts.Runner = countingPlacementRunner(&viewCalls)
 
 	var errOut bytes.Buffer
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("an unresolvable placement must stay a graceful local fallback, got %v", err)
 	}
-	if whereamiCalls != 1 {
-		t.Fatalf("the gate must have actually attempted resolution, got %d calls", whereamiCalls)
+	if viewCalls != 1 {
+		t.Fatalf("the gate must have actually attempted resolution, got %d calls", viewCalls)
 	}
 	lines := stderrLines(errOut.String())
 	if len(lines) != 1 {
@@ -57,7 +58,7 @@ func TestHostedSyncAutoConnectFailureIsReported(t *testing.T) {
 	for _, want := range []string{
 		repoDir,                         // which repository stayed local
 		"branch main",                   // and which branch
-		"COR-2029",                      // why: the host contract is unshipped
+		"entire repo view --json",       // what was tried
 		"--repo-id",                     // the runnable remedy
 		"the local brain is unaffected", // and that nothing was lost
 	} {
@@ -77,14 +78,14 @@ func TestHostedSyncAutoConnectFailureIsReported(t *testing.T) {
 }
 
 // ND-3: the session-end hook runs this path for the current branch and then
-// the default branch, and each resolveWhereami attempt is bounded only by
-// hostedShellOutTimeout — so an unshipped whereami cost up to 60s of shelling
-// out per session end. One attempt per process (per TTL window) is the cap.
+// the default branch, and each resolveHostedPlacement attempt is bounded only by
+// hostedShellOutTimeout — so an unresolvable placement cost up to 60s of
+// shelling out per session end. One attempt per process (per TTL window) is the cap.
 func TestHostedSyncResolvesPlacementAtMostOncePerProcess(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	whereamiCalls := 0
-	opts.Runner = countingWhereamiRunner(&whereamiCalls)
+	viewCalls := 0
+	opts.Runner = countingPlacementRunner(&viewCalls)
 
 	var errOut bytes.Buffer
 	// Exactly the session-end hook's pair: current branch, then the default.
@@ -93,8 +94,8 @@ func TestHostedSyncResolvesPlacementAtMostOncePerProcess(t *testing.T) {
 			t.Fatalf("branch %s must stay a graceful local fallback, got %v", branch, err)
 		}
 	}
-	if whereamiCalls != 1 {
-		t.Fatalf("a failed resolution must not be retried in the same process: want 1 shell-out, got %d", whereamiCalls)
+	if viewCalls != 1 {
+		t.Fatalf("a failed resolution must not be retried in the same process: want 1 shell-out, got %d", viewCalls)
 	}
 	// The suppressed attempt must also stay quiet, or the fix for ND-2 would
 	// reintroduce the per-branch noise the cache exists to remove.
@@ -105,53 +106,48 @@ func TestHostedSyncResolvesPlacementAtMostOncePerProcess(t *testing.T) {
 
 // The negative cache must not become a permanent negative: a long-lived watch
 // daemon has to notice that the user logged in, the repo was registered, or
-// the host CLI finally shipped whereami.
+// the host CLI gained placement support.
 func TestHostedPlacementRetriesAfterTheNegativeTTL(t *testing.T) {
 	repoDir := t.TempDir()
-	whereamiCalls := 0
-	runner := countingWhereamiRunner(&whereamiCalls)
+	viewCalls := 0
+	runner := countingPlacementRunner(&viewCalls)
 	start := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 
-	if _, attempted, err := resolveHostedPlacement(context.Background(), runner, repoDir, start); err == nil || !attempted {
+	if _, attempted, err := resolveHostedPlacementCached(context.Background(), runner, repoDir, start); err == nil || !attempted {
 		t.Fatalf("first call must attempt and fail: attempted=%v err=%v", attempted, err)
 	}
-	if _, attempted, err := resolveHostedPlacement(context.Background(), runner, repoDir, start.Add(hostedPlacementNegativeTTL-time.Second)); attempted || !errors.Is(err, errHostedPlacementSuppressed) {
+	if _, attempted, err := resolveHostedPlacementCached(context.Background(), runner, repoDir, start.Add(hostedPlacementNegativeTTL-time.Second)); attempted || !errors.Is(err, errHostedPlacementSuppressed) {
 		t.Fatalf("inside the TTL the shell-out must be suppressed: attempted=%v err=%v", attempted, err)
 	}
-	if _, attempted, _ := resolveHostedPlacement(context.Background(), runner, repoDir, start.Add(hostedPlacementNegativeTTL)); !attempted {
+	if _, attempted, _ := resolveHostedPlacementCached(context.Background(), runner, repoDir, start.Add(hostedPlacementNegativeTTL)); !attempted {
 		t.Fatal("past the TTL the resolver must try again")
 	}
-	if whereamiCalls != 2 {
-		t.Fatalf("want 2 shell-outs (first attempt, post-TTL retry), got %d", whereamiCalls)
+	if viewCalls != 2 {
+		t.Fatalf("want 2 shell-outs (first attempt, post-TTL retry), got %d", viewCalls)
 	}
 }
 
-// ND-1: `connect` with no flags cannot succeed on a first run, and its error
-// used to lead with `entire repo whereami` — a command that exists nowhere,
-// so the reader goes looking for a local breakage that is not there. The
-// runnable path has to come first.
-func TestConnectErrorNamesTheRunnableFlagsBeforeTheUnshippedCommand(t *testing.T) {
+// ND-1: `connect` with no flags cannot succeed on a first run when placement
+// does not resolve; the error must name the command it tried and both flags the
+// reader can run instead.
+func TestConnectErrorNamesTheRunnableFlagsWhenPlacementFails(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	whereamiCalls := 0
-	runner := countingWhereamiRunner(&whereamiCalls)
+	viewCalls := 0
+	runner := countingPlacementRunner(&viewCalls)
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 
 	_, _, err := runConnectCommand(t, opts)
 	if err == nil {
-		t.Fatal("connect without flags must fail while whereami is unshipped")
+		t.Fatal("connect without flags must fail while placement is unresolvable")
 	}
 	msg := err.Error()
-	repoIDAt := strings.Index(msg, "--repo-id")
-	apiURLAt := strings.Index(msg, "--api-url")
-	whereamiAt := strings.Index(msg, "whereami")
-	if repoIDAt < 0 || apiURLAt < 0 {
-		t.Fatalf("error must name both flags the user can actually run, got: %v", err)
+	for _, want := range []string{"--repo-id", "--api-url", "entire repo view --json"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error must contain %q, got: %v", want, err)
+		}
 	}
-	if whereamiAt >= 0 && repoIDAt > whereamiAt {
-		t.Fatalf("the runnable path must come before the unshipped command, got: %v", err)
-	}
-	if !strings.Contains(msg, "COR-2029") || !strings.Contains(msg, "not shipped") {
-		t.Fatalf("error must say automatic binding is unshipped (COR-2029), got: %v", err)
+	if viewCalls != 1 {
+		t.Fatalf("connect must always try the real resolver, got %d calls", viewCalls)
 	}
 }

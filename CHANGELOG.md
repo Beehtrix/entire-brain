@@ -28,6 +28,10 @@ nonprod. Confirm the client in this release points at the right cells.
 - **`brain stop` / `brain start`** to pause background work machine-wide.
 - **Hosted sync client** — `brain connect`, per-sync token mint, pull-into-local,
   daemon and hook wiring (COR-2030/COR-2031). See "Known gaps".
+- **`brain disconnect`** opts a repository out of hosted syncing: sync stops and
+  the daemon's auto-connect will not re-bind it, while the local brain and facts
+  already pulled stay (not a purge). `connect` opts back in; it now prints a
+  user-facing summary of what it bound and synced (COR-2109, #364).
 - **Benchmarks**: `memory-ladder`, a five-condition probe of agent memory
   surfaces, and index size / query latency measured against codebase size.
 
@@ -42,6 +46,16 @@ nonprod. Confirm the client in this release points at the right cells.
 
 ### Fixed
 
+- Auto-connect cannot override a disconnect issued while placement was being
+  resolved: the opt-out is re-checked under the write lock (#364).
+- Hosted connect and disconnect banners open with a blank line and are
+  left-aligned, with a blank line before the join hint in the never-connected
+  banner (#369, #370).
+- `watch` runs hosted fact sync even when the refresh fails, and a deferred call
+  enforces it on every exit path of the tick (#366, COR-2114).
+- Auto-connect failures are reported, not silent, and a failed placement lookup
+  is cached for ten minutes per repository so the session-end hook's two
+  branches do not each spend a shell-out timeout.
 - `remember` returns the persisted merged fact in JSON.
 - An empty fact query names the branches that do hold facts.
 - The ollama chunk-size limits are real, and the advice that breaks them is

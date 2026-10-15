@@ -1499,6 +1499,12 @@ model or by fetching over the network:
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
   requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+- `connect` binds a repository to its hosted brain; running it is optional,
+  because the daemon and session-end hook resolve the binding through the host
+  CLI (`entire repo view`) and stay local until that succeeds. `disconnect`
+  records an opt-out: sync stops and auto-connect will not re-bind the
+  repository. It is not a purge, so the local brain and facts already pulled
+  stay. `connect` opts back in
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the

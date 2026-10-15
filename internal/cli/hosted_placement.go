@@ -12,9 +12,9 @@ import (
 //
 // The cost this exists to cap is real and user-visible: the session-end hook
 // runs the auto-connect path once for the current branch and once for the
-// default branch, and resolveWhereami bounds each shell-out at
-// hostedShellOutTimeout. Against a host CLI that does not provide `entire repo
-// whereami` (COR-2029 is unshipped), that is two failing shell-outs — up to
+// default branch, and resolveHostedPlacement bounds each shell-out at
+// hostedShellOutTimeout. Against a host CLI that cannot resolve placement (logged out,
+// unregistered repo, or no `entire repo view`), that is two failing shell-outs — up to
 // 60s — on every session end, forever, because nothing was remembered between
 // them.
 //
@@ -35,18 +35,18 @@ var hostedPlacementFailures = struct {
 	at map[string]time.Time
 }{at: map[string]time.Time{}}
 
-// resolveHostedPlacement is the auto-connect path's resolver: resolveWhereami
-// behind a per-repository negative cache. The second return reports whether
+// resolveHostedPlacementCached is the auto-connect path's resolver:
+// resolveHostedPlacement behind a per-repository negative cache. The second return reports whether
 // the host CLI was actually invoked — false means a cached failure suppressed
 // it, and the error is errHostedPlacementSuppressed.
 //
 // Deliberately NOT used by `entire brain connect`: an explicit connect is a
 // user asking right now, and must always try the real thing.
-func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir string, now time.Time) (whereamiResult, bool, error) {
+func resolveHostedPlacementCached(ctx context.Context, runner CommandRunner, repoDir string, now time.Time) (hostedPlacement, bool, error) {
 	if hostedPlacementRecentlyFailed(repoDir, now) {
-		return whereamiResult{}, false, errHostedPlacementSuppressed
+		return hostedPlacement{}, false, errHostedPlacementSuppressed
 	}
-	resolved, err := resolveWhereami(ctx, runner, repoDir)
+	resolved, err := resolveHostedPlacement(ctx, runner, repoDir)
 	recordHostedPlacementOutcome(repoDir, now, err)
 	return resolved, true, err
 }

@@ -23,6 +23,11 @@ func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) 
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main"}},
 	}
+	// The settling property is cap-relative, so a lowered cap proves it with
+	// a fraction of the projection work.
+	prevCap := memoryProjectionClaimsPerPass
+	memoryProjectionClaimsPerPass = 4
+	t.Cleanup(func() { memoryProjectionClaimsPerPass = prevCap })
 	count := memoryProjectionClaimsPerPass + 3
 	for i := 0; i < count; i++ {
 		rel := fmt.Sprintf("sessions/main/session-%03d.jsonl", i)

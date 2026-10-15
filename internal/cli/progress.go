@@ -656,3 +656,65 @@ func progressStatusKey(label string) string {
 	// under-folding is the flood this exists to stop.
 	return progressBareCountPattern.ReplaceAllString(label, "#")
 }
+
+// TTY reports whether this progress is painting a terminal. It is tty()
+// exported, and it exists because a caller that composes its own rows — the
+// setupui renderer does — has to pick its glyph set and width budget from the
+// SAME capabilities this progress paints with. Asking the environment a second
+// time is how the two drift apart.
+func (p *refreshProgress) TTY() bool { return p.tty() }
+
+// EmitLine writes one already-composed line, verbatim.
+//
+// NotePhase cannot do this: it indents by two spaces and paints the text
+// itself, which is right for a note hanging off a phase and wrong for a row
+// whose glyph, title column and colour the caller has already decided. The
+// line still has to go out THROUGH the live terminal — written directly to
+// p.out it lands on the row the in-place repaints own, and the next repaint
+// erases half of it.
+func (p *refreshProgress) EmitLine(line string) {
+	if p == nil || p.out == nil {
+		return
+	}
+	if p.tty() {
+		p.live.emitAround(func() { fmt.Fprintln(p.out, line) })
+		return
+	}
+	fmt.Fprintln(p.out, line)
+}
+
+// Abandon ends a task's live line and writes NOTHING in its place.
+//
+// Finish always emits label+" done" or label+" failed". A phase that was
+// skipped, or whose settled row the caller composes itself, can say neither —
+// and a row written any other way is appended to the spinner's row and
+// half-erased by the next repaint. Abandon is the missing third outcome: stop
+// owning the row, leave the screen clean, let the caller write what actually
+// happened.
+//
+// It shares Finish's idempotency flag, so abandoning and then finishing (or
+// the reverse) cannot produce two terminal lines for one task.
+func (t *refreshProgressTask) Abandon() {
+	if t == nil || t.progress == nil || t.progress.out == nil {
+		return
+	}
+	t.mu.Lock()
+	if t.finished {
+		t.mu.Unlock()
+		return
+	}
+	t.finished = true
+	t.mu.Unlock()
+	t.stopSpinner()
+	if !t.progress.tty() {
+		// The plain path buffers its pending label and emits on the next
+		// phase change. Dropping it here is the whole point: nothing was
+		// written, and nothing should be.
+		t.mu.Lock()
+		t.plainHasPend = false
+		t.plainPending = ""
+		t.mu.Unlock()
+		return
+	}
+	t.progress.live.finish(t, nil)
+}

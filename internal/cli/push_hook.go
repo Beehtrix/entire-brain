@@ -104,11 +104,11 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 	primary := filepath.Join(hooksDir, pushHookName)
 	backup := primary + pushHookBackupSuffix
 
-	primaryBytes, primaryErr := os.ReadFile(primary)
+	primaryBytes, primaryErr := readHookFile(primary)
 	primaryExists := primaryErr == nil
 	if primaryErr != nil && !os.IsNotExist(primaryErr) {
 		// A symlinked hook reads through to its target here; only a genuinely
-		// unreadable file stops the install.
+		// unreadable file (or a special file) stops the install.
 		return "", "", fmt.Errorf("read %s: %w", primary, primaryErr)
 	}
 	primaryContent := string(primaryBytes)
@@ -129,7 +129,7 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		// host's chain runs it. Leave the primary alone; refresh our moved
 		// copy so a plugin upgrade's new path still reaches a binary.
 		for _, candidate := range movedPushHookCandidates(hooksDir) {
-			data, readErr := os.ReadFile(candidate)
+			data, readErr := readHookFile(candidate)
 			if readErr != nil || !strings.Contains(string(data), pushHookMarker) {
 				continue
 			}
@@ -140,7 +140,7 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 			}
 			return pushHookChainedIn, candidate, nil
 		}
-		if existing, err := os.ReadFile(backup); err == nil {
+		if existing, err := readHookFile(backup); err == nil {
 			if string(existing) != primaryContent {
 				rotated := backup + "." + time.Now().UTC().Format("20060102T150405Z")
 				if err := os.Rename(backup, rotated); err != nil {
@@ -155,6 +155,11 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 			return "", "", fmt.Errorf("back up existing %s hook: %w", pushHookName, err)
 		}
 		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
+			// Put the original hook back: leaving the slot empty would silently
+			// disable the host's pre-push (privacy filtering rides on it).
+			if rbErr := os.Rename(backup, primary); rbErr != nil {
+				return "", "", fmt.Errorf("write %s hook: %w; original hook stranded at %s: %v", pushHookName, err, backup, rbErr)
+			}
 			return "", "", err
 		}
 		return pushHookInstalled, primary, nil
@@ -193,11 +198,11 @@ func refreshPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 	}
 	primary := filepath.Join(hooksDir, pushHookName)
 	ours := false
-	if data, readErr := os.ReadFile(primary); readErr == nil && strings.Contains(string(data), pushHookMarker) {
+	if data, readErr := readHookFile(primary); readErr == nil && strings.Contains(string(data), pushHookMarker) {
 		ours = true
 	} else {
 		for _, candidate := range movedPushHookCandidates(hooksDir) {
-			if data, readErr := os.ReadFile(candidate); readErr == nil && strings.Contains(string(data), pushHookMarker) {
+			if data, readErr := readHookFile(candidate); readErr == nil && strings.Contains(string(data), pushHookMarker) {
 				ours = true
 				break
 			}
@@ -226,14 +231,18 @@ func uninstallPushHook(ctx context.Context, opts Options, repoDir string) error 
 	primary := filepath.Join(hooksDir, pushHookName)
 	backup := primary + pushHookBackupSuffix
 
-	if data, err := os.ReadFile(primary); err == nil && strings.Contains(string(data), pushHookMarker) {
+	if data, err := readHookFile(primary); err == nil && strings.Contains(string(data), pushHookMarker) {
 		if _, err := os.Stat(backup); err == nil {
+			// Remove first: on Windows, rename cannot replace an existing file.
+			if err := os.Remove(primary); err != nil {
+				return err
+			}
 			return os.Rename(backup, primary)
 		}
 		return os.Remove(primary)
 	}
 	for _, candidate := range movedPushHookCandidates(hooksDir) {
-		data, err := os.ReadFile(candidate)
+		data, err := readHookFile(candidate)
 		if err != nil || !strings.Contains(string(data), pushHookMarker) {
 			continue
 		}
@@ -252,6 +261,21 @@ func uninstallPushHook(ctx context.Context, opts Options, repoDir string) error 
 		return nil
 	}
 	return nil
+}
+
+// readHookFile reads a hook path after confirming it resolves to a regular
+// file (Stat follows symlinks, so a symlinked hook still reads through).
+// os.ReadFile alone would block forever on a FIFO or device sitting at a
+// repo-controlled hook path.
+func readHookFile(path string) ([]byte, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	return os.ReadFile(path)
 }
 
 // movedPushHookCandidates lists where another installer may have moved our

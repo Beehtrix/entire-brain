@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,9 +135,12 @@ func TestInstallPushHookIntoEmptySlot(t *testing.T) {
 	if _, err := os.Stat(path + pushHookBackupSuffix); !os.IsNotExist(err) {
 		t.Fatalf("empty slot must not create a backup: %v", err)
 	}
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm()&0o100 == 0 {
-		t.Fatalf("hook must be executable: %v %v", info, err)
+	// Windows file modes carry no exec bit; git runs hooks there regardless.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm()&0o100 == 0 {
+			t.Fatalf("hook must be executable: %v %v", info, err)
+		}
 	}
 
 	// Idempotent rerun.

@@ -1,0 +1,61 @@
+yeah agre. i think this is right. update the trail with the latest code.
+
+---
+
+revie the findings here: 
+
+https://entire.io/gh/entireio/entire-brain/trails/278/replace-facts-semantic-retrieval-bundled-embedder-rrf-with/changes
+
+and resolve them
+
+---
+
+review the high finding an resolve it
+
+---
+
+resolve the medium finding then
+
+---
+
+one of the cehcks is failing
+
+---
+
+<task-notification>
+<task-id>b1d46yswk</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denpasar/13a0a641-2bfd-4dba-b7c7-bfcc16c0f5f9/tasks/b1d46yswk.output</output-file>
+<status>completed</status>
+<summary>Background command "Confirm new CI run started" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhqplmmm4</task-id>
+<tool-use-id>toolu_015iJ1uQw2zuEzn9vP8UEnNf</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denpasar/13a0a641-2bfd-4dba-b7c7-bfcc16c0f5f9/tasks/bhqplmmm4.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch CI run to completion" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+why is this failing on the macos and ubuntu tests??
+
+https://github.com/entireio/entire-brain/pull/365
+
+---
+
+keep going
+
+---
+
+<task-notification>
+<task-id>bh2flp4mt</task-id>
+<tool-use-id>toolu_01GT2cF4n4q16Jpc2o897QFH</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-denpasar/13a0a641-2bfd-4dba-b7c7-bfcc16c0f5f9/tasks/bh2flp4mt.output</output-file>
+<status>completed</status>
+<summary>Background command "Watch rerun to completion" completed (exit code 0)</summary>
+</task-notification>

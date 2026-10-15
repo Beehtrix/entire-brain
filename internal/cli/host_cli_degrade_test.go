@@ -272,6 +272,10 @@ func TestSemanticProviderAbsentErrorsAreTypedForDegradation(t *testing.T) {
 		{"malformed doctor output", "provider_doctor_malformed", "unexpected end of JSON input"},
 		{"network required", "provider_network_required", "provider doctor reports network access is required"},
 		{"doctor crashed", "provider_doctor_failed", "exit status 2: panic: runtime error"},
+		// The binary RAN; the "no such file or directory" is its own stderr
+		// talking about a helper it could not open, not evidence of absence.
+		{"ran but stderr names a missing helper", "provider_doctor_failed",
+			`graph-bin [graph doctor --json]: exit status 1: open /usr/lib/helper.so: no such file or directory`},
 	} {
 		err := semanticDoctorFailureError("entire-graph", []semanticWarning{{Code: present.code, Detail: present.detail}})
 		if errors.Is(err, errSemanticProviderAbsent) {

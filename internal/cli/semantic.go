@@ -1239,16 +1239,19 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 	}
 	switch code {
 	case "provider_doctor_failed":
+		var err error
 		switch {
 		case semanticDetailMeansBinaryNotFound(detail):
-			return semanticProviderAbsentError{fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)}
+			err = fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
 		case semanticDetailMeansBinaryNotExecutable(detail):
-			return semanticProviderAbsentError{fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)}
-		case semanticProviderMissing(detail):
-			return semanticProviderAbsentError{fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)}
+			err = fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
 		default:
-			return fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
 		}
+		if semanticDetailMeansProviderAbsent(detail) {
+			return semanticProviderAbsentError{err}
+		}
+		return err
 	case "provider_doctor_timeout":
 		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
 	case "provider_doctor_malformed":
@@ -1325,7 +1328,9 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 					" (it builds and registers entire-graph from the sibling clone),"+
 					" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
 		}
-		return semanticProviderAbsentError{errors.New(message)}
+		if semanticDetailMeansProviderAbsent(detail) {
+			return semanticProviderAbsentError{errors.New(message)}
+		}
 	}
 	return errors.New(message)
 }
@@ -1361,6 +1366,34 @@ func semanticProviderDetailSummary(detail string) string {
 		summary = strings.TrimSpace(string(runes[:maxProviderDetail])) + "..."
 	}
 	return summary
+}
+
+// semanticDetailMeansProviderAbsent decides the FATALITY class of a doctor
+// failure: an ABSENT provider degrades the refresh's semantic stage, a
+// present-and-broken one aborts it. Absence has exactly two shapes. Either
+// the doctor process never launched — the command runner stamps "exit status"
+// into the detail whenever the binary ran, so no stamp plus a not-found or
+// not-executable detail is a launch failure — or the binary RAN and reported
+// the graph plugin missing by name. Generic "no such file or directory" text
+// from a provider that ran is its own stderr talking about something else
+// (e.g. a helper file it could not open) and must stay fatal; only
+// semanticProviderMissing, which routes MESSAGES, may match that loosely.
+func semanticDetailMeansProviderAbsent(detail string) bool {
+	text := strings.ToLower(detail)
+	if !strings.Contains(text, "exit status") {
+		return semanticDetailMeansBinaryNotFound(detail) || semanticDetailMeansBinaryNotExecutable(detail)
+	}
+	for _, marker := range []string{
+		`unknown command "graph"`,
+		"unknown command 'graph'",
+		"unknown command graph",
+		"plugin is not installed",
+	} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // semanticProviderMissing recognises the provider-absent shape of a doctor

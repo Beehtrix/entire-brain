@@ -411,6 +411,9 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	if f := report.Facts; f != nil {
 		identity = append(identity, statusFactsIdentity(f))
 	}
+	if h := report.Hosted; h != nil {
+		identity = append(identity, hostedStateLabel(h.State))
+	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 
 	if f := report.Facts; f != nil && f.Integrity != nil {

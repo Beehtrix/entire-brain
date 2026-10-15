@@ -137,24 +137,52 @@ func TestSetupBuildPhaseGivesNoSubStepItsOwnLine(t *testing.T) {
 		components = append(components, newSetupComponent(name, nil, setupBrainBinaryName))
 	}
 	rec := &recordedSetup{instantComponents: components}
+	steps := rec.steps(f)
+	// The fixture's injected instant returns a slice and reports NOTHING as it
+	// goes, so asserting on sub-steps against it would assert on an empty set:
+	// the leak this test exists to catch could not happen. Drive the two
+	// channels the real phase uses instead — the component observer and the
+	// nested reporter's byte stream.
+	observer := &setupComponentObserver{}
+	chatter := &setupStepSink{}
+	steps.observeComponent = observer
+	steps.stepOutput = chatter
+	steps.instant = func(context.Context) ([]setupComponent, error) {
+		rec.instantCalls++
+		fmt.Fprintln(chatter, "refresh: locate brain")
+		for _, component := range components {
+			fmt.Fprintf(chatter, "refresh: %s: building\n", setupComponentLabel(component.Name))
+			observer.notify(component)
+		}
+		fmt.Fprintln(chatter, "refreshed brain: /somewhere/else")
+		return components, nil
+	}
+
 	opts := defaultSetupOptions()
 	opts.noDaemon = true
-
-	out := runSetupForTest(t, f, opts, rec)
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
+		t.Fatalf("runSetup: %v", err)
+	}
+	printed := out.String()
 
 	// Counted as ROWS whose phase column is Build, not as occurrences of the
 	// word: the fixture's own temp directory is named after this test, so a
 	// substring count would pass for the wrong reason.
-	if got := setupPhaseRows(out, "Build"); got != 1 {
-		t.Fatalf("the Build phase must cost exactly one row, got %d:\n%s", got, out)
+	if got := setupPhaseRows(printed, "Build"); got != 1 {
+		t.Fatalf("the Build phase must cost exactly one row, got %d:\n%s", got, printed)
 	}
-	for _, name := range []string{"doc index", "pattern layer", "memory coordinator"} {
-		if strings.Contains(out, name) {
-			t.Fatalf("sub-step %q reached a permanent line; it belongs to the phase's bar:\n%s", name, out)
+	// Non-vacuity: the sub-steps really were reported.
+	if len(observer.seen()) == 0 {
+		t.Fatal("the fixture reported no sub-steps, so this test proves nothing")
+	}
+	for _, leaked := range []string{"doc index", "pattern layer", "memory coordinator", "locate brain", "refreshed brain"} {
+		if strings.Contains(printed, leaked) {
+			t.Fatalf("sub-step %q reached a permanent line; it belongs to the phase's bar:\n%s", leaked, printed)
 		}
 	}
-	if !strings.Contains(out, "9 components") {
-		t.Fatalf("the phase line must say how much built:\n%s", out)
+	if !strings.Contains(printed, "9 components") {
+		t.Fatalf("the phase line must say how much built:\n%s", printed)
 	}
 }
 
@@ -333,10 +361,19 @@ func TestSetupComponentFailureDetailsAreOneLineEach(t *testing.T) {
 		Detail: "this repository has no commits yet: /repo\nentire-brain pins every source to a commit.\nmake at least one commit.",
 		Hint:   "first line\nsecond line",
 	}}
-	for _, detail := range setupComponentFailureDetails(failed, "--", setupBrainBinaryName) {
+	details := setupComponentFailureDetails(failed, "--", setupBrainBinaryName)
+	if len(details) != 2 {
+		t.Fatalf("a failed component is allowed its reason and its hint, got %d: %q", len(details), details)
+	}
+	for _, detail := range details {
 		if strings.ContainsAny(detail, "\n\r") {
 			t.Fatalf("a failure detail must be one line: %q", detail)
 		}
+	}
+	// Bounding the COMPOSED line instead of the detail clips the actionable
+	// tail off exactly the long failures that need it.
+	if !strings.HasSuffix(details[0], "continuing; run 'entire-brain doctor' for detail") {
+		t.Fatalf("the reason must keep what the reader is supposed to do about it: %q", details[0])
 	}
 }
 
@@ -467,4 +504,12 @@ func setupPhaseRows(printed, title string) int {
 		}
 	}
 	return count
+}
+
+// seen reports every component the observer forwarded, so a test can prove it
+// actually had sub-steps to leak before asserting that none leaked.
+func (o *setupComponentObserver) seen() []setupComponent {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]setupComponent(nil), o.observed...)
 }

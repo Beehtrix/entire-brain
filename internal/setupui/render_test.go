@@ -452,3 +452,32 @@ func TestWriterSinkDiscardsTransientLines(t *testing.T) {
 		t.Fatalf("non-vacuity: only %d sub-steps ran", phase.Steps())
 	}
 }
+
+// TestFlattenTextKeepsBothEnds is the third site of a class: a budget that
+// cuts the tail deletes exactly the part a reader acts on. Fixture is the
+// verbatim line from a real cli run, where the second remedy was lost.
+func TestFlattenTextKeepsBothEnds(t *testing.T) {
+	t.Parallel()
+	const real = "checkpoint_scope_incomplete: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory"
+	if len([]rune(real)) <= flattenLimit {
+		t.Fatalf("fixture is %d runes, not over the %d budget — proves nothing", len([]rune(real)), flattenLimit)
+	}
+	got := FlattenText(real)
+	if n := len([]rune(got)); n > flattenLimit {
+		t.Fatalf("over budget at %d runes: %q", n, got)
+	}
+	if !strings.Contains(got, "checkpoint_scope_incomplete") {
+		t.Fatalf("the code must survive, it is how a reader looks this up: %q", got)
+	}
+	if !strings.Contains(got, "--output") {
+		t.Fatalf("the second remedy must survive; a head-only cut deletes it: %q", got)
+	}
+}
+
+func TestFlattenTextLeavesAShortReasonWhole(t *testing.T) {
+	t.Parallel()
+	short := "background watcher (--no-daemon)"
+	if got := FlattenText(short); got != short {
+		t.Fatalf("a reason inside the budget must pass through unchanged, got %q", got)
+	}
+}

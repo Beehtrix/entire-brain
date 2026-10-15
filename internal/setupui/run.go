@@ -377,8 +377,38 @@ func FlattenText(text string) string {
 	}
 	out := strings.Join(parts, "; ")
 	if utf8.RuneCountInString(out) > flattenLimit {
-		runes := []rune(out)
-		out = strings.TrimRight(string(runes[:flattenLimit-3]), " ;") + "..."
+		out = elideMiddle(out, flattenLimit)
 	}
 	return out
+}
+
+// elideMiddle shortens to limit while keeping BOTH ends.
+//
+// Cutting the tail is the obvious implementation and it loses the part that
+// matters. An error reads "context: context: cause" and a remedy sentence
+// ends with the command to run, so a head-only cut faithfully preserves the
+// prefix a reader already understands and deletes the diagnosis or the fix.
+// Observed on a real run:
+//
+//	... repair unreadable checkpoint metadata and retry, or use --output with a separate di...
+//
+// where the reader loses the second way out entirely. Same defect that
+// providerdetail.Summary had; this is the third site in the class, after
+// that one and truncateDoctorDetail.
+func elideMiddle(s string, limit int) string {
+	runes := []rune(s)
+	if limit <= 0 || len(runes) <= limit {
+		return s
+	}
+	const ellipsis = "..."
+	budget := limit - len([]rune(ellipsis))
+	if budget < 2 {
+		return string(runes[:limit])
+	}
+	tail := budget * 2 / 5
+	if tail < 1 {
+		tail = 1
+	}
+	head := budget - tail
+	return strings.TrimRight(string(runes[:head]), " ;,") + ellipsis + strings.TrimLeft(string(runes[len(runes)-tail:]), " ;,")
 }

@@ -1,0 +1,65 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "191d9a3a0018",
+  "session_id": "c460c6d3-8277-424a-8312-69c48e58eddb",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T22:01:28.876099Z",
+  "branch": "cor-2135-notify-json-fix",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "SECURITY.md",
+    "docs/getting-started.md",
+    "docs/limits.md",
+    "docs/reference.md",
+    "internal/apiurl/apiurl.go",
+    "internal/cli/add.go",
+    "internal/cli/agent_policy.go",
+    "internal/cli/config.go",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/hosted_status.go",
+    "internal/cli/memory_abstract.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_cmd.go",
+    "internal/hostedbrain/client.go",
+    "internal/hostedbrain/proposals.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "f788cd19fc3e",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 706723,
+    "cache_read_tokens": 7314367,
+    "output_tokens": 44419,
+    "api_call_count": 68
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-15T22:01:28.848333Z",
+    "agent_lines": 127,
+    "agent_removed": 98,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 127,
+    "total_lines_changed": 232,
+    "agent_percentage": 96.98275862068965,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

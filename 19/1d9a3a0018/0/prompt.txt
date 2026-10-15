@@ -1,0 +1,47 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/london directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/london/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+Handoff written to `.context/handoff-hosted-brain-ux.md` — point the next agent at it. The short version:
+
+**Next up, in order:**
+1. **COR-2135** — the `memory notify --json` warning fix, one commit, spec already in the ticket.
+2. **COR-2111 + COR-2116** on one branch — env-var cleanup plus the kill-switch decision; opt-in-only made several vars deletable.
+3. **COR-2127** remainder — the pre-push hook upload (#377 and #380 were its prerequisites).
+4. **COR-2123–2126** — the COR-2110 v3 per-fact work feeding the Memories UI; first verify those tickets actually exist in the project, they weren't in the Todo list.
+5. Then COR-2094 prod validation and COR-2132 (ap-southeast-1); COR-2133 perf stays in Backlog.
+
+The handoff also pins the two non-negotiable rules (no connection by default — only `connect`/onboarding; never rewrite an unreadable binding) and the session-learned gotchas: the stale-finding filter on `trail finding list`, the dir-local Ollama flake, the 15-minute watch-sync throttle stamp, the Windows chmod no-op, the fast-moving branch/rebase-before-push rhythm, and where the plugin symlink and the repo-view-capable CLI build live.
+
+Durable state is already persisted independently of the handoff: Linear tickets are current, Brain facts record every decision with its reversal chain, and the auto-memory file has the project state. Good place to close.
+
+
+let's look at 2135. also consider that we're actively working on this PR which is defining how we get messages which doesn't use the notify system at all. in fact we might not even need it. 
+
+https://github.com/entireio/entire-brain/pull/387
+
+---
+
+ah fair. okay close it down then and let's come back to our hand off to see what is next
+
+---
+
+387 merged. so just rebase in this workspace
+
+---
+
+keep going

@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "191d9a3a0018",
+  "strategy": "manual-commit",
+  "branch": "cor-2135-notify-json-fix",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "SECURITY.md",
+    "docs/getting-started.md",
+    "docs/limits.md",
+    "docs/reference.md",
+    "internal/apiurl/apiurl.go",
+    "internal/cli/add.go",
+    "internal/cli/agent_policy.go",
+    "internal/cli/config.go",
+    "internal/cli/facts_proposals_cmd.go",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/cli/facts_sync_cmd.go",
+    "internal/cli/hosted_status.go",
+    "internal/cli/memory_abstract.go",
+    "internal/cli/publish.go",
+    "internal/cli/publish_test.go",
+    "internal/cli/webhooks.go",
+    "internal/cli/webhooks_cmd.go",
+    "internal/hostedbrain/client.go",
+    "internal/hostedbrain/proposals.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/19/1d9a3a0018/0/metadata.json",
+      "transcript": "/19/1d9a3a0018/0/full.jsonl",
+      "compact_transcript": "/19/1d9a3a0018/0/transcript.jsonl",
+      "content_hash": "/19/1d9a3a0018/0/content_hash.txt",
+      "prompt": "/19/1d9a3a0018/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 136,
+    "cache_creation_tokens": 706723,
+    "cache_read_tokens": 7314367,
+    "output_tokens": 44419,
+    "api_call_count": 68
+  }
+}

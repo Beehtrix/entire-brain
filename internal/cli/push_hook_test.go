@@ -254,3 +254,54 @@ func TestRefreshPushHookUpdatesInstalledHook(t *testing.T) {
 		t.Fatalf("refresh must rewrite the stale plugin path: %q", got)
 	}
 }
+
+func TestUninstallAfterHostRewrapDeletesBothOurCopies(t *testing.T) {
+	// State after the host CLI re-wraps us: host's fresh hook in the primary
+	// slot (chains to .pre-entire = our moved copy), and our old backup still
+	// holding the ORIGINAL host hook. Uninstall must delete our moved copy AND
+	// that stale backup — renaming the stale copy into the live chain would
+	// run the host's pre-push twice. The host's chain call is [ -x ]-guarded,
+	// so the removed chain target is a clean no-op.
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	if err := os.WriteFile(primary, []byte(testHostHook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	moved := primary + ".pre-entire"
+	if err := os.WriteFile(moved, []byte(pushHookContent("/managed/entire-brain")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staleBackup := primary + pushHookBackupSuffix
+	if err := os.WriteFile(staleBackup, []byte(testHostHook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, primary); got != testHostHook {
+		t.Fatalf("primary must stay the host's: %q", got)
+	}
+	for _, gone := range []string{moved, staleBackup} {
+		if _, err := os.Stat(gone); !os.IsNotExist(err) {
+			t.Fatalf("%s must be deleted, stat err=%v", gone, err)
+		}
+	}
+}
+
+func TestResolveHooksPathValueExpandsTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	got, err := resolveHooksPathValue("~/.githooks", "/repo")
+	if err != nil || got != filepath.Join(home, ".githooks") {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+	if _, err := resolveHooksPathValue("~someone/.githooks", "/repo"); err == nil {
+		t.Fatal("~user expansion must be refused, not misresolved")
+	}
+	if got, err := resolveHooksPathValue(".husky", "/repo"); err != nil || got != filepath.Join("/repo", ".husky") {
+		t.Fatalf("relative: got %q err=%v", got, err)
+	}
+}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -111,13 +112,35 @@ func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) 
 		if value == "" || value == gitHooksDisabledPath {
 			continue
 		}
-		if filepath.IsAbs(value) {
-			dir = value
-		} else {
-			dir = filepath.Join(repoDir, value)
+		resolved, resolveErr := resolveHooksPathValue(value, repoDir)
+		if resolveErr != nil {
+			return "", resolveErr
 		}
+		dir = resolved
 	}
 	return dir, nil
+}
+
+// resolveHooksPathValue resolves one core.hooksPath value the way git does:
+// a leading ~ expands to the home directory, an absolute path stands, and a
+// relative path resolves against the worktree. A ~user form is refused rather
+// than misresolved — installing a hook into the wrong directory is worse than
+// an install that reports why it did nothing.
+func resolveHooksPathValue(value, repoDir string) (string, error) {
+	switch {
+	case value == "~" || strings.HasPrefix(value, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand core.hooksPath %q: %w", value, err)
+		}
+		return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(value, "~"), "/")), nil
+	case strings.HasPrefix(value, "~"):
+		return "", fmt.Errorf("core.hooksPath %q uses ~user expansion, which this plugin does not resolve", value)
+	case filepath.IsAbs(value):
+		return value, nil
+	default:
+		return filepath.Join(repoDir, value), nil
+	}
 }
 
 var (

@@ -216,10 +216,19 @@ func uninstallPushHook(ctx context.Context, opts Options, repoDir string) error 
 		if err != nil || !strings.Contains(string(data), pushHookMarker) {
 			continue
 		}
-		if _, err := os.Stat(backup); err == nil {
-			return os.Rename(backup, candidate)
+		// Host re-wrapped us: the live chain is host-primary → our moved copy;
+		// our old backup (the host hook we once wrapped) is a DORMANT stale
+		// copy — renaming it into the candidate slot would put a second host
+		// pre-push back into the live chain and run it twice. Delete both; the
+		// host's chain call is [ -x ]-guarded, so a missing chain target is a
+		// clean no-op.
+		if err := os.Remove(candidate); err != nil {
+			return err
 		}
-		return os.Remove(candidate)
+		if _, statErr := os.Stat(backup); statErr == nil {
+			return os.Remove(backup)
+		}
+		return nil
 	}
 	return nil
 }

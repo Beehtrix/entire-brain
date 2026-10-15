@@ -22,12 +22,23 @@ func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
 	for _, tc := range []struct {
 		name                                string
 		branches, sessions, warnings, bytes int
+		readCap                             int64 // when non-zero, lower defaultMaxReadBytes to this
 	}{
-		{"session-heavy", 870, 5305, 111, 18569433},
-		{"warning-heavy", 389, 2633, 6238, 17220291},
-		{"larger-than-default-read-limit", 1800, 20000, 12000, 80 << 20},
+		{"session-heavy", 870, 5305, 111, 18569433, 0},
+		{"warning-heavy", 389, 2633, 6238, 17220291, 0},
+		// Guards against a manifest reader ever routed through the capped
+		// default read path; only the fixture-above-cap relation matters.
+		{"larger-than-default-read-limit", 20, 200, 20, 5 << 20, 4 << 20},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.readCap > 0 {
+				if int64(tc.bytes) <= tc.readCap {
+					t.Fatalf("fixture of %d bytes does not exceed the lowered read cap %d", tc.bytes, tc.readCap)
+				}
+				prev := defaultMaxReadBytes
+				defaultMaxReadBytes = tc.readCap
+				t.Cleanup(func() { defaultMaxReadBytes = prev })
+			}
 			repo := t.TempDir()
 			key, err := localRepoStorageKey(repo)
 			if err != nil {
@@ -197,7 +208,13 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 }
 
 func TestBrainManifestLargeUnknownFieldsRemainReadOnly(t *testing.T) {
-	dir := writeTestManifest(t, `{"schema_version":3,"sessions":[],"future":"`+strings.Repeat("x", 17<<20)+`"}`)
+	// The unknown-field payload must exceed maxManifestBytes so the bounded
+	// reader below still refuses it; lowering the bound keeps that property
+	// without megabytes of race-instrumented JSON per decode pass.
+	prev := maxManifestBytes
+	maxManifestBytes = 64 << 10
+	t.Cleanup(func() { maxManifestBytes = prev })
+	dir := writeTestManifest(t, `{"schema_version":3,"sessions":[],"future":"`+strings.Repeat("x", 128<<10)+`"}`)
 	_, dropped, err := readBrainManifest(dir, true)
 	if err != nil || !dropped {
 		t.Fatalf("tolerant read: dropped=%v err=%v", dropped, err)

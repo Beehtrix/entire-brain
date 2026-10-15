@@ -419,6 +419,23 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d fact(s) across %d branch(es)", facts.Facts, len(facts.Branches)))
+			branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
+			if branchErr != nil {
+				add("facts_verification", "warn", "branch unavailable: "+branchErr.Error())
+			} else {
+				if branch == "" {
+					branch = distillDefaultBranch
+				}
+				if summary, err := verificationSummaryForBranch(ctx, opts, repoDir, brainDir, branch); err != nil {
+					add("facts_verification", "warn", err.Error())
+				} else {
+					state := "ok"
+					if summary.Stale > 0 || summary.Orphaned > 0 {
+						state = "warn"
+					}
+					add("facts_verification", state, fmt.Sprintf("branch %s: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here", branch, summary.Facts, summary.Verified, summary.Stale, summary.Orphaned, summary.UnverifiableHere))
+				}
+			}
 		}
 	}
 

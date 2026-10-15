@@ -2917,7 +2917,19 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	return spots, nil
 }
 
+func semanticArtifactPresence(brainDir, rel string) staleAxis {
+	if err := verifyDeclaredBrainFile(brainDir, rel); err != nil {
+		return staleAxis{State: "unsafe", Detail: err.Error()}
+	}
+	return staleAxis{State: "present", Detail: rel + "; integrity not checked"}
+}
+
 func semanticStaleReport(ctx context.Context, opts Options, target string) (staleReport, error) {
+	return semanticFreshnessReport(ctx, opts, target, true)
+}
+
+// Status checks availability and freshness; doctor and retrieval retain content validation.
+func semanticFreshnessReport(ctx context.Context, opts Options, target string, audit bool) (staleReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return staleReport{}, err
@@ -2945,6 +2957,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
 	} else if err := rejectSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(source.SnapshotPath)); err != nil {
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
+	} else if !audit {
+		axes["snapshot"] = semanticArtifactPresence(storage.BrainDir, source.SnapshotPath)
 	} else {
 		snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(source.SnapshotPath))
 		snapshotHeader, snapshotCounts, snapshotErr := verifiedSnapshotSummary(snapshotPath, storage.Key)
@@ -2965,6 +2979,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
+		} else if !audit {
+			axes["store"] = semanticArtifactPresence(storage.BrainDir, source.StorePath)
 		} else if err := verifiedSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else {
@@ -2976,7 +2992,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
 	currentWorktreeHash := ""
 	var currentWorktreeHashErr error
-	if dirty && source.WorktreeHash != "" {
+	if audit && dirty && source.WorktreeHash != "" {
 		currentWorktreeHash, currentWorktreeHashErr = worktreeFingerprint(ctx, opts.Runner, repoDir)
 	}
 	if headErr != nil {
@@ -2998,6 +3014,10 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
 	case dirty && source.WorktreeMode != "worktree":
 		axes["worktree"] = staleAxis{State: "dirty-unindexed", Detail: "semantic index is based on committed HEAD"}
+	case !audit && dirty && source.WorktreeHash == "":
+		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree semantic snapshot has no verifiable fingerprint; refresh again with --worktree"}
+	case !audit && dirty:
+		axes["worktree"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents"}
 	case currentWorktreeHashErr != nil:
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + currentWorktreeHashErr.Error()}
 	case dirty && source.WorktreeHash != "" && source.WorktreeHash != currentWorktreeHash:
@@ -3024,11 +3044,15 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
 		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
-		revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
-		if identityErr != nil {
-			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
-		} else if revision != source.IdentityRevision {
-			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+		if audit {
+			revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+			if identityErr != nil {
+				axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
+			} else if revision != source.IdentityRevision {
+				axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+			}
+		} else {
+			axes["provider"] = staleAxis{State: "recorded", Detail: source.Provider + " " + source.ProviderVersion + "; live provider not probed"}
 		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {

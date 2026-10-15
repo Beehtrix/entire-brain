@@ -1,0 +1,38 @@
+okay this is merged: https://github.com/entireio/entire-brain/pull/376
+
+the performance ticket is still out there. we can come back to that one after.
+
+---
+
+the repo view updaet got merged today..
+
+is this still blocked?
+
+Blocked on cli#2758 merging: COR-2113 (adopt repo view --json — until then auto-connect stays dormant), which gates COR-2112 (consent model).
+
+---
+
+yeah let;s talk about the next steps here. 
+
+is 2112 or 2113 next? and why?
+
+---
+
+yeah let's do 2112. say we're done with 2112, can we merge that in before 2113? also we could just build the cli locally and test it since it's on main
+
+---
+
+wait wait
+
+1. what do you eman cross-repo? 
+2. there is no reason for brain to be on this struct. brain is just a brian thing, not a cli status.
+
+what is teh actual problem we're tryign to solve here?
+
+---
+
+okay then by default we shoudl not connect to teh remote unless the user turns it in either through entire brain connect or in the onboarding.
+
+---
+
+so the only two ways to connect is through the onboarding process (we'll create this soon) or running the entire brain connect command. otherwise, the default is no connection to the remote.

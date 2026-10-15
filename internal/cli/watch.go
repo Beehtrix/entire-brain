@@ -284,11 +284,25 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	cursor := loadWatchCursor(cursorPath)
 	// The hosted step pulls teammates' facts as much as it publishes local
 	// ones, so it must run on idle (no-change) ticks too — a machine that only
-	// receives would otherwise never sync. It is skipped on a failed refresh
-	// (callers below return before invoking it) and throttled by its own
-	// cursor timestamp, advanced regardless of outcome so a failing hosted
-	// endpoint cannot turn every tick into an egress attempt.
+	// receives would otherwise never sync. The defer below makes it run on
+	// every exit path from here down, including a failed refresh: a failed
+	// refresh never advances the main cursor, so a machine whose refresh
+	// always fails (e.g. the graph plugin is missing) takes that path on every
+	// tick and would otherwise be starved of the team's facts forever
+	// (COR-2114; a hand-placed call per return had already missed a path
+	// twice). It is token-free and throttled by its own cursor timestamp,
+	// advanced regardless of outcome so a failing hosted endpoint cannot turn
+	// every tick into an egress attempt. The success path still calls it
+	// explicitly BEFORE the agent steps — the `ran` guard makes the deferred
+	// call a no-op then — so the sync never inherits a context cancelled
+	// during a long agent step and burns its throttle window on an attempt
+	// that never happened.
+	factsSyncRan := false
 	runFactsSync := func() {
+		if factsSyncRan {
+			return
+		}
+		factsSyncRan = true
 		now := steps.now().UTC()
 		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
 			return
@@ -300,11 +314,11 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		}
 		markFactsSyncAttempt(cursorPath, now)
 	}
+	defer runFactsSync()
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
 	if !changed && !(cursor.PendingSeed && w.seedAgent != "none" || cursor.PendingDistill && w.distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
-		runFactsSync()
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
@@ -331,7 +345,6 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
 			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
 				since.Round(time.Second), (wait - since).Round(time.Second), state)
-			runFactsSync()
 			return
 		}
 	}

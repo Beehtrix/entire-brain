@@ -21,6 +21,7 @@ import stat
 import struct
 import sys
 import tempfile
+import time
 import types
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
@@ -46,8 +47,8 @@ REPORT_STATUS = (
     "all_file_contents_verified_extraction_staging_execution_forbidden"
 )
 
-CHECKED_V1_SOURCE_SHA256 = "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94"
-CHECKED_V1_SOURCE_SIZE = 68_195
+CHECKED_V1_SOURCE_SHA256 = "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
+CHECKED_V1_SOURCE_SIZE = 69_330
 
 # Root fills these reviewed identities after the concurrently authored format
 # and schemas settle, before creating the checked verifier contract.
@@ -55,7 +56,7 @@ CHECKED_FORMAT_FILE_SHA256 = "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52d
 CHECKED_FORMAT_SHA256 = "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59"
 CHECKED_FORMAT_SCHEMA_SHA256 = "95712ba76c36107f583a195167e6dea9d90ba81729fba10fa211096d277617d8"
 CHECKED_REPORT_SCHEMA_SHA256 = "3afd8fec9da54a8b7358b497031633bfeaf8c5df1f595347424769d4a30ec4ad"
-CHECKED_VERIFIER_SCHEMA_SHA256 = "eca24ad3f0a50f4a9dcbd9e106715db8fee449d4735eaeee87912a95e7c564bd"
+CHECKED_VERIFIER_SCHEMA_SHA256 = "f2664ff6898aa6a4d433e82635db4ca3e891e1ec9762284fd58efdf236a53016"
 
 HEADER_BYTES = 232
 RECORD_FIXED_BYTES = 52
@@ -299,10 +300,32 @@ def _stat_identity(value: os.stat_result) -> tuple[int, ...]:
     )
 
 
+# File timestamps advance at the kernel coarse-clock granularity (one jiffy,
+# up to 10ms at HZ=100). A same-size in-place rewrite within the tick that
+# produced the "before" fstat leaves every identity field equal, so the
+# before/after comparison cannot see it; on fast machines create, read, and
+# rewrite all fit inside one tick. Verification therefore starts only once
+# the file's timestamps are at least one tick old, which forces any
+# modification during the read onto a strictly newer timestamp.
+_TIMESTAMP_TICK_NS = 15_000_000
+
+
+def _quiescent_fstat(descriptor: int, *, label: str) -> os.stat_result:
+    for _ in range(8):
+        value = os.fstat(descriptor)
+        age = time.time_ns() - max(value.st_mtime_ns, value.st_ctime_ns)
+        if age >= _TIMESTAMP_TICK_NS:
+            return value
+        # A negative age is a future timestamp; sleeping cannot cure it, and
+        # the bounded attempts fail closed below rather than spinning.
+        time.sleep(_TIMESTAMP_TICK_NS / 1e9)
+    raise CacheBundleVerificationError(f"{label} timestamps never settled")
+
+
 def _read_checked_v1_source() -> bytes:
     descriptor, directories = _open_source_descriptor(V1_SOURCE_PATH, label="v1 raw verifier source")
     try:
-        before = os.fstat(descriptor)
+        before = _quiescent_fstat(descriptor, label="v1 raw verifier source")
         _require(before.st_size == CHECKED_V1_SOURCE_SIZE, "v1 raw verifier source size differs")
         chunks: list[bytes] = []
         remaining = CHECKED_V1_SOURCE_SIZE + 1
@@ -496,7 +519,7 @@ def _raw_identity_pass(
     expected_byte_count: int,
     expected_sha256: str,
 ) -> tuple[dict[str, Any], os.stat_result]:
-    before = os.fstat(descriptor)
+    before = _quiescent_fstat(descriptor, label="cache bundle")
     _require(stat.S_ISREG(before.st_mode), "cache bundle is not a regular file")
     _require(before.st_nlink == 1, "cache bundle must not be hard-linked")
     _require(
@@ -928,7 +951,7 @@ def _expected_raw_identity_binding(dependencies: Mapping[str, Any]) -> dict[str,
             "profile": material["profile"],
             "status": material["status"],
         },
-        "v1_material_schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+        "v1_material_schema_sha256": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58",
         "v1_raw_verifier_source_sha256": CHECKED_V1_SOURCE_SHA256,
         "v1_report_schema_sha256": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d",
         "v1_verifier_contract": {
@@ -938,7 +961,7 @@ def _expected_raw_identity_binding(dependencies: Mapping[str, Any]) -> dict[str,
             "status": v1_contract["status"],
             "verifier_contract_sha256": v1_contract["verifier_contract_sha256"],
         },
-        "v1_verifier_contract_schema_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914",
+        "v1_verifier_contract_schema_sha256": "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3",
     }
 
 

@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "6bb77a3af5f5",
+  "strategy": "manual-commit",
+  "branch": "alex/perf-status-too-slow",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "internal/cli/verify_cmd.go",
+    "internal/cli/verify_cmd_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/6b/b77a3af5f5/0/metadata.json",
+      "transcript": "/6b/b77a3af5f5/0/full.jsonl",
+      "compact_transcript": "/6b/b77a3af5f5/0/transcript.jsonl",
+      "content_hash": "/6b/b77a3af5f5/0/content_hash.txt",
+      "prompt": "/6b/b77a3af5f5/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 166450,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 29358592,
+    "output_tokens": 36572,
+    "api_call_count": 92
+  }
+}

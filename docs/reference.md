@@ -788,8 +788,8 @@ shelling out to the CLI. The normal first call is `brain_brief`, then targeted
 follow-ups:
 
 - `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` for a compact freshness/coverage preflight; set
-  `details: true` for the full status JSON contract
+- `brain_status` for a lightweight freshness/recorded-coverage overview; set
+  `details: true` for file classifications, not a deep audit
 - `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
   unsafe. Its seed and docs include the current worktree by default, it never
   exports checkpoint sessions, and it is capped at 60 seconds; set
@@ -848,14 +848,37 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
-`status` without `--json` prints a SHORT human report: the brain's identity,
-the onboarding block (fact-backfill progress, watcher health, instant-phase
-components) and a one-line health verdict. `status --verbose` prints the full
-text report — coverage histograms, freshness axes, blind spots, live state —
-with repeated warnings collapsed to one line per reason; `entire brain doctor`
-lists the skipped files in full. `status --json` is unchanged by either flag.
+`status` is a lightweight overview, like `git status`: recorded inventory,
+current freshness, working-tree changes, and background activity. It checks
+artifact presence and safe paths, but does not scan index contents, verify fact
+anchors, build coverage histograms, or run SQLite integrity checks. Counts come
+from the manifest, not a recount of stored records. Known build failures and
+blind spots remain visible.
 
-`status --json` preserves the full status contract. Check
+The default text report is short; `--verbose` shows freshness axes, recorded
+warnings, and live state. `--json` changes presentation, not inspection depth;
+`--details` is still accepted but never enables an audit. JSON explicitly reports
+`integrity: "not_checked"`; semantic artifact axes say `present`, not verified
+`ok`, and the provider identity is recorded rather than probed live. Deep
+`memory`, fact `verification`/content-integrity results, coverage histograms, and
+changed-symbol hints are no longer computed by status. MCP `brain_status` and
+`brain_index_status` use the same boundary; `details: true` includes file
+classifications only. Status does not fingerprint working-tree contents: dirty
+semantic and seed snapshots report `degraded` with content matching explicitly
+not verified, even after `refresh --worktree`. Known missing fingerprints, HEAD
+mismatches, and committed-only indexes still report their specific freshness
+problems. Doctor and strict retrieval/overview retain content fingerprint checks.
+
+Use `entire brain doctor` for deep diagnostics: artifact integrity, manifest/store
+count reconciliation, current-branch fact-anchor verification, history/memory
+health, provider compatibility, coverage histograms, and detailed blind spots.
+Doctor JSON exposes store-backed breakdowns under `semantic_coverage`.
+`entire brain verify`
+provides individual fact-verification results. Neither command repairs state.
+Status `--fail-on` gates freshness/blind spots, not integrity; use doctor's gate
+when an integrity audit is required.
+
+Check
 `semantic.freshness.severity` before graph inspection and
 `retrieval.freshness.severity` before query/get. A semantic-only
 `refresh index` does not rebuild seed/docs: use `entire brain refresh --agent
@@ -1190,11 +1213,12 @@ entire brain status --json --details
 
 `facts eval-compare` runs a paired t-test with Holm correction and rejects
 non-proof or mismatched relevance sources unless `--allow-proxy-comparison` is
-explicit. Treat the `semantic` section of `status --json --details` as audit
-evidence for the reported provider output (`status --fail-on release` is the
-compact CI gate form), not a global coverage claim; public semantic claims
-should name the covered languages, relation types, freshness state, and
-benchmark records behind them.
+explicit. `status --json --details` reports recorded inventory and freshness,
+not integrity-audit evidence. Use `doctor --json` for deep checks and coverage
+breakdowns, and `status --fail-on release` for the freshness/blind-spot gate.
+Neither establishes global coverage; public semantic claims should name the
+covered languages, relation types, freshness state, and benchmark records behind
+them.
 
 ### Tune retrieval
 

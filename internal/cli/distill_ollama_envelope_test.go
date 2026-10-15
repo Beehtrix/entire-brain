@@ -184,10 +184,13 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	// than on the behaviour under test.
 	var served atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Stream past the ceiling; a correct client stops reading at it.
+		// Stream well past the ceiling; a correct client stops reading at it.
+		// The overshoot must dwarf the stop-detection slack below, or a
+		// stream-following client would be indistinguishable from a correct
+		// one.
 		chunk := strings.Repeat("a", 1<<20)
 		w.Header().Set("Content-Type", "application/json")
-		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+(8<<20) {
+		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+(64<<20) {
 			n, err := io.WriteString(w, chunk)
 			served.Add(int64(n))
 			if err != nil {
@@ -206,8 +209,13 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	if !strings.Contains(err.Error(), "envelope exceeds") {
 		t.Fatalf("error must name the envelope bound, got: %v", err)
 	}
-	if got := served.Load(); got > int64(distillOllamaMaxEnvelopeBytes)+(4<<20) {
-		t.Fatalf("read %d bytes, must stop near the %d ceiling rather than following the stream",
+	// served counts what the server wrote, not what the client read: after
+	// the client stops at the ceiling, kernel socket buffers on both ends
+	// keep accepting writes, and tuned hosts buffer several MiB. The slack
+	// only needs to separate "stopped at the ceiling" from "followed the
+	// stream to the 64 MiB overshoot".
+	if got := served.Load(); got > int64(distillOllamaMaxEnvelopeBytes)+(32<<20) {
+		t.Fatalf("served %d bytes, must stop near the %d ceiling rather than following the stream",
 			got, distillOllamaMaxEnvelopeBytes)
 	}
 }

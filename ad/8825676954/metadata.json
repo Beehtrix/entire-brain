@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "ad8825676954",
+  "strategy": "manual-commit",
+  "branch": "dependabot/npm_and_yarn/scripts/bench/nanoid-5.1.16",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/test_check_protocol.py",
+    "benchmarks/agent-brain/confirmatory/test_public_engine_evidence.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ad/8825676954/0/metadata.json",
+      "transcript": "/ad/8825676954/0/full.jsonl",
+      "compact_transcript": "/ad/8825676954/0/transcript.jsonl",
+      "content_hash": "/ad/8825676954/0/content_hash.txt",
+      "prompt": "/ad/8825676954/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 311430,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 17415168,
+    "output_tokens": 40007,
+    "api_call_count": 142
+  }
+}

@@ -14,10 +14,10 @@
   },
   "execution_contract_binding": {
     "artifact_file": "development-task-negative-control-execution-contract-v1.json",
-    "artifact_sha256": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+    "artifact_sha256": "c7f4227fa08e2aef92feb0e97514a3db68a1bce076fdfd85d57a1c81e7980cec",
     "builder_file": "negative_control_execution_contract_v1.py",
     "builder_sha256": "f3cfb82978b0ce98d17999ef4cb4f4089a425bb528ece4ff53b61a03a4344bcd",
-    "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+    "contract_sha256": "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397",
     "execution_status": "forbidden_missing_all_residual_gates_and_audited_execution_adapter",
     "profile": "agent_brain_negative_control_execution_contract_v1",
     "schema_file": "negative-control-execution-contract-v1.schema.json",
@@ -29,7 +29,7 @@
   "implementation": {
     "builder": {
       "artifact_file": "negative_control_cache_archive_v1.py",
-      "artifact_sha256": "2729f39e89a729c0191fe5e163f68df67caa844ecde615c81debd2b7f048f52e"
+      "artifact_sha256": "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
     },
     "draft202012_validator": {
       "artifact_file": "draft202012.py",
@@ -46,7 +46,7 @@
     },
     "gate_primitive": {
       "artifact_file": "task_negative_control_gate_v1.py",
-      "artifact_sha256": "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd"
+      "artifact_sha256": "07db2f44cc2d0cb925f6b1aeaeb0c6dcd48ed0be3af971c7f58e262eddc50d99"
     },
     "manifest_schema": {
       "artifact_file": "offline-go-cache-seed-manifest-v1.schema.json",
@@ -54,7 +54,7 @@
     },
     "material_schema": {
       "artifact_file": "negative-control-cache-archive-material-v1.schema.json",
-      "artifact_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5"
+      "artifact_sha256": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58"
     },
     "report_schema": {
       "artifact_file": "negative-control-cache-archive-verification-report-v1.schema.json",
@@ -70,7 +70,7 @@
     },
     "verifier_contract_schema": {
       "artifact_file": "negative-control-cache-archive-verifier-contract-v1.schema.json",
-      "artifact_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+      "artifact_sha256": "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3"
     }
   },
   "material_binding": {
@@ -78,17 +78,17 @@
     "archive_file": null,
     "archive_sha256": null,
     "artifact_file": "negative-control-cache-archive-material-v1.json",
-    "artifact_sha256": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93",
+    "artifact_sha256": "18a0e9dc2f5ad68cef079c1e7fb6bab28145c1786b7afab80dfd73fb7ad41d1f",
     "content_inventory_sha256": null,
     "file_count": null,
     "manifest_file": null,
     "manifest_file_sha256": null,
     "manifest_sha256": null,
-    "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+    "material_declaration_sha256": "4ea54ccdca1516dcc793dc30b30fa41974bfa24041b9c1acae5fdd03c2c90e7d",
     "profile": "agent_brain_negative_control_cache_archive_material_v1",
     "repository_file_counts": null,
     "schema_file": "negative-control-cache-archive-material-v1.schema.json",
-    "schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+    "schema_sha256": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58",
     "status": "pending_source_review",
     "toolchain_bindings_sha256": "e8240c5af77530079643593a7484cb0062408829bab76690b7f55d12176fc87c",
     "unpacked_byte_count": null
@@ -130,5 +130,5 @@
     "successful_verification_claim": "source_reviewed_actual_cache_manifest_and_archive_raw_identity",
     "unpacked_byte_count_max": 2147483648
   },
-  "verifier_contract_sha256": "6fc260151f7375a3c6a5ae3be152259aeb92f022ba2e6d846caac68b7d9b8a77"
+  "verifier_contract_sha256": "532f618d8247652d59edb65adce31483431eb478b7947cda1fa5a5830c8454ff"
 }

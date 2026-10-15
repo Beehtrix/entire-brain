@@ -95,7 +95,7 @@
         "v1_raw_verifier_source": {
           "const": {
             "artifact_file": "negative_control_cache_archive_v1.py",
-            "artifact_sha256": "2729f39e89a729c0191fe5e163f68df67caa844ecde615c81debd2b7f048f52e"
+            "artifact_sha256": "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
           }
         },
         "verifier_contract_schema": {
@@ -162,10 +162,10 @@
           }
         },
         "v1_material_schema_sha256": {
-          "const": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5"
+          "const": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58"
         },
         "v1_raw_verifier_source_sha256": {
-          "const": "2729f39e89a729c0191fe5e163f68df67caa844ecde615c81debd2b7f048f52e"
+          "const": "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
         },
         "v1_report_schema_sha256": {
           "const": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d"
@@ -202,7 +202,7 @@
           }
         },
         "v1_verifier_contract_schema_sha256": {
-          "const": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+          "const": "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3"
         }
       }
     },
@@ -284,10 +284,10 @@
               "v1_material": {
                 "properties": {
                   "artifact_sha256": {
-                    "const": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93"
+                    "const": "18a0e9dc2f5ad68cef079c1e7fb6bab28145c1786b7afab80dfd73fb7ad41d1f"
                   },
                   "material_declaration_sha256": {
-                    "const": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852"
+                    "const": "4ea54ccdca1516dcc793dc30b30fa41974bfa24041b9c1acae5fdd03c2c90e7d"
                   },
                   "status": {
                     "const": "pending_source_review"
@@ -297,13 +297,13 @@
               "v1_verifier_contract": {
                 "properties": {
                   "artifact_sha256": {
-                    "const": "42ac192d97170cf682c1bbb84bb8ef75e6547c506122dd69edff9d593a94ad2a"
+                    "const": "042e01bc1338ae5a23996b76eb76ae77c00a79d86c7667adbf863fa65a648c1f"
                   },
                   "status": {
                     "const": "verifier_compiled_material_source_review_pending_execution_forbidden"
                   },
                   "verifier_contract_sha256": {
-                    "const": "6fc260151f7375a3c6a5ae3be152259aeb92f022ba2e6d846caac68b7d9b8a77"
+                    "const": "532f618d8247652d59edb65adce31483431eb478b7947cda1fa5a5830c8454ff"
                   }
                 }
               }

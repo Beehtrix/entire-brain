@@ -47,7 +47,7 @@ REPORT_STATUS = (
     "all_file_contents_verified_extraction_staging_execution_forbidden"
 )
 
-CHECKED_V1_SOURCE_SHA256 = "2729f39e89a729c0191fe5e163f68df67caa844ecde615c81debd2b7f048f52e"
+CHECKED_V1_SOURCE_SHA256 = "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
 CHECKED_V1_SOURCE_SIZE = 69_330
 
 # Root fills these reviewed identities after the concurrently authored format
@@ -56,7 +56,7 @@ CHECKED_FORMAT_FILE_SHA256 = "970669197065a563fa0a09c281f671f5a3cd63061d6ff8f52d
 CHECKED_FORMAT_SHA256 = "e2231e7fae7dfdad054c770d928b549bb996b4c452169cb22abea7f8f6f0ee59"
 CHECKED_FORMAT_SCHEMA_SHA256 = "95712ba76c36107f583a195167e6dea9d90ba81729fba10fa211096d277617d8"
 CHECKED_REPORT_SCHEMA_SHA256 = "3afd8fec9da54a8b7358b497031633bfeaf8c5df1f595347424769d4a30ec4ad"
-CHECKED_VERIFIER_SCHEMA_SHA256 = "1c682996c8dad0a311a4b5533e7fb32e9c9cbcee69c17afcf909af207c1ccc85"
+CHECKED_VERIFIER_SCHEMA_SHA256 = "f2664ff6898aa6a4d433e82635db4ca3e891e1ec9762284fd58efdf236a53016"
 
 HEADER_BYTES = 232
 RECORD_FIXED_BYTES = 52
@@ -951,7 +951,7 @@ def _expected_raw_identity_binding(dependencies: Mapping[str, Any]) -> dict[str,
             "profile": material["profile"],
             "status": material["status"],
         },
-        "v1_material_schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
+        "v1_material_schema_sha256": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58",
         "v1_raw_verifier_source_sha256": CHECKED_V1_SOURCE_SHA256,
         "v1_report_schema_sha256": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d",
         "v1_verifier_contract": {
@@ -961,7 +961,7 @@ def _expected_raw_identity_binding(dependencies: Mapping[str, Any]) -> dict[str,
             "status": v1_contract["status"],
             "verifier_contract_sha256": v1_contract["verifier_contract_sha256"],
         },
-        "v1_verifier_contract_schema_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914",
+        "v1_verifier_contract_schema_sha256": "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3",
     }
 
 

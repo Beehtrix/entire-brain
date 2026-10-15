@@ -290,6 +290,12 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// A checkpoint hint means a commit just landed: push the fact store
+			// so the trail shows its memories during review, not after. Throttled
+			// and never-fails; stderr only, stdout stays machine-read.
+			if event == "checkpoint" {
+				hostedSyncOnCheckpointHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(session), strings.TrimSpace(branch))
+			}
 			if jsonOut {
 				payload := map[string]any{"recorded": hint.LastEvent, "session_id": hint.SessionID, "generation": hint.Generation}
 				if warning != "" {

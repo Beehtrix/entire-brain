@@ -119,6 +119,10 @@ type preparedSession struct {
 	rawBytes    int
 	preBytes    int
 	chunks      []transcriptChunk
+	// chunkHashes covers the FULL current transcript (salted, in chunk order),
+	// including chunks the cache let this run skip; it becomes the session's
+	// cache record. chunks above holds only the chunks to dispatch.
+	chunkHashes []string
 	results     []chan agentCallResult
 	sem         chan struct{}
 	// release frees the session's work-lookahead slot; the consumer calls it
@@ -271,6 +275,23 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					}
 				}
 				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+				ps.chunkHashes = distillChunkHashes(ps.chunks, distillOpts.cacheSalt)
+				if !distillOpts.force {
+					// Re-dispatch only chunks the cache has not seen succeed.
+					// Facts from skipped chunks are already in the store, and
+					// upsert-by-content-id makes even a stale skip harmless. A
+					// force run bypasses reuse: it just DROPPED the distilled
+					// facts it is about to regenerate.
+					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
+						kept := ps.chunks[:0]
+						for i := range ps.chunks {
+							if !done[ps.chunkHashes[i]] {
+								kept = append(kept, ps.chunks[i])
+							}
+						}
+						ps.chunks = kept
+					}
+				}
 				ps.release = releaseWork
 				f <- ps
 			}(ps)
@@ -481,6 +502,49 @@ type transcriptChunk struct {
 type distillCache struct {
 	Version  int               `json:"version"`
 	Sessions map[string]string `json:"sessions"`
+	// Chunks records, per session cache key, the content hashes of the
+	// transcript chunks whose agent calls succeeded. Chunking is prefix-stable
+	// (greedy by line from the transcript start), so a GROWN transcript — the
+	// per-commit checkpoint distill — keeps earlier chunks byte-identical and
+	// re-dispatches only the hashes this map has not seen. Absent on older
+	// cache files: no reuse, one full distill repopulates it.
+	Chunks map[string][]string `json:"chunks,omitempty"`
+}
+
+// chunkSet returns the recorded chunk hashes for a cache key as a lookup set.
+func (c distillCache) chunkSet(key string) map[string]bool {
+	hashes := c.Chunks[key]
+	if len(hashes) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(hashes))
+	for _, h := range hashes {
+		set[h] = true
+	}
+	return set
+}
+
+// carryChunks copies the previous cache's chunk record for key, so a session
+// that is skipped, cached, or lazily re-keyed keeps its chunk reuse.
+func carryDistillChunks(dst *distillCache, src distillCache, dstKey, srcKey string) {
+	if hashes, ok := src.Chunks[srcKey]; ok {
+		if dst.Chunks == nil {
+			dst.Chunks = make(map[string][]string)
+		}
+		dst.Chunks[dstKey] = hashes
+	}
+}
+
+// distillChunkHashes hashes each chunk's exact agent input together with the
+// configuration salt, so a prompt/model/taxonomy change invalidates chunk
+// reuse exactly like it invalidates session fingerprints.
+func distillChunkHashes(chunks []transcriptChunk, salt string) []string {
+	hashes := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		sum := sha256.Sum256([]byte(salt + "\x00" + chunk.Text))
+		hashes[i] = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	return hashes
 }
 
 type distillPlan struct {
@@ -1021,9 +1085,15 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		cache := newCache
 		if !final && !distillOpts.force {
-			cache = distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions))}
+			cache = distillCache{
+				Version:  distillCacheVersion,
+				Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions)),
+				Chunks:   make(map[string][]string, len(prevCache.Chunks)+len(newCache.Chunks)),
+			}
 			maps.Copy(cache.Sessions, prevCache.Sessions)
 			maps.Copy(cache.Sessions, newCache.Sessions)
+			maps.Copy(cache.Chunks, prevCache.Chunks)
+			maps.Copy(cache.Chunks, newCache.Chunks)
 		}
 		return saveDistillCache(brainDir, cache)
 	}
@@ -1096,6 +1166,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			key := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			if prev, ok := prevCache.Sessions[key]; ok {
 				newCache.Sessions[key] = prev
+				carryDistillChunks(&newCache, prevCache, key, key)
 			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
 				// A legacy entry stays under its legacy key (and formula) until
 				// its session is actually visited and grandfathered — copying it
@@ -1122,7 +1193,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
 			cacheHits++
-			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			cachedKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+			newCache.Sessions[cachedKey] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			carryDistillChunks(&newCache, prevCache, cachedKey, cachedKey)
 			reportProgress()
 			continue
 		}
@@ -1213,7 +1286,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
 		if !sessionFailed {
-			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint
+			doneKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+			newCache.Sessions[doneKey] = ps.fingerprint
+			if newCache.Chunks == nil {
+				newCache.Chunks = make(map[string][]string)
+			}
+			newCache.Chunks[doneKey] = ps.chunkHashes
 		}
 		reportProgress()
 	}

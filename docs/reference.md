@@ -1495,8 +1495,8 @@ over an empty key — which would verify for anyone who guessed the key was empt
   still recorded and a warning goes to stderr. There is no retry queue: this is
   a notification channel, not a delivery guarantee. Treat a missed event as
   possible and re-read state through `/v1/facts` or the CLI when it matters.
-- **`ENTIRE_BRAIN_NO_EGRESS` and `ENTIRE_BRAIN_LOCAL_ONLY` win.** Either one
-  silences webhooks whatever else is configured.
+- **`ENTIRE_BRAIN_NO_EGRESS` wins.** It silences webhooks whatever else is
+  configured (as does its deprecated alias `ENTIRE_BRAIN_LOCAL_ONLY`).
 
 ## Privacy And Egress
 
@@ -1518,7 +1518,8 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+  requiring the command plus an explicit target (`--repo-id`, `--api-url`,
+  `--token`)
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the
@@ -1528,7 +1529,7 @@ model or by fetching over the network:
   See [Webhooks](#webhooks).
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
-`ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay
+`ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
 strictly local. No-egress mode enforces locality for no-agent, dry-run, and
 loopback-Ollama paths by validating URLs, redirects, and resolved dial targets. A
 custom `--agent command` runner is a trusted local command and is not enforceably
@@ -1599,7 +1600,7 @@ required for normal use.
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
-| `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
+| `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
 | `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish, facts sync, and the hosted proposal queue otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 | `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |

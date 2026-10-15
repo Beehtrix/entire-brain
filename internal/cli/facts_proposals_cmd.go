@@ -18,11 +18,11 @@ import (
 // low-confidence, on-disk proposals) and shares its verbs: list, show, apply, reject.
 //
 // Hosted egress is opt-in and off by default, exactly like `publish` (ADR-P1-A, no
-// implicit egress): a network call happens only when BOTH gates are satisfied — the
-// user explicitly runs one of these commands, AND ENTIRE_BRAIN_ALLOW_HOSTED is truthy.
-// The master local-only switch (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY)
-// always wins. Every gate is checked BEFORE any resolution or HTTP request, so a
-// refusal is guaranteed egress-free and the default behaviour stays strictly local.
+// implicit egress): a network call happens only when the user explicitly runs one
+// of these commands with an explicit target — there are no target defaults. The
+// master kill switch (ENTIRE_BRAIN_NO_EGRESS) always wins. Every gate is checked
+// BEFORE any resolution or HTTP request, so a refusal is guaranteed egress-free
+// and the default behaviour stays strictly local.
 
 // factsProposalsOptions bundles the flag state shared by every `facts proposals` verb.
 type factsProposalsOptions struct {
@@ -62,8 +62,8 @@ superseded, never deleted); rejecting it keeps both facts active and clears the
 conflict cross-link. Either way the resolved fact set and the shrunken open set are
 pushed under compare-and-swap, so every member converges.
 
-This surface is HOSTED and opt-in: nothing leaves your machine unless you both run
-one of these commands AND set ` + envBrainAllowHosted + `=1. Use ` + "`facts review`" + ` for this
+This surface is HOSTED and opt-in: nothing leaves your machine unless you run
+one of these commands with an explicit target. Use ` + "`facts review`" + ` for this
 member's own local, low-confidence proposals — that path is fully offline.
 
 The target repo, API base URL, and bearer token resolve from --repo-id /` + " " + envRepoID + `,
@@ -170,16 +170,13 @@ type hostedProposalTarget struct {
 	baseURL string
 }
 
-// resolveHostedProposalTarget enforces the two-gate opt-in and resolves the hosted
+// resolveHostedProposalTarget enforces the egress gates and resolves the hosted
 // target. It performs NO network call, so every refusal below is egress-free.
 func resolveHostedProposalTarget(ctx context.Context, opts Options, pOpts factsProposalsOptions) (hostedProposalTarget, error) {
-	// The master local-only switch always wins over the hosted opt-in.
+	// The master kill switch always wins over the hosted opt-in; the opt-in
+	// itself is the explicit target below (mirrors publish — no defaults).
 	if brainNoEgressMode() {
-		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it, or use 'facts review' for this member's local proposals")
-	}
-	// Gate 2: the explicit hosted opt-in must be truthy; anything else fails closed.
-	if !envBool(envBrainAllowHosted) {
-		return hostedProposalTarget{}, fmt.Errorf("hosted_proposals_disabled: the hosted cross-member proposal queue is opt-in and off by default; nothing was sent. Set %s=1 to enable it, or use 'facts review' for this member's local proposals", envBrainAllowHosted)
+		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while ENTIRE_BRAIN_NO_EGRESS is set; unset it, or use 'facts review' for this member's local proposals")
 	}
 
 	repoID := publishFlagOrEnv(pOpts.repoID, envRepoID)

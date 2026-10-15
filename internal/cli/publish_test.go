@@ -133,12 +133,13 @@ func expectedDigest(data []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// TestPublishRefusesWithoutOptIn is the load-bearing no-egress test: with the
-// opt-in gate unset the command must refuse and make NO HTTP request, even though
-// a reachable API URL, repo id, and token are all configured.
-func TestPublishRefusesWithoutOptIn(t *testing.T) {
+// TestPublishRefusesWithoutTarget is the load-bearing no-egress test: with no
+// explicit target repo id the command must refuse and make NO HTTP request, even
+// though a reachable API URL and token are configured. The explicit target IS the
+// hosted opt-in (the ENTIRE_BRAIN_ALLOW_HOSTED gate was retired by COR-2111).
+func TestPublishRefusesWithoutTarget(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("publish endpoint must not be called when opt-in is off; got %s %s", r.Method, r.URL.Path)
+		t.Errorf("publish endpoint must not be called without a target; got %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -147,22 +148,21 @@ func TestPublishRefusesWithoutOptIn(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	// Opt-in and local-only master switch both explicitly off; full config set so
-	// the ONLY thing keeping the brain local is the missing opt-in.
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "")
+	// Kill switch explicitly off; URL and token set so the ONLY thing keeping
+	// the brain local is the missing repo id.
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)
 	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
-	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
+	t.Setenv("ENTIRE_REPO_ID", "")
 
 	cmd := newPublishCmd(t, repoDir, dataDir, newPublishFixtureRunner())
 	out, err := execute(t, cmd, "publish")
 	if err == nil {
-		t.Fatalf("publish succeeded without opt-in; want refusal. output:\n%s", out)
+		t.Fatalf("publish succeeded without a target; want refusal. output:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "opt-in") || !strings.Contains(err.Error(), envBrainAllowHosted) {
-		t.Fatalf("refusal error should explain the opt-in and name %s; got: %v", envBrainAllowHosted, err)
+	if !strings.Contains(err.Error(), "repo id is required") {
+		t.Fatalf("refusal error should name the missing repo id; got: %v", err)
 	}
 }
 
@@ -178,7 +178,6 @@ func TestPublishRefusesUnderNoEgress(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
 	t.Setenv("ENTIRE_API_URL", server.URL)
 	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
@@ -224,7 +223,6 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)
@@ -354,7 +352,6 @@ func TestPublishIdempotent(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)
 	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
@@ -387,7 +384,6 @@ func TestPublishConfigResolutionFailure(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)
 	t.Setenv("ENTIRE_API_TOKEN", "")
@@ -429,7 +425,6 @@ func TestPublishServerErrorsSurfaced(t *testing.T) {
 			dataDir := t.TempDir()
 			writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_API_URL", server.URL)
 			t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
@@ -506,7 +501,6 @@ func TestPublishFailsFastForNonGitHubRemote(t *testing.T) {
 	brainDir := filepath.Join(dataDir, repoStoreDirName, "gl", "example", "repo")
 	writePublishBrainFixture(t, brainDir)
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)
@@ -544,7 +538,6 @@ func TestPublishFailsFastWhenBundleTooLarge(t *testing.T) {
 	maxPublishBodyBytes = 16
 	defer func() { maxPublishBodyBytes = orig }()
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_API_URL", server.URL)

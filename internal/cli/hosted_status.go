@@ -108,7 +108,7 @@ func hostedStatusLine(h *brainStatusHosted) string {
 		case securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS"):
 			return "Disconnected from Brainstore (ENTIRE_BRAIN_NO_EGRESS set)"
 		case securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY"):
-			return "Disconnected from Brainstore (ENTIRE_BRAIN_LOCAL_ONLY set)"
+			return "Disconnected from Brainstore (ENTIRE_BRAIN_LOCAL_ONLY set — deprecated alias of ENTIRE_BRAIN_NO_EGRESS)"
 		default:
 			return "Disconnected from Brainstore (run 'entire brain connect' to rejoin)"
 		}

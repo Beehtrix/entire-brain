@@ -139,8 +139,7 @@ func IsLoopbackHost(host string) bool {
 // toggleOn (internal/hostedbrain), which fail an unrecognized value ON: those toggles
 // switch a protection on, so a typo must not silently disable the protection. This one
 // switches a protection OFF, so the same fail-closed principle requires the opposite
-// resolution — a typo'd "ture" must not silently unlock plaintext egress. It matches
-// the spelling already used for the ENTIRE_BRAIN_ALLOW_HOSTED publish opt-in. The
+// resolution — a typo'd "ture" must not silently unlock plaintext egress. The
 // operator is still told their value was not understood.
 func allowInsecure() bool {
 	raw := strings.TrimSpace(os.Getenv(EnvAllowInsecure))

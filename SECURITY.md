@@ -29,7 +29,36 @@ plainly:
   model — and webhooks, which stay off until `ENTIRE_BRAIN_WEBHOOK_URL` is set
   and send fact ids, kinds and taxonomy paths but not fact text unless
   `ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT` is also set. Both respect
-  `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY`.
+  `ENTIRE_BRAIN_NO_EGRESS`.
+
+## Egress controls
+
+This is the authoritative list of the environment variables that govern where
+brain data may go, in precedence order:
+
+1. **`ENTIRE_BRAIN_NO_EGRESS`** — the master kill switch. When set, nothing
+   leaves the machine: hosted sync, publish, proposals, webhooks, non-local
+   model agents, and `add` cloning all refuse. It beats every other setting,
+   including a recorded connection. The toggle fails closed: an unrecognised
+   value counts as set. Intended for CI and machine-wide policy; per-repo
+   intent belongs in `entire brain disconnect`. `ENTIRE_BRAIN_LOCAL_ONLY` is a
+   deprecated alias — still honored, but it warns and should be migrated.
+2. **Explicit flags** (`--repo-id`, `--api-url`, `--token`) on the manual
+   hosted commands: `publish`, `facts sync --facts-backend=http`, and
+   `facts proposals`.
+3. **Environment overrides** for those same flags: `ENTIRE_REPO_ID`,
+   `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`. The manual commands have no target
+   defaults — without an explicit target they refuse before any network call,
+   which is why they need no separate opt-in variable.
+4. **The recorded connection** (`hosted.json`, written only by
+   `entire brain connect` and `entire brain disconnect`). Background sync
+   reads only this binding and mints its token through the host CLI
+   (`entire auth token`, which honors the host CLI's `ENTIRE_TOKEN`); the
+   override variables above never redirect background sync.
+
+The API base URL must be `https://` everywhere; plaintext `http://` is refused
+unless the host is loopback or `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` is
+explicitly set (that unlock fails closed on unrecognised values).
 
 Because transcripts and source can carry credentials that were never meant to
 be retained, Brain applies a redaction pass to synthesised evidence, rendered

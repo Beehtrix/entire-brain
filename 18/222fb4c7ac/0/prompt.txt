@@ -1,0 +1,1 @@
+high findings, can you resolve them. why is this hard? it's just liek a simple read the file and print the status. i feel like you're over complicating this.

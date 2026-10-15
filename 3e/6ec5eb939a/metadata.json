@@ -1,0 +1,29 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "3e6ec5eb939a",
+  "strategy": "manual-commit",
+  "branch": "brain-status-cosmetic-list",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "internal/cli/hosted_status.go",
+    "internal/cli/hosted_status_test.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_render_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3e/6ec5eb939a/0/metadata.json",
+      "transcript": "/3e/6ec5eb939a/0/full.jsonl",
+      "compact_transcript": "/3e/6ec5eb939a/0/transcript.jsonl",
+      "content_hash": "/3e/6ec5eb939a/0/content_hash.txt",
+      "prompt": "/3e/6ec5eb939a/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 648062,
+    "cache_read_tokens": 4452330,
+    "output_tokens": 14501,
+    "api_call_count": 15
+  }
+}

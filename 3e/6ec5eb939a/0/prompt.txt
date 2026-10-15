@@ -1,0 +1,45 @@
+this is merged in:
+
+give me the commands ot verify it manually locally
+
+https://github.com/entireio/entire-brain/pull/363
+
+---
+
+holy jessu that was insanely slow:
+
+[2026-10-14 20:56] ~/conductor/repos/entire-brain (main)% time entire brain status
+Brain  gh/entireio/entire-brain
+  /Users/evisdrenova/.local/share/entire/plugins/data/brain/repos/gh/entireio/entire-brain · manifest current · 2460 facts · Connected to Brainstore
+
+Onboarding
+  facts     █████████████░ 254/262 distilled  (8 pending)
+  daemon    − not installed (last watcher tick 4h0m0s ago)
+  instant   ✓ sessions  ✓ seed  ✓ docs  − semantic  ✓ history
+
+− no semantic index — run `entire brain refresh --agent none`
+  seed=stale (seed and docs are based on an older commit; run entire brain refresh --agent none)
+  `entire brain status --verbose` for the full report
+/opt/homebrew/bin/entire brain status  30.27s user 35.60s system 86% cpu 1:15.79 total
+[2026-10-14 20:58] ~/conductor/repos/entire-brain (main)%
+
+!!!!
+
+
+why is it so slow???
+
+also can we clean up the output here?
+
+
+- an empty line at the very top to create separatioN
+- why are we publishing the entire path? 
+- what is manifest current? 
+- we shoudl just list these: manifest current · 2460 facts · Connected to Brainstore.... and not put it on one line. just list each one with a colon and then teh status
+- what is the semantic index and why don't i have it? 
+- empty line at the bottom to create separation
+
+
+okay let's do 2 thinkgs:
+
+1. let's create a trail to just make some cosmetic updates ot the output. 
+2. create a ticket and put it in backlog figur eout why this is so damn slow. it shoudl be instant

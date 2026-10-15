@@ -20,9 +20,9 @@ func captureNotifyHostedSync(t *testing.T) *[]string {
 	original := notifyHostedFactsSync
 	t.Cleanup(func() { notifyHostedFactsSync = original })
 	var branches []string
-	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage, branch string) error {
+	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage, branch string) (bool, error) {
 		branches = append(branches, branch)
-		return nil
+		return true, nil
 	}
 	return &branches
 }

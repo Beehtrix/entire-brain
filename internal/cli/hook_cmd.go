@@ -156,7 +156,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 					syncBranches = []string{resolvedBranch, distillDefaultBranch}
 				}
 				for _, syncBranch := range syncBranches {
-					if err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
+					if _, err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted fact sync failed (local brain unaffected): %v\n", err)
 					}
 				}

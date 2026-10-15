@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - run: go vet ./...
       - name: Test browser controller request lifetimes
         run: node --test webui/tests/*.test.cjs
@@ -49,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci --prefix webui --ignore-scripts
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - name: Prove the selected tests catch their intended regressions
         run: python3 -B tools/coverage/mutation_check.py
 
@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -98,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - name: Test with coverage and binary contracts
         run: python3 -B tools/coverage/run.py --race --output "${{ runner.temp }}/brain-coverage"
       - name: Retain coverage and test results
@@ -124,7 +124,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           cache-dependency-path: go.sum
       - uses: actions/setup-python@v7
         with:
@@ -183,7 +183,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           cache-dependency-path: go.sum
       - uses: actions/setup-python@v7
         with:
@@ -226,7 +226,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           cache-dependency-path: go.sum
       - uses: actions/setup-python@v7
         with:
@@ -269,7 +269,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
           cache-dependency-path: go.sum
       - run: go vet -race ./...
 
@@ -288,7 +288,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-go@v6.4.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
       - uses: actions/download-artifact@v6
         with:
           name: windows-test-bundle
@@ -364,7 +364,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - name: Test CGO with coverage and binary contracts
         run: python3 -B tools/coverage/run.py --race --tags "brain_cgo sqlite_fts5" --output "${{ runner.temp }}/brain-coverage"
       - name: Retain CGO coverage and test results
@@ -390,7 +390,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: actions/setup-go@v6.4.0
-        with: { go-version: "1.27.1" }
+        with: { go-version: "1.27.2" }
       - name: Prime module cache
         env:
           GOPROXY: "https://proxy.golang.org,direct"

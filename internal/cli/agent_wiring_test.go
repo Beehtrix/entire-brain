@@ -164,6 +164,34 @@ func TestSetupRemembersDeclinedDaemonAndBackfill(t *testing.T) {
 	}
 }
 
+// TestABareReRunBlamesTheDeclineNotAFlag: setup resolves "typed --no-backfill"
+// and "declined on an earlier run" into one boolean before the skip line is
+// composed, so the line credited a flag the reader never passed on this
+// command -- and then never named --backfill, the only way back. The
+// provenance has to be captured before that resolution destroys it, which no
+// renderer test can observe.
+func TestABareReRunBlamesTheDeclineNotAFlag(t *testing.T) {
+	f := newSetupTestFixture(t, "s1")
+	declined := defaultSetupOptions()
+	declined.noDaemon = true
+	declined.noBackfill = true
+	declined.agent = "codex"
+	typed := runSetupForTest(t, f, declined, &recordedSetup{agent: "codex"})
+	if !strings.Contains(typed, "--no-backfill") {
+		t.Fatalf("the run that typed the flag must name it:\n%s", typed)
+	}
+
+	bare := defaultSetupOptions()
+	bare.agent = "codex"
+	out := runSetupForTest(t, f, bare, &recordedSetup{agent: "codex"})
+	if !strings.Contains(out, "earlier run") {
+		t.Fatalf("a bare re-run must say the decline was remembered:\n%s", out)
+	}
+	if !strings.Contains(out, "--backfill") || strings.Contains(out, "--no-backfill") {
+		t.Fatalf("a bare re-run must name the way back and not blame a flag nobody typed:\n%s", out)
+	}
+}
+
 // TestSetupExplicitAffirmativeOverridesRememberedDecline is the negative
 // control for UX-19: remembering a decline must not make it unescapable.
 func TestSetupExplicitAffirmativeOverridesRememberedDecline(t *testing.T) {

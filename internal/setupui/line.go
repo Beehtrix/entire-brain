@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/tui"
 	"time"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
 // Glyph is the state marker in a row's first column.
@@ -479,34 +477,17 @@ func (r *Renderer) LiveLabel(title, step string, done, total int) string {
 	return head + gauge + r.Truncate(step, budget)
 }
 
-// barText paints the bar, shifting hue as it fills: cool while there is a lot
-// left, warming through the middle, green on the home straight. Colour here
-// is redundant with the ratio beside it and the bar's own length, which is the
-// rule -- it must add glanceability, never carry meaning alone.
+// barText delegates to the shared bar, which ALREADY colours each cell by its
+// position via rampColor -- that gradient is the "changes colour as it fills"
+// behaviour, and it is why a second, outer Paint here did nothing: the inner
+// per-cell escapes win. Keeping a wrapper that cannot change a pixel, with a
+// test that passes by comparing the wrapper, is worse than no wrapper.
 func (r *Renderer) barText(done, total, width int) string {
 	if r == nil || r.r == nil {
 		return strings.Repeat("#", width)
 	}
-	bar := r.r.Bar(done, total, width)
-	if total <= 0 || !r.Caps().Color {
-		return bar
-	}
-	switch frac := float64(done) / float64(total); {
-	case frac < 0.34:
-		return r.r.Paint(barHueEarly, bar)
-	case frac < 0.67:
-		return r.r.Paint(barHueMid, bar)
-	default:
-		return r.r.Paint(barHueLate, bar)
-	}
+	return r.r.Bar(done, total, width)
 }
-
-// The three bar hues, cool -> warm -> done.
-var (
-	barHueEarly = lipgloss.Color("45")  // cyan
-	barHueMid   = lipgloss.Color("179") // amber
-	barHueLate  = lipgloss.Color("47")  // green
-)
 
 func ratio(done, total int) string {
 	return itoa(done) + "/" + itoa(total)

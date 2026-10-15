@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // TestETAAppearsOnlyWhenItIsAnEstimate guards both directions: a rate needs at
@@ -55,36 +53,6 @@ func TestETAScalesItsUnit(t *testing.T) {
 // TestBarColourTracksProgress pins that the bar changes hue as it fills, and
 // that the change is redundant rather than load-bearing: with colour off the
 // bar is still a bar.
-func TestBarColourTracksProgress(t *testing.T) {
-	t.Parallel()
-	r := NewRendererWidth(tui.NewRendererWith(tui.Theme{}, tui.Caps{Color: true, Unicode: true, Width: 100}), 100)
-
-	// Compare the COLOUR, not the whole string. An earlier version of this
-	// test compared barText output directly and passed even with the hue
-	// pinned to a constant, because the three bars differ by FILL regardless.
-	hue := func(done, total int) string {
-		out := r.barText(done, total, 20)
-		i := strings.Index(out, "\x1b[")
-		if i < 0 {
-			return "<none>"
-		}
-		j := strings.Index(out[i:], "m")
-		if j < 0 {
-			return "<malformed>"
-		}
-		return out[i : i+j+1]
-	}
-
-	early, mid, late := hue(1, 10), hue(5, 10), hue(9, 10)
-	if early == "<none>" {
-		t.Fatal("fixture: colour is off, this test cannot measure hue")
-	}
-	if early == mid || mid == late || early == late {
-		t.Fatalf("the bar must change HUE as it fills: early=%q mid=%q late=%q", early, mid, late)
-	}
-
-	mono := NewRendererWidth(tui.NewRendererWith(tui.Theme{}, tui.Caps{Unicode: true, Width: 100}), 100)
-	if strings.Contains(mono.barText(5, 10, 20), "\x1b[") {
-		t.Fatal("with colour off the bar must carry no escapes")
-	}
-}
+// The bar's colour-by-fill lives in tui.Renderer.Bar (rampColor), not here.
+// A guard in this package could only have tested a wrapper, which is exactly
+// how an ineffective one passed review once already.

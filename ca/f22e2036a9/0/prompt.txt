@@ -1,0 +1,41 @@
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/xw86ya/CleanShot 2026-10-14 at 23.08.19.png (101.6 KB)
+</system_instruction>
+
+
+
+on this PR: https://github.com/entireio/entire-brain/pull/379
+
+have we resolved this? .context/attachments/xw86ya/CleanShot 2026-10-14 at 23.08.19.png  it hink we have? i don't see any findings?
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/bJ3GGz/CleanShot 2026-10-14 at 23.08.39.png (43.0 KB)
+</system_instruction>
+
+
+
+ah there is a low one; .context/attachments/bJ3GGz/CleanShot 2026-10-14 at 23.08.39.png
+
+---
+
+worth solving?
+
+---
+
+create a spearate ticket for it and put it in to-do. 
+
+this PR is merged: https://github.com/entireio/entire-brain/pull/377
+
+---
+
+and this is still open: https://github.com/entireio/entire-brain/pull/379
+
+---
+
+this si failing a bunch of tests:
+
+https://github.com/entireio/entire-brain/pull/379

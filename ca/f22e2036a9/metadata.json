@@ -1,0 +1,34 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "caf22e2036a9",
+  "strategy": "manual-commit",
+  "branch": "no-default-remote-connect",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/memory_notify_sync.go",
+    "internal/cli/memory_notify_sync_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ca/f22e2036a9/0/metadata.json",
+      "transcript": "/ca/f22e2036a9/0/full.jsonl",
+      "compact_transcript": "/ca/f22e2036a9/0/transcript.jsonl",
+      "content_hash": "/ca/f22e2036a9/0/content_hash.txt",
+      "prompt": "/ca/f22e2036a9/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 608,
+    "cache_creation_tokens": 5884432,
+    "cache_read_tokens": 78816205,
+    "output_tokens": 212557,
+    "api_call_count": 304,
+    "subagent_tokens": {
+      "input_tokens": 78,
+      "cache_creation_tokens": 173336,
+      "cache_read_tokens": 1545732,
+      "output_tokens": 20983,
+      "api_call_count": 39
+    }
+  }
+}

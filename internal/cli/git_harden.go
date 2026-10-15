@@ -1,6 +1,13 @@
 package cli
 
-import "slices"
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // git resolves several configuration keys to *commands it executes*, and it
 // honours them from the per-repository .git/config — plus the in-tree
@@ -71,6 +78,85 @@ import "slices"
 // to add neither stderr nor a non-zero exit to status, rev-parse, diff, log,
 // ls-files, worktree, gc, clone or commit.
 const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
+
+// realGitHooksDir resolves the hooks directory git would use WITHOUT the pin
+// above. It lives here, beside the pin, because it is the sanctioned way to
+// read around it: `rev-parse --git-path hooks` and plain config reads through
+// the hardened runner always answer the sentinel, and the next caller must
+// not have to rediscover that. `git config --get-all` lists values in
+// ascending precedence with the pinned entry guaranteed last (command-line
+// config wins), so the last value that is not the sentinel is the user's
+// effective core.hooksPath — whatever mechanism injected it. None means the
+// default, <git-common-dir>/hooks; the common dir so linked worktrees share
+// one hooks directory, exactly as git does. A relative value resolves against
+// the worktree, matching git (see the pin's comment on why that matters).
+// The second return reports whether the resolved directory belongs to THIS
+// repository (under its worktree or its git common dir). A shared
+// core.hooksPath — a global ~/.githooks, say — resolves for every repository
+// at once, and a caller that installs or removes files there acts on repos it
+// was never asked about.
+func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, bool, error) {
+	commonOut, err := gitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", false, fmt.Errorf("resolve git dir: %w", err)
+	}
+	commonDir := strings.TrimSpace(commonOut)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
+	}
+
+	dir := filepath.Join(commonDir, "hooks")
+	// The pin guarantees at least one value, so a failure here is a real
+	// error, never "key unset".
+	valuesOut, err := gitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
+	if err != nil {
+		return "", false, fmt.Errorf("resolve core.hooksPath: %w", err)
+	}
+	for _, value := range strings.Split(valuesOut, "\n") {
+		value = strings.TrimSpace(value)
+		if value == "" || value == gitHooksDisabledPath {
+			continue
+		}
+		resolved, resolveErr := resolveHooksPathValue(value, repoDir)
+		if resolveErr != nil {
+			return "", false, resolveErr
+		}
+		dir = resolved
+	}
+	inRepo := dirWithin(dir, repoDir) || dirWithin(dir, commonDir)
+	return dir, inRepo, nil
+}
+
+// dirWithin reports whether path sits at or below root, lexically.
+func dirWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// resolveHooksPathValue resolves one core.hooksPath value the way git does:
+// a leading ~ expands to the home directory, an absolute path stands, and a
+// relative path resolves against the worktree. A ~user form is refused rather
+// than misresolved — installing a hook into the wrong directory is worse than
+// an install that reports why it did nothing.
+func resolveHooksPathValue(value, repoDir string) (string, error) {
+	switch {
+	case value == "~" || strings.HasPrefix(value, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand core.hooksPath %q: %w", value, err)
+		}
+		return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(value, "~"), "/")), nil
+	case strings.HasPrefix(value, "~"):
+		return "", fmt.Errorf("core.hooksPath %q uses ~user expansion, which this plugin does not resolve", value)
+	case filepath.IsAbs(value):
+		return value, nil
+	default:
+		return filepath.Join(repoDir, value), nil
+	}
+}
 
 var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by

@@ -23,6 +23,11 @@ func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) 
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main"}},
 	}
+	// The settling property is cap-relative, so a lowered cap proves it with
+	// a fraction of the projection work.
+	prevCap := memoryProjectionClaimsPerPass
+	memoryProjectionClaimsPerPass = 4
+	t.Cleanup(func() { memoryProjectionClaimsPerPass = prevCap })
 	count := memoryProjectionClaimsPerPass + 3
 	for i := 0; i < count; i++ {
 		rel := fmt.Sprintf("sessions/main/session-%03d.jsonl", i)
@@ -416,6 +421,11 @@ func (b *blockingContextAbstractor) Abstract(ctx context.Context, _ string, _ co
 }
 
 func TestDeterministicFailureCancelsDrainsAndSettlesAbstractProvider(t *testing.T) {
+	// The deterministic failure is observed on the lane's next poll tick;
+	// the production 5s interval is pure wait here.
+	prevPoll := memoryAbstractCancellationPollInterval
+	memoryAbstractCancellationPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { memoryAbstractCancellationPollInterval = prevPoll })
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)

@@ -1581,8 +1581,8 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 		t.Fatalf("compact status result = %s", compact)
 	}
 	detailed, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
-	if !strings.Contains(string(detailed), `"severity":"ok"`) || !strings.Contains(string(detailed), `"file_languages"`) {
-		t.Fatalf("detailed status result = %s", detailed)
+	if !strings.Contains(string(detailed), `"severity":"ok"`) || strings.Contains(string(detailed), `"file_languages"`) || !strings.Contains(string(detailed), `"integrity":"not_checked"`) {
+		t.Fatalf("detailed status must remain a lightweight overview: %s", detailed)
 	}
 }
 

@@ -458,9 +458,20 @@ func TestWriterSinkDiscardsTransientLines(t *testing.T) {
 // verbatim line from a real cli run, where the second remedy was lost.
 func TestFlattenTextKeepsBothEnds(t *testing.T) {
 	t.Parallel()
-	const real = "checkpoint_scope_incomplete: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory"
+	// The verbatim line from a real cli run, with the full path it carried.
+	// NON-VACUITY MATTERS HERE: an earlier version of this fixture was only 3
+	// runes over the budget, so a head-only cut still kept "--output" and the
+	// test passed with the defect restored. The actionable tail must fall
+	// well past the cut, which is asserted below rather than assumed.
+	const real = "checkpoint_scope_incomplete: routed checkpoint metadata was incomplete for /Users/dev/src/acme/.entire-brain/sessions/branches/main; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory"
 	if len([]rune(real)) <= flattenLimit {
 		t.Fatalf("fixture is %d runes, not over the %d budget — proves nothing", len([]rune(real)), flattenLimit)
+	}
+	// A head-only cut must genuinely lose the tail, or this test cannot
+	// distinguish the fix from the defect.
+	headOnly := string([]rune(real)[:flattenLimit-3]) + "..."
+	if strings.Contains(headOnly, "--output") {
+		t.Fatalf("fixture is too short: a head cut still keeps the remedy, so the guard is vacuous")
 	}
 	got := FlattenText(real)
 	if n := len([]rune(got)); n > flattenLimit {

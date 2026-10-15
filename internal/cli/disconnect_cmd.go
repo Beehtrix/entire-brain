@@ -44,6 +44,12 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("disconnect: %w", err)
 	}
+	// Remove our pre-push hook (restoring any hook we had chained to). The
+	// opt-out already makes the hook a no-op, so a removal failure costs an
+	// empty spawn per push, never a sync — report and continue.
+	if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "disconnect: push hook not removed: %v\n", hookErr)
+	}
 
 	if binding.RepoID != "" {
 		renderHostedBanner(cmd.OutOrStdout(),

@@ -1,0 +1,182 @@
+<skill name="owning-workspace-slice" location="/Users/alex/.claude/skills/owning-workspace-slice/SKILL.md">
+References are relative to /Users/alex/.claude/skills/owning-workspace-slice.
+
+# Own a Workspace Slice
+
+You own one coherent vertical slice. Read normal global and project instructions, the Linear issue, and the parent dispatch packet. Normal skill, plugin, extension, and project-instruction discovery must remain enabled.
+
+The dispatch packet is the requirements contract:
+
+1. desired outcome and why it matters;
+2. Linear issue ID and authoritative issue requirements;
+3. settled product decisions and hard constraints;
+4. cross-piece interfaces and dependencies;
+5. acceptance signals and granted authority;
+6. known evidence, separate from hypotheses.
+
+Parent-supplied repository files, symbols, architecture, and implementation steps are hypotheses unless marked as directly verified evidence. Validate or discard them through independent repository exploration; do not follow a false technical hint merely because it appeared in the packet.
+
+## Own the full repository workflow
+
+Continue without parent approval through:
+
+1. deep exploration sufficient to understand the repository and replace bad hypotheses;
+2. the appropriate spec and implementation plan;
+3. test-first delegated implementation for behavior changes;
+4. complete repository verification and full-diff inspection;
+5. PR creation and review follow-up to merge readiness.
+
+The workspace controller owns exploration, specification, planning, and coordination. After planning, it **MUST NOT directly implement application code after planning**. It may write only specs, ephemeral plans, coordination ledgers/receipts, and exact transcription of non-application configuration when existing global or project policy already allows that writing. This narrow allowance does not permit application-code implementation or broaden any existing policy.
+
+For Claude workspaces, explicitly invoke the enabled Superpowers workflow appropriate to the work: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:test-driven-development`, `superpowers:subagent-driven-development`, receiving-review, and verification-before-completion. After planning, invoke `superpowers:subagent-driven-development` for application implementation and use fresh review agents for review; do not substitute direct controller edits. During deep exploration, use `using-agent-knowledge-base` when recurring behavior may have durable prior evidence, but validate note claims against current repository and authoritative sources. Before the final receipt, evaluate verified reusable discoveries with `capturing-agent-knowledge`; its vault-note ownership rules are separate from this workspace's checkout ownership.
+
+For Pi workspaces, explicitly invoke the approved `brainstorming`, Pi-native `writing-plans`, Pi `pi-subagents` roles/workflow, `test-driven-development`, `receiving-code-review` as applicable, and `verification-before-completion` workflows. After planning, dispatch application implementation to a Pi-native `pi-subagents` writer and use fresh review roles/workflow; do not substitute direct controller edits. Keep implementation plans ephemeral and outside the tracked tree. If a required named Pi agent or workflow is unavailable, inspect the Pi registry and either report the missing agent/workflow or adapt it within the approved Pi-native workflow; do not silently substitute another harness or bypass the required workflow with direct implementation.
+
+Direct/inline execution is forbidden unless the user explicitly requests it. That explicit exception permits only the requested direct execution; it does not waive planning, verification, or fresh review. Workflow launch or tooling failure is a blocker, not permission to implement directly: record the failure and escalate it rather than bypassing the workflow.
+
+Follow project instructions where they are stricter. Do not mutate Linear state, create dependencies, or close the issue. Report scope discoveries to the parent instead.
+
+## Own PR review follow-up
+
+For PR-bound work, create the human-authored PR first, then confirm its automatically created or linked trail before review. If automatic linking is absent, report the integration problem; do not fall back to `entire trail create`. Start and own the review steward in this checkout.
+
+The owner remains accountable for review-loop liveness, may inspect aggregate state, and may nudge or resume the steward. Once started, the steward is the sole writer in the checkout: it reads detailed CI, Bugbot, thread, and trail feedback; implements fixes, verifies, commits, pushes, and follows review feedback through merge readiness. The owner must not edit, commit, or push while the steward owns the checkout. Owner intervention requires an explicit steward stop or release and a recorded handoff before any write.
+
+Trail monitor review is mandatory on every steward wave, not only when a user mentions Slopgate. Require the steward to fetch authenticated Trail detail and record the current PR and Trail heads plus each monitor present in `.monitors[]` with its key, value, state, and evaluated SHA. Only monitors present in `.monitors[]` are configured. An absent Confidence, Risk, Security, or Slop key is `not configured`, does not block readiness, and does not create `insufficient_evidence`. Interrogate a present current Slop evaluation at every value. Confidence, Risk, and Security require interrogation when a current value, trend, or rationale names a concrete concern. Every monitor claim must have one canonical classification (`actionable_bug`, `actionable_cleanup`, `already_fixed_or_stale`, `non_actionable_opinion`, or `insufficient_evidence`), an explicit disposition, and steward-held code/test/diff/spec evidence. `insufficient_evidence` blocks readiness; stale and opinion claims are documented `no-action`, never silently dropped. Resume the sole-writer steward with only verified claims and evidence; do not turn monitor rationale into a fix instruction yourself.
+
+Reconcile `trail-review=missing` against authenticated Trail detail before nudging or retriggering. Select from `.runners[]` by exact `runner_id == "trail-review"`; current-passed requires `state == "evaluated"`, `outcome == "passed"`, and `evaluated_at_sha == head_sha`, with the Trail head matching the current PR head. Record absent/not-configured, running, stale, failed, and current-passed distinctly; an empty auxiliary summary is never main-review evidence. Genuine absence is not a passing required review; report the configuration/evidence gap. Unavailable detail names the next authenticated observation, not another review run.
+
+Check Trail status before mergeability: `.status == "merged"` may coexist with false `.mergeability.mergeable`; report direct merge confirmation to the parent without restarting review. For open Trails, `.mergeability.mergeable` and `.mergeability.gates[]` are corroborating evidence only; Entire Ready-to-merge never substitutes for Alex's personal current-head gates. When those gates hold, approval-only Entire failure means **automated work complete; human handoff**, not another review run or an automated approval-polling condition.
+
+The GitHub check named exactly `Partial Gates` is always an environment/testing artifact. The owner and steward never inspect, wait on, fix, or report it as required; it does not block merge readiness. This does not apply to `Entire Gates` or any differently named check.
+
+For human-facing owner reports (not artifact creation), verify a Trail match only from an actual link or association; repository or branch similarity is not evidence. When one or more verified matching Trails exist, show only their full clickable canonical Trail URL(s) and Trail state; do not identify or link the matched PR, including its URL, number, or identity. PR-derived evidence such as mergeability, check status, and unresolved-thread counts may remain in prose without identifying or linking the PR. If the Trail association exists but Trail state/detail is unavailable, show the Trail URL as unknown and do not fall back to the PR. A closed, merged, or unknown matching Trail remains primary; report its state or discrepancy rather than switching artifacts. If no matching Trail exists, show the clickable PR URL with `Trail: pending/not linked`. For multiple verified matching Trails, show all their canonical URLs and no PR. Never guess or manually create a Trail. Keep artifact creation, automatic Trail linking, review mechanics, personal gates, post-merge verification, and structured/internal PR evidence unchanged. Pi and Claude bottom status lines remain Trail-only.
+
+Return only aggregate review receipts to the parent: PR/current SHA, **current-head mergeability** (`MERGEABLE`, `UNKNOWN`, or `CONFLICTING`) with its next action/signal, required-check summary (excluding `Partial Gates`), Bugbot status for that SHA, unresolved-thread count, trail/open-finding count, main-review receipt (Trail status/head, runner ID/state/outcome/evaluated SHA, Entire gate summary), **monitor receipt** (PR/Trail head, each monitor's value/state/evaluated SHA, per-canonical-classification disposition counts, evidence-recorded status, actionable count, insufficient-evidence count, and next signal), and merge readiness. Monitor rationale and per-claim evidence stay with the owner and steward. A merge-ready receipt requires `mergeable == "MERGEABLE"` on the current PR head, Bugbot terminal, current-passed main review, green required CI excluding `Partial Gates`, zero unresolved threads, and zero open Trail findings; every monitor present in `.monitors[]` evaluated on the current PR and Trail head; no present monitor evaluating, stale, or failed; absent keys recorded as `not configured` without blocking or `insufficient_evidence`; zero verified actionable and insufficient-evidence claims; and documented `no-action` dispositions for stale or opinion claims. A non-ready receipt must name its next signal or action. The parent may coordinate or nudge with aggregate discrepancies, but it never prescribes review fixes or launches a competing steward.
+
+## Publish local Trail footer state
+
+When the owner/steward or its existing watch already observes the Trail's actual `open`, `draft`, `merged`, or `closed` status, publish it with `node ~/.pi/agent/extensions/session-trail-footer/record-state.mjs "$trail_url" "$trail_status" "$observed_at"`. Inside the actual owning Herdr workspace, the helper automatically records the workspace's own Trail association, even without a parent's hand-written ledger. It does not create any parent edge. A relay from another workspace must append `--workspace <actual-owner-id> --pane <actual-owner-pane-id>` from the verified launch receipt, rather than associating the Trail with the relayer. The third argument is the ISO observation timestamp; omit it only for a fresh direct observation, and preserve it when relaying a receipt. Publish when linking the Trail and when the existing workflow observes a status change, including final closure. This writes only local footer state outside the checkout and is safe while the steward owns repository writes. It does not create/link a Trail or replace the parent's ownership ledger. Never make an extra remote request or launch another watch for the footer, and never infer Trail status from PR readiness, PR merge, approvals, or cleanup. Lookup failure preserves last-known local state. Include the canonical Trail URL, actual status, and observation timestamp in the parent's aggregate receipt so it can relay the same evidence without another fetch.
+
+## Escalate only these cases
+
+- an unsettled product or scope decision;
+- a cross-piece contract change;
+- a destructive or security-sensitive action not already authorized;
+- a blocker for which every safe path would be a guess.
+
+Everything else—including replacing a parent technical hypothesis—is yours to resolve and continue.
+
+## Progress and cleanup receipts
+
+Keep a readable progress record and provide receipts containing:
+
+- decisions and replaced hypotheses;
+- implementation and verification results;
+- PR and review state;
+- residual risks or blockers;
+- every resource started (Compose project, server, tunnel, temporary state); and
+- exact, idempotent cleanup commands and intentional retained resources.
+
+Before review, stop resources no longer needed. Update the receipt if review work starts a resource. After direct merge confirmation, wait for the parent's current merge-commit success receipt for default-branch builds/checks before the final repository-specific cleanup pass. The parent owns the event-driven post-merge watch; the review steward remains pre-merge. Report post-merge failures to the parent, including apparently unrelated failures with evidence, rather than silently ignoring them or cleaning. Once the parent authorizes cleanup after that receipt, report the cleanup receipt and leave the checkout clean and unoccupied.
+
+Never remove the Herdr workspace yourself. The parent verifies cleanup and removes it only after merge confirmation and post-merge success. No final cleanup or Done receipt before both. If you crash, the parent may run only cleanup commands already recorded, one at a time after inspection.
+</skill>
+
+1. Outcome: Resolve ONLY mechanical merge conflicts on existing entireio/entire-brain PR361 (go-billy), canonical Trail https://entire.io/gh/entireio/entire-brain/trails/276. User explicitly requests parallel workers. Use owning-workspace-slice and delegate the actual repair to one Pi worker in your exclusive checkout. No new PR. No merge or approval authority; parent merges sequentially, if ever. This is a bounded conflict-repair wave, not an open-ended dependency redesign. Do not pause for generic approach approval: normal merge preserving both intended bot update and main security baseline is the approved design; escalate only actual semantic/security choices.
+
+2. Linear: COR-2137, Core/P0 GA the Local Brain/Post launch/Security/In Progress/Alex already set by parent. Read authoritative issue; never mutate Linear lifecycle/dependencies.
+
+3. Hard constraints: normal merge/update-branch of main, never force/rebase published bot branch. Preserve main's security fixed floors, unrelated versions/workflow permissions/runners/actions, historical benchmark pins/checker/schema/receipts, tests and assertions. No authored-source conflict guesses, broad refactor, new privileges, test weakening, provenance migration, new version choices to force a resolution, or other workspace edits. Stop with exact blocker if mechanical resolution cannot preserve intended target AND security baseline. Before executing updated Go dependencies, verify exact authoritative target/advisory/provenance/compatibility; beta version spelling is not proof of security-fixed ancestry. Dependency presence alone does not prove exploitability; report known unresolved advisories honestly, distinct from actual conflict scope. Do not execute known-unsafe action code locally or patch upstream bundles/admin settings. No Bugbot retry spam for known bot-author access restriction. Ignore exact Partial Gates always.
+
+4. Ownership/interfaces: Your newly created worktree starts on primary main (captured af5b18ffdc8956ca6e6e93a81f694b5e7f8237a1). Safely fetch/inspect existing PR head and switch YOUR worktree onto exact bot branch dependabot/go_modules/github.com/go-git/go-billy/v6-6.0.0-beta.1 before worker/review-steward work. Older local refs may exist: only normal fast-forward if unoccupied; no reset/force or binding theft. Check Entire session ownership before writing. Each parallel worker owns a different checkout/ref; don't integrate another worker's unmerged changes. go-git/go-billy dependency selections overlap; report overlap/true dependency to parent, who owns eventual merge order. Do not touch nanoid's active workspace /Users/alex/.herdr/worktrees/entire-brain/alex-nanoid-fixture-compat or parent /Users/alex/.herdr/worktrees/entire-brain/alex-manage-dependencies. Parent has archived its own stale go-billy staged merge before dispatch and freed that local branch; do not restore that obsolete merge.
+
+5. Acceptance/authority: capture exact local/remote head and immutable main SHA; inspect actual conflict scope; resolve only mechanical config/generated-checksum conflicts; compare against both parents for unintended changes. Use a small ephemeral plan, delegated Pi worker, focused verification and complete documented native format/lint/test/build before any non-force push to existing branch. One verification pass per final tree; retain command/exit/input receipts, do not repeat passed work unchanged. Run at most ONE full check command concurrently inside your lane; no extra full-suite reruns or endless base chasing. Use repo-supported Go/Python command-locally (Go1.27.2 and Python3.14 already installed); don't change globals. If a timeout/flake/security blocker arises, report a bounded result, not hours of retries. Independent read-only review gets a saved exact diff artifact (reviewer lacks shell Git), not an instruction to run unavailable tools. Existing PR: no initial preflight fanout/new humanPR/Trail creation. After safe push directly verify current head and mergeable/conflicting state; CI may be pending, return exact next signal instead of polling indefinitely. Do not claim merge readiness solely from conflict repair. Parent owns all readiness, merge, actual-merge checks, cleanup/removal and Done. Record resources/cleanup recipes and release checkout on return; do not remove Herdr workspace yourself.
+
+6. Known evidence vs hypotheses: Parent live GitHub refresh saw go-billy CONFLICTING; file-level conflicts are YOUR discovery, not a prescribed implementation. Merged security baseline is Trail297/mergefb972e5d; preserve its fixes even if current main has advanced. Initial main for this wave af5b18ff is a source snapshot, not permission to present stale checks as current. The parent archived its exact old index before aborting only that agent-owned obsolete merge; recovery files are under /Users/alex/.local/state/herdr/orchestrations/dependency-followups-20261015/conflict-wave/parked-parent-merge.*. Earlier Go-beta safety claims need fresh exact-target verification. Setup-go current verified v7/v7.0.0 b7ad1dad upstream runtime lock has fast-xml-parser5.9.3 matching active HIGH GHSA-8r6m-32jq-jx6q (fixed5.10.1); actual workflow exploitability is UNPROVEN and conflict repair is not security approval. Follow existing dependency-bot-prs safety-reference but user specifically permits parallel conflict repairs; do NOT perform parallel merges. Same-repo Entire auto-detection; run agent-help/command-specific help; Brain availability/brief/targeted recall and Graph preflight/impact where actually required. Don't install/repair Brain/Graph. Keep scratch/evidence outside tracked tree, under normal PR-size ceilings. Start actual worker after minimal necessary preparation; don't stop at setup-only summaries. Return concise head/base/files/verification/push/conflict-status/next-signal and preserved security constraints, without private monitor rationale.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Parent authentication-source decision, continue your approved conflict-repair task: authenticated `gh api graphql -f query="{viewer{login}}"` succeeds as khaong, while REST core quota is0 until 2026-10-15T10:37:59+00:00. `gh auth status` currently prints invalid keyring token because that REST route is rate-limited; do NOT run auth refresh/login/logout or copy/expose credentials. Shared parent evidence: /Users/alex/.local/state/herdr/orchestrations/dependency-followups-20261015/conflict-wave/authentication-source-status.json. Each worker must confirm its own GraphQL viewer once matches expected account, then use `gh pr view`/GraphQL for PR/advisory/release metadata and existing officialpublic sources. No repeated REST retries or MCP GitHub hunting. Continue authorized local mechanical repair/verification; because dependency workflow mandates passing gh-auth preflight before remote changes, do not push while that command fails—return exact local result/push gate or retry once after the advertised reset. Do not abandon implementation merely to recite this status. No setup-only handoff; proceed until bounded result/nativechildwait/real new blocker. For go-billy specifically: reply to your worker pending supervisor request35eaa223-2e14-44c4-b9ad-175da30aa0c9 with this approved authenticated read route and no-credential-repair/no-push-until-auth-healthy boundary. Parent owns liveness/merge; keep exclusive checkout.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+URGENT CONTAINMENT / PAUSE. Parent verified /opt/homebrew/bin/python3.14 resolves to the Homebrew Framework Python executable but is now a49-byte shellscript recursively execing itself, modified2026-10-15T09:14:35Z. Nanoid lane wrote through /tmp/pr353-python-bin/python3 symlink and overwrote that global executable. STOP new tests, Python invocations, commits/pushes/merges and any environment repair. Interrupt/pause ONLY your own active worker/verification runs using native controls; preserve source/index/merge state and evidence. Do not reinstall/repair Homebrew/Python, change globals, or invoke corruptedPython even --version. Parent will stop only confirmed recursive processes in our owned checkouts. Return one containment receipt: child-run status, remaining owned processes, git/head/index/merge state, and whether any source/remote changes occurred. Python-based verification after09:14:35Z is invalid until restored and rerun; do not claim passing results from it. This is an incident stop, not ordinary attention noise. Parent will ask Alex for repair authorization. No further task implementation until parent resumes.
+
+---
+
+INCIDENT STOP, not a status FYI. Escape was sent to abort the current controller tool. Pause your OWN native worker with subagent interrupt/stop controls; do not identify or SIGSTOP arbitrary processes by name. No further tests, Python invocations, dependency changes, commits/pushes, or repairs. Preserve source/index/merge state and return a containment receipt immediately. If you already SIGSTOPed a process, record exact PID/command/cwd and parentage; do not resume/kill unrelated processes. Parent will verify any stopped owned process and handle it safely. Global Python3.14 executable was overwritten through the nanoid temporary symlink; user repair permission is pending. Do not continue original task, not even safe Go suites, until parent explicitly resumes. Report native-child termination/pause state and any remaining process IDs. Do not install/reinstall/restore global files.
+
+---
+
+Alex explicitly approved resumption after manually reinstalling Python. Parent verified genuine Mach-O Python3.14.8 and zstd support; unsafe /tmp/pr353-python-bin/python3 symlink was UNLINKED, not rewritten. RESUME the existing authorized task from preserved source/index/merge state. HARD RULE: no executable wrappers/shims/symlinks may be created or rewritten for Python; do not replay old wrapper commands. No writes to /opt/homebrew, /usr, global tool installs/config, or any executable via a temp link. Before resumed Python/native verification run `/usr/bin/python3 /Users/alex/.local/state/herdr/orchestrations/dependency-followups-20261015/python314-incident/assert-runtime.py`; it is read-only and checks repaired binary hash and runtime. If it fails STOP—never repair/rewrite automatically. Invoke trusted /opt/homebrew/bin/python3.14 directly. For nested python3 use only command-local existing Homebrew libexec PATH; if Mise overrides it, run the exact unchanged test:benchmarks shell body under that supported environment and record versions, or report blocker. Do not modify the test task/global config or make any new tool wrapper. Treat Python verification after2026-10-15T09:14:35Z as invalid until rerun on repaired runtime. Reuse genuinely independent passing non-Python receipts only with exact input/exit/applicability evidence; no blanket green claim. Preserve all source/index/merge state; no reset/restart of already-completed implementation. Resume/steer only YOUR existing worker through native Pi controls after checking its state; no OS SIGSTOP/process-name matching, no duplicate writer or new harness. Parent terminated the exact verified-owned orphan go-test group95183; do not try to resume that OS process. Interrupted checks have no passing receipt. No automatic credential repair; auth-recovery one-shot is resumed for10:38:05Z, pushes still gated on healthy mandated preflight and all required verification. No merges/approvals; current PR/Trail only, bounded result/next signal, no setup-only stop or repetitive rebase/review loops. Parent incident evidence and preserved git states: /Users/alex/.local/state/herdr/orchestrations/dependency-followups-20261015/python314-incident . Worker160685de-e3e6-40e5-b805-09bcd436639f was natively paused; check state then resume same persisted worker if eligible. Resolved merge with mainaf5b18ff and77 inherited staged paths is preserved atHEAD22d0029; compare against main to distinguish intended delta from inherited changes. Do not recreate/discard merge. Interrupted Go checks are not passes; rerun required incomplete validation, not completed applicable checks. Continue one bounded repair/verification wave; parent-owned auth check controls remote write availability.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Parent process-disposition correction 2026-10-15T10:37:53.471339+00:00: PID1651 was absent at the 10:22 parent inspection; current observation is absent. It is NOT a reserved process to resume. Confirmedownedgroup95183 was terminated, not left suspended. Evidence /Users/alex/.local/state/herdr/orchestrations/dependency-followups-20261015/python314-incident/current-process-disposition.json. Do not signal either PID or match processes by command names. Continue current one fresh controlled verification in the same native worker; no need to restart it for this metadata correction. User resumption and read-only runtime guard remain in force, no globalwrites/wrappers.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+User flags that Trail276 still has GitHub conflicts and wants current task continued. Desired outcome: actual reviewed non-force conflict-repair publication to existing PR361, not another setup-only handoff. COR-2137 remains InProgress; original bounded conflict scope/owning-workspace-slice applies. Parent just verified latest main is25931b350a59b07b5500df4bc1e4cd605d619677, PRhead still22d0029ebc20bee16e6a1fc0c3abb3ccd26f7e16 and CONFLICTING. Your checkout still has HEAD22d, staged77paths/MERGE_HEADaf5b18ff, zero unresolved index paths and no unstaged tracked changes. That resolution is unpublished AND against old main. Parent never edited your checkout.
+Resume same existing worker/latest eligible run; no new worktree or new fanout. Preserve recoverable staged candidate/index/diff and prior failure receipts before refreshing ONLY your owned merge to latest main by normal mechanical merge, no force or cross-lane commits. Recheck actual latest base/head before publication. Main still has go-billyalpha2/go-gitalpha5; do not borrow unmerged go-git lane or claim superseded. Preserve security baseline/unrelated versions. Earlier real file-lock assertion and10m timeout remain failures, not waived. Diagnose saved failure FIRST; authorize one focused reproduction on new candidate to determine applicability, not a blind full-suite retry. If it is a clear narrow fix within original scope, use test-first evidence; if semantic uncertainty or broader change needed, stop with exact blocker. Heavy Go-check slot GRANTED to this lane first, setup-go instructed not to run fullrace/cgo concurrently. Existing documented CI20m package budget may be used, no timeout/config/test weakening. Reuse genuinely unchanged-input passes; required full local prepush wrappers must pass on final candidate. Do not invent optional CI-only artifact exporters as new local requirements; verify actual documented gate inventory.
+If all required local gates and independent-review requirement are satisfied, perform fresh literalghauthstatus plus unchanged remote/base guard, inspect complete latest-main delta/size/state, normal commit and NON-FORCE push existing botbranch; directly verify remotehead/GitHubconflictstatus. No newPR/merge/approval/adminsettings/globaltool or config writes/wrappers/symlinks/dependency installations. Runtimeguard beforePython. gh needs explicit -R entireio/entire-brain. Parent owns APIwatch and merge/postmerge/cleanup/Linear. No repeatedBugbot requests. Return concrete pushedhead/CI nextsignal OR precise blocking failure with preserved checkout, release and heavy-slot release. No repeated full-suite loops.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Parent inspected current evidence: your worker201516e9 remains active in one bash command, not complete; attention/long-running notice alone is not a failed test. Please do not repeatedly poll events/output while its tool is active—native completion will wake your controller. Retain the granted heavy slot and return actual command outcome, precise blocker or verified publication, and explicit slot release when bounded work ends. Setup-go has completed latest-main mechanical/static resolution on tree51cce2d65f8fe5d4ca7aba4aad695f9beb42b87c and is verification-ready, waiting on your slot. No coverage package install is needed; its actual native gates must run after you release. Nanoid is doing its independent finding wave with full Go race/cgo deferred. No new tests/retries/timeouts/config changes authorized by this liveness note.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.

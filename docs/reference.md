@@ -1518,8 +1518,8 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring the command plus an explicit target (`--repo-id`, `--api-url`,
-  `--token`)
+  requiring the command plus a target — the connected binding by default, else
+  explicit `--repo-id`/`--api-url`/`--token`
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the

@@ -47,14 +47,21 @@ brain data may go, in precedence order:
    hosted commands: `publish`, `facts sync --facts-backend=http`, and
    `facts proposals`.
 3. **Environment overrides** for those same flags: `ENTIRE_REPO_ID`,
-   `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`. The manual commands have no target
-   defaults — without an explicit target they refuse before any network call,
-   which is why they need no separate opt-in variable.
+   `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`.
 4. **The recorded connection** (`hosted.json`, written only by
    `entire brain connect` and `entire brain disconnect`). Background sync
-   reads only this binding and mints its token through the host CLI
-   (`entire auth token`, which honors the host CLI's `ENTIRE_TOKEN`); the
-   override variables above never redirect background sync.
+   reads only this binding; the override variables above never redirect it.
+   On a connected repo the manual commands also default to this binding when
+   no flag or env supplies a field. Tokens are minted through the host CLI
+   (`entire auth token`, which honors the host CLI's `ENTIRE_TOKEN`), and a
+   minted token is only ever sent to the connected binding's own base URL —
+   an explicitly supplied target always requires an explicitly supplied token.
+   A disconnected repo (explicit `disconnect`, or never connected) gets no
+   defaults: manual commands refuse without a full explicit target.
+
+The invariant behind the ordering: enablement only flows from repo state
+(`connect`), and the environment can only subtract. No environment variable
+creates a connection or redirects background sync.
 
 The API base URL must be `https://` everywhere; plaintext `http://` is refused
 unless the host is loopback or `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` is

@@ -572,3 +572,81 @@ func TestProjectedPublishBodyBytesUpperBounds(t *testing.T) {
 		t.Fatalf("projection %d under-estimates real marshaled body %d", projected, len(payload))
 	}
 }
+
+// TestPublishDefaultsToConnectedBinding pins the COR-2143 state model: on a
+// connected repo a bare `publish` resolves its target from the binding and
+// mints the bearer through the host CLI — no flags, no env.
+func TestPublishDefaultsToConnectedBinding(t *testing.T) {
+	const minted = "eyJhbGciOi.eyJzdWIi.c2ln"
+	var auth, path string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+		path = r.URL.Path
+		var decoded wirePublishBody
+		_ = json.NewDecoder(r.Body).Decode(&decoded)
+		stored := make([]map[string]string, 0, len(decoded.Artifacts))
+		for _, a := range decoded.Artifacts {
+			stored = append(stored, map[string]string{"kind": a.Kind, "ref": a.Ref})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "published", "stored": stored})
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	writePublishBrainFixture(t, publishBrainDir(dataDir))
+	if err := writeHostedRepoBinding(publishBrainDir(dataDir), hostedRepoBinding{RepoID: testPublishRepoID, BaseURL: server.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_API_URL", "")
+	t.Setenv("ENTIRE_API_TOKEN", "")
+	t.Setenv("ENTIRE_REPO_ID", "")
+
+	runner := newPublishFixtureRunner()
+	runner.responses[fakeCommandKey("entire", "auth", "token")] = fakeCommandResponse{stdout: minted + "\n"}
+	out, err := execute(t, newPublishCmd(t, repoDir, dataDir, runner), "publish")
+	if err != nil {
+		t.Fatalf("publish on a connected repo must default to the binding: %v\n%s", err, out)
+	}
+	if auth != "Bearer "+minted {
+		t.Fatalf("auth = %q, want minted bearer", auth)
+	}
+	if !strings.Contains(path, testPublishRepoID) {
+		t.Fatalf("path = %q, want binding repo id", path)
+	}
+}
+
+// TestPublishExplicitTargetRequiresExplicitToken pins the minting boundary: a
+// minted login token must never be sent to a host the user pointed at
+// explicitly, only to the connected binding's own base URL.
+func TestPublishExplicitTargetRequiresExplicitToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("no request may be made without an explicit token; got %s", r.URL.Path)
+	}))
+	defer server.Close()
+
+	repoDir := t.TempDir()
+	dataDir := t.TempDir()
+	writePublishBrainFixture(t, publishBrainDir(dataDir))
+	if err := writeHostedRepoBinding(publishBrainDir(dataDir), hostedRepoBinding{RepoID: testPublishRepoID, BaseURL: "https://bound.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
+	t.Setenv("ENTIRE_API_URL", "")
+	t.Setenv("ENTIRE_API_TOKEN", "")
+	t.Setenv("ENTIRE_REPO_ID", "")
+
+	runner := newPublishFixtureRunner()
+	runner.responses[fakeCommandKey("entire", "auth", "token")] = fakeCommandResponse{stdout: "eyJx.eyJy.c2ln\n"}
+	_, err := execute(t, newPublishCmd(t, repoDir, dataDir, runner), "publish", "--api-url", server.URL)
+	if err == nil {
+		t.Fatal("publish minted a token for an explicitly supplied foreign target")
+	}
+	if !strings.Contains(err.Error(), "API token is required") {
+		t.Fatalf("want explicit-token refusal; got: %v", err)
+	}
+}

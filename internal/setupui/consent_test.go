@@ -277,3 +277,36 @@ func TestConsentPromptRendersInEveryMode(t *testing.T) {
 		}
 	}
 }
+
+// TestConsentNamesWhoDeclined separates a flag the reader typed from a decline
+// a previous run recorded. setup resolves both into one boolean before Consent
+// sees it, so without the provenance the skip line blames `--no-backfill` on a
+// bare re-run and never mentions `--backfill`, the only way back.
+func TestConsentNamesWhoDeclined(t *testing.T) {
+	t.Parallel()
+	base := ConsentRequest{Sessions: 5, Agent: "codex", Override: OverrideNo, TTY: true}
+
+	typed := Consent(base, failReader{t}, io.Discard, nil)
+	if !strings.Contains(typed.Reason, "--no-backfill") {
+		t.Fatalf("a typed flag must be named: %q", typed.Reason)
+	}
+	if strings.Contains(typed.Reason, "earlier run") {
+		t.Fatalf("a typed flag must not be reported as remembered: %q", typed.Reason)
+	}
+
+	remembered := base
+	remembered.DeclineRemembered = true
+	got := Consent(remembered, failReader{t}, io.Discard, nil)
+	if strings.Contains(got.Reason, "--no-backfill") {
+		t.Fatalf("a remembered decline must not blame a flag nobody typed: %q", got.Reason)
+	}
+	if !strings.Contains(got.Reason, "earlier run") {
+		t.Fatalf("a remembered decline must say so: %q", got.Reason)
+	}
+	if !strings.Contains(got.Reason, "--backfill") {
+		t.Fatalf("a remembered decline must name the way back: %q", got.Reason)
+	}
+	if typed.Spend || got.Spend {
+		t.Fatal("neither path may spend")
+	}
+}

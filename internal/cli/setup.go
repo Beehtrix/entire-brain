@@ -454,7 +454,10 @@ type setupCommandOptions struct {
 	noDaemon        bool
 	uninstallDaemon bool
 	noBackfill      bool
-	noAgentHooks    bool
+	// noBackfillRemembered: noBackfill came from a previous run's recorded
+	// decline, not from a flag on this command line.
+	noBackfillRemembered bool
+	noAgentHooks         bool
 	// daemon/backfill/agentHooks are the AFFIRMATIVE overrides. A decline is
 	// remembered (see setupRecord), so without an affirmative spelling the only
 	// way back from one would be `--no-daemon=false`, which nothing documents
@@ -1329,13 +1332,14 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// a terminal, and the reader is told what it would cost before answering.
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
-		Sessions:      queued,
-		Agent:         agent,
-		Model:         strings.TrimSpace(setupOpts.model),
-		Effort:        strings.TrimSpace(setupOpts.effort),
-		Override:      setupConsentOverride(setupOpts),
-		TTY:           ui.tty,
-		ResumeCommand: resume,
+		Sessions:          queued,
+		Agent:             agent,
+		Model:             strings.TrimSpace(setupOpts.model),
+		Effort:            strings.TrimSpace(setupOpts.effort),
+		Override:          setupConsentOverride(setupOpts),
+		DeclineRemembered: setupOpts.noBackfillRemembered,
+		TTY:               ui.tty,
+		ResumeCommand:     resume,
 	}, in, promptOut, rend)
 	if !outcome.Spend {
 		return setupBackfillSkipped(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter)
@@ -1976,6 +1980,10 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 		setupOpts.effort = recorded.effort
 	}
 	setupOpts.noDaemon = resolveSetupToggle(setupOpts.noDaemon, setupOpts.daemon, recorded.noDaemon, changed, setupFlagNoDaemon, setupFlagDaemon)
+	// Capture the PROVENANCE before resolving, because resolving destroys it:
+	// after this assignment "declined" and "typed --no-backfill" are the same
+	// boolean, and the skip line would blame a flag nobody passed.
+	setupOpts.noBackfillRemembered = !changed(setupFlagNoBackfill) && !changed(setupFlagBackfill) && recorded.noBackfill
 	setupOpts.noBackfill = resolveSetupToggle(setupOpts.noBackfill, setupOpts.backfill, recorded.noBackfill, changed, setupFlagNoBackfill, setupFlagBackfill)
 	setupOpts.noAgentHooks = resolveSetupToggle(setupOpts.noAgentHooks, setupOpts.agentHooks, recorded.noAgentHooks, changed, setupFlagNoAgentHooks, setupFlagAgentHooks)
 	return setupOpts

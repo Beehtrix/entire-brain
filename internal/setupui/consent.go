@@ -46,6 +46,12 @@ type ConsentRequest struct {
 	Effort string
 	// Override is the flag, if one was passed.
 	Override Override
+	// DeclineRemembered reports that OverrideNo came from a decline recorded
+	// by an EARLIER run rather than a flag typed on this one. setup resolves
+	// the two into one boolean before anything downstream sees it, so without
+	// this the skip line credits a flag the reader never typed — and then the
+	// one command that would change it (--backfill) goes unmentioned.
+	DeclineRemembered bool
 	// TTY reports whether a human can answer.
 	TTY bool
 	// ResumeCommand is the one command that starts a distill later. It is
@@ -83,6 +89,9 @@ func Consent(req ConsentRequest, in io.Reader, out io.Writer, r *Renderer) Conse
 
 	switch {
 	case req.Override == OverrideNo:
+		if req.DeclineRemembered {
+			return ConsentOutcome{Reason: "not distilled (you declined on an earlier run; --backfill starts it); start later: " + resume}
+		}
 		return ConsentOutcome{Reason: "not distilled (--no-backfill); start later: " + resume}
 	case req.Sessions <= 0:
 		return ConsentOutcome{Reason: "no sessions to distill; the brain is queryable now"}

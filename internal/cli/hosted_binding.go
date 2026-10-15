@@ -11,7 +11,7 @@ import (
 // live here; tokens are minted per call (see mintHostedToken). The per-branch
 // hosted-target.json (hostedFactsBinding) records which branches have synced.
 //
-// OptedOut records an explicit `disconnect`: no sync and no auto-connect until
+// OptedOut records an explicit `disconnect`: no sync until
 // `connect` rewrites the binding. The coordinates are kept through an opt-out
 // so re-connecting works without placement resolution. Disconnect never purges
 // memories already pulled into the local store.

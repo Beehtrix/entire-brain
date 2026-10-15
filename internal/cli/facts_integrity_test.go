@@ -127,28 +127,21 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		}
 	})
 
-	// status: the identity line must not print the declared number alone, and
-	// the report must carry the defect for JSON/MCP readers.
+	// Status labels manifest counts as declared; doctor owns reconciliation.
 	t.Run("status", func(t *testing.T) {
 		report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
 		if err != nil {
 			t.Fatalf("status report: %v", err)
 		}
-		if report.Facts == nil || report.Facts.Integrity == nil {
-			t.Fatalf("status facts carries no integrity verdict: %+v", report.Facts)
-		}
-		if report.Facts.Readable() != 4 {
-			t.Fatalf("status facts readable = %d, want 4", report.Facts.Readable())
-		}
-		if !warningsMention(report.Warnings, "4 readable") {
-			t.Fatalf("status warnings do not name the loss: %v", report.Warnings)
+		if report.Facts == nil || report.Facts.Integrity != nil || report.Integrity != "not_checked" {
+			t.Fatalf("status must not reconcile store contents: %+v", report)
 		}
 		statusOut, err := execute(t, NewRootCommand(opts), "status")
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "5 facts declared, 4 readable") {
-			t.Fatalf("status identity line still reports the declared count as observed:\n%s", statusOut)
+		if !strings.Contains(statusOut, "facts: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
+			t.Fatalf("status must distinguish declared counts from observations:\n%s", statusOut)
 		}
 	})
 
@@ -383,8 +376,8 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "5 facts") || strings.Contains(statusOut, "declared") {
-		t.Fatalf("intact store changed the status identity line:\n%s", statusOut)
+	if !strings.Contains(statusOut, "facts: 5 declared") {
+		t.Fatalf("status must label unverified manifest counts:\n%s", statusOut)
 	}
 
 	checks, _ := brainDoctorReadOnlyReport(context.Background(), opts, repoDir)
@@ -550,11 +543,8 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status report: %v", err)
 		}
-		if report.Facts == nil || report.Facts.Integrity == nil {
-			t.Fatalf("status facts carries no integrity verdict: %+v", report.Facts)
-		}
-		if !warningsMention(report.Warnings, "not unique") {
-			t.Fatalf("status warnings do not name the collision: %v", report.Warnings)
+		if report.Facts == nil || report.Facts.Integrity != nil || report.Integrity != "not_checked" {
+			t.Fatalf("status must not scan for duplicate fact IDs: %+v", report)
 		}
 	})
 

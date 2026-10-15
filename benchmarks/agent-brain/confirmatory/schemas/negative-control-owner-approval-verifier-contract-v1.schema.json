@@ -101,7 +101,7 @@
           "const": "development-task-negative-control-execution-contract-v1.json"
         },
         "artifact_sha256": {
-          "const": "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e"
+          "const": "c7f4227fa08e2aef92feb0e97514a3db68a1bce076fdfd85d57a1c81e7980cec"
         },
         "attempt_count": {
           "const": 248
@@ -119,7 +119,7 @@
           "const": 62
         },
         "contract_sha256": {
-          "const": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef"
+          "const": "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397"
         },
         "enforcement_requirements_sha256": {
           "const": "c23f32b102077254ef4eae322faa12101e3e24d688808ebf6bca31cf128185e2"

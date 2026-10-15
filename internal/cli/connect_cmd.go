@@ -32,11 +32,12 @@ func newConnectCommand(opts Options) *cobra.Command {
 API base URL (non-secrets only — the host CLI's own login mints a fresh token
 per sync), then runs one immediate sync so the first pull happens right away.
 
-Running connect is OPTIONAL: the daemon and session-end hook resolve the
-binding automatically through the host CLI (entire repo view) and fall back
-to local-only until that succeeds. Use connect to bind explicitly — a
-non-default cell, a staging target, or to re-join after 'entire brain
-disconnect'. Pass --repo-id and --api-url to bypass resolution entirely.`,
+Running connect (or the onboarding flow) is the ONLY way a repository starts
+syncing: by default memories stay local and background triggers never connect
+a repo on their own. Placement resolves through the host CLI (entire repo
+view); pass --repo-id and --api-url to bypass resolution — a non-default cell
+or a staging target. Re-running connect re-joins after 'entire brain
+disconnect'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConnect(cmd, opts, connectOpts)
@@ -97,7 +98,8 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	}
 	// Connect doubles as the initial pull so a fresh clone receives team
 	// memories immediately; failures note and never fail the connect.
-	return hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	_, err = hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	return err
 }
 
 // normalizeHostedBinding validates the target and strips a quoted /api/v1
@@ -127,29 +129,6 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 		return hostedRepoBinding{}, err
 	}
 	return binding, nil
-}
-
-// bindHostedRepoIfNotOptedOut is the AUTO-CONNECT write: it re-checks for an
-// opt-out under the write lock, so a disconnect issued while placement was
-// resolving survives. Auto-connect may only maintain an existing opt-in, never
-// override an explicit opt-out. ok=false means the write was declined.
-func bindHostedRepoIfNotOptedOut(brainDir, repoID, apiURL string) (hostedRepoBinding, bool, error) {
-	binding, err := normalizeHostedBinding(repoID, apiURL)
-	if err != nil {
-		return hostedRepoBinding{}, false, err
-	}
-	declined := false
-	err = withBrainWriteLock(brainDir, func() error {
-		if existing, _, readErr := readHostedRepoBinding(brainDir); readErr == nil && existing.OptedOut {
-			declined = true
-			return nil
-		}
-		return writeHostedRepoBindingLocked(brainDir, binding)
-	})
-	if err != nil || declined {
-		return hostedRepoBinding{}, false, err
-	}
-	return binding, true, nil
 }
 
 // resolveHostedPlacement shells out to the host CLI for this repo's hosted

@@ -130,7 +130,7 @@ func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, rep
 		syncBranches = append(syncBranches, distillDefaultBranch)
 	}
 	for _, syncBranch := range syncBranches {
-		if err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, syncBranch); err != nil {
+		if _, err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, syncBranch); err != nil {
 			fmt.Fprintf(errW, "memory notify: hosted fact sync failed (local brain unaffected): %v\n", err)
 		}
 	}

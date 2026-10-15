@@ -210,12 +210,19 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 	}
 
-	if selected == nil && catalogProvenEmpty {
+	// NO-EGRESS ONLY, and the gate is the whole point. In no-egress mode the
+	// local catalog IS the catalog, so a clean empty enumeration of it proves
+	// the inventory empty and routed discovery has nothing to add. With egress
+	// ALLOWED that inference is false: the routed `--search-all` list is the
+	// only complete inventory, and it sees checkpoints the local refs do not
+	// (remote-only, other stores). Short-circuiting there would turn a
+	// locally-empty clone into a false-empty export -- the exact failure the
+	// refusal below this exists to prevent.
+	if selected == nil && catalogProvenEmpty && brainNoEgressMode() {
 		// A repository between `entire enable` and its first finished agent
-		// session. Exporting zero sessions is the correct answer here, and
-		// routed discovery has nothing to add: the inventory was established,
-		// it is empty. The empty-export refusal below still protects a brain
-		// that already holds sessions.
+		// session. Exporting zero sessions is the correct answer here. The
+		// empty-export refusal below still protects a brain that already holds
+		// sessions.
 		warnings = append(warnings, errCheckpointCatalogEmpty.Error())
 		selected = map[string]selectedSession{}
 	}

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -358,4 +359,154 @@ func captureCheckFor(t *testing.T, sessionsStageRan bool) doctorCheckResult {
 	}
 	t.Fatalf("doctor reported no capture check: %+v", checks)
 	return doctorCheckResult{}
+}
+
+// --- egress ALLOWED ------------------------------------------------------
+//
+// The no-egress rail above is what makes the session export REFUSE, and that
+// rail is opt-in. Everything below runs with neither ENTIRE_BRAIN_NO_EGRESS
+// nor ENTIRE_BRAIN_LOCAL_ONLY set, because that is the configuration real
+// users run and it is where the remaining half of this defect lives: Entire's
+// own routed inventory can report itself INCOMPLETE, and then a repository
+// with nothing captured still fails its sessions component -- honestly, since
+// nothing can prove the inventory empty -- and still got sent to a command
+// whose first stage is that same export.
+
+// routedScopeIncompleteStderr is the stable stderr record Entire emits when it
+// could not enumerate every checkpoint store.
+const routedScopeIncompleteStderr = entireCheckpointScopePrefix +
+	`{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"store_unreadable","count":1}]}`
+
+// TestEgressAllowedEmptyCatalogStillAsksEntire is the guard on the gate added
+// to the empty-catalog short circuit. In no-egress mode the local catalog IS
+// the catalog, so proving it empty is proving the inventory empty. With egress
+// ALLOWED that inference is false -- the routed `--search-all` list is the only
+// complete inventory and it sees checkpoints the local refs do not -- so the
+// short circuit must not fire and a locally-empty clone must not export empty.
+func TestEgressAllowedEmptyCatalogStillAsksEntire(t *testing.T) {
+	assertNoEgressRailsUnset(t)
+	repoDir := seedFixtureRepo(t)
+	runner := seedFixtureRunner(repoDir)
+	addRefreshSemanticFixture(runner, repoDir)
+	// Local refs enumerate cleanly and hold nothing...
+	for key, response := range emptyCatalogRunner(t).responses {
+		runner.responses[key] = response
+	}
+	// ...while Entire can see a checkpoint that only exists remotely.
+	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{
+		stdout: `[{"checkpoint_id":"cccccccccccc"}]`,
+	}
+	opts := noCapturedSessionsOptions(t)
+	opts.Env.RepoRoot = repoDir
+	opts.Runner = runner
+	out, _ := execute(t, NewRootCommand(opts), "refresh", "--agent", "none", "--semantic=false", "--entire-binary", "entire-test")
+	if !runnerCalled(runner, "entire-test", "checkpoint", "explain", "--json", "--search-all") {
+		t.Fatalf("with egress allowed, an empty LOCAL catalog does not prove the inventory empty -- Entire must still be asked:\n%s", out)
+	}
+}
+
+// TestEgressAllowedNoSessionsIsNotSentBackToRefresh is the loop, in the only
+// configuration a real user can reach it: Entire reports an incomplete scope
+// and no readable IDs, so the component fails honestly -- and the reader must
+// still be handed a step that is not the command that just failed.
+func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
+	assertNoEgressRailsUnset(t)
+	f, runner := newSetupRefreshFixture(t)
+	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{
+		stdout: "[]\n",
+		stderr: routedScopeIncompleteStderr,
+	}
+	rec := &recordedSetup{}
+	steps := rec.steps(f)
+	steps.instant = nil // the real, best-effort instant phase
+	setupOpts := defaultSetupOptions()
+	setupOpts.noBackfill = true
+	setupOpts.noDaemon = true
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, setupOpts), f.opts, setupOpts, f.repoDir, steps); err != nil {
+		t.Fatalf("one failed component must not fail setup: %v\n%s", err, out)
+	}
+	if !strings.Contains(out.String(), "no captured sessions") {
+		t.Fatalf("setup must explain the state rather than only report it:\n%s", out)
+	}
+	// Fault 2, setup's half: the hint's own remedy is `setup`, so adding a
+	// referral to `doctor` would close the circle.
+	if strings.Contains(out.String(), "run 'entire-brain doctor' for detail") {
+		t.Fatalf("setup refers to doctor, whose answer for this component refers back to setup:\n%s", out)
+	}
+
+	// Fault 2, status's half: read the verdict the same surface builds.
+	report := brainStatusReport{
+		Semantic:   &brainStatusSemantic{},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+	}
+	health := buildStatusHealth(report)
+	if !health.NoCapturedSessions {
+		t.Fatalf("status did not recognise the state setup just recorded: %+v", health.Failed)
+	}
+	health.Severity = "degraded"
+	if got := health.nextStepMessage(setupBrainBinaryName); got != setupNoSessionsHint(setupBrainBinaryName) {
+		t.Fatalf("egress-allowed next step is\n  %s\nwant the no-sessions guidance", got)
+	}
+	if namesACommandThatRerunsTheSessionExport(health.nextStepMessage(setupBrainBinaryName)) {
+		t.Fatal("egress-allowed next step still re-runs the stage that failed")
+	}
+}
+
+// TestEgressAllowedCompleteEmptyInventoryIsNotAFailure pins the ordinary case:
+// Entire answers "complete, and empty", which is a repository with nothing
+// captured and nothing wrong. This passed before the change and must keep
+// passing -- the whole point of the no-egress gate above.
+func TestEgressAllowedCompleteEmptyInventoryIsNotAFailure(t *testing.T) {
+	assertNoEgressRailsUnset(t)
+	f, _ := newSetupRefreshFixture(t) // scripts `--search-all` -> "[]" with no scope warning
+	rec := &recordedSetup{}
+	steps := rec.steps(f)
+	steps.instant = nil
+	setupOpts := defaultSetupOptions()
+	setupOpts.noBackfill = true
+	setupOpts.noDaemon = true
+	out := &bytes.Buffer{}
+	if err := runSetup(context.Background(), setupTestCommand(t, out, setupOpts), f.opts, setupOpts, f.repoDir, steps); err != nil {
+		t.Fatalf("runSetup: %v\n%s", err, out)
+	}
+	if strings.Contains(out.String(), "session export failed") {
+		t.Fatalf("a complete, empty inventory is not a failed sessions component:\n%s", out)
+	}
+	health := buildStatusHealth(brainStatusReport{
+		Semantic:   &brainStatusSemantic{},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+	})
+	for _, failed := range health.Failed {
+		if failed == brainComponentSessions {
+			t.Fatalf("sessions reported as failed on a complete, empty inventory: %v", health.Failed)
+		}
+	}
+	if health.NoCapturedSessions {
+		t.Fatal("a complete, empty inventory needs no no-sessions hint: nothing failed")
+	}
+}
+
+// assertNoEgressRailsUnset fails loudly rather than letting an inherited rail
+// turn an egress-allowed test into a second copy of the no-egress ones.
+func assertNoEgressRailsUnset(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"ENTIRE_BRAIN_NO_EGRESS", "ENTIRE_BRAIN_LOCAL_ONLY"} {
+		if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+			t.Fatalf("%s=%q: this test must run with egress allowed", name, value)
+		}
+	}
+	if brainNoEgressMode() {
+		t.Fatal("no-egress mode is on; this test must run with egress allowed")
+	}
+}
+
+func runnerCalled(runner *fakeCommandRunner, name string, args ...string) bool {
+	want := fakeCommandKey(name, args...)
+	for _, call := range runner.calls {
+		if fakeCommandKey(call.name, call.args...) == want {
+			return true
+		}
+	}
+	return false
 }

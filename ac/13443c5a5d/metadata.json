@@ -1,0 +1,33 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "ac13443c5a5d",
+  "strategy": "manual-commit",
+  "branch": "depot-runners",
+  "checkpoints_count": 5,
+  "files_touched": [
+    ".context/attachments/Z5F5lE/CleanShot 2026-10-14 at 23.04.13.png"
+  ],
+  "sessions": [
+    {
+      "metadata": "/ac/13443c5a5d/0/metadata.json",
+      "transcript": "/ac/13443c5a5d/0/full.jsonl",
+      "compact_transcript": "/ac/13443c5a5d/0/transcript.jsonl",
+      "content_hash": "/ac/13443c5a5d/0/content_hash.txt",
+      "prompt": "/ac/13443c5a5d/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 36,
+    "cache_creation_tokens": 15414,
+    "cache_read_tokens": 6520782,
+    "output_tokens": 7355,
+    "api_call_count": 18,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

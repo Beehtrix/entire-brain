@@ -15,6 +15,11 @@ func (s slowRunner) Run(ctx context.Context, dir, name string, args ...string) (
 	return []byte(fmt.Sprintf(`{"checkpoint_id":%q,"sessions":[]}`, id)), nil, nil
 }
 
+// TestPrefetchIsFasterThanSerial proves the fan-out HAPPENS. It does not
+// predict the real-world gain: its "work" is a sleep, so workers overlap
+// perfectly and it reports ~6x. Measured against real `checkpoint explain`
+// children, which contend for CPU and IO, the gain is ~2.2x (64 distinct
+// child PIDs in 30s = 2.13/sec, against 0.97/sec serial). Quote 2.2x.
 func TestPrefetchIsFasterThanSerial(t *testing.T) {
 	const n = 200
 	const per = 5 * time.Millisecond

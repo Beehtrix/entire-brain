@@ -3022,7 +3022,15 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	// below. Each detail is one `entire checkpoint explain --json` subprocess,
 	// and this loop used to issue them one at a time: measured at 0.97
 	// calls/sec, a repository with 12,918 checkpoints spends hours here and
-	// `setup` never leaves its "instant core" phase. The selection that
+	// `setup` never leaves its "instant core" phase. Fanning out buys ~2.2x
+	// on the real workload (2.13/sec measured), not the ~6x a sleep-based
+	// fixture suggests -- these children do real work and contend.
+	//
+	// It is a mitigation, not the fix. One call per checkpoint is REQUIRED
+	// today: `entire checkpoint explain` has no batch mode and
+	// `entire checkpoint list --json` returns only checkpoint_id, date,
+	// is_logs_only and message -- no sessions. Removing the per-checkpoint
+	// subprocess needs a host-CLI capability that does not exist yet. The selection that
 	// follows is order-dependent -- a later checkpoint can supersede an
 	// earlier one -- so only the IO moves; the decision still runs in index
 	// order over prefetched results and is byte-for-byte what it was.

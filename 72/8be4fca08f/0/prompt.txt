@@ -1,0 +1,39 @@
+did you push them to the trail?
+
+---
+
+why arewhy does this need 460 lines of code? we're ltierally jsut printing one mroe status check that we can read from a struct?
+
+---
+
+is that cursor finding still accurate?
+
+https://github.com/entireio/entire-brain/pull/363
+
+---
+
+what will entire brain status output now? show me the exact output for very state
+
+---
+
+why is Hosted and state on two different lines? 
+
+why call it hosted? 
+
+just be more clear like :
+
+"Connected to Brainstore"
+"Local-only"
+"Disconnected from Brainstore"
+
+we don't need to show the api url
+
+we don't need to show the repo ID
+
+Just make the message clear and concise and nicely formattd.
+
+return me a proposal for t he states before updating any code
+
+---
+
+yes go ahead

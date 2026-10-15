@@ -1,0 +1,99 @@
+/review-pr
+
+---
+
+<task-notification>
+<task-id>aed8ffe1058826a91</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/aed8ffe1058826a91.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review PR 386" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Review complete. Tooling notes: Graph plugin not installed and Brain brief failed (write lock held by another process) — findings below are from direct diff and grep inspection.
+
+**Findings (REUSE):**
+
+1. `internal/cli/push_hook.go:255` `writePushHookFile` — re-implements temp-and-rename. Existing helper: `writeFileAtomic(path, data, perm)` at `internal/cli/brain.go:531` (same package, takes a perm so 0o755 works). Cost: the fixed `pre-push.entire-brain.tmp` temp name lets concurrent installers (setup racing connect) clobber each other's temp file, and the new writer skips the fsync the existing helper does.
+
+2. `internal/cli/push_hook.go:57` `shellSingleQuote` — duplicates the quoting in `shellQuotedRepoDir` at `internal/cli/semantic_repokey.go:190` (identical `'...'\''...'` escape expression). Cost: two shell-quoting implementations to keep consistent; extract the always-quote core and have both call it.
+
+3. `internal/cli/memory_notify_sync.go:37` `memoryPushWorkLaunch` — rewrites the detached self-spawn body of `memoryWorkerLaunchAfter` at `internal/cli/memory_cmd.go:112` (`os.Executable` + `exec.Command` + `Dir` + `memoryWorkerChildEnvironment` + `Start` + goroutine reap). The comment even says "Reap like memoryWorkerLaunchAfter". Cost: the zombie-reap fix already had to be mirrored by hand; a shared `launchDetachedSelf(repoDir string, args ...string)` removes the second copy.
+
+No existing helper covers `gitHooksDir`'s common-dir resolution (`export.go:1312` has the same `rev-parse --git-common-dir` + abs-join pattern, but inline, not extracted) or `fileExecutableExists` — not flagged as reuse.</result>
+<usage><subagent_tokens>65591</subagent_tokens><tool_uses>13</tool_uses><duration_ms>105569</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a57b2bf004e768e6a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/a57b2bf004e768e6a.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review PR 386" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>SIMPLIFICATION findings (push-beat PR, `git diff origin/main...HEAD`):
+
+1. `internal/cli/push_hook.go:115` — chained-flag re-derivation sniffs the prose comment `"# Chain:"`, a literal silently duplicated from `pushHookContent` line 47. Cost: reworded comment breaks the detection; hidden coupling. Simpler: always render the moved copy with `chained=true` — the chain line is already `[ -x "$backup" ]`-guarded, so it's a no-op when the backup is absent; the whole `strings.Contains` re-derivation disappears. (Fallback: a shared `pushHookChainMarker` const.)
+
+2. `internal/cli/push_hook.go:109-124` — the re-wrap scan's guard `primaryExists &amp;&amp; !strings.Contains(primaryContent, pushHookMarker)` restates the condition the switch below already partitions (case 126 = has marker, case 137 = exists without marker). Cost: the same predicate evaluated twice; two places to read to know when the scan runs. Simpler: move the candidate loop to the top of `case primaryExists:` and delete the standalone if-block.
+
+3. `internal/cli/push_hook.go:198` — `movedPushHookCandidates` globs `pre-push.*`, which also matches `writePushHookFile`'s own `pre-push.entire-brain.tmp` (line 219); that tmp carries our marker, so a crash-leftover tmp makes install return `pushHookChainedIn` and skip claiming the slot. Cost: one stale file silently disables install. Simpler: skip the tmp suffix alongside the backup suffix in the existing exclusion (one more comparison, same loop).
+
+4. `internal/cli/push_hook.go:210` — `fileExecutableExists` never checks an exec bit; single caller (line 127). Simpler: rename to `fileExists` or inline `info, err := os.Stat(backup); chained := err == nil &amp;&amp; !info.IsDir()`.
+
+5. `internal/cli/push_hook_test.go:142-148, 172-178` — `MkdirAll(hooksDir)` + identical `hostHook` literal copy-pasted across `TestInstallPushHookChainsExistingHook` and `TestInstallPushHookLeavesHostRewrapAlone` (and `MkdirAll` again at 197). Simpler: a `writeHostHook(t, hooksDir) string` helper or a package-level `const hostHook`, and fold `MkdirAll` into `pushHookHarness`.
+
+memory_notify_sync.go / memory_cmd.go: mostly a rename (checkpoint→push) plus an early-return push branch — minimal, no findings.
+
+Process note: Brain brief was attempted but failed (`brain_locked`, lock held by pid 44706 — concurrent reviewer); review proceeded from the diff directly.</result>
+<usage><subagent_tokens>65746</subagent_tokens><tool_uses>6</tool_uses><duration_ms>105651</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a617cb07a421f5a3c</task-id>
+<tool-use-id>toolu_01VKmaoFZeGJoyQYXPgzuNoA</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/a617cb07a421f5a3c.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review PR 386" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Efficiency findings (diff `origin/main...HEAD`):
+
+1. **push_hook.go:44 + memory_cmd.go:295 — the notify hop is a wasted process per push.** The hook already backgrounds the call (`… &amp;`, fds detached), so for `--event push` the notify binary's only job is to re-spawn `memory push-work` — after paying full brain/repo resolution it then throws away. Cost: one extra plugin process plus ~2 git subprocesses on every push. Cheaper: bake `memory push-work` into the hook line directly (push-work already tolerates missing `--branch` via `hostedSyncBranch`), or run `hostedSyncOnPushHint` inline in notify for push since detachment is already guaranteed by the hook.
+
+2. **memory_cmd.go:272-276 and memory_notify_sync.go:71-75 — repo resolved twice per process, twice per push.** `resolveSessionsBrain` already calls `resolveLocalTargetRepoDir` (a `git rev-parse --show-toplevel` spawn), then both RunEs call it again with the same target. Per push that is ~4 redundant git spawns across the notify + push-work pair. Cheaper: return `repoDir` from `resolveSessionsBrain` (or have it accept a pre-resolved dir) and resolve once.
+
+3. **memory_notify_sync.go:126-137 (`hostedSyncOnPushHint` loop) — unconnected repo pays auto-connect twice per claimed push.** `notifyHostedFactsSync` → `hostedFactsSyncAndPull` re-reads the binding and, when absent, runs `resolveHostedPlacement` (host-CLI spawn + network) once per branch in the `syncBranches` loop — and the whole chain (2 process spawns, brain write lock, marker write) runs before any connectivity check. Cheaper: read `readHostedRepoBinding` once before claiming the marker (a single small file read) and bail on opted-out/unbound-unresolvable; hoist binding/placement resolution out of the per-branch loop so it runs once.
+
+4. **memory_notify_sync.go:105-120 — throttle claim under the brain write lock is fine.** The lock scope holds only a tiny JSON read+write; network syncs run outside it. No change needed.
+
+5. **push_hook.go:231-272 (`gitHooksDir`) — two git subprocesses per install/uninstall is acceptable.** Install/uninstall run only on setup/connect/disconnect (cold paths); the double call (`rev-parse --git-common-dir` + `config --show-origin`) and the repeated file reads in `installPushHook` are not worth optimizing at that frequency.</result>
+<usage><subagent_tokens>62964</subagent_tokens><tool_uses>7</tool_uses><duration_ms>123083</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a5ff82b0b2a30e089</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/a5ff82b0b2a30e089.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review PR 386" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Review complete. Preflight: Brain available (dev build, capabilities verified); the brief returned the recorded COR-2127 decision (fact:d25d13d8) confirming the plugin-owned hook, chaining rules, and baked absolute path are deliberate team decisions.
+
+**Q1 — gitHooksDir origin parsing (finding):**
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/hyderabad/internal/cli/push_hook.go:225-272` — `gitHooksDir` encodes harden-layer knowledge ("the pin arrives as a `command line:` origin entry; take the last non-command-line entry") 150 lines away from the pin it undoes (`git_harden.go:80`). Cost: the pin and its read-around can drift — git_harden already has a second injection mechanism (GIT_CONFIG_* env, `git_harden_filters.go:176`), and nothing ties a future pin change to this parser. Deeper alternative, two parts: (a) filter by the sentinel **value** instead of the origin label — `git config --get-all core.hooksPath`, take the last value `!= gitHooksDisabledPath`; this drops `--show-origin` tab-parsing entirely and couples only to the constant that defines the pin; (b) move the resolver into git_harden.go beside the pin as the sanctioned "resolve real hooks dir" helper so the next caller finds it. A runner bypass **mode** would be the wrong direction — it would punch a hole in the deliberately unbypassable single spawn point (`runner.go:85-96`).
+
+**Q2 — push bypassing recordMemoryLifecycleAndLaunch: right altitude.** The hint record is per-session by schema (`writeMemoryHint` keys on sessionID, memory_cmd.go:197-211); push has its own reconciliation floor (shared throttle marker `hosted_sync_notify.json` + daemon tick). Forcing a sessionless event into the session hint schema would be the special case on shared infrastructure, not the fix.
+
+**Q3 — package placement: right altitude.** internal/cli is this repo's single flat package (hundreds of files, e.g. the brain_brief_* family); push_hook.go follows the convention. Plugin-owned rather than host-CLI-owned is the recorded decision (cli PR 2784 closed).
+
+**Q4 — unconditional setup install (minor finding):**
+- `/Users/evisdrenova/conductor/workspaces/entire-brain/hyderabad/internal/cli/setup.go:770-786` — hook lifecycle has two owners with different predicates: connect/disconnect tie it to connection state; setup/setup --uninstall tie it to plugin presence. Cost: `disconnect` removes the hook, the next bare `setup` (the normal upgrade path) silently resurrects it on a disconnected repo — and setup mutates a never-connected repo's hooks (moves an existing pre-push to a backup name) for a feature gated off. Deeper alternative: setup **refreshes** only when our marker is already present (it must own the upgrade beat — the baked selfPath goes stale on plugin upgrade and the `[ -x ]` guard makes that a silent no-op); fresh **install** stays with connect. One predicate per owner, no resurrection.
+
+No other altitude findings; the chain/backup/rotate logic duplicating the host CLI installer's shape is the recorded deliberate choice, not drift.</result>
+<usage><subagent_tokens>71127</subagent_tokens><tool_uses>11</tool_uses><duration_ms>143915</duration_ms></usage>
+</task-notification>

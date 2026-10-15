@@ -1,0 +1,39 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "62267d024baa",
+  "strategy": "manual-commit",
+  "branch": "memory-trail-attachment-design",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "internal/cli/git_harden.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_notify_sync.go",
+    "internal/cli/push_hook.go",
+    "internal/cli/push_hook_test.go",
+    "internal/cli/semantic_repokey.go",
+    "internal/cli/setup.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/62/267d024baa/0/metadata.json",
+      "transcript": "/62/267d024baa/0/full.jsonl",
+      "compact_transcript": "/62/267d024baa/0/transcript.jsonl",
+      "content_hash": "/62/267d024baa/0/content_hash.txt",
+      "prompt": "/62/267d024baa/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 41,
+    "cache_creation_tokens": 947397,
+    "cache_read_tokens": 17649754,
+    "output_tokens": 33938,
+    "api_call_count": 21,
+    "subagent_tokens": {
+      "input_tokens": 58,
+      "cache_creation_tokens": 238818,
+      "cache_read_tokens": 1298599,
+      "output_tokens": 26113,
+      "api_call_count": 29
+    }
+  }
+}

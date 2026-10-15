@@ -1,0 +1,33 @@
+so waht is the total speed up now
+
+---
+
+one sentence about what we did to speed things up and how much it speeds it up by
+
+---
+
+does that include the first trail that we already merged? just give one senetence for this trail
+
+---
+
+okay thi si smerged too:
+
+https://github.com/entireio/entire-brain/pull/378
+
+so why can't we run the macOS job faster? is it a github actions thing? what if we moved it to buildkite or depot?
+
+---
+
+how much will the depot change reduce the pipeline by?
+
+---
+
+if we move the entire fleet, is it just a one line change?
+
+---
+
+is this already running on blacksmith? or gha?
+
+---
+
+okay i just got access to depot. let's set this up

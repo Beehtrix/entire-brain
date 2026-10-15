@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "2ae7c0ac2255",
+  "strategy": "manual-commit",
+  "branch": "depot-runners",
+  "checkpoints_count": 8,
+  "files_touched": [
+    ".github/workflows/test.yml"
+  ],
+  "sessions": [
+    {
+      "metadata": "/2a/e7c0ac2255/0/metadata.json",
+      "transcript": "/2a/e7c0ac2255/0/full.jsonl",
+      "compact_transcript": "/2a/e7c0ac2255/0/transcript.jsonl",
+      "content_hash": "/2a/e7c0ac2255/0/content_hash.txt",
+      "prompt": "/2a/e7c0ac2255/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 48,
+    "cache_creation_tokens": 969885,
+    "cache_read_tokens": 6985306,
+    "output_tokens": 22928,
+    "api_call_count": 24
+  }
+}

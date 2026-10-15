@@ -380,15 +380,15 @@ func plural(n int, word string) string {
 // for an observation.
 func statusFactsIdentity(f *brainStatusFacts) string {
 	if f.Integrity == nil || f.Integrity.OK() {
-		return fmt.Sprintf("%d facts", f.Facts)
+		return fmt.Sprintf("facts: %d", f.Facts)
 	}
 	// A store that would not parse yielded no count at all, so "0 readable"
 	// would be a measurement nobody took. Say what is true: it could not be
 	// read.
 	if f.Integrity.Mode == factStoreDefectUnreadable {
-		return fmt.Sprintf("%d facts declared, store unreadable", f.Facts)
+		return fmt.Sprintf("facts: %d declared, store unreadable", f.Facts)
 	}
-	return fmt.Sprintf("%d facts declared, %d readable", f.Facts, f.Integrity.Readable)
+	return fmt.Sprintf("facts: %d declared, %d readable", f.Facts, f.Integrity.Readable)
 }
 
 // statusLabelWidth aligns the short report's left column.
@@ -401,21 +401,29 @@ const statusBarWidth = 14
 // onboarding has got, and one line of verdict. Everything else is one flag away.
 func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
 	brainCmd = setupBrainCommand(brainCmd)
+	// The leading and trailing blank lines separate the report from the shell
+	// prompt on both sides. The path stays in --verbose; it is machine detail.
+	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s  %s\n",
 		render.Bold(render.PhasePaint(tui.PhaseInstant, "Brain")),
 		render.Bold(valueOrUnset(report.Repo.Key)))
-	identity := []string{report.Brain.Path, "manifest " + report.Brain.ManifestState}
+	identity := []string{"manifest: " + report.Brain.ManifestState}
 	if s := report.Semantic; s != nil && s.Coverage != nil {
-		identity = append(identity, fmt.Sprintf("%d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
+		identity = append(identity, fmt.Sprintf("semantic: %d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
 	}
 	if f := report.Facts; f != nil {
 		if report.Integrity == "not_checked" {
-			identity = append(identity, fmt.Sprintf("%d facts declared", f.Facts))
+			identity = append(identity, fmt.Sprintf("facts: %d declared", f.Facts))
 		} else {
 			identity = append(identity, statusFactsIdentity(f))
 		}
 	}
-	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
+	if h := report.Hosted; h != nil {
+		identity = append(identity, "Brainstore: "+hostedStateLabel(h.State))
+	}
+	for _, item := range identity {
+		fmt.Fprintf(out, "  %s\n", render.Dim(item))
+	}
 
 	if f := report.Facts; f != nil {
 		warning := ""
@@ -438,6 +446,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		fmt.Fprintf(out, "\n%s\n", health.Line(render, brainCmd))
 	}
 	fmt.Fprintf(out, "%s\n", render.Dim("  `"+brainCmd+" status --verbose` for the full report"))
+	fmt.Fprintln(out)
 }
 
 // renderStatusOnboardingBlock is the part a person actually came for: is the

@@ -451,9 +451,15 @@ func TestSetupRenderWidthDoesNotClipAPipe(t *testing.T) {
 	}
 }
 
-// TestSetupConsentOverrideMapsTheFlags pins which flag can spend. --yes is the
-// only one that can answer yes, and --no-backfill wins when both are passed:
-// the safe answer must win a contradiction.
+// TestSetupConsentOverrideMapsTheFlags pins which flag can spend. TWO flags
+// can answer yes -- --yes, and --backfill, whose help promises it starts the
+// spend "even if a previous run declined it"; after a remembered decline it is
+// the only way back. --no-backfill wins every contradiction: the safe answer
+// must win.
+//
+// --backfill matters more than it looks. The prompt defaults to No and never
+// blocks without a TTY, so a --backfill that did NOT consent would silently do
+// nothing in exactly the unattended runs the flag exists for.
 func TestSetupConsentOverrideMapsTheFlags(t *testing.T) {
 	t.Parallel()
 	base := defaultSetupOptions()
@@ -470,10 +476,20 @@ func TestSetupConsentOverrideMapsTheFlags(t *testing.T) {
 	if got := setupConsentOverride(no); got != setupui.OverrideNo {
 		t.Fatalf("--no-backfill must decline, got %v", got)
 	}
+	backfill := base
+	backfill.backfill = true
+	if got := setupConsentOverride(backfill); got != setupui.OverrideYes {
+		t.Fatalf("--backfill is a typed demand to spend and must consent, got %v", got)
+	}
 	both := base
 	both.yes, both.noBackfill = true, true
 	if got := setupConsentOverride(both); got != setupui.OverrideNo {
 		t.Fatalf("a contradiction must resolve to the answer that spends nothing, got %v", got)
+	}
+	bothBackfill := base
+	bothBackfill.backfill, bothBackfill.noBackfill = true, true
+	if got := setupConsentOverride(bothBackfill); got != setupui.OverrideNo {
+		t.Fatalf("--backfill against --no-backfill must still resolve to no spend, got %v", got)
 	}
 }
 

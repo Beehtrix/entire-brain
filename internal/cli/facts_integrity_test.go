@@ -147,7 +147,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "5 facts declared, 4 readable") {
+		if !strings.Contains(statusOut, "facts: 5 declared, 4 readable") {
 			t.Fatalf("status identity line still reports the declared count as observed:\n%s", statusOut)
 		}
 	})
@@ -383,7 +383,7 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "5 facts") || strings.Contains(statusOut, "declared") {
+	if !strings.Contains(statusOut, "facts: 5") || strings.Contains(statusOut, "declared") {
 		t.Fatalf("intact store changed the status identity line:\n%s", statusOut)
 	}
 

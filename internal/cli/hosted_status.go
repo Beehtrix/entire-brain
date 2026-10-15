@@ -75,16 +75,16 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	return hosted, warning
 }
 
-// hostedStateLabel is the short-report spelling of a hosted state; the cause
-// and remedy live in the verbose line (hostedStatusLine).
+// hostedStateLabel is the short-report value for the "Brainstore:" item; the
+// cause and remedy live in the verbose line (hostedStatusLine).
 func hostedStateLabel(state string) string {
 	switch state {
 	case hostedStateConnected:
-		return "Connected to Brainstore"
+		return "connected"
 	case hostedStateDisconnected:
-		return "Disconnected from Brainstore"
+		return "disconnected"
 	default:
-		return "Local-only"
+		return "local-only"
 	}
 }
 

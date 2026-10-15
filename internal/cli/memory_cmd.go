@@ -110,16 +110,22 @@ var memoryWorkerLaunch = func(repoDir string) error {
 }
 
 var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration, prepassFailures int) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
 	args := []string{"memory", "worker", "--once"}
 	if delay > 0 {
 		args = append(args, "--delay", delay.String())
 	}
 	if prepassFailures > 0 {
 		args = append(args, "--prepass-failures", strconv.Itoa(prepassFailures))
+	}
+	return launchDetachedSelf(repoDir, args...)
+}
+
+// launchDetachedSelf re-execs this plugin binary detached with the
+// worker-origin environment, the one spawn shape every detached verb shares.
+func launchDetachedSelf(repoDir string, args ...string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = repoDir

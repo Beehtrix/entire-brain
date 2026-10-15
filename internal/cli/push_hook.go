@@ -34,7 +34,7 @@ const (
 // dir — a dependency this hook deliberately avoids. The notify runs
 // backgrounded with stdin/stdout/stderr detached so it can never consume the
 // pre-push ref list, slow the push, or fail it.
-func pushHookContent(selfPath string, chained bool) string {
+func pushHookContent(selfPath string) string {
 	var b strings.Builder
 	b.WriteString("#!/bin/sh\n")
 	b.WriteString(pushHookMarker + "\n")
@@ -43,12 +43,14 @@ func pushHookContent(selfPath string, chained bool) string {
 	fmt.Fprintf(&b, "if [ -x %s ]; then\n", shellSingleQuote(selfPath))
 	fmt.Fprintf(&b, "  %s memory notify --event push </dev/null >/dev/null 2>&1 &\n", shellSingleQuote(selfPath))
 	b.WriteString("fi\n")
-	if chained {
-		b.WriteString("# Chain: run the pre-existing hook with the original stdin and arguments;\n")
-		b.WriteString("# its exit code decides the push, exactly as before.\n")
-		fmt.Fprintf(&b, "backup=\"$0%s\"\n", pushHookBackupSuffix)
-		b.WriteString("if [ -x \"$backup\" ]; then exec \"$backup\" \"$@\"; fi\n")
-	}
+	// The chain line is unconditional: [ -x ] makes it a no-op when no backup
+	// exists, and one content variant means install never has to re-derive
+	// whether a hook was chained. $0-relative, so a copy the host CLI moves
+	// aside stops chaining instead of double-running the host's hook.
+	b.WriteString("# Chain: run the pre-existing hook with the original stdin and arguments;\n")
+	b.WriteString("# its exit code decides the push, exactly as before.\n")
+	fmt.Fprintf(&b, "backup=\"$0%s\"\n", pushHookBackupSuffix)
+	b.WriteString("if [ -x \"$backup\" ]; then exec \"$backup\" \"$@\"; fi\n")
 	return b.String()
 }
 
@@ -103,29 +105,9 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 	}
 	primaryContent := string(primaryBytes)
 
-	// Host re-wrapped us: our hook lives under a backup name and the host's
-	// chain runs it. Leave the primary alone; refresh our moved copy so a
-	// plugin upgrade's new path still reaches a binary.
-	if primaryExists && !strings.Contains(primaryContent, pushHookMarker) {
-		for _, candidate := range movedPushHookCandidates(hooksDir) {
-			data, readErr := os.ReadFile(candidate)
-			if readErr != nil || !strings.Contains(string(data), pushHookMarker) {
-				continue
-			}
-			refreshed := pushHookContent(selfPath, strings.Contains(string(data), "# Chain:"))
-			if string(data) != refreshed {
-				if err := writePushHookFile(candidate, refreshed); err != nil {
-					return "", "", err
-				}
-			}
-			return pushHookChainedIn, candidate, nil
-		}
-	}
-
 	switch {
 	case primaryExists && strings.Contains(primaryContent, pushHookMarker):
-		chained := fileExecutableExists(backup)
-		want := pushHookContent(selfPath, chained)
+		want := pushHookContent(selfPath)
 		if primaryContent == want {
 			return pushHookUnchanged, primary, nil
 		}
@@ -135,6 +117,21 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		return pushHookInstalled, primary, nil
 
 	case primaryExists:
+		// Host re-wrapped us: our hook lives under a backup name and the
+		// host's chain runs it. Leave the primary alone; refresh our moved
+		// copy so a plugin upgrade's new path still reaches a binary.
+		for _, candidate := range movedPushHookCandidates(hooksDir) {
+			data, readErr := os.ReadFile(candidate)
+			if readErr != nil || !strings.Contains(string(data), pushHookMarker) {
+				continue
+			}
+			if refreshed := pushHookContent(selfPath); string(data) != refreshed {
+				if err := writePushHookFile(candidate, refreshed); err != nil {
+					return "", "", err
+				}
+			}
+			return pushHookChainedIn, candidate, nil
+		}
 		if existing, err := os.ReadFile(backup); err == nil {
 			if string(existing) != primaryContent {
 				rotated := backup + "." + time.Now().UTC().Format("20060102T150405Z")
@@ -149,17 +146,51 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 		if err := os.Rename(primary, backup); err != nil {
 			return "", "", fmt.Errorf("back up existing %s hook: %w", pushHookName, err)
 		}
-		if err := writePushHookFile(primary, pushHookContent(selfPath, true)); err != nil {
+		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
 			return "", "", err
 		}
 		return pushHookInstalled, primary, nil
 
 	default:
-		if err := writePushHookFile(primary, pushHookContent(selfPath, false)); err != nil {
+		if err := writePushHookFile(primary, pushHookContent(selfPath)); err != nil {
 			return "", "", err
 		}
 		return pushHookInstalled, primary, nil
 	}
+}
+
+// pushHookAbsent reports that no hook of ours exists anywhere; refresh-only
+// callers (setup) leave the repo untouched in that case.
+const pushHookAbsent pushHookState = "absent"
+
+// refreshPushHook updates an ALREADY-INSTALLED hook (ours in the primary slot
+// or moved aside by the host CLI) and never installs a fresh one. Setup owns
+// the upgrade beat — the baked selfPath goes stale when the plugin binary
+// moves, and the hook's [ -x ] guard turns that into a silent no-op — but
+// fresh installs belong to connect: a bare `setup` after a disconnect must
+// not resurrect the hook, and setup on a never-connected repo must not move
+// other tools' hooks around for a feature that is gated off.
+func refreshPushHook(ctx context.Context, opts Options, repoDir string) (pushHookState, string, error) {
+	hooksDir, err := gitHooksDir(ctx, opts, repoDir)
+	if err != nil {
+		return "", "", err
+	}
+	primary := filepath.Join(hooksDir, pushHookName)
+	ours := false
+	if data, readErr := os.ReadFile(primary); readErr == nil && strings.Contains(string(data), pushHookMarker) {
+		ours = true
+	} else {
+		for _, candidate := range movedPushHookCandidates(hooksDir) {
+			if data, readErr := os.ReadFile(candidate); readErr == nil && strings.Contains(string(data), pushHookMarker) {
+				ours = true
+				break
+			}
+		}
+	}
+	if !ours {
+		return pushHookAbsent, primary, nil
+	}
+	return installPushHook(ctx, opts, repoDir)
 }
 
 // uninstallPushHook removes our hook. When we hold the primary slot, the
@@ -207,64 +238,23 @@ func movedPushHookCandidates(hooksDir string) []string {
 	return out
 }
 
-func fileExecutableExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
-}
-
-// writePushHookFile is temp-and-rename so a symlink sitting at the hook path
-// is replaced rather than written through, and a crash never leaves a
-// half-written executable hook.
+// writePushHookFile is atomic (temp-and-rename via writeFileAtomic) so a
+// symlink sitting at the hook path is replaced rather than written through,
+// a crash never leaves a half-written executable hook, and the dot-prefixed
+// random temp name can never collide with a concurrent installer or match
+// movedPushHookCandidates' glob.
 func writePushHookFile(path, content string) error {
-	tmp := path + ".entire-brain.tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0o755); err != nil { //nolint:gosec // git hooks must be executable
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileAtomic(path, []byte(content), 0o755) //nolint:gosec // git hooks must be executable
 }
 
-// gitHooksDir resolves the repo's REAL hooks directory. It cannot ask
-// `rev-parse --git-path hooks`: the hardened runner pins core.hooksPath to a
-// disabled sentinel on every git invocation (git_harden.go), so that answer is
-// always the sentinel — installing there fails by construction (/dev/null is a
-// character device). Instead, recover the user's effective core.hooksPath from
-// `git config --show-origin --get-all`: the pinned entry is labeled
-// `command line:`, every file-sourced entry keeps its origin, and git lists
-// them in ascending precedence — so the LAST non-command-line entry is the
-// setting git would honor without the pin. No entry means the default,
-// <git-common-dir>/hooks (the common dir so linked worktrees share one hooks
-// directory, exactly as git does).
+// gitHooksDir is realGitHooksDir (git_harden.go — the resolver lives beside
+// the pin it reads around) plus creation: installers need the directory to
+// exist.
 func gitHooksDir(ctx context.Context, opts Options, repoDir string) (string, error) {
-	commonOut, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--git-common-dir")
+	dir, err := realGitHooksDir(ctx, opts.Runner, repoDir)
 	if err != nil {
-		return "", fmt.Errorf("resolve git dir: %w", err)
+		return "", err
 	}
-	commonDir := strings.TrimSpace(commonOut)
-	if !filepath.IsAbs(commonDir) {
-		commonDir = filepath.Join(repoDir, commonDir)
-	}
-
-	dir := filepath.Join(commonDir, "hooks")
-	// The pin guarantees at least one entry, so a failure here is a real error,
-	// not "key unset".
-	originsOut, err := gitScalar(ctx, opts.Runner, repoDir, "config", "--show-origin", "--get-all", "core.hooksPath")
-	if err != nil {
-		return "", fmt.Errorf("resolve core.hooksPath: %w", err)
-	}
-	for _, line := range strings.Split(originsOut, "\n") {
-		origin, value, ok := strings.Cut(strings.TrimSpace(line), "\t")
-		if !ok || strings.HasPrefix(origin, "command line") || strings.TrimSpace(value) == "" {
-			continue
-		}
-		hooksPath := strings.TrimSpace(value)
-		if filepath.IsAbs(hooksPath) {
-			dir = hooksPath
-		} else {
-			// git resolves a relative core.hooksPath against the worktree.
-			dir = filepath.Join(repoDir, hooksPath)
-		}
-	}
-
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // hooks dirs are 0755 by convention
 		return "", err
 	}

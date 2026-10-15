@@ -767,19 +767,23 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	report.Hook = inspectSessionEndHook(repoDir)
 	reportSetupHook(progress, report.Hook)
 
-	// Install our own pre-push hook so a push uploads the fact store (the
-	// trail shows memories with the commits). Hosted-gated at runtime, so
-	// installing it on a local-only repo costs one no-op spawn per push.
-	if hookState, hookPath, hookErr := installPushHook(ctx, opts, repoDir); hookErr != nil {
-		progress.Skip("push hook: not installed (uploads ride the daemon tick): " + hookErr.Error())
+	// Refresh our pre-push hook when one is already installed — setup owns
+	// the upgrade beat (the baked plugin path goes stale when the binary
+	// moves). Fresh installs belong to `connect`: a bare setup after a
+	// disconnect must not resurrect the hook, and setup on a never-connected
+	// repo must not rearrange other tools' hooks for a feature that is off.
+	if hookState, hookPath, hookErr := refreshPushHook(ctx, opts, repoDir); hookErr != nil {
+		progress.Skip("push hook: not refreshed (uploads ride the daemon tick): " + hookErr.Error())
 	} else {
 		switch hookState {
+		case pushHookAbsent:
+			progress.Skip("push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)")
 		case pushHookUnchanged:
-			progress.Skip("push hook already installed (" + hookPath + ")")
+			progress.Skip("push hook already current (" + hookPath + ")")
 		case pushHookChainedIn:
 			progress.Skip("push hook runs via the host CLI's chain (" + hookPath + ")")
 		default:
-			task := progress.Begin("push hook: installing (" + hookPath + ")")
+			task := progress.Begin("push hook: refreshed (" + hookPath + ")")
 			task.Finish(nil)
 		}
 	}

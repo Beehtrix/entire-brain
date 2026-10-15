@@ -1,6 +1,12 @@
 package cli
 
-import "slices"
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // git resolves several configuration keys to *commands it executes*, and it
 // honours them from the per-repository .git/config — plus the in-tree
@@ -71,6 +77,48 @@ import "slices"
 // to add neither stderr nor a non-zero exit to status, rev-parse, diff, log,
 // ls-files, worktree, gc, clone or commit.
 const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
+
+// realGitHooksDir resolves the hooks directory git would use WITHOUT the pin
+// above. It lives here, beside the pin, because it is the sanctioned way to
+// read around it: `rev-parse --git-path hooks` and plain config reads through
+// the hardened runner always answer the sentinel, and the next caller must
+// not have to rediscover that. `git config --get-all` lists values in
+// ascending precedence with the pinned entry guaranteed last (command-line
+// config wins), so the last value that is not the sentinel is the user's
+// effective core.hooksPath — whatever mechanism injected it. None means the
+// default, <git-common-dir>/hooks; the common dir so linked worktrees share
+// one hooks directory, exactly as git does. A relative value resolves against
+// the worktree, matching git (see the pin's comment on why that matters).
+func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, error) {
+	commonOut, err := gitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", fmt.Errorf("resolve git dir: %w", err)
+	}
+	commonDir := strings.TrimSpace(commonOut)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
+	}
+
+	dir := filepath.Join(commonDir, "hooks")
+	// The pin guarantees at least one value, so a failure here is a real
+	// error, never "key unset".
+	valuesOut, err := gitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
+	if err != nil {
+		return "", fmt.Errorf("resolve core.hooksPath: %w", err)
+	}
+	for _, value := range strings.Split(valuesOut, "\n") {
+		value = strings.TrimSpace(value)
+		if value == "" || value == gitHooksDisabledPath {
+			continue
+		}
+		if filepath.IsAbs(value) {
+			dir = value
+		} else {
+			dir = filepath.Join(repoDir, value)
+		}
+	}
+	return dir, nil
+}
 
 var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by

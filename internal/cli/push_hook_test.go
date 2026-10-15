@@ -10,7 +10,7 @@ import (
 )
 
 // hooksDirRunner mimics the HARDENED runner: rev-parse answers normally, and
-// the core.hooksPath origins always include the command-line pin, optionally
+// the core.hooksPath values always end with the command-line pin, optionally
 // preceded by a file-sourced value like the one husky writes.
 type hooksDirRunner struct {
 	gitDir        string
@@ -25,20 +25,25 @@ func (r hooksDirRunner) Run(_ context.Context, _, _ string, args ...string) ([]b
 	case strings.Contains(joined, "core.hooksPath"):
 		out := ""
 		if r.fileHooksPath != "" {
-			out += "file:.git/config\t" + r.fileHooksPath + "\n"
+			out += r.fileHooksPath + "\n"
 		}
-		out += "command line:\t" + gitHooksDisabledPath + "\n"
+		out += gitHooksDisabledPath + "\n"
 		return []byte(out), nil, nil
 	default:
 		return nil, nil, nil
 	}
 }
 
+const testHostHook = "#!/bin/sh\n# Entire session tracking hook\nentire hooks git pre-push \"$1\"\n"
+
 func pushHookHarness(t *testing.T) (Options, string, string) {
 	t.Helper()
 	repoDir := t.TempDir()
 	gitDir := filepath.Join(repoDir, ".git")
 	hooksDir := filepath.Join(gitDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir}}
 	return opts, repoDir, hooksDir
 }
@@ -123,8 +128,11 @@ func TestInstallPushHookIntoEmptySlot(t *testing.T) {
 	if !strings.Contains(content, pushHookMarker) || !strings.Contains(content, "--event push") {
 		t.Fatalf("hook content missing marker or event: %q", content)
 	}
-	if strings.Contains(content, "# Chain:") {
-		t.Fatalf("empty slot must not chain: %q", content)
+	if !strings.Contains(content, "# Chain:") {
+		t.Fatalf("chain line is unconditional ([ -x ]-guarded): %q", content)
+	}
+	if _, err := os.Stat(path + pushHookBackupSuffix); !os.IsNotExist(err) {
+		t.Fatalf("empty slot must not create a backup: %v", err)
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm()&0o100 == 0 {
@@ -140,12 +148,8 @@ func TestInstallPushHookIntoEmptySlot(t *testing.T) {
 
 func TestInstallPushHookChainsExistingHook(t *testing.T) {
 	opts, repoDir, hooksDir := pushHookHarness(t)
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	primary := filepath.Join(hooksDir, "pre-push")
-	hostHook := "#!/bin/sh\n# Entire session tracking hook\nentire hooks git pre-push \"$1\"\n"
-	if err := os.WriteFile(primary, []byte(hostHook), 0o755); err != nil {
+	if err := os.WriteFile(primary, []byte(testHostHook), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +161,7 @@ func TestInstallPushHookChainsExistingHook(t *testing.T) {
 	if !strings.Contains(content, pushHookMarker) || !strings.Contains(content, "# Chain:") {
 		t.Fatalf("primary must be ours with a chain: %q", content)
 	}
-	if got := readHook(t, primary+pushHookBackupSuffix); got != hostHook {
+	if got := readHook(t, primary+pushHookBackupSuffix); got != testHostHook {
 		t.Fatalf("backup must hold the original hook verbatim, got %q", got)
 	}
 	if !strings.Contains(content, `exec "$backup" "$@"`) {
@@ -170,16 +174,12 @@ func TestInstallPushHookLeavesHostRewrapAlone(t *testing.T) {
 	// backup name; our line still runs via its chain. Install must not touch
 	// the primary — re-claiming would ping-pong with the host's reconcile.
 	opts, repoDir, hooksDir := pushHookHarness(t)
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	primary := filepath.Join(hooksDir, "pre-push")
-	hostHook := "#!/bin/sh\n# Entire session tracking hook\nentire hooks git pre-push \"$1\"\n"
-	if err := os.WriteFile(primary, []byte(hostHook), 0o755); err != nil {
+	if err := os.WriteFile(primary, []byte(testHostHook), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	moved := primary + ".pre-entire"
-	ours := pushHookContent("/managed/entire-brain", true)
+	ours := pushHookContent("/managed/entire-brain")
 	if err := os.WriteFile(moved, []byte(ours), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -188,16 +188,13 @@ func TestInstallPushHookLeavesHostRewrapAlone(t *testing.T) {
 	if err != nil || state != pushHookChainedIn || path != moved {
 		t.Fatalf("state=%v path=%v err=%v", state, path, err)
 	}
-	if got := readHook(t, primary); got != hostHook {
+	if got := readHook(t, primary); got != testHostHook {
 		t.Fatalf("primary must stay the host's: %q", got)
 	}
 }
 
 func TestUninstallPushHookRestoresBackup(t *testing.T) {
 	opts, repoDir, hooksDir := pushHookHarness(t)
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	primary := filepath.Join(hooksDir, "pre-push")
 	original := "#!/bin/sh\nexit 0\n"
 	if err := os.WriteFile(primary, []byte(original), 0o755); err != nil {
@@ -220,5 +217,40 @@ func TestUninstallPushHookRestoresBackup(t *testing.T) {
 	// Idempotent on a clean slate too.
 	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestRefreshPushHookLeavesUninstalledRepoUntouched(t *testing.T) {
+	// A bare setup after a disconnect (or on a never-connected repo) must not
+	// resurrect or freshly install the hook — install belongs to connect.
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	if err := os.WriteFile(primary, []byte(testHostHook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	state, _, err := refreshPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookAbsent {
+		t.Fatalf("state=%v err=%v", state, err)
+	}
+	if got := readHook(t, primary); got != testHostHook {
+		t.Fatalf("refresh must not touch a repo without our hook: %q", got)
+	}
+}
+
+func TestRefreshPushHookUpdatesInstalledHook(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	primary := filepath.Join(hooksDir, "pre-push")
+	stale := "#!/bin/sh\n" + pushHookMarker + "\n'/old/path' memory notify --event push &\n"
+	if err := os.WriteFile(primary, []byte(stale), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	state, _, err := refreshPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookInstalled {
+		t.Fatalf("state=%v err=%v", state, err)
+	}
+	if got := readHook(t, primary); strings.Contains(got, "/old/path") {
+		t.Fatalf("refresh must rewrite the stale plugin path: %q", got)
 	}
 }

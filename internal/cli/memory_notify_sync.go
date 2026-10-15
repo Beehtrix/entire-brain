@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -35,26 +34,11 @@ var notifyHostedFactsSync = hostedFactsSyncAndPull
 // so nothing it shells out to re-notifies. Injectable for tests; a launch
 // failure never fails the host.
 var memoryPushWorkLaunch = func(repoDir, branch string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
 	args := []string{"memory", "push-work"}
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}
-	command := exec.Command(exe, args...)
-	command.Dir = repoDir
-	command.Env = memoryWorkerChildEnvironment(os.Environ(), repoDir)
-	command.Stdout = nil
-	command.Stderr = nil
-	if err := command.Start(); err != nil {
-		return err
-	}
-	// Reap like memoryWorkerLaunchAfter: Wait in a goroutine keeps the launch
-	// non-blocking without leaving a <defunct> child for the parent's lifetime.
-	go func() { _ = command.Wait() }()
-	return nil
+	return launchDetachedSelf(repoDir, args...)
 }
 
 // newMemoryPushWorkCommand is the detached half of the push hint: notify
@@ -68,13 +52,16 @@ func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 		Short:  "Upload the fact store for a push hint (internal)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storage, err := resolveSessionsBrain(cmd.Context(), opts)
-			if err != nil {
-				return err
-			}
+			// One repo resolution: resolveSessionsBrain would run the same
+			// resolveLocalTargetRepoDir again internally, a redundant git
+			// spawn on every push.
 			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
+			}
+			storage, err := repoStoragePaths(cmd.Context(), opts.Runner, opts.Env, repoDir)
+			if err != nil {
+				return err
 			}
 			hostedSyncOnPushHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
 			return nil
@@ -102,6 +89,13 @@ type memoryNotifySyncMarker struct {
 // errW and swallowed. The return value says whether the work ran, for tests
 // and for the caller's log line only.
 func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
+	// An explicit disconnect must cost nothing per push: bail before claiming
+	// the throttle or spawning sync work. An UNBOUND repo proceeds — the
+	// sync's auto-connect is the designed first-contact path, with its own
+	// gates.
+	if binding, present, err := readHostedRepoBinding(storage.BrainDir); err == nil && present && binding.OptedOut {
+		return false
+	}
 	claimed := false
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		now := opts.Now().UTC()

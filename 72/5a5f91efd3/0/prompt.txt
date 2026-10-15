@@ -1,0 +1,25 @@
+<task-notification>
+<task-id>bahb1oq1v</task-id>
+<tool-use-id>toolu_01TJ4uKQmKUrC5qzsau4xjcQ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kingstown/1152b409-736e-4941-90db-31fb5da3cc17/tasks/bahb1oq1v.output</output-file>
+<status>completed</status>
+<summary>Background command "Live tick on clean tree with degraded-semantic build" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b6j0lyfyk</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-kingstown/1152b409-736e-4941-90db-31fb5da3cc17/tasks/b6j0lyfyk.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+fix the finding: https://entire.io/gh/entireio/entire-brain/trails/284/refresh-degrade-the-semantic-stage-when-the-graph-provider
+
+---
+
+there is a finding to fix: https://entire.io/gh/entireio/entire-brain/trails/284/refresh-degrade-the-semantic-stage-when-the-graph-provider

@@ -345,6 +345,7 @@ the binary.
 | `entire brain webhook` | Notify another service when this brain changes |
 | `entire brain config` | Inspect or initialize plugin configuration |
 | `entire brain connect` | Bind this repository to its hosted brain explicitly |
+| `entire brain disconnect` | Stop syncing this repository with its hosted brain |
 
 **Search and explore**
 

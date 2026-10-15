@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "11790bb9a047",
+  "strategy": "manual-commit",
+  "branch": "depot-runners",
+  "checkpoints_count": 4,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/development-task-negative-control-execution-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-cache-archive-material-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-cache-archive-verifier-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-cache-bundle-verifier-contract-v2.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-owner-approval-verifier-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-run-storage-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative_control_cache_archive_v1.py",
+    "benchmarks/agent-brain/confirmatory/negative_control_cache_bundle_v2.py",
+    "benchmarks/agent-brain/confirmatory/negative_control_owner_approval_v1.py",
+    "benchmarks/agent-brain/confirmatory/negative_control_run_storage_contract_v1.py",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-cache-archive-material-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-cache-archive-verifier-contract-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-cache-bundle-verifier-contract-v2.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-capacity-reservation-receipt-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-cleanup-attestation-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-owner-approval-envelope-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-owner-approval-verifier-contract-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-run-journal-event-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-run-storage-contract-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/task_negative_control_classification_v1.py",
+    "benchmarks/agent-brain/confirmatory/task_negative_control_gate_v1.py",
+    "benchmarks/agent-brain/confirmatory/test_negative_control_cache_bundle_v2.py",
+    "benchmarks/agent-brain/confirmatory/test_negative_control_execution_contract_v1.py",
+    "benchmarks/agent-brain/confirmatory/test_negative_control_run_storage_contract_v1.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/11/790bb9a047/0/metadata.json",
+      "transcript": "/11/790bb9a047/0/full.jsonl",
+      "compact_transcript": "/11/790bb9a047/0/transcript.jsonl",
+      "content_hash": "/11/790bb9a047/0/content_hash.txt",
+      "prompt": "/11/790bb9a047/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 118,
+    "cache_creation_tokens": 495784,
+    "cache_read_tokens": 28094191,
+    "output_tokens": 35949,
+    "api_call_count": 59,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

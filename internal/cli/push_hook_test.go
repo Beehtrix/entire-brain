@@ -3,23 +3,101 @@ package cli
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-type hooksDirRunner struct{ dir string }
+// hooksDirRunner mimics the HARDENED runner: rev-parse answers normally, and
+// the core.hooksPath origins always include the command-line pin, optionally
+// preceded by a file-sourced value like the one husky writes.
+type hooksDirRunner struct {
+	gitDir        string
+	fileHooksPath string
+}
 
-func (r hooksDirRunner) Run(_ context.Context, _, name string, args ...string) ([]byte, []byte, error) {
-	return []byte(r.dir + "\n"), nil, nil
+func (r hooksDirRunner) Run(_ context.Context, _, _ string, args ...string) ([]byte, []byte, error) {
+	joined := strings.Join(args, " ")
+	switch {
+	case strings.Contains(joined, "--git-common-dir"):
+		return []byte(r.gitDir + "\n"), nil, nil
+	case strings.Contains(joined, "core.hooksPath"):
+		out := ""
+		if r.fileHooksPath != "" {
+			out += "file:.git/config\t" + r.fileHooksPath + "\n"
+		}
+		out += "command line:\t" + gitHooksDisabledPath + "\n"
+		return []byte(out), nil, nil
+	default:
+		return nil, nil, nil
+	}
 }
 
 func pushHookHarness(t *testing.T) (Options, string, string) {
 	t.Helper()
 	repoDir := t.TempDir()
-	hooksDir := filepath.Join(repoDir, ".git", "hooks")
-	opts := Options{Version: "test", Runner: hooksDirRunner{dir: hooksDir}}
+	gitDir := filepath.Join(repoDir, ".git")
+	hooksDir := filepath.Join(gitDir, "hooks")
+	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir}}
 	return opts, repoDir, hooksDir
+}
+
+// The hardened runner pins core.hooksPath to the disabled sentinel on every
+// git call, so the resolver must never trust `--git-path hooks` — this is the
+// regression Bugbot caught: install resolved the sentinel and silently
+// no-opped everywhere.
+func TestGitHooksDirIgnoresTheHardenPin(t *testing.T) {
+	opts, repoDir, hooksDir := pushHookHarness(t)
+	dir, err := gitHooksDir(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != hooksDir {
+		t.Fatalf("pinned-only origins must resolve to the default hooks dir, got %q", dir)
+	}
+}
+
+func TestGitHooksDirHonorsFileConfiguredHooksPath(t *testing.T) {
+	repoDir := t.TempDir()
+	gitDir := filepath.Join(repoDir, ".git")
+	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir, fileHooksPath: ".husky"}}
+	dir, err := gitHooksDir(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != filepath.Join(repoDir, ".husky") {
+		t.Fatalf("relative core.hooksPath must resolve against the worktree, got %q", dir)
+	}
+}
+
+// Real git, real ExecRunner, real hardening: the one test that cannot be
+// blinded by a stubbed runner.
+func TestInstallPushHookAgainstRealGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v %s", err, out)
+	}
+	opts := Options{Version: "test", Runner: ExecRunner{}}
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != pushHookInstalled {
+		t.Fatalf("state=%v", state)
+	}
+	resolvedRepo, _ := filepath.EvalSymlinks(repoDir)
+	resolvedPath, _ := filepath.EvalSymlinks(filepath.Dir(path))
+	if resolvedPath != filepath.Join(resolvedRepo, ".git", "hooks") {
+		t.Fatalf("hook must land in the real hooks dir, got %q", path)
+	}
+	if !strings.Contains(readHook(t, path), pushHookMarker) {
+		t.Fatal("hook content missing marker")
+	}
 }
 
 func readHook(t *testing.T, path string) string {

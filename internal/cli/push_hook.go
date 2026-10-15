@@ -223,17 +223,48 @@ func writePushHookFile(path, content string) error {
 	return os.Rename(tmp, path)
 }
 
-// gitHooksDir resolves the repo's hooks directory the same way git does, so
-// core.hooksPath redirections are honored.
+// gitHooksDir resolves the repo's REAL hooks directory. It cannot ask
+// `rev-parse --git-path hooks`: the hardened runner pins core.hooksPath to a
+// disabled sentinel on every git invocation (git_harden.go), so that answer is
+// always the sentinel — installing there fails by construction (/dev/null is a
+// character device). Instead, recover the user's effective core.hooksPath from
+// `git config --show-origin --get-all`: the pinned entry is labeled
+// `command line:`, every file-sourced entry keeps its origin, and git lists
+// them in ascending precedence — so the LAST non-command-line entry is the
+// setting git would honor without the pin. No entry means the default,
+// <git-common-dir>/hooks (the common dir so linked worktrees share one hooks
+// directory, exactly as git does).
 func gitHooksDir(ctx context.Context, opts Options, repoDir string) (string, error) {
-	out, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--git-path", "hooks")
+	commonOut, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--git-common-dir")
 	if err != nil {
-		return "", fmt.Errorf("resolve hooks dir: %w", err)
+		return "", fmt.Errorf("resolve git dir: %w", err)
 	}
-	dir := strings.TrimSpace(out)
-	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(repoDir, dir)
+	commonDir := strings.TrimSpace(commonOut)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
 	}
+
+	dir := filepath.Join(commonDir, "hooks")
+	// The pin guarantees at least one entry, so a failure here is a real error,
+	// not "key unset".
+	originsOut, err := gitScalar(ctx, opts.Runner, repoDir, "config", "--show-origin", "--get-all", "core.hooksPath")
+	if err != nil {
+		return "", fmt.Errorf("resolve core.hooksPath: %w", err)
+	}
+	for _, line := range strings.Split(originsOut, "\n") {
+		origin, value, ok := strings.Cut(strings.TrimSpace(line), "\t")
+		if !ok || strings.HasPrefix(origin, "command line") || strings.TrimSpace(value) == "" {
+			continue
+		}
+		hooksPath := strings.TrimSpace(value)
+		if filepath.IsAbs(hooksPath) {
+			dir = hooksPath
+		} else {
+			// git resolves a relative core.hooksPath against the worktree.
+			dir = filepath.Join(repoDir, hooksPath)
+		}
+	}
+
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // hooks dirs are 0755 by convention
 		return "", err
 	}

@@ -1,0 +1,152 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "0ea5b576a7f5",
+  "session_id": "1a623a71-bd1e-4266-aac9-ac6d8dfeb311",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T06:36:08.209842Z",
+  "branch": "depot-runners",
+  "checkpoints_count": 8,
+  "save_step_count": 3,
+  "files_touched": [
+    "benchmarks/agent-brain/confirmatory/negative-control-cache-archive-verifier-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-cache-bundle-verifier-contract-v2.json",
+    "benchmarks/agent-brain/confirmatory/negative-control-run-storage-contract-v1.json",
+    "benchmarks/agent-brain/confirmatory/negative_control_cache_archive_v1.py",
+    "benchmarks/agent-brain/confirmatory/negative_control_cache_bundle_v2.py",
+    "benchmarks/agent-brain/confirmatory/negative_control_run_storage_contract_v1.py",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-cache-bundle-verifier-contract-v2.schema.json",
+    "benchmarks/agent-brain/confirmatory/schemas/negative-control-run-storage-contract-v1.schema.json",
+    "benchmarks/agent-brain/confirmatory/test_negative_control_cache_bundle_v2.py",
+    "benchmarks/agent-brain/confirmatory/test_negative_control_run_storage_contract_v1.py",
+    "internal/cli/distill_ollama_envelope_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "30fba66027c6",
+  "checkpoint_transcript_start": 1459,
+  "transcript_lines_at_start": 1459,
+  "compact_transcript_start": 311,
+  "token_usage": {
+    "input_tokens": 134,
+    "cache_creation_tokens": 797320,
+    "cache_read_tokens": 26898977,
+    "output_tokens": 39942,
+    "api_call_count": 67,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "prompt-skill-claude-code-review-pr-2026-10-15T04:11:19.929634Z",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "review-pr"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "prompt_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "43f075c214c0",
+      "timestamp": "2026-10-15T04:11:19.929634Z",
+      "native": {
+        "command": "/review-pr"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/review-pr",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01FVaBgyY15eggfrRUAbrVEY",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "simplify"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "6211b06c7de8",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 685,
+        "end": 686,
+        "entry_ids": [
+          "4b2e690a-5f5f-45f8-baf7-84be772f8b67"
+        ],
+        "tool_use_id": "toolu_01FVaBgyY15eggfrRUAbrVEY"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01FVaBgyY15eggfrRUAbrVEY"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: simplify",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 40
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-15T06:36:08.106764Z",
+    "agent_lines": 41,
+    "agent_removed": 39,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 6,
+    "total_committed": 41,
+    "total_lines_changed": 86,
+    "agent_percentage": 93.02325581395348,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 52,
+      "user_lines_removed": 6,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "benchmarks/agent-brain/confirmatory/negative_control_cache_archive_v1.py": 25,
+        "benchmarks/agent-brain/confirmatory/negative_control_cache_bundle_v2.py": 27
+      },
+      "user_removed_per_file": {
+        "benchmarks/agent-brain/confirmatory/negative_control_cache_archive_v1.py": 2,
+        "benchmarks/agent-brain/confirmatory/negative_control_cache_bundle_v2.py": 4
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 99,
+      "agent_lines_removed": 45
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 99,
+      "agent_lines_removed": 45
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 99,
+      "agent_lines_removed": 45
+    }
+  ]
+}

@@ -1191,12 +1191,10 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 		what = "a background watcher at " + unit
 	}
 	if before.Installed {
-		return fmt.Sprintf(
-			"background watcher: this run keeps %s installed — a persistent %s service that starts again at every login; remove it with `%s setup --uninstall-daemon`",
+		return fmt.Sprintf("watcher: keeping %s — a persistent %s service, starts again at every login · remove: %s setup --uninstall-daemon",
 			what, plan.Manager, setupBrainCommand(brainCmd))
 	}
-	return fmt.Sprintf(
-		"background watcher: this run will install %s — a persistent %s service that starts again at every login; pass --no-daemon to skip it, or remove it later with `%s setup --uninstall-daemon`",
+	return fmt.Sprintf("watcher: installing %s — a persistent %s service, starts again at every login · skip: --no-daemon · remove: %s setup --uninstall-daemon",
 		what, plan.Manager, setupBrainCommand(brainCmd))
 }
 

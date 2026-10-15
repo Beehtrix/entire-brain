@@ -940,14 +940,14 @@ func announceResolvedAgent(out io.Writer, agent, model string) {
 	}
 	if agent == "none" {
 		// No agent means no model to name.
-		fmt.Fprintln(out, "agent: auto-selected none — no supported agent CLI found (codex, claude); deterministic steps only")
+		fmt.Fprintln(out, "agent: none found (codex, claude) · deterministic steps only")
 		return
 	}
 	if model = strings.TrimSpace(model); model != "" {
-		fmt.Fprintf(out, "agent: auto-selected %s, model %s (SPENDS TOKENS) — override with --agent/--model\n", agent, model)
+		fmt.Fprintf(out, "agent: %s · %s (SPENDS TOKENS) · change with --agent/--model\n", agent, model)
 		return
 	}
-	fmt.Fprintf(out, "agent: auto-selected %s, model: the agent's own default (SPENDS TOKENS) — override with --agent, pin a model with --model\n", agent)
+	fmt.Fprintf(out, "agent: %s · its default model (SPENDS TOKENS) · change with --agent/--model\n", agent)
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

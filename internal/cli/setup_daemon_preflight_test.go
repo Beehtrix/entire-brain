@@ -19,7 +19,9 @@ func TestSetupAnnouncesTheWatcherBeforeInstallingIt(t *testing.T) {
 	rec := &recordedSetup{}
 	printed := runSetupForTest(t, f, defaultSetupOptions(), rec)
 
-	announce := strings.Index(printed, "this run will install")
+	// The property is "it says what it is about to register, before it does
+	// it" -- not one spelling of that sentence.
+	announce := strings.Index(printed, "installing")
 	if announce < 0 {
 		t.Fatalf("setup must say what it is about to register with the machine before it does it:\n%s", printed)
 	}
@@ -36,7 +38,7 @@ func TestSetupAnnouncesTheWatcherBeforeInstallingIt(t *testing.T) {
 		if want == "" {
 			t.Fatal("fixture produced no unit path to name")
 		}
-		if !strings.Contains(printed[:announce+len("this run will install")+400], want) {
+		if !strings.Contains(printed[:announce+len("installing")+400], want) {
 			t.Fatalf("the pre-flight line must name %q:\n%s", want, printed)
 		}
 	}
@@ -50,10 +52,10 @@ func TestSetupDoesNotClaimToInstallAWatcherItAlreadyHas(t *testing.T) {
 	_ = runSetupForTest(t, f, defaultSetupOptions(), rec)
 	second := runSetupForTest(t, f, defaultSetupOptions(), rec)
 
-	if strings.Contains(second, "this run will install") {
+	if strings.Contains(second, "installing") {
 		t.Fatalf("a re-run finds the watcher already installed and must not claim otherwise:\n%s", second)
 	}
-	if !strings.Contains(second, "this run keeps") || !strings.Contains(second, "--uninstall-daemon") {
+	if !strings.Contains(second, "keeping") || !strings.Contains(second, "--uninstall-daemon") {
 		t.Fatalf("a re-run must still say the service is there and how to remove it:\n%s", second)
 	}
 }

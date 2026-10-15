@@ -508,7 +508,10 @@ func TestResolveRefreshAgentAnnouncesChoice(t *testing.T) {
 	if agent != "claude-code" {
 		t.Fatalf("resolved agent = %q, want claude-code", agent)
 	}
-	for _, want := range []string{"auto-selected", "claude-code", "--agent"} {
+	// The PROPERTY, not the phrasing: the agent is named, the cost is stated,
+	// and the way to change it is offered. An earlier version pinned the word
+	// "auto-selected", which made shortening the line look like a regression.
+	for _, want := range []string{"claude-code", "SPENDS TOKENS", "--agent"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("announcement does not mention %q: %q", want, out.String())
 		}
@@ -562,10 +565,10 @@ func TestRefreshAnnouncesAutoSelectedAgentOnStderr(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("refresh: %v\n%s", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "auto-selected codex") {
+	if !strings.Contains(stderr.String(), "codex") {
 		t.Fatalf("refresh did not announce the agent it chose on stderr: %q", stderr.String())
 	}
-	if strings.Contains(stdout.String(), "auto-selected") {
+	if strings.Contains(stdout.String(), "SPENDS TOKENS") {
 		t.Fatalf("the announcement landed on stdout, where a piped reader parses results: %q", stdout.String())
 	}
 }
@@ -599,7 +602,7 @@ func TestDistillJSONStaysSilentAboutTheAgent(t *testing.T) {
 		// dry-run branch (so a dry run salts its cache with the same agent a
 		// real run would), which is the only thing under test here.
 		out, _ := execute(t, cmd, args...)
-		announced := strings.Contains(out, "auto-selected")
+		announced := strings.Contains(out, "SPENDS TOKENS")
 		if jsonMode && announced {
 			t.Fatalf("json: the agent announcement leaked into machine output: %q", out)
 		}
@@ -626,7 +629,7 @@ func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
 		if agent := steps.detectAgent(context.Background()); agent != "codex" {
 			t.Fatalf("json=%v: setup detected agent = %q, want codex", jsonMode, agent)
 		}
-		announced := strings.Contains(stderr.String(), "auto-selected codex")
+		announced := strings.Contains(stderr.String(), "codex")
 		if jsonMode {
 			// The model is checked FIRST so this guard can be shown failing on
 			// its own: the agent guard below would otherwise always fire first
@@ -642,7 +645,7 @@ func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
 		if !announced {
 			t.Fatalf("human: setup chose an agent without saying which, so the json case above proves nothing: %q", stderr.String())
 		}
-		if !strings.Contains(stderr.String(), "model opus") {
+		if !strings.Contains(stderr.String(), "opus") {
 			t.Fatalf("human: setup named the agent but not the model, which is the half of the report still unanswered: %q", stderr.String())
 		}
 	}
@@ -660,7 +663,8 @@ func TestAnnounceResolvedAgentNamesTheModel(t *testing.T) {
 	var out bytes.Buffer
 
 	announceResolvedAgent(&out, "claude-code", "opus")
-	for _, want := range []string{"claude-code", "model opus", "--model"} {
+	// The model must be NAMED; how it is introduced is presentation.
+	for _, want := range []string{"claude-code", "opus", "--model"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("pinned-model announcement does not mention %q: %q", want, out.String())
 		}
@@ -668,7 +672,8 @@ func TestAnnounceResolvedAgentNamesTheModel(t *testing.T) {
 
 	out.Reset()
 	announceResolvedAgent(&out, "claude-code", "")
-	if !strings.Contains(out.String(), "the agent's own default") {
+	// An unpinned model must be STATED, in whatever words.
+	if !strings.Contains(out.String(), "default model") {
 		t.Fatalf("an unpinned model was not stated outright, which is the whole complaint: %q", out.String())
 	}
 	if !strings.Contains(out.String(), "--model") {
@@ -678,7 +683,7 @@ func TestAnnounceResolvedAgentNamesTheModel(t *testing.T) {
 	// Whitespace is not a model.
 	out.Reset()
 	announceResolvedAgent(&out, "codex", "   ")
-	if !strings.Contains(out.String(), "the agent's own default") {
+	if !strings.Contains(out.String(), "default model") {
 		t.Fatalf("a blank --model was treated as a pinned model: %q", out.String())
 	}
 
@@ -719,7 +724,7 @@ func TestRefreshAnnouncesPinnedModel(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("refresh: %v\n%s", err, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "model haiku") {
+	if !strings.Contains(stderr.String(), "haiku") {
 		t.Fatalf("refresh did not name the pinned model: %q", stderr.String())
 	}
 }

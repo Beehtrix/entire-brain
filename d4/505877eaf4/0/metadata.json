@@ -1,0 +1,58 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "d4505877eaf4",
+  "session_id": "953d05eb-1e1a-44f5-b1a1-7069605df0c8",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T05:52:32.213265Z",
+  "branch": "bratislava",
+  "checkpoints_count": 6,
+  "save_step_count": 1,
+  "files_touched": [
+    ".context/trails-today-slack.txt"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "3db7bc1e2375",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 60,
+    "cache_creation_tokens": 71216,
+    "cache_read_tokens": 1966878,
+    "output_tokens": 14064,
+    "api_call_count": 30
+  },
+  "session_metrics": {
+    "turn_count": 6
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-15T05:52:32.186849Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 1874,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1874,
+    "total_lines_changed": 2193,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 18,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/trails-today-slack.txt": 18
+      }
+    }
+  ]
+}

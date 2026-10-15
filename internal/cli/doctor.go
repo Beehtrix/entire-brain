@@ -125,12 +125,13 @@ type doctorReport struct {
 	// Env["ENTIRE_REPO_ROOT"], which stays a faithful report of the variable:
 	// an unset variable and an inferred root are different facts and a reader
 	// debugging a plugin dispatch needs both.
-	RepoRoot        string                         `json:"repo_root,omitempty"`
-	RepoRootSource  string                         `json:"repo_root_source,omitempty"`
-	Dirs            []doctorCheckResult            `json:"dirs"`
-	DirectoryHealth []memoryInstallDirectoryHealth `json:"directory_health"`
-	Checks          []doctorCheckResult            `json:"checks,omitempty"`
-	Memory          map[string]any                 `json:"memory,omitempty"`
+	RepoRoot         string                         `json:"repo_root,omitempty"`
+	RepoRootSource   string                         `json:"repo_root_source,omitempty"`
+	Dirs             []doctorCheckResult            `json:"dirs"`
+	DirectoryHealth  []memoryInstallDirectoryHealth `json:"directory_health"`
+	Checks           []doctorCheckResult            `json:"checks,omitempty"`
+	Memory           map[string]any                 `json:"memory,omitempty"`
+	SemanticCoverage *brainStatusSemanticCoverage   `json:"semantic_coverage,omitempty"`
 }
 
 // doctorRepoRoot resolves the repository doctor reports on.
@@ -313,6 +314,31 @@ func semanticAxisPart(name string, axis staleAxis) string {
 	return fmt.Sprintf("%s=%s", name, axis.State)
 }
 
+func doctorSemanticCoverage(ctx context.Context, opts Options, repoDir string, freshness staleReport) (*brainStatusSemanticCoverage, error) {
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	manifest, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		return nil, err
+	}
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
+		return nil, nil
+	}
+	source := manifest.Sources.Semantic
+	coverage, err := semanticAuditStoreCoverage(storage.BrainDir, source, freshness)
+	if err != nil {
+		return nil, err
+	}
+	return &brainStatusSemanticCoverage{
+		Files: source.Files, Symbols: source.Symbols, Relations: source.Relations,
+		Warnings: len(source.Warnings), PartialFailures: len(source.PartialFailures),
+		FileLanguages: coverage.FileLanguages, Languages: coverage.Languages,
+		SymbolKinds: coverage.SymbolKinds, RelationTypes: coverage.RelationTypes,
+	}, nil
+}
+
 func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) error {
 	failOn, err := normalizeDoctorFailOn(failOn)
 	if err != nil {
@@ -412,6 +438,11 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 			report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic", State: "warn", Detail: "unavailable: " + semErr.Error()})
 		} else {
 			report.Checks = append(report.Checks, semanticDoctorFindings(semReport)...)
+			if coverage, err := doctorSemanticCoverage(cmd.Context(), opts, repoRoot, semReport); err != nil {
+				report.Checks = append(report.Checks, doctorCheckResult{Name: "semantic coverage", State: "warn", Detail: err.Error()})
+			} else {
+				report.SemanticCoverage = coverage
+			}
 		}
 	}
 	if jsonOut {
@@ -436,6 +467,20 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut bool, failOn string) er
 			fmt.Fprintf(out, " (%s)", check.Detail)
 		}
 		fmt.Fprintln(out)
+	}
+	if c := report.SemanticCoverage; c != nil {
+		fmt.Fprintf(out, "semantic coverage: %d files, %d symbols, %d relations (manifest counts)\n", c.Files, c.Symbols, c.Relations)
+		for _, section := range []struct {
+			name   string
+			counts []semanticAuditCount
+		}{
+			{"file languages", c.FileLanguages}, {"symbol languages", c.Languages},
+			{"symbol kinds", c.SymbolKinds}, {"relation types", c.RelationTypes},
+		} {
+			if len(section.counts) > 0 {
+				fmt.Fprintf(out, "  %s: %s\n", section.name, semanticAuditCountSummary(section.counts))
+			}
+		}
 	}
 	return doctorGateResult(report, failOn)
 }

@@ -18,7 +18,7 @@ jobs:
   # answer, not easier.
   changed:
     name: has main moved
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
@@ -53,7 +53,7 @@ jobs:
     name: nightly build
     needs: changed
     if: needs.changed.outputs.should_release == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     permissions:
       contents: write
     steps:

@@ -44,6 +44,12 @@ func TestDistillAgentPipeHelper(t *testing.T) {
 }
 
 func TestDistillAgentTimeoutBoundsInheritedPipes(t *testing.T) {
+	// The grandchild always holds the pipes for the full delay here, so the
+	// production value only adds wall-clock time; the elapsed bound below
+	// scales with the override.
+	prev := distillAgentWaitDelay
+	distillAgentWaitDelay = 500 * time.Millisecond
+	t.Cleanup(func() { distillAgentWaitDelay = prev })
 	t.Setenv(distillPipeHelperEnv, "parent")
 	pidPath := t.TempDir() + string(os.PathSeparator) + "child.pid"
 	t.Setenv("ENTIRE_BRAIN_DISTILL_HELPER_PID", pidPath)

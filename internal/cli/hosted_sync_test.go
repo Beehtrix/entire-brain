@@ -380,6 +380,84 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	}
 }
 
+// TestHostedSyncSkipsCorruptBindingWithoutReconnect pins the privacy rule
+// that killed the old corrupt-binding self-heal: an unreadable binding may
+// hide a recorded opt-out (`entire brain disconnect`), so NO read error may
+// fall through to auto-connect. Skip loudly and leave the file alone; the
+// remedy is an explicit `entire brain connect`.
+func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.WriteFile(bindingPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("a corrupt binding must not sync anywhere, got %d requests", fake.requestCount())
+	}
+	data, err := os.ReadFile(bindingPath)
+	if err != nil || string(data) != "{not json" {
+		t.Fatalf("a corrupt binding must survive untouched, got %q err=%v", data, err)
+	}
+	if !strings.Contains(errOut.String(), "skipped") {
+		t.Fatalf("skip must be reported: %q", errOut.String())
+	}
+}
+
+// TestHostedSyncSkipsUnreadableBindingWithoutRewrite bounds the self-heal:
+// only a PARSE error (corrupt JSON, content unrecoverable) may fall through to
+// re-resolution. Any other read failure says nothing about what the binding
+// holds — rewriting it could silently replace an explicitly configured custom
+// target with default placement and redirect publishes to another repo.
+func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	// A directory at the binding path fails the read with a non-parse error on
+	// every platform; chmod 0o000 is a read no-op on Windows.
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.Mkdir(bindingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("an unreadable binding must not sync anywhere, got %d requests", fake.requestCount())
+	}
+	if info, err := os.Stat(bindingPath); err != nil || !info.IsDir() {
+		t.Fatalf("unreadable binding must survive untouched: info=%v err=%v", info, err)
+	}
+	out := errOut.String()
+	if !strings.Contains(out, "skipped") || strings.Contains(out, "re-resolving") {
+		t.Fatalf("a read failure must skip without re-resolution: %q", out)
+	}
+}
+
 func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)

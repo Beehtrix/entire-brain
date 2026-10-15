@@ -40,6 +40,10 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
+		// NO unreadable binding may fall through to auto-connect: the file may
+		// hide a recorded opt-out (privacy) or a custom target, and neither
+		// survives a rewrite. Skip loudly; the remedy is an explicit
+		// `entire brain connect`.
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return nil
 	}

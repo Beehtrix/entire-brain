@@ -76,10 +76,39 @@ func Summary(detail string) string {
 	}
 	summary = strings.TrimSuffix(strings.TrimSpace(summary), "Usage:")
 	summary = strings.TrimSpace(summary)
-	if runes := []rune(summary); len(runes) > MaxSummary {
-		summary = strings.TrimSpace(string(runes[:MaxSummary])) + "..."
+	return elide(summary, MaxSummary)
+}
+
+// elide shortens to limit while keeping BOTH ends.
+//
+// Head-truncation is the obvious implementation and it is wrong here. A Go
+// error reads "context: context: cause" and the cause is LAST, so cutting the
+// tail deletes the only part a reader can act on while faithfully preserving
+// a filesystem path they already know. Measured on a real run where the disk
+// filled: of three component failures, two rendered as
+//
+//	write /very/long/path/...tmp-1814321680: no...
+//
+// and the third only kept "no space left on device" because its path happened
+// to be shorter. Keeping both ends costs one ellipsis and saves the diagnosis.
+func elide(s string, limit int) string {
+	runes := []rune(s)
+	if limit <= 0 || len(runes) <= limit {
+		return s
 	}
-	return summary
+	const ellipsis = "..."
+	budget := limit - len([]rune(ellipsis))
+	if budget < 2 {
+		return string(runes[:limit])
+	}
+	// The tail carries the cause, so it gets the larger share; the head keeps
+	// enough to say which operation failed.
+	tail := budget * 2 / 5
+	if tail < 1 {
+		tail = 1
+	}
+	head := budget - tail
+	return strings.TrimSpace(string(runes[:head])) + ellipsis + strings.TrimSpace(string(runes[len(runes)-tail:]))
 }
 
 // Flatten is the last net before a detail reaches a terminal: it guarantees the

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -14,70 +13,57 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// memoryNotifyHostedSyncMinInterval throttles the checkpoint-hint hosted fact
-// sync across detached notify processes: a commit burst (a rebase, a scripted
-// series) must not become one sync per commit. A minute keeps the trail fresh
-// on the commit beat; the daemon tick remains the reconciliation floor.
+// memoryNotifyHostedSyncMinInterval throttles the push-hint hosted fact sync
+// across detached notify processes: a push burst (a rebase + force-push loop)
+// must not become one sync per push. A minute keeps the trail fresh on the
+// push beat; the daemon tick remains the reconciliation floor.
 const memoryNotifyHostedSyncMinInterval = time.Minute
 
 // memoryNotifySyncMarkerName is the brain-relative marker recording the last
-// checkpoint-hint sync. Shared by every notify process; read and claimed under
-// the brain write lock so concurrent hints race safely.
+// push-hint sync. Shared by every notify process; read and claimed under the
+// brain write lock so concurrent hints race safely.
 const memoryNotifySyncMarkerName = "hosted_sync_notify.json"
 
 // notifyHostedFactsSync is a test seam over hostedFactsSyncAndPull.
 var notifyHostedFactsSync = hostedFactsSyncAndPull
 
-// memoryCheckpointWorkLaunch spawns `memory checkpoint-work` detached, the same
-// shape as memoryWorkerLaunch: `memory notify` is a fast content-free hint and
-// must never carry the upload's network round trips inline — a host adapter
-// may invoke it synchronously. The child runs with the worker-origin
-// environment so nothing it shells out to re-notifies. Injectable for tests;
-// a launch failure never fails the host.
-var memoryCheckpointWorkLaunch = func(repoDir, branch string) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	args := []string{"memory", "checkpoint-work"}
+// memoryPushWorkLaunch spawns `memory push-work` detached, the same shape as
+// memoryWorkerLaunch: `memory notify` is a fast content-free hint and must
+// never carry the upload's network round trips inline — a host adapter may
+// invoke it synchronously. The child runs with the worker-origin environment
+// so nothing it shells out to re-notifies. Injectable for tests; a launch
+// failure never fails the host.
+var memoryPushWorkLaunch = func(repoDir, branch string) error {
+	args := []string{"memory", "push-work"}
 	if branch != "" {
 		args = append(args, "--branch", branch)
 	}
-	command := exec.Command(exe, args...)
-	command.Dir = repoDir
-	command.Env = memoryWorkerChildEnvironment(os.Environ(), repoDir)
-	command.Stdout = nil
-	command.Stderr = nil
-	if err := command.Start(); err != nil {
-		return err
-	}
-	// Reap like memoryWorkerLaunchAfter: Wait in a goroutine keeps the launch
-	// non-blocking without leaving a <defunct> child for the parent's lifetime.
-	go func() { _ = command.Wait() }()
-	return nil
+	return launchDetachedSelf(repoDir, args...)
 }
 
-// newMemoryCheckpointWorkCommand is the detached half of the checkpoint hint:
-// notify records the hint and spawns this verb; this verb uploads the fact
-// store, throttled. Hidden — it is an internal dispatch target, not a user
-// surface.
-func newMemoryCheckpointWorkCommand(opts Options) *cobra.Command {
+// newMemoryPushWorkCommand is the detached half of the push hint: notify
+// dispatches this verb, and this verb uploads the fact store, throttled.
+// Hidden — it is an internal dispatch target, not a user surface.
+func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 	var branch string
 	cmd := &cobra.Command{
-		Use:    "checkpoint-work",
+		Use:    "push-work",
 		Hidden: true,
-		Short:  "Upload the fact store for a checkpoint hint (internal)",
+		Short:  "Upload the fact store for a push hint (internal)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			storage, err := resolveSessionsBrain(cmd.Context(), opts)
-			if err != nil {
-				return err
-			}
+			// One repo resolution: resolveSessionsBrain would run the same
+			// resolveLocalTargetRepoDir again internally, a redundant git
+			// spawn on every push.
 			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
 			}
-			hostedSyncOnCheckpointHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
+			storage, err := repoStoragePaths(cmd.Context(), opts.Runner, opts.Env, repoDir)
+			if err != nil {
+				return err
+			}
+			hostedSyncOnPushHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
 			return nil
 		},
 	}
@@ -89,8 +75,8 @@ type memoryNotifySyncMarker struct {
 	LastSyncAt time.Time `json:"last_sync_at"`
 }
 
-// hostedSyncOnCheckpointHint uploads the fact store on a checkpoint hint: the
-// hinted branch, then the default branch, throttled by a shared marker. It
+// hostedSyncOnPushHint uploads the fact store on a push hint: the hinted
+// branch, then the default branch, throttled by a shared marker. It
 // deliberately does NOT distill — the hint is an upload beat for facts that
 // already exist. Fact creation stays on the session-end hook and the daemon
 // tick until it moves into the memory worker with the session-end deprecation.
@@ -102,7 +88,14 @@ type memoryNotifySyncMarker struct {
 // hint, so nothing here may fail the caller — every outcome is reported on
 // errW and swallowed. The return value says whether the work ran, for tests
 // and for the caller's log line only.
-func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
+func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
+	// An explicit disconnect must cost nothing per push: bail before claiming
+	// the throttle or spawning sync work. An UNBOUND repo proceeds — the
+	// sync's auto-connect is the designed first-contact path, with its own
+	// gates.
+	if binding, present, err := readHostedRepoBinding(storage.BrainDir); err == nil && present && binding.OptedOut {
+		return false
+	}
 	claimed := false
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		now := opts.Now().UTC()
@@ -131,7 +124,7 @@ func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Option
 		syncBranches = append(syncBranches, distillDefaultBranch)
 	}
 	for _, syncBranch := range syncBranches {
-		if err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, syncBranch); err != nil {
+		if _, err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, syncBranch); err != nil {
 			fmt.Fprintf(errW, "memory notify: hosted fact sync failed (local brain unaffected): %v\n", err)
 		}
 	}

@@ -602,6 +602,11 @@ func (b *blockingContextAbstractor) Abstract(ctx context.Context, _ string, _ co
 }
 
 func TestDeterministicFailureCancelsDrainsAndSettlesAbstractProvider(t *testing.T) {
+	// The deterministic failure is observed on the lane's next poll tick;
+	// the production 5s interval is pure wait here.
+	prevPoll := memoryAbstractCancellationPollInterval
+	memoryAbstractCancellationPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { memoryAbstractCancellationPollInterval = prevPoll })
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 9, 4, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)

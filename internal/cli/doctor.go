@@ -643,6 +643,18 @@ func shellQuote(s string) string {
 // TestDoctorRemediesAreRealCommands resolves every `entire brain ...` value
 // here against the live command tree, so a renamed verb fails the build rather
 // than sending a user to a command that no longer exists.
+const (
+	// doctorSemanticProviderFinding is the one finding whose remedy is chosen
+	// by condition rather than by name; see doctorSemanticProviderRemedy.
+	doctorSemanticProviderFinding = "semantic provider"
+	// doctorGraphInstallRemedy and doctorBrainUpgradeRemedy are the two sides
+	// of that pair, as the README documents installing them. Neither is an
+	// `entire brain ...` verb, so neither is resolvable against the command
+	// tree: entire-brain installs and upgrades neither itself nor Graph.
+	doctorGraphInstallRemedy = "entire plugin install graph"
+	doctorBrainUpgradeRemedy = "curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash"
+)
+
 var doctorRemedies = map[string]string{
 	"brain":                  "entire brain setup",
 	"manifest":               "entire brain refresh",
@@ -673,8 +685,10 @@ var doctorRemedies = map[string]string{
 	// Entire CLI or the Graph provider, so the command is the one the README
 	// gives for installing them -- not an entire-brain verb that would quietly
 	// do nothing.
-	"memory_install":    "curl -fsSL https://entire.io/install.sh | bash",
-	"semantic provider": "entire plugin install graph",
+	"memory_install": "curl -fsSL https://entire.io/install.sh | bash",
+	// "semantic provider" is deliberately ABSENT: its remedy depends on which
+	// side of the pair is behind, which a name-keyed table cannot express.
+	// See doctorSemanticProviderRemedy.
 	// Quoted: unquoted, `<your` is an input redirection and the line fails with
 	// a redirection error instead of saying anything. A placeholder still has
 	// to survive being pasted.
@@ -688,12 +702,53 @@ func doctorRemedy(check doctorCheckResult) string {
 	if strings.HasPrefix(check.Name, "setup ") {
 		return "entire brain setup"
 	}
+	if check.Name == doctorSemanticProviderFinding {
+		return doctorSemanticProviderRemedy(check.Detail)
+	}
 	if remedy, ok := doctorRemedies[check.Name]; ok {
 		return remedy
 	}
 	// A check added later without a table entry still gets a command, because
 	// "no remedy" is the one answer a diagnostic must never give.
 	return doctorVerboseInvocation
+}
+
+// doctorSemanticProviderRemedy picks the remedy for the ONE finding whose fix
+// depends on the condition rather than on the finding's name.
+//
+// "semantic provider" reports a pair that has to agree: this build of
+// entire-brain and the entire-graph provider it reads. Either side can be the
+// one that is behind, and the table above is keyed by finding NAME, so it
+// could only ever name one of them. It named Graph. That is right when the
+// provider is absent and exactly backwards on a version skew, where the
+// provider is the side that is AHEAD:
+//
+//	semantic provider: warn (provider=degraded (semantic provider emitted
+//	schema_version "1.3" but this build reads 1.1; ...; but upgrade
+//	entire-b...; run `entire plugin install graph`)
+//
+// The message says upgrade Brain and the remedy says install Graph. Installing
+// Graph cannot help, and a newer Graph widens the skew it was offered for.
+//
+// Like every other classification of a provider failure here, this one reads
+// the FULL detail, never the truncated line: truncation cuts the skew message
+// mid-word ("upgrade entire-b..."), so a remedy chosen from what is printed
+// would flip back to the wrong side exactly when the line is long enough to
+// need the help.
+func doctorSemanticProviderRemedy(detail string) string {
+	if doctorSemanticProviderAhead(detail) {
+		return doctorBrainUpgradeRemedy
+	}
+	return doctorGraphInstallRemedy
+}
+
+// doctorSemanticProviderAhead reports whether the detail describes a provider
+// that is NEWER than this build, i.e. the skew where entire-brain is the side
+// to upgrade. It matches the remedy the message itself states, so the two can
+// only disagree if someone rewords the message without rewording this.
+func doctorSemanticProviderAhead(detail string) bool {
+	text := strings.ToLower(detail)
+	return strings.Contains(text, "upgrade entire-brain")
 }
 
 // doctorGateResult wraps a tripped gate the way `status --fail-on` does: the

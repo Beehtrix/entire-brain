@@ -5,7 +5,7 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
-24 pull requests and 253 commits since 0.1.0.
+29 pull requests and 360 commits since 0.1.0.
 
 The hosted-brain commands (`connect`, `publish`, `facts sync`) have a live
 server: brainstore is deployed across five production regions and three

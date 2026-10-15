@@ -16,22 +16,26 @@ import (
 // legitimate input, so we fail loudly instead of letting a single read exhaust
 // process memory. Callers needing a different bound pass it explicitly.
 
-// maxDocumentTranscriptBytes bounds a single document-form session transcript
-// slurped into memory. Long sessions are large but never approach this. A var
-// so the oversized-fixture test can exercise the bound without a 256 MiB
-// file.
-var maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
+// Vars, not consts, so oversized-fixture tests can lower a bound instead of
+// materializing the full-size condition under the race detector. Production
+// never changes them; TestOverridableProductionBoundsKeepTheirDefaults pins
+// the values.
+var (
+	// maxDocumentTranscriptBytes bounds a single document-form session
+	// transcript slurped into memory. Long sessions never approach this.
+	maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
 
-const (
 	// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
-	defaultMaxReadBytes = 64 << 20 // 64 MiB
-
-	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
-	maxSeedDocBytes = 32 << 20 // 32 MiB
+	defaultMaxReadBytes int64 = 64 << 20 // 64 MiB
 
 	// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
 	// Canonical Brain manifests use the dedicated, uncapped manifest reader.
-	maxManifestBytes = 16 << 20 // 16 MiB
+	maxManifestBytes int64 = 16 << 20 // 16 MiB
+)
+
+const (
+	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
+	maxSeedDocBytes = 32 << 20 // 32 MiB
 
 	// defaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is
 	// generous because a large monorepo's snapshot is legitimately big; operators

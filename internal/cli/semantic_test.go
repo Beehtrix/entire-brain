@@ -4714,6 +4714,19 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 		t.Fatalf("acquire semantic test lock: %v", err)
 	}
 	t.Cleanup(unlock)
+	// Every caller either asserts fast lock-contention failure or never
+	// contends, so the lowered timeout is always safe and never forgotten.
+	shortSemanticLockTimeout(t)
+}
+
+// shortSemanticLockTimeout makes lock contention fail in milliseconds instead
+// of the production window. The retry loop still runs: the override stays a
+// multiple of fileLockRetryInterval. Not safe in parallel tests.
+func shortSemanticLockTimeout(t *testing.T) {
+	t.Helper()
+	prev := semanticIndexLockTimeout
+	semanticIndexLockTimeout = 5 * fileLockRetryInterval
+	t.Cleanup(func() { semanticIndexLockTimeout = prev })
 }
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {

@@ -811,6 +811,9 @@ func TestMemoryLifecycleNotifyWarningsAndExactJobIssue(t *testing.T) {
 	originalLaunch := memoryWorkerLaunch
 	memoryWorkerLaunch = func(string) error { return os.ErrPermission }
 	t.Cleanup(func() { memoryWorkerLaunch = originalLaunch })
+	originalCheckpointLaunch := memoryCheckpointWorkLaunch
+	memoryCheckpointWorkLaunch = func(string, string) error { return nil }
+	t.Cleanup(func() { memoryCheckpointWorkLaunch = originalCheckpointLaunch })
 	textOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_end", "--session", "text-session")
 	if err != nil || !strings.Contains(textOut, "recorded session_end hint") {
 		t.Fatalf("notify text=%q err=%v", textOut, err)

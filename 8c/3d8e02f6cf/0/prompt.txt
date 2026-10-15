@@ -1,0 +1,13 @@
+yeah agre. i think this is right. update the trail with the latest code.
+
+---
+
+revie the findings here: 
+
+https://entire.io/gh/entireio/entire-brain/trails/278/replace-facts-semantic-retrieval-bundled-embedder-rrf-with/changes
+
+and resolve them
+
+---
+
+review the high finding an resolve it

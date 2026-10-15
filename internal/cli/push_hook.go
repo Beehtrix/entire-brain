@@ -85,9 +85,17 @@ const (
 // the previous hook. A pre-existing DIFFERENT backup rotates to a timestamped
 // name that no longer runs, and the install reports it.
 func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHookState, string, error) {
-	hooksDir, err := gitHooksDir(ctx, opts, repoDir)
+	hooksDir, inRepo, err := gitHooksDir(ctx, opts, repoDir)
 	if err != nil {
 		return "", "", err
+	}
+	if !inRepo {
+		// A shared core.hooksPath (a global ~/.githooks, say) serves EVERY
+		// repository at once: a hook written there fires for repos that never
+		// connected, and a later uninstall on one repo would strip it for all
+		// of them. Managing per-repo state in a shared directory is wrong in
+		// both directions, so refuse; uploads ride the daemon tick instead.
+		return pushHookSharedDir, hooksDir, nil
 	}
 	selfPath, err := os.Executable()
 	if err != nil {
@@ -163,6 +171,11 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 // callers (setup) leave the repo untouched in that case.
 const pushHookAbsent pushHookState = "absent"
 
+// pushHookSharedDir reports that core.hooksPath points outside this repo —
+// a directory shared across repositories — where per-repo hook management
+// must not write or delete anything.
+const pushHookSharedDir pushHookState = "shared-hooks-dir"
+
 // refreshPushHook updates an ALREADY-INSTALLED hook (ours in the primary slot
 // or moved aside by the host CLI) and never installs a fresh one. Setup owns
 // the upgrade beat — the baked selfPath goes stale when the plugin binary
@@ -171,9 +184,12 @@ const pushHookAbsent pushHookState = "absent"
 // not resurrect the hook, and setup on a never-connected repo must not move
 // other tools' hooks around for a feature that is gated off.
 func refreshPushHook(ctx context.Context, opts Options, repoDir string) (pushHookState, string, error) {
-	hooksDir, err := gitHooksDir(ctx, opts, repoDir)
+	hooksDir, inRepo, err := gitHooksDir(ctx, opts, repoDir)
 	if err != nil {
 		return "", "", err
+	}
+	if !inRepo {
+		return pushHookSharedDir, hooksDir, nil
 	}
 	primary := filepath.Join(hooksDir, pushHookName)
 	ours := false
@@ -198,9 +214,14 @@ func refreshPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 // replaced by whatever IT had chained to, so the host's chain line keeps
 // resolving. Missing pieces are fine: uninstall is idempotent.
 func uninstallPushHook(ctx context.Context, opts Options, repoDir string) error {
-	hooksDir, err := gitHooksDir(ctx, opts, repoDir)
+	hooksDir, inRepo, err := gitHooksDir(ctx, opts, repoDir)
 	if err != nil {
 		return err
+	}
+	if !inRepo {
+		// Install refuses shared dirs, so there is nothing of ours to remove —
+		// and removing anything there would act on every repo sharing the dir.
+		return nil
 	}
 	primary := filepath.Join(hooksDir, pushHookName)
 	backup := primary + pushHookBackupSuffix
@@ -259,13 +280,17 @@ func writePushHookFile(path, content string) error {
 // gitHooksDir is realGitHooksDir (git_harden.go — the resolver lives beside
 // the pin it reads around) plus creation: installers need the directory to
 // exist.
-func gitHooksDir(ctx context.Context, opts Options, repoDir string) (string, error) {
-	dir, err := realGitHooksDir(ctx, opts.Runner, repoDir)
+func gitHooksDir(ctx context.Context, opts Options, repoDir string) (string, bool, error) {
+	dir, inRepo, err := realGitHooksDir(ctx, opts.Runner, repoDir)
 	if err != nil {
-		return "", err
+		return "", false, err
+	}
+	if !inRepo {
+		// Never create a shared hooks directory on a repo's behalf.
+		return dir, false, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // hooks dirs are 0755 by convention
-		return "", err
+		return "", false, err
 	}
-	return dir, nil
+	return dir, true, nil
 }

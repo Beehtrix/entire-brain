@@ -54,9 +54,9 @@ func pushHookHarness(t *testing.T) (Options, string, string) {
 // no-opped everywhere.
 func TestGitHooksDirIgnoresTheHardenPin(t *testing.T) {
 	opts, repoDir, hooksDir := pushHookHarness(t)
-	dir, err := gitHooksDir(context.Background(), opts, repoDir)
-	if err != nil {
-		t.Fatal(err)
+	dir, inRepo, err := gitHooksDir(context.Background(), opts, repoDir)
+	if err != nil || !inRepo {
+		t.Fatalf("inRepo=%v err=%v", inRepo, err)
 	}
 	if dir != hooksDir {
 		t.Fatalf("pinned-only origins must resolve to the default hooks dir, got %q", dir)
@@ -67,9 +67,9 @@ func TestGitHooksDirHonorsFileConfiguredHooksPath(t *testing.T) {
 	repoDir := t.TempDir()
 	gitDir := filepath.Join(repoDir, ".git")
 	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir, fileHooksPath: ".husky"}}
-	dir, err := gitHooksDir(context.Background(), opts, repoDir)
-	if err != nil {
-		t.Fatal(err)
+	dir, inRepo, err := gitHooksDir(context.Background(), opts, repoDir)
+	if err != nil || !inRepo {
+		t.Fatalf("inRepo=%v err=%v", inRepo, err)
 	}
 	if dir != filepath.Join(repoDir, ".husky") {
 		t.Fatalf("relative core.hooksPath must resolve against the worktree, got %q", dir)
@@ -303,5 +303,53 @@ func TestResolveHooksPathValueExpandsTilde(t *testing.T) {
 	}
 	if got, err := resolveHooksPathValue(".husky", "/repo"); err != nil || got != filepath.Join("/repo", ".husky") {
 		t.Fatalf("relative: got %q err=%v", got, err)
+	}
+}
+
+func TestInstallPushHookRefusesSharedHooksDir(t *testing.T) {
+	// A global core.hooksPath (~/.githooks style) serves every repo at once: a
+	// hook written there fires for repos that never connected, and uninstall
+	// on one repo would strip it for all. Both directions must refuse.
+	repoDir := t.TempDir()
+	shared := filepath.Join(t.TempDir(), "githooks")
+	gitDir := filepath.Join(repoDir, ".git")
+	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir, fileHooksPath: shared}}
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookSharedDir {
+		t.Fatalf("state=%v path=%v err=%v", state, path, err)
+	}
+	if _, err := os.Stat(shared); !os.IsNotExist(err) {
+		t.Fatalf("refusal must not create the shared dir: %v", err)
+	}
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hook := filepath.Join(shared, "pre-push")
+	if err := os.WriteFile(hook, []byte(testHostHook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := uninstallPushHook(context.Background(), opts, repoDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readHook(t, hook); got != testHostHook {
+		t.Fatalf("uninstall must not touch a shared dir: %q", got)
+	}
+	if state, _, err := refreshPushHook(context.Background(), opts, repoDir); err != nil || state != pushHookSharedDir {
+		t.Fatalf("refresh state=%v err=%v", state, err)
+	}
+}
+
+func TestInstallPushHookAllowsWorktreeLocalHooksPath(t *testing.T) {
+	repoDir := t.TempDir()
+	gitDir := filepath.Join(repoDir, ".git")
+	opts := Options{Version: "test", Runner: hooksDirRunner{gitDir: gitDir, fileHooksPath: ".husky"}}
+
+	state, path, err := installPushHook(context.Background(), opts, repoDir)
+	if err != nil || state != pushHookInstalled {
+		t.Fatalf("state=%v err=%v", state, err)
+	}
+	if path != filepath.Join(repoDir, ".husky", "pre-push") {
+		t.Fatalf("hook must land in the worktree-local hooks dir, got %q", path)
 	}
 }

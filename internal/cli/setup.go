@@ -776,6 +776,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		progress.Skip("push hook: not refreshed (uploads ride the daemon tick): " + hookErr.Error())
 	} else {
 		switch hookState {
+		case pushHookSharedDir:
+			progress.Skip("push hook: core.hooksPath is shared across repos (" + hookPath + "); not managed — uploads ride the daemon tick")
 		case pushHookAbsent:
 			progress.Skip("push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)")
 		case pushHookUnchanged:

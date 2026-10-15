@@ -93,8 +93,10 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// A connected repo wants the push-beat upload: install our pre-push hook
 	// (chained beside whatever hook owns the slot). Best-effort — a hook
 	// problem must not fail the connect.
-	if _, _, hookErr := installPushHook(ctx, opts, repoDir); hookErr != nil {
+	if hookState, hookPath, hookErr := installPushHook(ctx, opts, repoDir); hookErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "connect: push hook not installed (uploads ride the daemon tick): %v\n", hookErr)
+	} else if hookState == pushHookSharedDir {
+		fmt.Fprintf(cmd.ErrOrStderr(), "connect: core.hooksPath (%s) is shared across repos; push hook not managed — uploads ride the daemon tick\n", hookPath)
 	}
 	// Connect doubles as the initial pull so a fresh clone receives team
 	// memories immediately; failures note and never fail the connect.

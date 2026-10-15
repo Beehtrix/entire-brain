@@ -90,10 +90,15 @@ const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
 // default, <git-common-dir>/hooks; the common dir so linked worktrees share
 // one hooks directory, exactly as git does. A relative value resolves against
 // the worktree, matching git (see the pin's comment on why that matters).
-func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, error) {
+// The second return reports whether the resolved directory belongs to THIS
+// repository (under its worktree or its git common dir). A shared
+// core.hooksPath — a global ~/.githooks, say — resolves for every repository
+// at once, and a caller that installs or removes files there acts on repos it
+// was never asked about.
+func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, bool, error) {
 	commonOut, err := gitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
 	if err != nil {
-		return "", fmt.Errorf("resolve git dir: %w", err)
+		return "", false, fmt.Errorf("resolve git dir: %w", err)
 	}
 	commonDir := strings.TrimSpace(commonOut)
 	if !filepath.IsAbs(commonDir) {
@@ -105,7 +110,7 @@ func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) 
 	// error, never "key unset".
 	valuesOut, err := gitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
 	if err != nil {
-		return "", fmt.Errorf("resolve core.hooksPath: %w", err)
+		return "", false, fmt.Errorf("resolve core.hooksPath: %w", err)
 	}
 	for _, value := range strings.Split(valuesOut, "\n") {
 		value = strings.TrimSpace(value)
@@ -114,11 +119,21 @@ func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) 
 		}
 		resolved, resolveErr := resolveHooksPathValue(value, repoDir)
 		if resolveErr != nil {
-			return "", resolveErr
+			return "", false, resolveErr
 		}
 		dir = resolved
 	}
-	return dir, nil
+	inRepo := dirWithin(dir, repoDir) || dirWithin(dir, commonDir)
+	return dir, inRepo, nil
+}
+
+// dirWithin reports whether path sits at or below root, lexically.
+func dirWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // resolveHooksPathValue resolves one core.hooksPath value the way git does:

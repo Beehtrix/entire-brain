@@ -36,7 +36,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
-		warning = "hosted binding unreadable: " + err.Error()
+		warning = "hosted binding unreadable (run 'entire brain connect' to rebind): " + err.Error()
 	case present && binding.OptedOut:
 		// Coordinates survive an opt-out (reconnect needs no placement
 		// resolution), so the target stays visible here too.

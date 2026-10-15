@@ -380,15 +380,13 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	}
 }
 
-// TestHostedSyncRepairsCorruptBinding pins the self-heal contract status
-// relies on: status reports a corrupt binding as local_only ("auto-connect
-// will retry"), so the sync path must actually treat it as absent and
-// re-resolve, not return early and leave the repo stuck.
-func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
-	now := time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-	remoteFact := hostedSyncTestFact("team fact after repair", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+// TestHostedSyncSkipsCorruptBindingWithoutReconnect pins the privacy rule
+// that killed the old corrupt-binding self-heal: an unreadable binding may
+// hide a recorded opt-out (`entire brain disconnect`), so NO read error may
+// fall through to auto-connect. Skip loudly and leave the file alone; the
+// remedy is an explicit `entire brain connect`.
+func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
+	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
@@ -399,7 +397,8 @@ func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
 		}
 		return nil, nil, errors.New("not available")
 	})
-	if err := os.WriteFile(filepath.Join(storage.BrainDir, hostedRepoBindingFile), []byte("{not json"), 0o600); err != nil {
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.WriteFile(bindingPath, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -407,15 +406,15 @@ func TestHostedSyncRepairsCorruptBinding(t *testing.T) {
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
-	if err != nil || !present {
-		t.Fatalf("corrupt binding must be repaired by auto-connect: present=%v err=%v\nstderr: %s", present, err, errOut.String())
+	if fake.requestCount() != 0 {
+		t.Fatalf("a corrupt binding must not sync anywhere, got %d requests", fake.requestCount())
 	}
-	if binding.RepoID != "repo1" || binding.BaseURL != baseURL {
-		t.Fatalf("repaired binding mismatch: %+v", binding)
+	data, err := os.ReadFile(bindingPath)
+	if err != nil || string(data) != "{not json" {
+		t.Fatalf("a corrupt binding must survive untouched, got %q err=%v", data, err)
 	}
-	if fake.requestCount() == 0 {
-		t.Fatal("repair must continue into the sync, not just rewrite the file")
+	if !strings.Contains(errOut.String(), "skipped") {
+		t.Fatalf("skip must be reported: %q", errOut.String())
 	}
 }
 

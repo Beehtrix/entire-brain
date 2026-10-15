@@ -1246,7 +1246,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		fmt.Fprintln(out, "\nHosted")
 		suffix := ""
 		if h.State == hostedStateLocalOnly {
-			suffix = " (no binding; will auto-connect when placement resolves)"
+			// True whether no binding exists yet or one is unreadable; sync
+			// only self-connects in the first case, so do not promise it.
+			suffix = " (not connected; run 'entire brain connect' to join)"
 		}
 		fmt.Fprintf(out, "  state: %s%s\n", hostedStateLabel(h.State), suffix)
 		if h.RepoID != "" {

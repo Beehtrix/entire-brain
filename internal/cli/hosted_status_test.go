@@ -231,4 +231,14 @@ func TestStatusHostedCorruptBindingFallsBackWithWarning(t *testing.T) {
 	if !found {
 		t.Fatalf("corrupt binding must surface a warning: %v", report.Warnings)
 	}
+
+	// Sync never self-heals a binding it cannot read, so status must not
+	// promise auto-connect here; the remedy is an explicit connect.
+	out, err := execute(t, NewRootCommand(opts), "status", "--verbose")
+	if err != nil {
+		t.Fatalf("status --verbose: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "auto-connect") {
+		t.Fatalf("unreadable binding must not promise auto-connect:\n%s", out)
+	}
 }

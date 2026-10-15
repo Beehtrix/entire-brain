@@ -27,11 +27,13 @@ const hostEntireBinary = "entire"
 // must not fail on hosted outages. The error return exists for programming
 // errors only.
 //
-// Gate order is fixed: (1) the local-only kill switch always wins; (2) the
-// repo binding is the connection state — absent, each run tries to resolve it
-// through the host CLI and falls back to local-only, silently, until that
-// succeeds; (3) apiurl.Validate before any client exists. A fresh token is
-// minted per call via the host CLI's own login and held only in memory.
+// Gate order is fixed: (1) the local-only kill switch always wins; (2) a
+// recorded opt-out (`entire brain disconnect`) stops sync AND auto-connect
+// until `connect` clears it; (3) the repo binding is the connection state —
+// absent, each run tries to resolve it through the host CLI and falls back to
+// local-only, silently, until that succeeds; (4) apiurl.Validate before any
+// client exists. A fresh token is minted per call via the host CLI's own login
+// and held only in memory.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
 	if brainNoEgressMode() {
 		return nil
@@ -41,19 +43,27 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return nil
 	}
+	if present && binding.OptedOut {
+		return nil
+	}
 	if !present {
-		// Auto-connect: placement comes from the host CLI (whereami), which
+		// Auto-connect: placement comes from the host CLI (repo view), which
 		// fails for a logged-out user, an unregistered repo, or a CLI without
 		// the command — all of which mean "stay local and retry next run".
-		// ponytail: an unresolvable repo re-runs whereami on every throttled
+		// ponytail: an unresolvable repo re-runs repo view on every throttled
 		// sync attempt; cache a negative result if that ever gets expensive.
-		resolved, whereamiErr := resolveWhereami(ctx, opts.Runner, repoDir)
-		if whereamiErr != nil {
+		resolved, placementErr := resolveHostedPlacement(ctx, opts.Runner, repoDir)
+		if placementErr != nil {
 			return nil
 		}
-		binding, err = bindHostedRepo(storage.BrainDir, resolved.RepoID, resolved.APIURL)
+		var bound bool
+		binding, bound, err = bindHostedRepoIfNotOptedOut(storage.BrainDir, resolved.RepoID, resolved.APIURL)
 		if err != nil {
 			fmt.Fprintf(errW, "hosted sync: auto-connect skipped: %v\n", err)
+			return nil
+		}
+		if !bound {
+			// A disconnect landed while placement was resolving; honor it.
 			return nil
 		}
 	}

@@ -14,6 +14,13 @@ import (
 
 // CommandRunner runs external commands. Tests replace it so export behavior
 // can be verified without requiring a real Entire checkout.
+//
+// Implementations MUST be safe for concurrent use. Export fans out the
+// per-checkpoint `entire checkpoint explain` calls across several goroutines,
+// because issuing them one at a time put `setup` at ~1 subprocess/second and a
+// repository with five figures of checkpoints never finished its first phase.
+// A double that records calls needs a lock; the race detector will find it if
+// it does not have one.
 type CommandRunner interface {
 	Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error)
 }

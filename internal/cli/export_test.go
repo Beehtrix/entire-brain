@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -22,6 +23,12 @@ type fakeCommandRunner struct {
 	// responses still win, so a test can force a specific failure.
 	fallback func(name string, args []string) (fakeCommandResponse, bool)
 	calls    []fakeCommandCall
+	// mu guards calls and the sequences map. CommandRunner is now invoked
+	// concurrently (prefetchCheckpointDetails fans out the per-checkpoint
+	// `checkpoint explain` subprocesses), so a double that records calls must
+	// be safe for it. The race detector caught this the first time the fan-out
+	// ran: two goroutines appending to calls, and two rewriting sequences.
+	mu sync.Mutex
 }
 
 type fakeCommandResponse struct {
@@ -55,6 +62,8 @@ func (r *fakeCommandRunner) RunWithEnv(ctx context.Context, dir string, env map[
 }
 
 func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	key := fakeCommandKey(name, args...)
 	var hasDeadline bool
 	if ctx != nil {

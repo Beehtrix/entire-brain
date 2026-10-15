@@ -55,7 +55,11 @@ nonprod. Confirm the client in this release points at the right cells.
   enforces it on every exit path of the tick (#366, COR-2114).
 - Auto-connect failures are reported, not silent, and a failed placement lookup
   is cached for ten minutes per repository so the session-end hook's two
-  branches do not each spend a shell-out timeout.
+  branches do not each spend a shell-out timeout. Both that note and the
+  `connect` error now lead with the command the reader can run
+  (`--repo-id`/`--api-url`) and name the unshipped host contract (COR-2029) as
+  the reason, instead of leading with a shell-out that looks like a local
+  breakage to fix.
 - `remember` returns the persisted merged fact in JSON.
 - An empty fact query names the branches that do hold facts.
 - The ollama chunk-size limits are real, and the advice that breaks them is
@@ -79,6 +83,11 @@ nonprod. Confirm the client in this release points at the right cells.
 - **Hosted brain client ships against a deployed server.** brainstore runs in
   five prod regions. Verify end-to-end (`connect`, then `facts sync`) before
   tagging — this client half has not been exercised against a live cell here.
+- **Automatic binding does not work yet.** Resolving a repository's hosted
+  placement needs the host CLI to provide `entire repo view --json`, which is
+  not shipped (COR-2029). Until it is, bind every repository by hand with
+  `connect --repo-id <repo id> --api-url <https://cell>`; the daemon and the
+  session-end hook stay local-only and say so.
 - **Sharing a brain is lossy.** `bundle import --overwrite` replaces the
   receiver's fact layer rather than merging it. The import now says so at the
   moment it happens, but one-way copy is the only sharing that works today.

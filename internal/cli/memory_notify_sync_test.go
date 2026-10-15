@@ -33,28 +33,8 @@ func notifySyncHarness(t *testing.T, now *time.Time) (Options, repoStorage) {
 	if err := os.MkdirAll(brainDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stubNotifyCheckpointWork(t)
 	opts := Options{Version: "test", Now: func() time.Time { return *now }}
 	return opts, repoStorage{Key: "test/repo", BrainDir: brainDir}
-}
-
-// stubNotifyCheckpointWork replaces the export and distill seams with no-ops
-// and returns the distilled session ids for assertions.
-func stubNotifyCheckpointWork(t *testing.T) *[]string {
-	t.Helper()
-	originalExport := notifyCheckpointExport
-	originalDistill := notifyCheckpointDistill
-	t.Cleanup(func() {
-		notifyCheckpointExport = originalExport
-		notifyCheckpointDistill = originalDistill
-	})
-	notifyCheckpointExport = func(context.Context, io.Writer, Options, string) error { return nil }
-	var sessions []string
-	notifyCheckpointDistill = func(_ context.Context, _ io.Writer, _ Options, _ string, sessionID string) error {
-		sessions = append(sessions, sessionID)
-		return nil
-	}
-	return &sessions
 }
 
 func TestCheckpointHintSyncsBranchAndDefault(t *testing.T) {
@@ -62,7 +42,7 @@ func TestCheckpointHintSyncsBranchAndDefault(t *testing.T) {
 	opts, storage := notifySyncHarness(t, &now)
 	calls := captureNotifyHostedSync(t)
 
-	ran := hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "s1", "feat-x")
+	ran := hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "feat-x")
 	if !ran {
 		t.Fatal("first checkpoint hint must sync")
 	}
@@ -76,7 +56,7 @@ func TestCheckpointHintSyncsDefaultBranchOnce(t *testing.T) {
 	opts, storage := notifySyncHarness(t, &now)
 	calls := captureNotifyHostedSync(t)
 
-	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "s1", distillDefaultBranch) {
+	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, distillDefaultBranch) {
 		t.Fatal("hint on the default branch must sync")
 	}
 	if len(*calls) != 1 || (*calls)[0] != distillDefaultBranch {
@@ -90,18 +70,18 @@ func TestCheckpointHintSyncThrottles(t *testing.T) {
 	calls := captureNotifyHostedSync(t)
 	repoDir := t.TempDir()
 
-	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "s1", "feat-x") {
+	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
 		t.Fatal("first hint must sync")
 	}
 	now = now.Add(memoryNotifyHostedSyncMinInterval - time.Second)
-	if hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "s1", "feat-x") {
+	if hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
 		t.Fatal("hint inside the interval must be throttled")
 	}
 	if len(*calls) != 2 {
 		t.Fatalf("throttled hint must not sync, got %d calls", len(*calls))
 	}
 	now = now.Add(2 * time.Second)
-	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "s1", "feat-x") {
+	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, repoDir, storage, "feat-x") {
 		t.Fatal("hint after the interval must sync again")
 	}
 	if len(*calls) != 4 {
@@ -117,7 +97,7 @@ func TestCheckpointHintSyncEmptyBranchFallsBackToDefault(t *testing.T) {
 	opts.Runner = gitlessRunner{}
 	calls := captureNotifyHostedSync(t)
 
-	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "s1", "") {
+	if !hostedSyncOnCheckpointHint(context.Background(), io.Discard, opts, t.TempDir(), storage, "") {
 		t.Fatal("hint without a branch must still sync")
 	}
 	if len(*calls) != 1 || (*calls)[0] != distillDefaultBranch {
@@ -125,27 +105,41 @@ func TestCheckpointHintSyncEmptyBranchFallsBackToDefault(t *testing.T) {
 	}
 }
 
-func TestNotifyCommandSyncsOnCheckpointEventOnly(t *testing.T) {
+func TestNotifyCommandDispatchesCheckpointWorkDetached(t *testing.T) {
 	opts, _ := memoryAdminCommandFixture(t)
 	originalLaunch := memoryWorkerLaunch
 	memoryWorkerLaunch = func(string) error { return nil }
 	t.Cleanup(func() { memoryWorkerLaunch = originalLaunch })
-	calls := captureNotifyHostedSync(t)
-	distilled := stubNotifyCheckpointWork(t)
+	originalWork := memoryCheckpointWorkLaunch
+	t.Cleanup(func() { memoryCheckpointWorkLaunch = originalWork })
+	var launches []string
+	memoryCheckpointWorkLaunch = func(_ string, branch string) error {
+		launches = append(launches, branch)
+		return nil
+	}
 
 	if _, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_start", "--session", "s1"); err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 0 {
-		t.Fatalf("session_start must not sync, got %v", *calls)
+	if len(launches) != 0 {
+		t.Fatalf("session_start must not dispatch checkpoint work, got %v", launches)
 	}
 	if _, err := execute(t, newMemoryNotifyCommand(opts), "--event", "checkpoint", "--session", "s1", "--branch", "feat-x"); err != nil {
 		t.Fatal(err)
 	}
-	if len(*calls) != 2 || (*calls)[0] != "feat-x" {
-		t.Fatalf("checkpoint must sync the hinted branch then default, got %v", *calls)
+	if len(launches) != 1 || launches[0] != "feat-x" {
+		t.Fatalf("checkpoint must dispatch the hinted branch, got %v", launches)
 	}
-	if len(*distilled) != 1 || (*distilled)[0] != "s1" {
-		t.Fatalf("checkpoint must distill the hinted session, got %v", *distilled)
+}
+
+func TestCheckpointWorkCommandRunsThrottledSync(t *testing.T) {
+	opts, _ := memoryAdminCommandFixture(t)
+	calls := captureNotifyHostedSync(t)
+
+	if _, err := execute(t, newMemoryCheckpointWorkCommand(opts), "--branch", "feat-x"); err != nil {
+		t.Fatal(err)
+	}
+	if len(*calls) != 2 || (*calls)[0] != "feat-x" {
+		t.Fatalf("checkpoint work must sync the hinted branch then default, got %v", *calls)
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -26,54 +28,81 @@ const memoryNotifySyncMarkerName = "hosted_sync_notify.json"
 // notifyHostedFactsSync is a test seam over hostedFactsSyncAndPull.
 var notifyHostedFactsSync = hostedFactsSyncAndPull
 
-// notifyCheckpointExport refreshes the brain's exported transcripts (changed
-// sessions only) so distill sees the checkpoint that raised this hint. Test
-// seam over the same short-term delta the session-end hook runs.
-var notifyCheckpointExport = func(ctx context.Context, errW io.Writer, opts Options, repoDir string) error {
-	sub := &cobra.Command{}
-	sub.SetContext(ctx)
-	sub.SetOut(errW)
-	sub.SetErr(errW)
-	_, err := watchShortTermDelta(ctx, sub, opts, repoDir)
-	return err
+// memoryCheckpointWorkLaunch spawns `memory checkpoint-work` detached, the same
+// shape as memoryWorkerLaunch: `memory notify` is a fast content-free hint and
+// must never carry the upload's network round trips inline — a host adapter
+// may invoke it synchronously. The child runs with the worker-origin
+// environment so nothing it shells out to re-notifies. Injectable for tests;
+// a launch failure never fails the host.
+var memoryCheckpointWorkLaunch = func(repoDir, branch string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	args := []string{"memory", "checkpoint-work"}
+	if branch != "" {
+		args = append(args, "--branch", branch)
+	}
+	command := exec.Command(exe, args...)
+	command.Dir = repoDir
+	command.Env = memoryWorkerChildEnvironment(os.Environ(), repoDir)
+	command.Stdout = nil
+	command.Stderr = nil
+	if err := command.Start(); err != nil {
+		return err
+	}
+	// Reap like memoryWorkerLaunchAfter: Wait in a goroutine keeps the launch
+	// non-blocking without leaving a <defunct> child for the parent's lifetime.
+	go func() { _ = command.Wait() }()
+	return nil
 }
 
-// notifyCheckpointDistill distills the hinted session. The chunk cache makes
-// this cheap per commit: chunking is prefix-stable, so only the transcript
-// tail added since the previous checkpoint dispatches an agent call, and its
-// facts anchor to the checkpoint that raised the hint. Test seam.
-var notifyCheckpointDistill = func(ctx context.Context, errW io.Writer, opts Options, repoDir, sessionID string) error {
-	sub := &cobra.Command{}
-	sub.SetContext(ctx)
-	sub.SetOut(errW)
-	sub.SetErr(errW)
-	distillOpts := distillCommandOptions{
-		session:             sessionID,
-		agent:               "auto",
-		timeout:             defaultDistillTimeout,
-		maxChunkBytes:       defaultDistillChunkSize,
-		confidenceThreshold: defaultFactConfidenceThreshold,
-		concurrency:         defaultDistillConcurrency,
+// newMemoryCheckpointWorkCommand is the detached half of the checkpoint hint:
+// notify records the hint and spawns this verb; this verb uploads the fact
+// store, throttled. Hidden — it is an internal dispatch target, not a user
+// surface.
+func newMemoryCheckpointWorkCommand(opts Options) *cobra.Command {
+	var branch string
+	cmd := &cobra.Command{
+		Use:    "checkpoint-work",
+		Hidden: true,
+		Short:  "Upload the fact store for a checkpoint hint (internal)",
+		Args:   cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			storage, err := resolveSessionsBrain(cmd.Context(), opts)
+			if err != nil {
+				return err
+			}
+			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			if err != nil || !local {
+				return nil // no local repo: silence, never an error
+			}
+			hostedSyncOnCheckpointHint(cmd.Context(), cmd.ErrOrStderr(), opts, repoDir, storage, strings.TrimSpace(branch))
+			return nil
+		},
 	}
-	return runDistill(ctx, sub, opts, distillOpts, repoDir)
+	cmd.Flags().StringVar(&branch, "branch", "", "Captured branch when the host knows it")
+	return cmd
 }
 
 type memoryNotifySyncMarker struct {
 	LastSyncAt time.Time `json:"last_sync_at"`
 }
 
-// hostedSyncOnCheckpointHint runs the checkpoint-hint work: export the changed
-// transcripts, distill the hinted session (tail chunks only, via the chunk
-// cache), then sync the hinted branch and the default branch — throttled by a
-// shared marker. The marker is claimed BEFORE the work so concurrent notify
-// processes skip instead of stampeding; a failed run after the claim simply
-// waits out the interval, which the never-fails contract already tolerates.
+// hostedSyncOnCheckpointHint uploads the fact store on a checkpoint hint: the
+// hinted branch, then the default branch, throttled by a shared marker. It
+// deliberately does NOT distill — the hint is an upload beat for facts that
+// already exist. Fact creation stays on the session-end hook and the daemon
+// tick until it moves into the memory worker with the session-end deprecation.
+// The marker is claimed BEFORE the work so concurrent notify processes skip
+// instead of stampeding; a failed run after the claim simply waits out the
+// interval, which the never-fails contract already tolerates.
 //
 // Same contract as hostedFactsSyncAndPull: this runs behind a host lifecycle
 // hint, so nothing here may fail the caller — every outcome is reported on
 // errW and swallowed. The return value says whether the work ran, for tests
 // and for the caller's log line only.
-func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, sessionID, branch string) bool {
+func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) bool {
 	claimed := false
 	if err := withBrainWriteLock(storage.BrainDir, func() error {
 		now := opts.Now().UTC()
@@ -92,19 +121,6 @@ func hostedSyncOnCheckpointHint(ctx context.Context, errW io.Writer, opts Option
 	}
 	if !claimed {
 		return false
-	}
-
-	// Export before distill: distill reads the exported transcript, and the
-	// checkpoint that raised this hint is exactly what the delta brings in.
-	// Both steps are best-effort; the sync still runs so facts already in the
-	// store reach the trail even when the agent is unavailable.
-	if err := notifyCheckpointExport(ctx, errW, opts, repoDir); err != nil {
-		fmt.Fprintf(errW, "memory notify: incremental export failed: %v\n", err)
-	}
-	if sessionID != "" {
-		if err := notifyCheckpointDistill(ctx, errW, opts, repoDir, sessionID); err != nil {
-			fmt.Fprintf(errW, "memory notify: distill skipped: %v\n", err)
-		}
 	}
 
 	if branch == "" {

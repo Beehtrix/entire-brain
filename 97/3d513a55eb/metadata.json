@@ -1,0 +1,35 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "973d513a55eb",
+  "strategy": "manual-commit",
+  "branch": "bratislava",
+  "checkpoints_count": 13,
+  "files_touched": [
+    ".context/bench.sh",
+    ".context/bench/cold_repos.sh",
+    ".context/bench/long_big.sh"
+  ],
+  "sessions": [
+    {
+      "metadata": "/97/3d513a55eb/0/metadata.json",
+      "transcript": "/97/3d513a55eb/0/full.jsonl",
+      "compact_transcript": "/97/3d513a55eb/0/transcript.jsonl",
+      "content_hash": "/97/3d513a55eb/0/content_hash.txt",
+      "prompt": "/97/3d513a55eb/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 124,
+    "cache_creation_tokens": 112482,
+    "cache_read_tokens": 5400206,
+    "output_tokens": 40413,
+    "api_call_count": 62,
+    "subagent_tokens": {
+      "input_tokens": 28,
+      "cache_creation_tokens": 74929,
+      "cache_read_tokens": 613475,
+      "output_tokens": 4588,
+      "api_call_count": 14
+    }
+  }
+}

@@ -393,7 +393,7 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			report := buildBrainRetrievalStatus(context.Background(), runner, brainDir, repoDir, test.manifest, test.live)
+			report := buildBrainRetrievalStatus(context.Background(), runner, brainDir, repoDir, test.manifest, test.live, true)
 			if report.Freshness.Severity != test.severity {
 				t.Fatalf("severity = %q, want %q: %+v", report.Freshness.Severity, test.severity, report.Freshness.Axes)
 			}

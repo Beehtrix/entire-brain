@@ -4587,7 +4587,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live, !lightweight)
 		if report.Retrieval != nil {
 			if lightweight && manifest.Sources.History != nil {
 				h := manifest.Sources.History
@@ -4618,7 +4618,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState, audit bool) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
@@ -4640,6 +4640,8 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
 			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+		case !audit:
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {

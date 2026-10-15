@@ -863,7 +863,11 @@ warnings, and live state. `--json` changes presentation, not inspection depth;
 `memory`, fact `verification`/content-integrity results, coverage histograms, and
 changed-symbol hints are no longer computed by status. MCP `brain_status` and
 `brain_index_status` use the same boundary; `details: true` includes file
-classifications only.
+classifications only. Status does not fingerprint working-tree contents: dirty
+semantic and seed snapshots report `degraded` with content matching explicitly
+not verified, even after `refresh --worktree`. Known missing fingerprints, HEAD
+mismatches, and committed-only indexes still report their specific freshness
+problems. Doctor and strict retrieval/overview retain content fingerprint checks.
 
 Use `entire brain doctor` for deep diagnostics: artifact integrity, manifest/store
 count reconciliation, current-branch fact-anchor verification, history/memory

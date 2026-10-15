@@ -2992,7 +2992,7 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
 	currentWorktreeHash := ""
 	var currentWorktreeHashErr error
-	if dirty && source.WorktreeHash != "" {
+	if audit && dirty && source.WorktreeHash != "" {
 		currentWorktreeHash, currentWorktreeHashErr = worktreeFingerprint(ctx, opts.Runner, repoDir)
 	}
 	if headErr != nil {
@@ -3014,6 +3014,10 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
 	case dirty && source.WorktreeMode != "worktree":
 		axes["worktree"] = staleAxis{State: "dirty-unindexed", Detail: "semantic index is based on committed HEAD"}
+	case !audit && dirty && source.WorktreeHash == "":
+		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree semantic snapshot has no verifiable fingerprint; refresh again with --worktree"}
+	case !audit && dirty:
+		axes["worktree"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents"}
 	case currentWorktreeHashErr != nil:
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + currentWorktreeHashErr.Error()}
 	case dirty && source.WorktreeHash != "" && source.WorktreeHash != currentWorktreeHash:

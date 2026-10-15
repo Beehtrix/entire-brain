@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
@@ -35,7 +36,7 @@ func newConnectCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "connect",
 		Short: "Bind this repository to its hosted brain explicitly",
-		Long: `connect binds this repository to its hosted brain: it records the repo id and
+		Long: fmt.Sprintf(`connect binds this repository to its hosted brain: it records the repo id and
 API base URL (non-secrets only — the host CLI's own login mints a fresh token
 per sync), then runs one immediate sync so the first pull happens right away.
 
@@ -44,7 +45,7 @@ works today: automatic resolution asks the host CLI for "entire repo view
 --json" (COR-2029), which is not shipped yet, so the daemon and session-end
 hook stay local-only until this repository is bound by hand. Explicit flags are
 also how you reach a non-default cell or a staging target, and connect is also
-how you re-join after 'entire brain disconnect'.`,
+how you re-join after '%s'.`, brainInvocation(os.LookupEnv, "disconnect")),
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runConnect(cmd, opts, connectOpts)
@@ -85,7 +86,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 				// local breakage to fix; the command it named does not exist
 				// anywhere yet, so there is nothing to fix and no reason to
 				// go looking.
-				return fmt.Errorf("connect: bind this repository explicitly: `entire brain connect --repo-id <repo id> --api-url <https://cell>`; automatic binding needs a host CLI providing `entire repo view --json`, which is not shipped yet (COR-2029), and resolving it here failed: %w", placementErr)
+				return fmt.Errorf("connect: bind this repository explicitly: `%s --repo-id <repo id> --api-url <https://cell>`; automatic binding needs a host CLI providing `entire repo view --json`, which is not shipped yet (COR-2029), and resolving it here failed: %w", brainInvocation(os.LookupEnv, "connect"), placementErr)
 			}
 		}
 		if repoID == "" {

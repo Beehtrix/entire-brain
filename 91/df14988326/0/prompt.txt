@@ -1,0 +1,11 @@
+link to pr
+
+---
+
+let's talk through the distill process now. that happens here. 
+
+in my mind this shouldn't touch distill at all since any facts that it's created shoudl already be in the fact store. so tell me what it's doing.
+
+---
+
+yeah split it out into a separate trail

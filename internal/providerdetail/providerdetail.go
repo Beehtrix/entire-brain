@@ -115,6 +115,11 @@ func Missing(detail string) bool {
 		"executable file not found",
 		"no such file or directory",
 		"command not found",
+		// Newer host CLIs have a `graph` dispatcher that reports the absent
+		// plugin by name instead of rejecting an unknown command. Added on
+		// main while this package was being extracted; folding the two
+		// implementations together must not drop it.
+		"plugin is not installed",
 	} {
 		if strings.Contains(text, marker) {
 			return true

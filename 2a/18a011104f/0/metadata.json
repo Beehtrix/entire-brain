@@ -1,0 +1,287 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "2a18a011104f",
+  "session_id": "2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T04:27:01.684902Z",
+  "branch": "memory-trail-attachment-design",
+  "checkpoints_count": 29,
+  "save_step_count": 16,
+  "files_touched": [
+    "internal/cli/distill_chunk_cache_test.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/memory_cmd.go",
+    "internal/cli/memory_lifecycle_regression_test.go",
+    "internal/cli/memory_notify_sync.go",
+    "internal/cli/memory_notify_sync_test.go",
+    "internal/cli/session_privacy.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "d42a12f2fd30",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 510,
+    "cache_creation_tokens": 5438940,
+    "cache_read_tokens": 72338820,
+    "output_tokens": 251749,
+    "api_call_count": 255
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01N6Z5TZd2pA7BY8pFZeKvBp",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "superpowers:brainstorming"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d42a12f2fd30",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 26,
+        "end": 27,
+        "entry_ids": [
+          "68df271c-3be2-493d-8818-8f09d0dcec01"
+        ],
+        "tool_use_id": "toolu_01N6Z5TZd2pA7BY8pFZeKvBp"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01N6Z5TZd2pA7BY8pFZeKvBp"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: superpowers:brainstorming",
+        "default_collapsed": true
+      }
+    },
+    {
+      "id": "claude-skill-toolu_01MdWFxi4cpimiyMAghKEuJZ",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "anthropic-skills:docs"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "d42a12f2fd30",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 587,
+        "end": 588,
+        "entry_ids": [
+          "0c6eb87f-7618-4229-b494-6581f4243ada"
+        ],
+        "tool_use_id": "toolu_01MdWFxi4cpimiyMAghKEuJZ"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01MdWFxi4cpimiyMAghKEuJZ"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: anthropic-skills:docs",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 29
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-15T04:27:01.602539Z",
+    "agent_lines": 448,
+    "agent_removed": 0,
+    "human_added": 48,
+    "human_modified": 12,
+    "human_removed": 0,
+    "total_committed": 502,
+    "total_lines_changed": 508,
+    "agent_percentage": 88.18897637795276,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 101,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 101
+      }
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 106,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 106
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 108,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 108
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 187,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 187
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 76,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 76
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 94,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 94
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 106,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 106
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 106,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 106
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 118,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 118
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 118,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 118
+      }
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 125,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125
+      }
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 125,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125
+      }
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 145,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125,
+        ".context/cor-2110-table-of-truth.md": 20
+      }
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 147,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125,
+        ".context/cor-2110-table-of-truth.md": 22
+      }
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 147,
+      "user_lines_removed": 0,
+      "agent_lines_added": 234,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125,
+        ".context/cor-2110-table-of-truth.md": 22
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 177,
+      "user_lines_removed": 6,
+      "agent_lines_added": 484,
+      "agent_lines_removed": 4,
+      "user_added_per_file": {
+        ".context/cor-2110-memories-trails-design.md": 125,
+        ".context/cor-2110-table-of-truth.md": 22,
+        "internal/cli/memory_notify_sync_test.go": 30
+      },
+      "user_removed_per_file": {
+        "internal/cli/memory_notify_sync_test.go": 6
+      }
+    }
+  ]
+}

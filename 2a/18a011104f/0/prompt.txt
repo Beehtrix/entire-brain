@@ -1,0 +1,247 @@
+<system_instruction>
+You are working inside Conductor, a Mac app that lets the user run many coding agents in parallel.
+Your work should take place in the /Users/evisdrenova/conductor/workspaces/entire-brain/hyderabad directory (unless otherwise directed), which has been set up for you to work in.
+Each workspace has a .context directory (gitignored) where you can save files to collaborate with other agents.
+The target branch for this workspace is origin/main. Use this for actions like diffing (`git diff origin/main...`) or creating PRs (`gh pr create --base main`).
+You're on a new branch with a placeholder name. Conductor will automatically rename it in the background to match your task.
+
+Do not rename the current branch unless the user explicitly tells you to do so.
+
+By default, the user will only see the last message that you send before stopping. Include all essential information in the last message. The intermediate messages will be collapsed and accessible by the user but not displayed by default.
+
+Save screenshots under `.context/` and embed them inline in the final response using Markdown image syntax, for example `![Screenshot](</Users/evisdrenova/conductor/workspaces/entire-brain/hyderabad/.context/screenshot.png>)`.
+
+If the user asks you to work on several unrelated tasks, you can suggest they start new workspaces.
+Sometimes the user might send you a message they meant to send in a different workspace or a different chat. If something doesn't make sense in the context of your work, just ask.
+If the user asks for help with Conductor, you can ask them to go to "Help -> Send Feedback" to get in touch with our team.
+</system_instruction>
+
+okay we need to now look at teh brain and brianstore data structure and how we store memories.
+
+one of the problems right now is that we store them next to branches but branches are ephemeral and renamed. i know we also store SHAs as well. Additionally, we need to attach them to a trail where we can. but some memories might be created with a trail or not? or not even on a feature branch and just on a main branch if the user is just doing some exploration. So we need to be able to handle these situations.
+
+thisi s the ticket to track: https://linear.app/entirehq/issue/COR-2110/design-how-memories-attach-to-trails-upload-scope-triggers-edge-cases
+
+put it in progress.
+
+here is some more context: 
+
+Ran into something while working on auto-deletion and restoration of branches: it seems like brainstore context is currently based on the name of a branch. If a branch name is recycled, I believe this may result in things getting mixed up.
+
+I have very little context here, but this seems an important thing to address. Claude proposed to key by trail ID or HEAD commit and the branch name, instead of just the branch.
+
+and "After merge, the branch usually gets deleted and with that all the memories are gone because the endpoint returns an empty list. Maybe that’s intentional and I’m just twisting what was said above but worth flagging I guess""
+
+they're all kind of sayign the same thing. 
+
+So we need to resolve this for teh local brain use-case as well as the brainstore usecase where we store this in the remote and show it in trails. 
+
+this also goes hand in hand with when we actually store these? on commit? on a background job at an interval? on trail creation? we need to resolve this lifecycle
+
+---
+
+1. yes
+2. not sure what you mean here?
+3. no i think they go away
+
+we have the brainstore locally, or you can pull it into this workspace.
+
+---
+
+yeah repo default. 
+
+explain to me the workflow end to end then on what the facts are keyed on, when they're uploaded and how it interacts with trails and teh data model in brainstore
+
+---
+
+do we already have the post-commit events coming from the entire cli to the plugin that we can listen to? 
+
+what is the trail scope? how do we know that these memories belong to this trail? are we going by the branch name?
+
+---
+
+can we diagram this?
+
+---
+
+okay let's start from first principles here. no locked decisions. if we're starting from first princples to make this work across local and hosted and the events how woudl we design this?
+
+
+in my mind, we need a better key for the memory -> trail resolution than the branch, though that might be the best one. it feelsl ike it shouldn't be? it needs to be determinsitic and easy to look up.
+
+memories should show up on the trail with commits which is why i want to hook into the events. but we also need to handle the situations where there isn't a branch or even a commit potentially. 
+
+let's talk through this and then after we can diff it twith the current approach.
+
+---
+
+<system_instruction>
+The user has attached these files. Read them before proceeding.
+- .context/attachments/fSwfo9/CleanShot 2026-10-14 at 15.22.51.png (88.6 KB)
+</system_instruction>
+
+
+
+yes. 
+
+.context/attachments/fSwfo9/CleanShot 2026-10-14 at 15.22.51.png 
+
+i like this table as well.
+
+so give me the two sentence summary. it souhnds liek we anchor on the cehckpoint + commit + session if available adn degrade from there. then we push on commit when we pusht he chceckpoint?
+
+---
+
+rewrite the doc to be very straightforward and technical. no weird loopy language or like passive languag. just very simple and honest and straightforwad.
+
+---
+
+okay much better. this is how we should write in general moving forward.
+
+one question:
+
+Job 1: transport (which bucket a sync merges into)
+Unchanged, with one fix. The client keeps publishing the full active fact set per (repo, branch) with read-merge-CAS. The fix: a recycled branch name must not merge into the previous branch’s head. Store a lineage marker with each head (for example the branch-creation commit). If the marker does not match, start a new head instead of merging. The local store gets the same fix via a lineage.json file per branch directory (COR-2126): detect rename (move the directory) and recycle (archive the directory, start fresh).
+
+
+why do we still need this? can we get rid of it?
+
+---
+
+yes update the proposal and tickets
+
+---
+
+create an artifact fo the plan and return the link
+
+---
+
+does facts track the commit that it was geenrated in or tied to?
+
+---
+
+do we actually need the distill path? what is teh downside of just having one interface (remember) for the memories
+
+---
+
+okay here are the notes from the conversation:
+
+notes
+• add the trail_id to the fact so we can filter by that later. probably do it on trail merge
+• for merged rtails we fall back to the backlink to associate facts with main in repo memory page view
+• push is the right time to synchronize
+• will old distill transcripts have a session ID? and a checkpoint ID?
+    ◦ no commit though?
+    ◦ if we have the checkpoint id then we could look up the commit?
+    ◦ how does the distill actually work?
+• backwards capability for all of this?
+• 
+
+we're going to keep the distill pipeline as-is. 
+
+really the upstraem ingestion of the agent using remember or distill should all funnel into the fact store. then we push from the fact store on post commit to brainstore. then the trail naturally should only pull in the facts that have a checkpoint/commit that is on th trail, so everything else naturally falls out.
+
+---
+
+how does the distill work though? like say that i have a distill job running in the background, what exactly is happening? what is it processing? how and using what model and in what way?
+
+---
+
+where do we pull the sesson transcripts from for the distill pass?
+
+---
+
+does distill copy over the transcripts from git into it's own directory?
+
+---
+
+sad. okay we need to fix this then. otherwise, we shoudl keep the distill pipeline as a feeder into the fact store. 
+
+on push i mena on the post commit hook.
+
+---
+
+okay lets list out the plan then for these changes given our approach. make it concise so i can review it.
+
+---
+
+let's talk through how this works throughout a trail. for example, im doing work and a fact gets created and i push a commit. that fact goes to the brainstore. then i do more work and another fact adn then another commit. and so on until the trail merges. 
+
+how does this get treated?
+
+---
+
+some comments:
+
+1. where aer you getting the commit from? are you pullilng it from the commit graph in git? otherwise, we shoudl stamp a commit on a distilled session. for example, i have a distill runnin g in the background and also doing agent work locally, if we stamp the current commit then it looks like that fact is tied to that current commit when it's really from a previous session. So either we tie it to the correct commit by following the commit graph or we leave it blank.
+
+2. i think this makes sense
+
+3. we will eventually remove the session-end event (it has a lot of problems i.e. develoeprs soemtimes leave their sessions running forever). the main event we should be following is the post-commit hook. 
+
+4. need more info on this and how this interacts with 2123. where is the event coming from? how is it being triggered?
+5. yes.
+6. yes
+7. we just shouldn't have a local cache? for what? if we have the git repo, we shoudl just point to that and extract from there isnetad of duplicating storage. 
+
+let's handle these and then update our plan here and then tell me the hnew plan and i will review again
+
+---
+
+let's talk through the still open ones. repo-pool UX shoudl just have nulls for the session and checkpoints though i think if ther eis an agent involved there shoudl always be a session id? 
+
+how about the others
+
+---
+
+1 yes
+2 yes
+3 yes and we shoudl just use the platform standard pgaination pattern. do not invent anytihng new here if we don't need to.
+
+---
+
+okay.
+
+one more time on all of the decisons. one sentence for each along with the ticket link and return them in order.
+
+---
+
+okay i want you to make a table with all of these summaries and tickets. as we work through these tickets one by one, i want you to cross each one off the list and then return the table so we can work on the next one. this shoudl serve as our table of truth. 
+
+construct the table now.
+
+---
+
+and for each ticket, make sure to move it through the stages in linear as well. 
+
+okay let's start on the first one.
+
+---
+
+yeah same ticket is fine, ust attach each trail to it. 
+
+for a. what is the mechanism here for brain notify? 
+
+for b. what do you mean "launches teh worker" is the distill worker and then fires the loaded facts into brainstore? 
+
+c. how do you propose this works end to end?
+
+---
+
+<task-notification>
+<task-id>bp8ftuptz</task-id>
+<tool-use-id>toolu_0178TWW9rTEyp2kCyVu79qge</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/bp8ftuptz.output</output-file>
+<status>completed</status>
+<summary>Background command "Format check, full build, and run both touched packages' tests" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bvsdvdrjx</task-id>
+<tool-use-id>toolu_01JtFBWqUehBbX5diAWEzrrt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/bvsdvdrjx.output</output-file>
+<status>completed</status>
+<summary>Background command "Run full internal/cli test suite with race detection" completed (exit code 0)</summary>
+</task-notification>

@@ -76,6 +76,7 @@ type brainStatusReport struct {
 	Brain       brainStatusBrain      `json:"brain"`
 	Sources     brainStatusSources    `json:"sources"`
 	Facts       *brainStatusFacts     `json:"facts,omitempty"`
+	Hosted      *brainStatusHosted    `json:"hosted,omitempty"`
 	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
 	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
 	// Onboarding is the `setup` progress projection: fact-backfill counters,
@@ -1224,6 +1225,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
 		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
+	if h := report.Hosted; h != nil {
+		fmt.Fprintf(out, "\n%s\n", hostedStatusLine(h))
+	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
@@ -4593,6 +4597,15 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			}
 		}
 		report.Sources.Docs = manifest.Sources.Docs != nil
+	}
+	var factBranches []string
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		factBranches = manifest.Sources.Facts.Branches
+	}
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches)
+	report.Hosted = hosted
+	if hostedWarning != "" {
+		report.Warnings = append(report.Warnings, hostedWarning)
 	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {

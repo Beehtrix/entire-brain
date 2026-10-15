@@ -344,9 +344,9 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			// whereami quotes the cell URL with its /api/v1 prefix; binding must strip it.
-			return []byte(`{"repo_id":"repo1","api_url":"` + baseURL + `/api/v1"}` + "\n"), nil, nil
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			// repo view quotes the cell URL with its /api/v1 prefix; binding must strip it.
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `/api/v1","name":"test/repo"}` + "\n"), nil, nil
 		}
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
@@ -380,11 +380,89 @@ func TestHostedSyncAutoConnectsWhenUnbound(t *testing.T) {
 	}
 }
 
+// TestHostedSyncSkipsCorruptBindingWithoutReconnect pins the privacy rule
+// that killed the old corrupt-binding self-heal: an unreadable binding may
+// hide a recorded opt-out (`entire brain disconnect`), so NO read error may
+// fall through to auto-connect. Skip loudly and leave the file alone; the
+// remedy is an explicit `entire brain connect`.
+func TestHostedSyncSkipsCorruptBindingWithoutReconnect(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.WriteFile(bindingPath, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("a corrupt binding must not sync anywhere, got %d requests", fake.requestCount())
+	}
+	data, err := os.ReadFile(bindingPath)
+	if err != nil || string(data) != "{not json" {
+		t.Fatalf("a corrupt binding must survive untouched, got %q err=%v", data, err)
+	}
+	if !strings.Contains(errOut.String(), "skipped") {
+		t.Fatalf("skip must be reported: %q", errOut.String())
+	}
+}
+
+// TestHostedSyncSkipsUnreadableBindingWithoutRewrite bounds the self-heal:
+// only a PARSE error (corrupt JSON, content unrecoverable) may fall through to
+// re-resolution. Any other read failure says nothing about what the binding
+// holds — rewriting it could silently replace an explicitly configured custom
+// target with default placement and redirect publishes to another repo.
+func TestHostedSyncSkipsUnreadableBindingWithoutRewrite(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	// A directory at the binding path fails the read with a non-parse error on
+	// every platform; chmod 0o000 is a read no-op on Windows.
+	bindingPath := filepath.Join(storage.BrainDir, hostedRepoBindingFile)
+	if err := os.Mkdir(bindingPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("an unreadable binding must not sync anywhere, got %d requests", fake.requestCount())
+	}
+	if info, err := os.Stat(bindingPath); err != nil || !info.IsDir() {
+		t.Fatalf("unreadable binding must survive untouched: info=%v err=%v", info, err)
+	}
+	out := errOut.String()
+	if !strings.Contains(out, "skipped") || strings.Contains(out, "re-resolving") {
+		t.Fatalf("a read failure must skip without re-resolution: %q", out)
+	}
+}
+
 func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	// Harness runner answers only `auth token`; whereami fails like a CLI
-	// without COR-2029, a logged-out user, or an unregistered repo.
+	// Harness runner answers only `auth token`; repo view fails like a CLI
+	// without placement support, a logged-out user, or an unregistered repo.
 	var errOut bytes.Buffer
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("unresolvable placement must be a graceful local fallback, got %v", err)
@@ -400,12 +478,93 @@ func TestHostedSyncStaysLocalWhenPlacementUnresolvable(t *testing.T) {
 	}
 }
 
+func TestHostedSyncOptedOutSkipsSyncAndAutoConnect(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: baseURL, OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+	shellOuts := 0
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		shellOuts++
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if shellOuts != 0 || fake.requestCount() != 0 {
+		t.Fatalf("an opted-out repo must make no shell-outs and no requests, got shellOuts=%d requests=%d", shellOuts, fake.requestCount())
+	}
+	if errOut.Len() != 0 {
+		t.Fatalf("an opted-out repo must be silent, got %q", errOut.String())
+	}
+}
+
+func TestHostedSyncAutoConnectDoesNotOverrideADisconnectDuringResolution(t *testing.T) {
+	// The consent race: the tick sees no binding, spends seconds resolving
+	// placement, and the user disconnects in that window. The resolved
+	// placement must NOT overwrite the fresh opt-out.
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, false)
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			if _, err := setHostedOptOut(storage.BrainDir); err != nil {
+				t.Error(err)
+			}
+			return []byte(`{"repoId":"repo1","apiUrl":"` + baseURL + `"}` + "\n"), nil, nil
+		}
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present || !binding.OptedOut {
+		t.Fatalf("a disconnect during placement resolution must survive auto-connect: present=%v err=%v binding=%+v", present, err, binding)
+	}
+	if fake.requestCount() != 0 {
+		t.Fatalf("auto-connect must not sync past a fresh opt-out, got %d requests", fake.requestCount())
+	}
+}
+
+func TestSetHostedOptOutKeepsCoordinatesAndHealsCorruption(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(brainDir)
+	if err != nil || !present || !binding.OptedOut || binding.RepoID != "repo1" {
+		t.Fatalf("opt-out must keep the coordinates: present=%v err=%v binding=%+v", present, err, binding)
+	}
+
+	if err := writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatalf("a corrupt state file must not block the opt-out, got %v", err)
+	}
+	binding, present, err = readHostedRepoBinding(brainDir)
+	if err != nil || !present || !binding.OptedOut {
+		t.Fatalf("corrupt file must be replaced by a bare opt-out: present=%v err=%v binding=%+v", present, err, binding)
+	}
+}
+
 func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, false)
-	whereamiCalls := 0
+	placementCalls := 0
 	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		whereamiCalls++
+		placementCalls++
 		return nil, nil, errors.New("not available")
 	})
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
@@ -413,8 +572,8 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	if err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	if whereamiCalls != 0 || fake.requestCount() != 0 {
-		t.Fatalf("NO_EGRESS must block even placement resolution, got whereami=%d requests=%d", whereamiCalls, fake.requestCount())
+	if placementCalls != 0 || fake.requestCount() != 0 {
+		t.Fatalf("NO_EGRESS must block even placement resolution, got placement=%d requests=%d", placementCalls, fake.requestCount())
 	}
 }
 

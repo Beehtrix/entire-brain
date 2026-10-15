@@ -139,7 +139,10 @@ func validatePrivacySQLiteSnapshot(path, rel string) error {
 	return nil
 }
 
-const privacyVectorVerifyMaxRows = 2_000_000
+// A var so the ceiling regression test can exercise the bound without
+// scanning two million rows; production never changes it.
+var privacyVectorVerifyMaxRows = 2_000_000
+
 const privacySQLiteSnapshotMaxBytes int64 = 16 << 30
 
 type privacySQLiteSnapshotSource struct {

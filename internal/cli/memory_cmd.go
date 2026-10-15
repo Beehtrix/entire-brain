@@ -933,7 +933,10 @@ func runMemoryProjectionLane(ctx context.Context, brainDir string, now time.Time
 	return runMemoryProjectionLaneWithClock(ctx, brainDir, fixedMemoryClock(now), owner)
 }
 
-const memoryProjectionClaimsPerPass = 64
+// A var so the claim-cap regression test can prove jobs beyond one pass's
+// cap still settle without projecting 67 sessions under the race detector;
+// the default is pinned by TestOverridableProductionBoundsKeepTheirDefaults.
+var memoryProjectionClaimsPerPass = 64
 
 func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats

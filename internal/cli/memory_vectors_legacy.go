@@ -104,6 +104,17 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 		}
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(err, header.SchemaVersion)
 	}
+	// Identity/bounds validation carried over from the deleted writer: a legacy
+	// leaf that fails these is corrupt and must classify as such in health
+	// output, not report as a healthy pending/current state.
+	if progress.SchemaVersion != memoryVectorSchema || progress.ModelID == "" || progress.UpdatedAt.IsZero() ||
+		progress.HistoryAdded < 0 || progress.ConversationAdded < 0 ||
+		!validSHA256Identity(progress.SourceDigest) ||
+		(progress.CompleteSourceDigest != "" && !validSHA256Identity(progress.CompleteSourceDigest)) ||
+		(!progress.Pending && (!progress.ResetComplete || progress.CompleteSourceDigest != progress.SourceDigest)) ||
+		(progress.ErrorCode != "" && progress.ErrorCode != "memory_vector_sync_failed") {
+		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has invalid identity or bounds"), header.SchemaVersion)
+	}
 	return progress, nil
 }
 

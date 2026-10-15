@@ -58,17 +58,31 @@ func TestETAScalesItsUnit(t *testing.T) {
 func TestBarColourTracksProgress(t *testing.T) {
 	t.Parallel()
 	r := NewRendererWidth(tui.NewRendererWith(tui.Theme{}, tui.Caps{Color: true, Unicode: true, Width: 100}), 100)
-	early := r.barText(1, 10, 20)
-	mid := r.barText(5, 10, 20)
-	late := r.barText(9, 10, 20)
+
+	// Compare the COLOUR, not the whole string. An earlier version of this
+	// test compared barText output directly and passed even with the hue
+	// pinned to a constant, because the three bars differ by FILL regardless.
+	hue := func(done, total int) string {
+		out := r.barText(done, total, 20)
+		i := strings.Index(out, "\x1b[")
+		if i < 0 {
+			return "<none>"
+		}
+		j := strings.Index(out[i:], "m")
+		if j < 0 {
+			return "<malformed>"
+		}
+		return out[i : i+j+1]
+	}
+
+	early, mid, late := hue(1, 10), hue(5, 10), hue(9, 10)
+	if early == "<none>" {
+		t.Fatal("fixture: colour is off, this test cannot measure hue")
+	}
 	if early == mid || mid == late || early == late {
-		t.Fatalf("the bar must change hue as it fills:\n early=%q\n mid  =%q\n late =%q", early, mid, late)
+		t.Fatalf("the bar must change HUE as it fills: early=%q mid=%q late=%q", early, mid, late)
 	}
-	// Non-vacuity: the difference must be COLOUR, not shape — strip it and the
-	// three must differ only by fill.
-	if stripColor(early) == stripColor(mid) {
-		t.Fatal("fixture: 1/10 and 5/10 should differ in fill too, test is not measuring what it claims")
-	}
+
 	mono := NewRendererWidth(tui.NewRendererWith(tui.Theme{}, tui.Caps{Unicode: true, Width: 100}), 100)
 	if strings.Contains(mono.barText(5, 10, 20), "\x1b[") {
 		t.Fatal("with colour off the bar must carry no escapes")

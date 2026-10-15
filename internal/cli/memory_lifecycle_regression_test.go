@@ -365,6 +365,12 @@ func TestMemoryLifecycleProjectionOwnershipTakeoverRejectsStaleSettlement(t *tes
 }
 
 func TestMemoryLifecycleAbstractCancellationSettlesDurably(t *testing.T) {
+	// The cancellation request lands after the provider starts, so the lane
+	// only notices it on the next poll tick; the production 5s interval is
+	// pure wait here.
+	prevPoll := memoryAbstractCancellationPollInterval
+	memoryAbstractCancellationPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { memoryAbstractCancellationPollInterval = prevPoll })
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 14, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)
@@ -811,6 +817,9 @@ func TestMemoryLifecycleNotifyWarningsAndExactJobIssue(t *testing.T) {
 	originalLaunch := memoryWorkerLaunch
 	memoryWorkerLaunch = func(string) error { return os.ErrPermission }
 	t.Cleanup(func() { memoryWorkerLaunch = originalLaunch })
+	originalCheckpointLaunch := memoryCheckpointWorkLaunch
+	memoryCheckpointWorkLaunch = func(string, string) error { return nil }
+	t.Cleanup(func() { memoryCheckpointWorkLaunch = originalCheckpointLaunch })
 	textOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_end", "--session", "text-session")
 	if err != nil || !strings.Contains(textOut, "recorded session_end hint") {
 		t.Fatalf("notify text=%q err=%v", textOut, err)

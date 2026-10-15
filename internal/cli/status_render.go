@@ -412,7 +412,11 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		identity = append(identity, fmt.Sprintf("semantic: %d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
 	}
 	if f := report.Facts; f != nil {
-		identity = append(identity, statusFactsIdentity(f))
+		if report.Integrity == "not_checked" {
+			identity = append(identity, fmt.Sprintf("facts: %d declared", f.Facts))
+		} else {
+			identity = append(identity, statusFactsIdentity(f))
+		}
 	}
 	if h := report.Hosted; h != nil {
 		identity = append(identity, "Brainstore: "+hostedStateLabel(h.State))
@@ -421,15 +425,26 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		fmt.Fprintf(out, "  %s\n", render.Dim(item))
 	}
 
-	if f := report.Facts; f != nil && f.Integrity != nil {
-		if warning := f.Integrity.Warning(); warning != "" {
+	if f := report.Facts; f != nil {
+		warning := ""
+		if f.Integrity != nil {
+			warning = f.Integrity.Warning()
+		} else if len(f.MissingBranches) > 0 {
+			warning = missingFactStoreWarning(f.MissingBranches)
+		}
+		if warning != "" {
 			fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseFailed, warning))
 		}
 	}
 
 	renderStatusOnboardingBlock(out, render, report, brainCmd)
 
-	fmt.Fprintf(out, "\n%s\n", buildStatusHealth(report).Line(render, brainCmd))
+	health := buildStatusHealth(report)
+	if report.Integrity == "not_checked" && health.Healthy() {
+		fmt.Fprintf(out, "\n%s up to date\n", render.Mark(tui.MarkDone))
+	} else {
+		fmt.Fprintf(out, "\n%s\n", health.Line(render, brainCmd))
+	}
 	fmt.Fprintf(out, "%s\n", render.Dim("  `"+brainCmd+" status --verbose` for the full report"))
 	fmt.Fprintln(out)
 }

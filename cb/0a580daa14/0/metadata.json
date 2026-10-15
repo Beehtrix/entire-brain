@@ -3,37 +3,25 @@
   "checkpoint_id": "cb0a580daa14",
   "session_id": "2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070",
   "strategy": "manual-commit",
-  "created_at": "2026-10-15T18:55:36.589202Z",
+  "created_at": "2026-10-15T18:57:34.650738Z",
   "branch": "memory-trail-attachment-design",
   "checkpoints_count": 13,
-  "save_step_count": 3,
   "files_touched": [
     "internal/cli/connect_cmd.go",
-    "internal/cli/memory_cmd.go",
-    "internal/cli/memory_lifecycle_regression_test.go",
-    "internal/cli/memory_notify_sync.go",
-    "internal/cli/memory_notify_sync_test.go",
-    "internal/cli/setup.go"
+    "internal/cli/disconnect_cmd.go"
   ],
   "agent": "Claude Code",
   "model": "claude-fable-5",
   "turn_id": "5eccabe205d8",
-  "checkpoint_transcript_start": 1975,
-  "transcript_lines_at_start": 1975,
-  "compact_transcript_start": 420,
+  "checkpoint_transcript_start": 2560,
+  "transcript_lines_at_start": 2560,
+  "compact_transcript_start": 532,
   "token_usage": {
-    "input_tokens": 174,
-    "cache_creation_tokens": 6459796,
-    "cache_read_tokens": 55955436,
-    "output_tokens": 94359,
-    "api_call_count": 90,
-    "subagent_tokens": {
-      "input_tokens": 0,
-      "cache_creation_tokens": 0,
-      "cache_read_tokens": 0,
-      "output_tokens": 0,
-      "api_call_count": 0
-    }
+    "input_tokens": 24,
+    "cache_creation_tokens": 8924,
+    "cache_read_tokens": 9804204,
+    "output_tokens": 4439,
+    "api_call_count": 12
   },
   "skill_events_version": 1,
   "skill_events": [
@@ -219,76 +207,15 @@
     "turn_count": 56
   },
   "initial_attribution": {
-    "calculated_at": "2026-10-15T18:55:36.4437Z",
+    "calculated_at": "2026-10-15T18:57:34.519663Z",
     "agent_lines": 0,
     "agent_removed": 0,
-    "human_added": 808,
-    "human_modified": 65,
+    "human_added": 488,
+    "human_modified": 0,
     "human_removed": 0,
-    "total_committed": 815,
-    "total_lines_changed": 873,
+    "total_committed": 488,
+    "total_lines_changed": 554,
     "agent_percentage": 0,
     "metric_version": 2
-  },
-  "prompt_attributions": [
-    {
-      "checkpoint_number": 1,
-      "user_lines_added": 0,
-      "user_lines_removed": 0,
-      "agent_lines_added": 0,
-      "agent_lines_removed": 0
-    },
-    {
-      "checkpoint_number": 2,
-      "user_lines_added": 260,
-      "user_lines_removed": 65,
-      "agent_lines_added": 0,
-      "agent_lines_removed": 0,
-      "user_added_per_file": {
-        ".context/attachments/comments/github-PRRT_kwDOSm5-5c6snxCV-4279027650.md": 37,
-        ".context/cor-2110-memories-trails-design.md": 125,
-        ".context/cor-2110-table-of-truth.md": 22,
-        "internal/cli/memory_cmd.go": 19,
-        "internal/cli/memory_lifecycle_regression_test.go": 3,
-        "internal/cli/memory_notify_sync.go": 24,
-        "internal/cli/memory_notify_sync_test.go": 30
-      },
-      "user_removed_per_file": {
-        "internal/cli/memory_cmd.go": 14,
-        "internal/cli/memory_lifecycle_regression_test.go": 3,
-        "internal/cli/memory_notify_sync.go": 25,
-        "internal/cli/memory_notify_sync_test.go": 23
-      }
-    },
-    {
-      "checkpoint_number": 3,
-      "user_lines_added": 594,
-      "user_lines_removed": 0,
-      "agent_lines_added": 76,
-      "agent_lines_removed": 65,
-      "user_added_per_file": {
-        ".context/attachments/comments/github-PRRT_kwDOSm5-5c6snxCV-4279027650.md": 37,
-        ".context/cor-2110-memories-trails-design.md": 125,
-        ".context/cor-2110-table-of-truth.md": 22,
-        "internal/cli/connect_cmd.go": 6,
-        "internal/cli/push_hook.go": 241,
-        "internal/cli/push_hook_test.go": 146,
-        "internal/cli/setup.go": 17
-      }
-    },
-    {
-      "checkpoint_number": 4,
-      "user_lines_added": 571,
-      "user_lines_removed": 0,
-      "agent_lines_added": 106,
-      "agent_lines_removed": 65,
-      "user_added_per_file": {
-        ".context/attachments/comments/github-PRRT_kwDOSm5-5c6snxCV-4279027650.md": 37,
-        ".context/cor-2110-memories-trails-design.md": 125,
-        ".context/cor-2110-table-of-truth.md": 22,
-        "internal/cli/push_hook.go": 241,
-        "internal/cli/push_hook_test.go": 146
-      }
-    }
-  ]
+  }
 }

@@ -6,11 +6,7 @@
   "checkpoints_count": 13,
   "files_touched": [
     "internal/cli/connect_cmd.go",
-    "internal/cli/memory_cmd.go",
-    "internal/cli/memory_lifecycle_regression_test.go",
-    "internal/cli/memory_notify_sync.go",
-    "internal/cli/memory_notify_sync_test.go",
-    "internal/cli/setup.go"
+    "internal/cli/disconnect_cmd.go"
   ],
   "sessions": [
     {
@@ -18,21 +14,14 @@
       "transcript": "/cb/0a580daa14/0/full.jsonl",
       "compact_transcript": "/cb/0a580daa14/0/transcript.jsonl",
       "content_hash": "/cb/0a580daa14/0/content_hash.txt",
-      "prompt": "/cb/0a580daa14/0/prompt.txt"
+      "prompt": ""
     }
   ],
   "token_usage": {
-    "input_tokens": 174,
-    "cache_creation_tokens": 6459796,
-    "cache_read_tokens": 55955436,
-    "output_tokens": 94359,
-    "api_call_count": 90,
-    "subagent_tokens": {
-      "input_tokens": 0,
-      "cache_creation_tokens": 0,
-      "cache_read_tokens": 0,
-      "output_tokens": 0,
-      "api_call_count": 0
-    }
+    "input_tokens": 24,
+    "cache_creation_tokens": 8924,
+    "cache_read_tokens": 9804204,
+    "output_tokens": 4439,
+    "api_call_count": 12
   }
 }

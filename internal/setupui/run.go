@@ -23,6 +23,36 @@ import (
 // pipe needs: Live is discarded, Settle is a line. That asymmetry is the
 // entire difference between the two destinations, which is why "identical
 // under a pipe, minus the repaints" can be asserted rather than reviewed.
+//
+// WIRING. The terminal implementation is about fifteen lines in package cli:
+//
+//	type setupSink struct {
+//		progress *refreshProgress
+//		render   *setupui.Renderer
+//		task     *refreshProgressTask
+//	}
+//	func (s *setupSink) Begin(a tui.Phase, label string) { s.task = s.progress.BeginPhase(label, a) }
+//	func (s *setupSink) Live(label string)               { s.task.Update(label) }
+//	func (s *setupSink) Settle(line setupui.Line) {
+//		if s.task != nil { s.task.Abandon(); s.task = nil }
+//		s.progress.EmitLine(s.render.Line(line))
+//	}
+//
+// It needs three purely additive hooks on the existing reporter, which this
+// package deliberately does not add for itself:
+//
+//	func (p *refreshProgress) TTY() bool          // p.tty(), exported
+//	func (p *refreshProgress) EmitLine(s string)  // Note without Note's formatting:
+//	                                              // live.emitAround(fmt.Fprintln) on a
+//	                                              // terminal, Fprintln otherwise
+//	func (t *refreshProgressTask) Abandon()       // stopSpinner + live.finish(t, nil):
+//	                                              // end the live line and write NOTHING,
+//	                                              // so the caller composes the settled row
+//
+// Abandon is the one that cannot be worked around. Finish always writes
+// label+" done"/" failed", which can express neither a skipped phase nor a
+// composed row, and a settled line written any other way would be appended to
+// the spinner's row and then half-erased by the next repaint.
 type Sink interface {
 	Begin(accent tui.Phase, label string)
 	Live(label string)

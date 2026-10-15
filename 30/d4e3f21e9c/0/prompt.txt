@@ -1,0 +1,12 @@
+did you merge this on your own?
+
+---
+
+what is this one?
+https://github.com/entireio/cli/pull/2789
+
+where did it come from?
+
+---
+
+okay fix the bugbot and findings in this pr: https://github.com/entireio/entire-brain/pull/386

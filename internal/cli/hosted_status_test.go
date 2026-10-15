@@ -60,7 +60,7 @@ func TestStatusHostedLocalOnlyWithoutBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Local-only") {
+	if !strings.Contains(out, "Brainstore: local-only") {
 		t.Fatalf("short status does not show hosted state:\n%s", out)
 	}
 }
@@ -94,6 +94,14 @@ func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
 	}
 	if len(h.SyncedBranches) != 1 || h.SyncedBranches[0] != "main" {
 		t.Fatalf("synced branches = %v, want [main]", h.SyncedBranches)
+	}
+
+	short, err := execute(t, NewRootCommand(opts), "status")
+	if err != nil {
+		t.Fatalf("status: %v\n%s", err, short)
+	}
+	if !strings.Contains(short, "Brainstore: connected") {
+		t.Fatalf("short status missing the Brainstore item:\n%s", short)
 	}
 
 	out, err := execute(t, NewRootCommand(opts), "status", "--verbose")
@@ -133,7 +141,7 @@ func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Disconnected from Brainstore") {
+	if !strings.Contains(out, "Brainstore: disconnected") {
 		t.Fatalf("short status does not show the disconnect:\n%s", out)
 	}
 	verbose, err := execute(t, NewRootCommand(opts), "status", "--verbose")
@@ -210,7 +218,7 @@ func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Disconnected from Brainstore") {
+	if !strings.Contains(out, "Brainstore: disconnected") {
 		t.Fatalf("short status does not show the disconnect:\n%s", out)
 	}
 	verbose, err := execute(t, NewRootCommand(opts), "status", "--verbose")

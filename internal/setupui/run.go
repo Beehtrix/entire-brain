@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/tui"
+	"time"
 )
 
 // Sink is the three-call contract between this package's model and whatever
@@ -199,6 +200,10 @@ type PhaseRun struct {
 	done     int
 	total    int
 	substeps []string
+	// started is when this phase began, so a determinate bar can say how much
+	// longer. A bar with no ETA on a phase that can run for minutes tells a
+	// reader it is moving, not whether to wait or go and do something else.
+	started time.Time
 }
 
 // ID is the phase this run belongs to.
@@ -249,11 +254,27 @@ func (p *PhaseRun) Step(label string) {
 
 // Progress attaches a determinate count to the phase's transient line.
 // total <= 0 is indeterminate.
+// elapsed is how long this phase has been running, 0 before it starts.
+func (p *PhaseRun) elapsed() time.Duration {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.started.IsZero() {
+		return 0
+	}
+	return time.Since(p.started)
+}
+
 func (p *PhaseRun) Progress(done, total int) {
 	if p == nil {
 		return
 	}
 	p.mu.Lock()
+	if p.started.IsZero() {
+		p.started = time.Now()
+	}
 	if p.settled {
 		p.mu.Unlock()
 		return
@@ -271,7 +292,7 @@ func (p *PhaseRun) paint(label string, done, total int) {
 	if sink == nil {
 		return
 	}
-	sink.Live(rend.LiveLabel(p.id.Title(), label, done, total))
+	sink.Live(rend.LiveLabelETA(p.id.Title(), label, done, total, p.elapsed()))
 }
 
 // OK settles the phase. details become continuation rows under it — they are

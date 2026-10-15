@@ -833,10 +833,14 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// This does not change the default. Whether the watcher should install
 	// unasked is a product decision; making it impossible to miss, and naming
 	// both the flag that skips it and the command that removes it, is not.
+	// The warning is kept VERBATIM but no longer interjected above the UI. It
+	// said the same thing four lines before Detect that the Watcher phase is
+	// about to say in place, and it is still printed before anything installs
+	// -- which is the whole point of it -- because the Watcher phase runs
+	// before the install does.
+	var watcherPreflight string
 	if !setupOpts.noDaemon && planErr == nil && plan.supported() {
-		if line := setupDaemonPreflightLine(plan, steps.inspect(ctx, plan), brainCmd); line != "" {
-			ui.Interject(setupPreflightRows(rend, line)...)
-		}
+		watcherPreflight = setupDaemonPreflightLine(plan, steps.inspect(ctx, plan), brainCmd)
 	}
 
 	// Phase 1 — DETECT. Spends nothing, decides nothing; it states what the
@@ -1012,6 +1016,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
 	watcherPhase := run.Begin(setupui.PhaseWatcher)
+	// Say what a persistent service costs BEFORE installing it, in the phase
+	// that installs it rather than four lines above the whole run.
+	if watcherPreflight != "" {
+		watcherPhase.Step(setupui.FlattenText(watcherPreflight))
+	}
 	switch {
 	case setupOpts.noDaemon:
 		watcherPhase.Skip(setupWatcherDeclineReason(setupOpts.noDaemonRemembered))
@@ -1768,15 +1777,12 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			// setup resolves the agent once and embeds it in the daemon plan,
-			// so this is the single place a user is told which agent their
-			// repository's content will be sent to — announce it. Silent under
-			// --json, as every other human line in setup already is.
-			var announce io.Writer
-			if !setupOpts.json {
-				announce = cmd.ErrOrStderr()
-			}
-			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
+			// The Detect phase states the agent, its model and its effort on
+			// its own row, and the Facts phase states the cost before it asks
+			// to spend anything. A preamble line above the UI saying the same
+			// thing a third time is the noise this redesign exists to remove,
+			// so the writer is nil here: "say nothing".
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, nil)
 		}
 	}
 	if steps.spawnBackfill == nil {

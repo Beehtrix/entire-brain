@@ -6,7 +6,11 @@ import (
 
 	"github.com/mattn/go-runewidth"
 
+	"fmt"
 	"github.com/entireio/entire-brain/internal/tui"
+	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // Glyph is the state marker in a row's first column.
@@ -412,6 +416,51 @@ func (r *Renderer) BarWidth() int {
 // progress reporter in internal/cli, which already owns a single process-wide
 // live line; a second spinner here would fight it for the same physical row.
 // The budget reserves three cells for the spinner that reporter prepends.
+// LiveLabelETA is LiveLabel plus a remaining-time estimate. A determinate bar
+// that cannot say how much longer is only half an answer on a phase that runs
+// for minutes: "7/9" tells you it moves, "~40s left" tells you whether to wait.
+// The estimate is linear on observed rate, which is honest for this work --
+// every unit is one subprocess of roughly equal cost -- and it is omitted
+// entirely until enough has completed to mean anything.
+func (r *Renderer) LiveLabelETA(title, step string, done, total int, elapsed time.Duration) string {
+	base := r.LiveLabel(title, step, done, total)
+	eta := etaText(done, total, elapsed)
+	if eta == "" {
+		return base
+	}
+	// The ETA is worth less than the step text, so it is dropped rather than
+	// allowed to push the line over the budget.
+	if runewidth.StringWidth(stripColor(base))+runewidth.StringWidth(eta) >= r.Width()-3 {
+		return base
+	}
+	return base + eta
+}
+
+// etaText estimates the time left, or returns "" when it would be a guess.
+func etaText(done, total int, elapsed time.Duration) string {
+	if total <= 0 || done <= 0 || done >= total || elapsed <= 0 {
+		return ""
+	}
+	// One completion is not a rate. Two is the earliest honest estimate, and
+	// on an eight-item bar demanding three means the ETA only appears when
+	// the work is nearly over -- exactly when it stops being useful.
+	if done < 2 {
+		return ""
+	}
+	per := elapsed / time.Duration(done)
+	left := per * time.Duration(total-done)
+	switch {
+	case left < time.Second:
+		return ""
+	case left < time.Minute:
+		return fmt.Sprintf("  ~%ds left", int(left.Seconds()))
+	case left < time.Hour:
+		return fmt.Sprintf("  ~%dm left", int(left.Minutes()))
+	default:
+		return fmt.Sprintf("  ~%dh%02dm left", int(left.Hours()), int(left.Minutes())%60)
+	}
+}
+
 func (r *Renderer) LiveLabel(title, step string, done, total int) string {
 	width := r.Width()
 	head := title + strings.Repeat(" ", max(0, TitleWidth-runewidth.StringWidth(title))) + " "
@@ -430,12 +479,34 @@ func (r *Renderer) LiveLabel(title, step string, done, total int) string {
 	return head + gauge + r.Truncate(step, budget)
 }
 
+// barText paints the bar, shifting hue as it fills: cool while there is a lot
+// left, warming through the middle, green on the home straight. Colour here
+// is redundant with the ratio beside it and the bar's own length, which is the
+// rule -- it must add glanceability, never carry meaning alone.
 func (r *Renderer) barText(done, total, width int) string {
 	if r == nil || r.r == nil {
 		return strings.Repeat("#", width)
 	}
-	return r.r.Bar(done, total, width)
+	bar := r.r.Bar(done, total, width)
+	if total <= 0 || !r.Caps().Color {
+		return bar
+	}
+	switch frac := float64(done) / float64(total); {
+	case frac < 0.34:
+		return r.r.Paint(barHueEarly, bar)
+	case frac < 0.67:
+		return r.r.Paint(barHueMid, bar)
+	default:
+		return r.r.Paint(barHueLate, bar)
+	}
 }
+
+// The three bar hues, cool -> warm -> done.
+var (
+	barHueEarly = lipgloss.Color("45")  // cyan
+	barHueMid   = lipgloss.Color("179") // amber
+	barHueLate  = lipgloss.Color("47")  // green
+)
 
 func ratio(done, total int) string {
 	return itoa(done) + "/" + itoa(total)

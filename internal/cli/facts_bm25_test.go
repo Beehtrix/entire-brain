@@ -118,3 +118,26 @@ func factIDs(facts []factRecord) []string {
 	}
 	return ids
 }
+
+// Non-ASCII queries must produce terms: the ASCII-only plain tokenizer alone
+// yields nothing for CJK/Cyrillic and truncates accents (trail #278 review
+// finding). The query side unions the Unicode-aware normalizer's tokens,
+// mirroring what factSearchTokens does for documents.
+func TestBM25UnicodeQueriesMatch(t *testing.T) {
+	facts := []factRecord{
+		bm25Fact("fact:cafe", "the café menu service caches prices"),
+		bm25Fact("fact:cyrillic", "сервис кеширует цены меню"),
+		bm25Fact("fact:cjk", "服务缓存菜单价格"),
+		bm25Fact("fact:other", "unrelated retry backoff fact"),
+	}
+	for query, want := range map[string]string{
+		"café menu":   "fact:cafe",
+		"сервис цены": "fact:cyrillic",
+		"菜单价格":        "fact:cjk",
+	} {
+		got := rankFacts(facts, query, 1, false)
+		if len(got) == 0 || got[0].ID != want {
+			t.Errorf("query %q: got %v, want %s", query, factIDs(got), want)
+		}
+	}
+}

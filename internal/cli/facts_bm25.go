@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // BM25 replaces the flat term-overlap text score on the facts path. The flat
@@ -38,13 +39,58 @@ func factSearchTokens(f factRecord) []string {
 		seen[t] = struct{}{}
 	}
 	for _, t := range strings.Fields(normalizeHistorySearchText(haystack)) {
-		if _, ok := seen[t]; ok {
-			continue
+		for _, piece := range expandCJKBigrams(t) {
+			if _, ok := seen[piece]; ok {
+				continue
+			}
+			seen[piece] = struct{}{}
+			tokens = append(tokens, piece)
 		}
-		seen[t] = struct{}{}
-		tokens = append(tokens, t)
 	}
 	return tokens
+}
+
+// expandCJKBigrams splits a normalized token into word pieces for scripts
+// written without spaces: runs of Han/Kana/Hangul become character bigrams
+// (the standard CJK analyzer trick), everything else passes through whole.
+// Without this a CJK query tokenizes to one long run that never equals the
+// fact's equally long run, and matching silently returns nothing — the old
+// substring scorer handled CJK for free, so BM25 must too.
+func expandCJKBigrams(token string) []string {
+	runes := []rune(token)
+	var out []string
+	var plain []rune
+	flushPlain := func() {
+		if len(plain) > 0 {
+			out = append(out, string(plain))
+			plain = plain[:0]
+		}
+	}
+	for i := 0; i < len(runes); {
+		if !isCJKRune(runes[i]) {
+			plain = append(plain, runes[i])
+			i++
+			continue
+		}
+		flushPlain()
+		j := i
+		for j < len(runes) && isCJKRune(runes[j]) {
+			j++
+		}
+		if j-i == 1 {
+			out = append(out, string(runes[i:j]))
+		}
+		for k := i; k+1 < j; k++ {
+			out = append(out, string(runes[k:k+2]))
+		}
+		i = j
+	}
+	flushPlain()
+	return out
+}
+
+func isCJKRune(r rune) bool {
+	return unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul)
 }
 
 // factPlainTokens lowercases and splits on non-alphanumerics (underscore
@@ -56,20 +102,31 @@ func factPlainTokens(text string) []string {
 	})
 }
 
-// factQueryTerms are the deduplicated plain tokens of a query, with the
-// history stopword list applied so "how does the" carries no weight.
+// factQueryTerms are the deduplicated query tokens, with the history stopword
+// list applied so "how does the" carries no weight. Like factSearchTokens on
+// the document side, the query unions the ASCII plain tokens with the
+// Unicode-aware normalizer's tokens: the plain tokenizer alone yields nothing
+// for CJK/Cyrillic queries and truncates accented words at the accent.
 func factQueryTerms(query string) []string {
 	seen := map[string]struct{}{}
 	var terms []string
-	for _, t := range factPlainTokens(query) {
+	add := func(t string) {
 		if len(t) < 2 || historyQueryStopword(t) {
-			continue
+			return
 		}
 		if _, ok := seen[t]; ok {
-			continue
+			return
 		}
 		seen[t] = struct{}{}
 		terms = append(terms, t)
+	}
+	for _, t := range factPlainTokens(query) {
+		add(t)
+	}
+	for _, t := range strings.Fields(normalizeHistorySearchText(query)) {
+		for _, piece := range expandCJKBigrams(t) {
+			add(piece)
+		}
 	}
 	return terms
 }

@@ -1,0 +1,175 @@
+/review-pr
+
+---
+
+<task-notification>
+<task-id>aac0a07f814a4f762</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/aac0a07f814a4f762.output</output-file>
+<status>completed</status>
+<summary>Agent "Simplification review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings (simplification only, scope = the diff):
+
+**1. `internal/cli/privacy_verification_regression_test.go:129-133` — double-pins the same default the new pin test already pins, and restores a literal instead of the saved value.**
+- Cost: `2_000_000` is now written three times across two files in this diff (guard, Cleanup, `production_defaults_test.go`). Changing the production ceiling breaks two tests and requires edits in three places; the guard also duplicates exactly what `TestOverridableProductionBoundsKeepTheirDefaults` asserts.
+- Simpler: drop the 4-line guard/`t.Fatalf` entirely and save/restore like the other sites — `prev := privacyVectorVerifyMaxRows; privacyVectorVerifyMaxRows = 10_000; t.Cleanup(func() { privacyVectorVerifyMaxRows = prev })`. 5 lines → 3, one literal instead of three.
+
+**2. `internal/cli/brain_manifest_read_test.go:33-40` — per-case override keyed on a magic case-name string inside the table loop body.**
+- Cost: the shared loop body now carries a branch that only ever fires for one of three rows; renaming the row silently disables the override and the test keeps passing against the 64 MiB default, which is the opposite of what it is meant to prove.
+- Simpler: either add a field to the existing anonymous struct (`readCap int64`, override only when non-zero, set only on the third row), or lift that one row out into its own `func TestBrainManifestAboveDefaultReadLimit` — it shares nothing with the two observed-shape rows except the body.
+
+**3. `internal/cli/brain_manifest_read_test.go:37-39, 213-215`, `internal/cli/privacy_verification_regression_test.go:132-133`, `internal/cli/semantic_test.go:4727-4730` — four hand-rolled save/set/`t.Cleanup`-restore blocks differing only in the variable.**
+- Cost: ~12 lines of near-identical code plus one named helper (`shortSemanticLockTimeout`) for the same mechanic; each copy is an independent chance to restore the wrong value (see finding 1, which already got it wrong).
+- Simpler: one generic helper next to the pin test — `func setForTest[T any](t *testing.T, p *T, v T) { t.Helper(); prev := *p; *p = v; t.Cleanup(func() { *p = prev }) }` — then each site is a single line, and `shortSemanticLockTimeout` collapses to `setForTest(t, &amp;semanticIndexLockTimeout, 5*fileLockRetryInterval)` (keep the named wrapper if you want the `fileLockRetryInterval` multiple documented). Counterweight worth noting: the file already has ~6 hand-rolled `maxDocumentTranscriptBytes = …; t.Cleanup(restore)` blocks predating this diff, so the generic helper is only a win if you're willing to leave those alone (or it's a follow-up).
+
+**4. `internal/cli/safe_read.go:19-32` — the same "A var so the oversized-fixture test can exercise the bound" sentence is now written three times in 14 lines.**
+- Cost: three standalone `var` declarations with three near-identical 3-line rationale comments, one of which (`maxManifestBytes`) just says "for the same reason as the one above" — the file-level comment block at lines 14-17 already covers the category.
+- Simpler: one `var (…)` group holding `maxDocumentTranscriptBytes`, `defaultMaxReadBytes`, `maxManifestBytes` with a single shared sentence above it ("vars, not consts, so oversized-fixture tests can lower them; see production_defaults_test.go") and one short line of what-it-bounds per name.
+
+**5. `internal/cli/brain_manifest_read_test.go:27-28` vs `34-36` — two comments ten lines apart explaining the same shrink.**
+- Cost: the row comment ("larger than the (test-lowered) default read cap below") and the loop-body comment ("Lowering the cap keeps the fixture above it without 80 MiB…") restate one fact; the second one also restates what `defaultMaxReadBytes = 16 &lt;&lt; 20` says in code. Same rationale appears a third time at line 210 and a fourth in `safe_read.go`.
+- Simpler: keep one comment at the override site stating only the non-obvious part (why the fixture can shrink: the cap moves with it), delete the row comment. If finding 2 is taken, the extracted test's doc comment absorbs both.</result>
+<usage><subagent_tokens>42564</subagent_tokens><tool_uses>5</tool_uses><duration_ms>60604</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>a07976e6c7ccc33b3</task-id>
+<tool-use-id>toolu_01GNzmQBNMLWgB4FowvuLwfX</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/a07976e6c7ccc33b3.output</output-file>
+<status>completed</status>
+<summary>Agent "Reuse review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Reuse review findings (4):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/demo_scripts_test.go:213`** — New `cmd.WaitDelay = 5 * time.Second` literal (plus the new `"time"` import at line 10) re-implements the package's existing WaitDelay backstop constant.
+- Cost: a third independent wait-delay magic number in `internal/cli` (2s, 5s, 5s), and an import added for one literal; the comment above it restates the rationale already documented at the constant.
+- Existing alternative: `commandWaitDelay` (`internal/cli/runner.go:73`, same package, 2s) — its doc comment covers exactly this case ("a child that spawns a grandchild inheriting those descriptors keeps the runner blocked"). `cmd.WaitDelay = commandWaitDelay` drops both the literal and the `time` import. (`distillAgentWaitDelay`, `distill_cmd.go:69`, is the 5s precedent if 5s is really wanted.)
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/semantic_test.go:4726`** — `shortSemanticLockTimeout(t)` is a second helper that is called immediately after `writeSemanticTestLock(t, brainDir)` at every single contention site (2924/2925, 3037/3038, 3112/3113, 3206/3207); the only `writeSemanticTestLock` caller that omits it (3056, `TestSemanticReadCommandsDoNotRequireExclusiveIndexLock`) never contends, so the lowered timeout is a no-op there.
+- Cost: four duplicated call-site pairings, and the pairing is unenforced — the next lock-contention test that calls `writeSemanticTestLock` alone silently waits the full 10s.
+- Existing alternative: fold the save/lower/restore into `writeSemanticTestLock` (`semantic_test.go:4714`), which already owns the `t.Cleanup` for this fixture; delete the five added call lines.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/privacy_verification_regression_test.go:127-129`** — The inline `if privacyVectorVerifyMaxRows != 2_000_000 { t.Fatalf(...) }` guard duplicates the pin this same diff just added.
+- Cost: a third copy of the `2_000_000` literal (var declaration, pin test, this guard); changing the production ceiling now breaks two tests in two files for the same reason, and the guard gives a worse failure (fails an unrelated test) than the pin.
+- Existing alternative: `TestOverridableProductionBoundsKeepTheirDefaults` in `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/production_defaults_test.go:24` already asserts this exact value — drop the guard and keep only the override.
+
+**4. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/privacy_verification_regression_test.go:130-131`** — The override restores a hardcoded `2_000_000` rather than the captured previous value, diverging from the package's save-and-restore idiom used everywhere else.
+- Cost: the restore is a fourth hardcoded copy of the default and silently "repairs" a changed default instead of restoring it, unlike every other seam in the package.
+- Existing alternative: the `prev := X; X = …; t.Cleanup(func() { X = prev })` idiom used at `pattern_privacy_publish_test.go:463-465`, `history_delta_test.go:254-256`, `doc_index_size_test.go:13-15`, and by this diff's own `shortSemanticLockTimeout` and `brain_manifest_read_test.go:37-39`.
+
+Not flagged (checked, no qualifying alternative exists): there is no generic set-and-restore/override helper anywhere in the repo — inline `prev`/`t.Cleanup` save-restore is the established convention (6+ `maxDocumentTranscriptBytes` sites, `semanticBundleMaxTotal` at `semantic_test.go:4651`), so the inline blocks in `brain_manifest_read_test.go` are consistent with the package. The `tc.name == "…"` branch in the table loop at `brain_manifest_read_test.go:33` matches the pre-existing `tc.name != "warning-heavy"` style already in that test.</result>
+<usage><subagent_tokens>53770</subagent_tokens><tool_uses>13</tool_uses><duration_ms>86148</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aabb5196cedc88dae</task-id>
+<tool-use-id>toolu_01V7idr7hqCmambLSduQmp4z</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/aabb5196cedc88dae.output</output-file>
+<status>completed</status>
+<summary>Agent "Altitude review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>## Altitude review — 3 findings
+
+**Verdict on (a): correct altitude, no finding.** `maxManifestBytes` / `defaultMaxReadBytes` have 60+ call sites spread across `memory_*.go`, `session_privacy*.go`, `history*.go`, `seed.go`, `facts_*.go` etc., none of which carry `Options`. `Options` (root.go:20) is a 4-field injection seam (Version/Env/Runner/Now) for *process-level* collaborators, not tuning knobs, and `EntireEnv` is OS-environment capture. Threading a bounds struct to all those leaf readers would be a large change for a test-only need. The package already has nine existing `var` + `t.Cleanup` override sites (`maxDocumentTranscriptBytes` x7, `maxDocIndexBytes`, `semanticBundleMaxTotal`), so this is the house idiom, not an invention.
+
+**Verdict on (b): correct altitude, no finding.** `WaitDelay` does not hide the ps-kill question, because the assertion at `demo_scripts_test.go:218` (`os.Stat(root)` must be `IsNotExist`) can only pass when `sandbox_processes()` came back empty — `scripts/demo-setup.sh:144-148` only `rm -rf`s on an empty process list, otherwise it prints "preserving" and forces status 1. So a missed kill still fails the test loudly; `WaitDelay` only converts a 60s hang into a 5s failure. Shortening the child's `sleep 60` instead would be smaller but strictly worse (a child that exits on its own makes the test pass vacuously).
+
+---
+
+### 1. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/brain_manifest_read_test.go:33`
+**`if tc.name == "larger-than-default-read-limit"` makes the case's display name load-bearing control flow.**
+Cost: the table already carries per-case data in fields, and the name is the one field that is conventionally free to edit. Rename or reword the case and the override silently stops firing — the fixture is 24 MiB, comfortably *under* the real 64 MiB `defaultMaxReadBytes`, so the test keeps passing while no longer exercising the above-the-cap regression it exists for. The new comment at line 28 ("larger than the (test-lowered) default read cap") documents an invariant that nothing enforces.
+Alternative, same size: add a `readLimit int64` field to the anonymous struct (`0` = leave production default), set `24 &lt;&lt; 20`'s companion `16 &lt;&lt; 20` there, and run one unconditional `if tc.readLimit &gt; 0 { prev := defaultMaxReadBytes; defaultMaxReadBytes = tc.readLimit; t.Cleanup(...) }`. The data moves next to the fixture sizes it must stay consistent with, and the loop body stops branching on a string.
+
+### 2. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/privacy_verification_regression_test.go:129-133`
+**This test hand-rolls a default-pin assert and then *writes* the default back instead of restoring the captured previous value.**
+Cost: two altitudes collide. The diff's own `production_defaults_test.go:22` already pins `privacyVectorVerifyMaxRows == 2_000_000` as the general mechanism; repeating it inline puts the literal in three places, so a legitimate future change to the ceiling now breaks two tests in two styles. Worse, `t.Cleanup(func() { privacyVectorVerifyMaxRows = 2_000_000 })` assigns a literal rather than `prev` — this is the only one of the four override sites in the diff that doesn't save/restore, and it means the test asserts-then-reinstates its own idea of the default, which would mask (not surface) a changed production value for anything running after it.
+Alternative, strictly smaller: drop the `if ... t.Fatalf` guard entirely and use the same four-line idiom as every other site (`prev := privacyVectorVerifyMaxRows; privacyVectorVerifyMaxRows = 10_000; t.Cleanup(func() { privacyVectorVerifyMaxRows = prev })`). The pin test already owns the "defaults didn't drift" job.
+
+### 3. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/semantic_test.go:4723` (lower confidence)
+**The diff invents a named save/restore helper for one bound and hand-inlines the same five lines for the other three.**
+Cost: `shortSemanticLockTimeout(t)` is the right shape — one call site per test, impossible to forget the restore — and it is used four times. The other three overrides (brain_manifest 37-39 and 211-213, privacy 132-133) repeat the pattern by hand, and one of the three already got it wrong (finding 2). The asymmetry also means the helper's "Not safe in parallel tests" warning lives on only one of four seams.
+Alternative, ~5 lines net: a single generic `restoreAfterTest[T any](t *testing.T, p *T, v T)` (set, `t.Cleanup` restore) used at all four sites, with `shortSemanticLockTimeout` either deleted or reduced to a one-line wrapper. Caveat weighing against this: the nine *pre-existing* override sites in this package all inline the pattern, so the helper is slightly against the established grain — worth it only if you'd also be willing to leave those alone.</result>
+<usage><subagent_tokens>59300</subagent_tokens><tool_uses>12</tool_uses><duration_ms>105718</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>aa5ba507e3330c684</task-id>
+<tool-use-id>toolu_01U4eohxxiZsDD3D9CVhXgct</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/aa5ba507e3330c684.output</output-file>
+<status>completed</status>
+<summary>Agent "Efficiency review of diff" finished</summary>
+<note>A task-notification fires each time this agent stops with no live background children of its own. The user can send it another message and resume it, so the same task-id may notify more than once.</note>
+<result>Findings (efficiency only, all within lines the diff touches):
+
+**1. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/brain_manifest_read_test.go:30` — the third case's record counts (2000/6000/12000) buy nothing the first two cases don't already cover.**
+The subtest's assertions for this case are: `info.Size() == tc.bytes`, two `reflect.DeepEqual` round trips, `health.State == "current"`, and `len(got.Sessions) == tc.sessions`. All are self-referential in `tc.sessions` — none compares counts against the other cases, and the only structural constraints are `tc.sessions &gt; 0` (the `padding / (2*tc.sessions)` divisor) and base JSON &lt; `tc.bytes`. The byte target is hit by padding session `Outcome` strings, so counts and size are independent knobs. Concrete waste: ~20,000 synthetic records built, alias-duplicated to ~12,000 session entries, marshaled once, decoded three times (`loadBrainManifest`, `loadBrainManifestForReplace`, `inspectBrainManifestHealth`) and `DeepEqual`'d twice, on top of the two observed-shape cases that already exercise 5305 sessions and 6238 warnings under the race detector. Cheaper: give this case a small shape (e.g. 20/200/20); padding auto-absorbs the difference so the exact-size, round-trip, health and session-count assertions all still hold — and the "strictly larger on every axis" comment at line 28 should go with it, since no assertion encodes it.
+
+**2. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/brain_manifest_read_test.go:30,38` — 24 MiB fixture against a test-chosen 16 MiB cap is 8 MiB of pure margin, and the cap itself is still arbitrarily high.**
+The only relation the case needs is `tc.bytes &gt; defaultMaxReadBytes`; the production 64 MiB value is pinned separately in `production_defaults_test.go`, so the override value carries no meaning here. The 24 MiB file is materialized many times over: marshal, write, two full reads for the round trip, health read, rewrite, two `os.ReadFile`s plus `bytes.Equal`, a failed rewrite, and a final load. Cheaper: scale the pair down together (e.g. cap `4 &lt;&lt; 20`, fixture `5 &lt;&lt; 20`) — the strict inequality, and therefore every assertion, is unchanged. Safe because the manifest is the only large file any default-capped read touches in this subtest, and `maxDocIndexBytes` copies `defaultMaxReadBytes` at package init, so the override cannot leak into it.
+
+**3. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/brain_manifest_read_test.go:214,216` — 2 MiB payload against a 1 MiB bound is exactly 2x the needed size.**
+Required property is only "file exceeds `maxManifestBytes`" so the tolerant decode drops the field and the final `safeReadFile(path, maxManifestBytes)` still refuses. The payload is written once, decoded by `readBrainManifest`, read twice by `os.ReadFile`, compared by `bytes.Equal`, re-read by the refused `writeBrainManifestAndReadme`, and read again by `safeReadFile` — so every excess MiB is paid ~6 times. Cheaper: scale both down (e.g. bound `64 &lt;&lt; 10`, payload `128 &lt;&lt; 10`), or at minimum make the payload just clear the bound rather than double it.
+
+**4. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/privacy_verification_regression_test.go:132` — a 10,000-row ceiling is ~3 orders of magnitude above what the ceiling path needs.**
+`inspectPrivacyVectorIDsSnapshot` runs `SELECT record_id FROM history_ids LIMIT max+1` and trips when `count &gt; max`; the fixture's recursive CTE generates exactly `max+1` rows. Exercising that requires only that the view produce one row more than the ceiling. Concrete waste: 10,001 recursive-CTE steps plus 10,001 `rows.Next()`/`Scan` round trips through the SQLite driver per run, under the race detector, to observe a condition that fires identically at the second row of a two-row scan. Cheaper: `privacyVectorVerifyMaxRows = 16` (CTE then yields 17 rows) — same `LIMIT`-plus-count code path, same `memoryErrStateUnsafe` / "exceeds verification ceiling" assertions, same fail-closed `findings == nil` check, and the pin at lines 129-131 plus the cleanup are untouched.
+
+**5. `/Users/evisdrenova/conductor/workspaces/entire-brain/gwangju/internal/cli/facts_import_test.go:518` — the diff adapted this line to the new `maxManifestBytes` var but never used the lever it just created.**
+The writer goroutine blocks once the reader stops, so actual traffic is ~`maxManifestBytes` — 16 MiB pushed through an `os.Pipe` and buffered by `safeReadAll` just to prove `readImportFile("-")` returns a non-nil error. Now that `maxManifestBytes` is overridable, this test can lower it (e.g. `2 &lt;&lt; 20`, restored via `t.Cleanup`) and cut pipe traffic and the peak allocation 8x; the loop bound `(maxManifestBytes&gt;&gt;20)+2` already scales itself, the `int64` conversion stays, the `30 * time.Second` guard only gets slacker, and the sole assertion (`readErr == nil` fails) is untouched. Note this test must then not run parallel with others reading the var, which matches the convention the diff already adopts elsewhere.</result>
+<usage><subagent_tokens>57604</subagent_tokens><tool_uses>9</tool_uses><duration_ms>116332</duration_ms></usage>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>byih1qq5e</task-id>
+<tool-use-id>toolu_01CAoJvshioPniNDC53mWuQT</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/byih1qq5e.output</output-file>
+<status>completed</status>
+<summary>Background command "Vet and rerun all touched tests after simplify fixes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bug3jl9zt</task-id>
+<tool-use-id>toolu_01XvTKUB2tiqForbppGLaTUh</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-gwangju/1a623a71-bd1e-4266-aac9-ac6d8dfeb311/tasks/bug3jl9zt.output</output-file>
+<status>completed</status>
+<summary>Monitor "touched-tests verification result" stream ended</summary>
+<event>--- PASS: TestBrainManifestObservedShapesRoundTrip (29.58s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/session-heavy (14.84s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/warning-heavy (11.62s)
+--- PASS: TestBrainManifestObservedShapesRoundTrip/larger-than-default-read-limit (3.13s)
+--- PASS: TestBrainManifestLargeUnknownFieldsRemainReadOnly (0.04s)
+--- PASS: TestDemoCleanupPreservesSignalExitAndStopsSandboxChild (0.75s)
+--- PASS: TestDemoCleanupPreservesSignalExitAndStopsSandboxChild/demo-setup.sh (0.26s)
+--- PASS: TestDemoCleanupPreservesSignalExitAndStopsSandboxChild/demo-agent-session.sh (0.25s)
+--- PASS: TestDemoCleanupPreservesSignalExitAndStopsSandboxChild/trial-setup.sh (0.25s)
+--- PASS: TestImportRefusesAnOversizedStdinExport (0.01s)
+--- PASS: TestPrivacyVectorSnapshotEnforcesScanCeiling (0.01s)
+--- PASS: TestOverridableProductionBoundsKeepTheirDefaults (0.00s)
+--- PASS: TestSeedHistoryCoverageInManifestStaysUnderTheReadBound (0.80s)
+--- PASS: TestWriteBrainManifestLargeCoverageRoundTrip (12.69s)
+--- PASS: TestSemanticIndexLockFailsFast (0.07s)
+--- PASS: TestBundleExportLockFailsFast (0.06s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock (0.30s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock/query (0.02s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock/context (0.02s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock/impact (0.01s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock/routes (0.01s)
+--- PASS: TestSemanticReadCommandsDoNotRequireExclusiveIndexLock/tests (0.02s)
+--- PASS: TestSemanticGCLockFailsFast (0.05s)
+--- PASS: TestBundleImportLockFailsFast (0.05s)
+--- PASS: TestWorkspaceContextAndImpactReportLockedSemanticIndex (0.21s)
+PASS
+ok  	github.com/entireio/entire-brain/internal/cli	46.741s
+[exited with code 0]</event>
+</task-notification>

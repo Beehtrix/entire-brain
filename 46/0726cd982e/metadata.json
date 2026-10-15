@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "460726cd982e",
+  "strategy": "manual-commit",
+  "branch": "no-default-remote-connect",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "internal/cli/watch_hosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/46/0726cd982e/0/metadata.json",
+      "transcript": "/46/0726cd982e/0/full.jsonl",
+      "compact_transcript": "/46/0726cd982e/0/transcript.jsonl",
+      "content_hash": "/46/0726cd982e/0/content_hash.txt",
+      "prompt": "/46/0726cd982e/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 30,
+    "cache_creation_tokens": 443104,
+    "cache_read_tokens": 6251751,
+    "output_tokens": 10905,
+    "api_call_count": 15
+  }
+}

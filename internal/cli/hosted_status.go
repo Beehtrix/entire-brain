@@ -75,20 +75,44 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	return hosted, warning
 }
 
-// hostedStateLabel is the human spelling of a hosted state, shared by the
-// short identity line and the verbose section so they cannot disagree.
+// hostedStateLabel is the short-report spelling of a hosted state; the cause
+// and remedy live in the verbose line (hostedStatusLine).
 func hostedStateLabel(state string) string {
 	switch state {
 	case hostedStateConnected:
-		return "connected"
+		return "Connected to Brainstore"
 	case hostedStateDisconnected:
-		// Two causes share the state; the kill switch wins the gate order, so
-		// it also wins the blame line.
-		if brainNoEgressMode() {
-			return "disconnected (ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY set)"
-		}
-		return "disconnected (via 'entire brain disconnect'; run 'entire brain connect' to rejoin)"
+		return "Disconnected from Brainstore"
 	default:
-		return "local-only"
+		return "Local-only"
+	}
+}
+
+// hostedStatusLine is the verbose report's one-line hosted state: the label
+// plus the cause or remedy. Coordinates are machine detail and stay in --json.
+func hostedStatusLine(h *brainStatusHosted) string {
+	switch h.State {
+	case hostedStateConnected:
+		if n := len(h.SyncedBranches); n > 0 {
+			word := "branches"
+			if n == 1 {
+				word = "branch"
+			}
+			return fmt.Sprintf("Connected to Brainstore (%d %s synced)", n, word)
+		}
+		return "Connected to Brainstore (no branches synced yet)"
+	case hostedStateDisconnected:
+		// Two causes share the state and the kill switch wins the gate order,
+		// so it also wins the blame line. Name the variable actually set.
+		switch {
+		case securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS"):
+			return "Disconnected from Brainstore (ENTIRE_BRAIN_NO_EGRESS set)"
+		case securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY"):
+			return "Disconnected from Brainstore (ENTIRE_BRAIN_LOCAL_ONLY set)"
+		default:
+			return "Disconnected from Brainstore (run 'entire brain connect' to rejoin)"
+		}
+	default:
+		return "Local-only (run 'entire brain connect' to join Brainstore)"
 	}
 }

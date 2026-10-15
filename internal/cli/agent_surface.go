@@ -1225,6 +1225,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
 		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
+	if h := report.Hosted; h != nil {
+		fmt.Fprintf(out, "\n%s\n", hostedStatusLine(h))
+	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
@@ -1240,22 +1243,6 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
-		}
-	}
-	if h := report.Hosted; h != nil {
-		fmt.Fprintln(out, "\nHosted")
-		suffix := ""
-		if h.State == hostedStateLocalOnly {
-			// True whether no binding exists yet or one is unreadable; sync
-			// only self-connects in the first case, so do not promise it.
-			suffix = " (not connected; run 'entire brain connect' to join)"
-		}
-		fmt.Fprintf(out, "  state: %s%s\n", hostedStateLabel(h.State), suffix)
-		if h.RepoID != "" {
-			fmt.Fprintf(out, "  target: repo %s via %s\n", h.RepoID, h.BaseURL)
-		}
-		if len(h.SyncedBranches) > 0 {
-			fmt.Fprintf(out, "  synced branches: %s\n", strings.Join(h.SyncedBranches, ", "))
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)

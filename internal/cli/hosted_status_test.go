@@ -60,7 +60,7 @@ func TestStatusHostedLocalOnlyWithoutBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "hosted: local-only") {
+	if !strings.Contains(out, "Local-only") {
 		t.Fatalf("short status does not show hosted state:\n%s", out)
 	}
 }
@@ -100,11 +100,12 @@ func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status --verbose: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Hosted") || !strings.Contains(out, "state: connected") {
-		t.Fatalf("verbose status has no Hosted section:\n%s", out)
+	if !strings.Contains(out, "Connected to Brainstore (1 branch synced)") {
+		t.Fatalf("verbose status missing the Brainstore line:\n%s", out)
 	}
-	if !strings.Contains(out, repoID) {
-		t.Fatalf("verbose status does not name the hosted target:\n%s", out)
+	// Coordinates are machine detail: --json carries them, humans don't.
+	if strings.Contains(out, repoID) {
+		t.Fatalf("human output must not show the repo id:\n%s", out)
 	}
 }
 
@@ -132,8 +133,15 @@ func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "hosted: disconnected") || !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
-		t.Fatalf("short status does not explain the kill switch:\n%s", out)
+	if !strings.Contains(out, "Disconnected from Brainstore") {
+		t.Fatalf("short status does not show the disconnect:\n%s", out)
+	}
+	verbose, err := execute(t, NewRootCommand(opts), "status", "--verbose")
+	if err != nil {
+		t.Fatalf("status --verbose: %v\n%s", err, verbose)
+	}
+	if !strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS set") {
+		t.Fatalf("verbose status does not name the kill switch:\n%s", verbose)
 	}
 }
 
@@ -202,11 +210,18 @@ func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "hosted: disconnected") || !strings.Contains(out, "entire brain disconnect") {
-		t.Fatalf("short status must attribute the opt-out to disconnect:\n%s", out)
+	if !strings.Contains(out, "Disconnected from Brainstore") {
+		t.Fatalf("short status does not show the disconnect:\n%s", out)
 	}
-	if strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
-		t.Fatalf("an opt-out must not be blamed on the kill switch:\n%s", out)
+	verbose, err := execute(t, NewRootCommand(opts), "status", "--verbose")
+	if err != nil {
+		t.Fatalf("status --verbose: %v\n%s", err, verbose)
+	}
+	if !strings.Contains(verbose, "run 'entire brain connect' to rejoin") {
+		t.Fatalf("verbose status must name the rejoin remedy:\n%s", verbose)
+	}
+	if strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("an opt-out must not be blamed on the kill switch:\n%s", verbose)
 	}
 }
 

@@ -412,7 +412,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		identity = append(identity, statusFactsIdentity(f))
 	}
 	if h := report.Hosted; h != nil {
-		identity = append(identity, "hosted: "+hostedStateLabel(h.State))
+		identity = append(identity, hostedStateLabel(h.State))
 	}
 	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(identity, " "+render.Bullet()+" ")))
 

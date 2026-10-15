@@ -1,0 +1,32 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "714ef9e29164",
+  "strategy": "manual-commit",
+  "branch": "feat/bm25-facts-ranker",
+  "checkpoints_count": 3,
+  "files_touched": [
+    "internal/cli/blind_spot.go",
+    "internal/cli/blind_spot_hosted_test.go",
+    "internal/cli/hosted_binding.go",
+    "internal/cli/hosted_binding_test.go",
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go",
+    "internal/cli/root.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/71/4ef9e29164/0/metadata.json",
+      "transcript": "/71/4ef9e29164/0/full.jsonl",
+      "compact_transcript": "/71/4ef9e29164/0/transcript.jsonl",
+      "content_hash": "/71/4ef9e29164/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 270,
+    "cache_creation_tokens": 2185467,
+    "cache_read_tokens": 23135269,
+    "output_tokens": 107352,
+    "api_call_count": 135
+  }
+}

@@ -1,0 +1,106 @@
+<skill name="owning-workspace-slice" location="/Users/alex/.claude/skills/owning-workspace-slice/SKILL.md">
+References are relative to /Users/alex/.claude/skills/owning-workspace-slice.
+
+# Own a Workspace Slice
+
+You own one coherent vertical slice. Read normal global and project instructions, the Linear issue, and the parent dispatch packet. Normal skill, plugin, extension, and project-instruction discovery must remain enabled.
+
+The dispatch packet is the requirements contract:
+
+1. desired outcome and why it matters;
+2. Linear issue ID and authoritative issue requirements;
+3. settled product decisions and hard constraints;
+4. cross-piece interfaces and dependencies;
+5. acceptance signals and granted authority;
+6. known evidence, separate from hypotheses.
+
+Parent-supplied repository files, symbols, architecture, and implementation steps are hypotheses unless marked as directly verified evidence. Validate or discard them through independent repository exploration; do not follow a false technical hint merely because it appeared in the packet.
+
+## Own the full repository workflow
+
+Continue without parent approval through:
+
+1. deep exploration sufficient to understand the repository and replace bad hypotheses;
+2. the appropriate spec and implementation plan;
+3. test-first delegated implementation for behavior changes;
+4. complete repository verification and full-diff inspection;
+5. PR creation and review follow-up to merge readiness.
+
+The workspace controller owns exploration, specification, planning, and coordination. After planning, it **MUST NOT directly implement application code after planning**. It may write only specs, ephemeral plans, coordination ledgers/receipts, and exact transcription of non-application configuration when existing global or project policy already allows that writing. This narrow allowance does not permit application-code implementation or broaden any existing policy.
+
+For Claude workspaces, explicitly invoke the enabled Superpowers workflow appropriate to the work: `superpowers:brainstorming`, `superpowers:writing-plans`, `superpowers:test-driven-development`, `superpowers:subagent-driven-development`, receiving-review, and verification-before-completion. After planning, invoke `superpowers:subagent-driven-development` for application implementation and use fresh review agents for review; do not substitute direct controller edits. During deep exploration, use `using-agent-knowledge-base` when recurring behavior may have durable prior evidence, but validate note claims against current repository and authoritative sources. Before the final receipt, evaluate verified reusable discoveries with `capturing-agent-knowledge`; its vault-note ownership rules are separate from this workspace's checkout ownership.
+
+For Pi workspaces, explicitly invoke the approved `brainstorming`, Pi-native `writing-plans`, Pi `pi-subagents` roles/workflow, `test-driven-development`, `receiving-code-review` as applicable, and `verification-before-completion` workflows. After planning, dispatch application implementation to a Pi-native `pi-subagents` writer and use fresh review roles/workflow; do not substitute direct controller edits. Keep implementation plans ephemeral and outside the tracked tree. If a required named Pi agent or workflow is unavailable, inspect the Pi registry and either report the missing agent/workflow or adapt it within the approved Pi-native workflow; do not silently substitute another harness or bypass the required workflow with direct implementation.
+
+Direct/inline execution is forbidden unless the user explicitly requests it. That explicit exception permits only the requested direct execution; it does not waive planning, verification, or fresh review. Workflow launch or tooling failure is a blocker, not permission to implement directly: record the failure and escalate it rather than bypassing the workflow.
+
+Follow project instructions where they are stricter. Do not mutate Linear state, create dependencies, or close the issue. Report scope discoveries to the parent instead.
+
+## Own PR review follow-up
+
+For PR-bound work, create the human-authored PR first, then confirm its automatically created or linked trail before review. If automatic linking is absent, report the integration problem; do not fall back to `entire trail create`. Start and own the review steward in this checkout.
+
+The owner remains accountable for review-loop liveness, may inspect aggregate state, and may nudge or resume the steward. Once started, the steward is the sole writer in the checkout: it reads detailed CI, Bugbot, thread, and trail feedback; implements fixes, verifies, commits, pushes, and follows review feedback through merge readiness. The owner must not edit, commit, or push while the steward owns the checkout. Owner intervention requires an explicit steward stop or release and a recorded handoff before any write.
+
+Trail monitor review is mandatory on every steward wave, not only when a user mentions Slopgate. Require the steward to fetch authenticated Trail detail and record the current PR and Trail heads plus each monitor present in `.monitors[]` with its key, value, state, and evaluated SHA. Only monitors present in `.monitors[]` are configured. An absent Confidence, Risk, Security, or Slop key is `not configured`, does not block readiness, and does not create `insufficient_evidence`. Interrogate a present current Slop evaluation at every value. Confidence, Risk, and Security require interrogation when a current value, trend, or rationale names a concrete concern. Every monitor claim must have one canonical classification (`actionable_bug`, `actionable_cleanup`, `already_fixed_or_stale`, `non_actionable_opinion`, or `insufficient_evidence`), an explicit disposition, and steward-held code/test/diff/spec evidence. `insufficient_evidence` blocks readiness; stale and opinion claims are documented `no-action`, never silently dropped. Resume the sole-writer steward with only verified claims and evidence; do not turn monitor rationale into a fix instruction yourself.
+
+Reconcile `trail-review=missing` against authenticated Trail detail before nudging or retriggering. Select from `.runners[]` by exact `runner_id == "trail-review"`; current-passed requires `state == "evaluated"`, `outcome == "passed"`, and `evaluated_at_sha == head_sha`, with the Trail head matching the current PR head. Record absent/not-configured, running, stale, failed, and current-passed distinctly; an empty auxiliary summary is never main-review evidence. Genuine absence is not a passing required review; report the configuration/evidence gap. Unavailable detail names the next authenticated observation, not another review run.
+
+Check Trail status before mergeability: `.status == "merged"` may coexist with false `.mergeability.mergeable`; report direct merge confirmation to the parent without restarting review. For open Trails, `.mergeability.mergeable` and `.mergeability.gates[]` are corroborating evidence only; Entire Ready-to-merge never substitutes for Alex's personal current-head gates. When those gates hold, approval-only Entire failure means **automated work complete; human handoff**, not another review run or an automated approval-polling condition.
+
+The GitHub check named exactly `Partial Gates` is always an environment/testing artifact. The owner and steward never inspect, wait on, fix, or report it as required; it does not block merge readiness. This does not apply to `Entire Gates` or any differently named check.
+
+For human-facing owner reports (not artifact creation), verify a Trail match only from an actual link or association; repository or branch similarity is not evidence. When one or more verified matching Trails exist, show only their full clickable canonical Trail URL(s) and Trail state; do not identify or link the matched PR, including its URL, number, or identity. PR-derived evidence such as mergeability, check status, and unresolved-thread counts may remain in prose without identifying or linking the PR. If the Trail association exists but Trail state/detail is unavailable, show the Trail URL as unknown and do not fall back to the PR. A closed, merged, or unknown matching Trail remains primary; report its state or discrepancy rather than switching artifacts. If no matching Trail exists, show the clickable PR URL with `Trail: pending/not linked`. For multiple verified matching Trails, show all their canonical URLs and no PR. Never guess or manually create a Trail. Keep artifact creation, automatic Trail linking, review mechanics, personal gates, post-merge verification, and structured/internal PR evidence unchanged. Pi and Claude bottom status lines remain Trail-only.
+
+Return only aggregate review receipts to the parent: PR/current SHA, **current-head mergeability** (`MERGEABLE`, `UNKNOWN`, or `CONFLICTING`) with its next action/signal, required-check summary (excluding `Partial Gates`), Bugbot status for that SHA, unresolved-thread count, trail/open-finding count, main-review receipt (Trail status/head, runner ID/state/outcome/evaluated SHA, Entire gate summary), **monitor receipt** (PR/Trail head, each monitor's value/state/evaluated SHA, per-canonical-classification disposition counts, evidence-recorded status, actionable count, insufficient-evidence count, and next signal), and merge readiness. Monitor rationale and per-claim evidence stay with the owner and steward. A merge-ready receipt requires `mergeable == "MERGEABLE"` on the current PR head, Bugbot terminal, current-passed main review, green required CI excluding `Partial Gates`, zero unresolved threads, and zero open Trail findings; every monitor present in `.monitors[]` evaluated on the current PR and Trail head; no present monitor evaluating, stale, or failed; absent keys recorded as `not configured` without blocking or `insufficient_evidence`; zero verified actionable and insufficient-evidence claims; and documented `no-action` dispositions for stale or opinion claims. A non-ready receipt must name its next signal or action. The parent may coordinate or nudge with aggregate discrepancies, but it never prescribes review fixes or launches a competing steward.
+
+## Publish local Trail footer state
+
+When the owner/steward or its existing watch already observes the Trail's actual `open`, `draft`, `merged`, or `closed` status, publish it with `node ~/.pi/agent/extensions/session-trail-footer/record-state.mjs "$trail_url" "$trail_status" "$observed_at"`. Inside the actual owning Herdr workspace, the helper automatically records the workspace's own Trail association, even without a parent's hand-written ledger. It does not create any parent edge. A relay from another workspace must append `--workspace <actual-owner-id> --pane <actual-owner-pane-id>` from the verified launch receipt, rather than associating the Trail with the relayer. The third argument is the ISO observation timestamp; omit it only for a fresh direct observation, and preserve it when relaying a receipt. Publish when linking the Trail and when the existing workflow observes a status change, including final closure. This writes only local footer state outside the checkout and is safe while the steward owns repository writes. It does not create/link a Trail or replace the parent's ownership ledger. Never make an extra remote request or launch another watch for the footer, and never infer Trail status from PR readiness, PR merge, approvals, or cleanup. Lookup failure preserves last-known local state. Include the canonical Trail URL, actual status, and observation timestamp in the parent's aggregate receipt so it can relay the same evidence without another fetch.
+
+## Escalate only these cases
+
+- an unsettled product or scope decision;
+- a cross-piece contract change;
+- a destructive or security-sensitive action not already authorized;
+- a blocker for which every safe path would be a guess.
+
+Everything else—including replacing a parent technical hypothesis—is yours to resolve and continue.
+
+## Progress and cleanup receipts
+
+Keep a readable progress record and provide receipts containing:
+
+- decisions and replaced hypotheses;
+- implementation and verification results;
+- PR and review state;
+- residual risks or blockers;
+- every resource started (Compose project, server, tunnel, temporary state); and
+- exact, idempotent cleanup commands and intentional retained resources.
+
+Before review, stop resources no longer needed. Update the receipt if review work starts a resource. After direct merge confirmation, wait for the parent's current merge-commit success receipt for default-branch builds/checks before the final repository-specific cleanup pass. The parent owns the event-driven post-merge watch; the review steward remains pre-merge. Report post-merge failures to the parent, including apparently unrelated failures with evidence, rather than silently ignoring them or cleaning. Once the parent authorizes cleanup after that receipt, report the cleanup receipt and leave the checkout clean and unoccupied.
+
+Never remove the Herdr workspace yourself. The parent verifies cleanup and removes it only after merge confirmation and post-merge success. No final cleanup or Done receipt before both. If you crash, the parent may run only cleanup commands already recorded, one at a time after inspection.
+</skill>
+
+1. Desired outcome and why: Own one independently shippable security baseline in entireio/entire-brain, based on latest main, removing the currently symbol-reachable inherited Go/toolchain/x-net/go-git vulnerabilities that prevent safe dependency maintenance. Keep this bounded; do not chase every latest version or unrelated advisory. Mandatory workflow: owning-workspace-slice, normal global/project instructions, Pi-native planning/TDD/delegated implementation/review/verification. Parent owns final merges, post-merge verification, lifecycle and cleanup.
+
+2. Linear: COR-2129, https://linear.app/entirehq/issue/COR-2129/entire-brain-establish-a-verified-go-dependency-security-baseline . Core / P0 GA the Local Brain / Post launch / Security / assigned Alex / In Progress, already set by parent. Read authoritative issue requirements. Do not mutate Linear lifecycle or dependencies.
+
+3. Settled decisions and hard constraints: This is a fresh main-based security correction, not an extension of the staged bot merges. Do not touch /Users/alex/.herdr/worktrees/entire-brain/alex-manage-dependencies or its staged go-billy merge. Preserve unrelated main dependency selections, all persisted/wire contracts, benchmark historical evidence and production pins/checker/schema commitments. No broad refactor, new product features, privilege expansion, test/CI weakening, suppressed scanner results, provenance migration, forced pushes, manual checkpoints or new agent harness. Use actual Entire agent-help and command-specific help; same-repo autodetect, no unnecessary --repo; no setup/destructive/auth commands. Bugbot is unavailable for bot authors due admin Restrict Access; user requested no retries on bot PRs. This new human-authored baseline follows normal mandatory gates; never claim readiness or bypass gate if Bugbot remains unavailable. Do not alter admin/security settings. Ignore exact Partial Gates unconditionally.
+
+4. Interfaces/dependencies: Must ship independently from current main (primary source HEAD and remote main both c6e10f81e9bab5a7b7b114e612b8a3c52d76d684 at launch preflight). Parent will reconcile existing go-billy/go-git bot Trails only after baseline merges and actual merge-commit builds pass. Do not close or edit those bot PRs/Trails. No automatic dependency on their unmerged commits. A newer main may exist; verify and update safely before changes/push.
+
+5. Acceptance/granted authority: Explore/design/plan, test-first delegated Pi implementation, authoritative release/migration/advisory/provenance checking before executing new targets, full native format/lint/build/test and compatible source scan, independent review and one coherent human PR with automatic Trail association confirmed. Soft budget~400 net lines/10 files; hard800 excluded generated, split/escalate before oversize. Do not choose target versions from this packet blindly: independently establish authoritative fixed floors and actual usage compatibility. No merge/approval or cleanup/removal authority; parent decides. Before initial PR push/creation run /preflight-pr under existing policy; no other harness fallback. Start exactly one sole-writer review-steward for your PR and maintain its liveness; controller does not implement application code after planning. Return aggregate current-head CI/mergeability/main-review/findings/monitor receipts, zero actionable/insufficient evidence for readiness; retain details yourself. Write ephemeral plans/receipts outside tracked tree. Native suites may each take 8-10min; give managed verification enough time, preserve command/exit/input-tree receipts and checkpoints, avoid rerunning passing suites on unchanged inputs. Required actual Go format/lint/build/test commands must run after Go edits. If environmental mismatch, use documented already installed tools command-locally; no global config changes. If toolchain installation is essential to this authorized Go patch security upgrade, use isolated repository/workspace tooling with verified official provenance; no global default changes. Stop/re-scope for an unavailable trust input or unapproved contract change instead of inventing one.
+
+6. Known evidence separated from hypotheses: Prior official govulncheckv1.9.0 rebuilt withGo1.27.1 returned source-scan exit3 with12 symbol-reachable IDs. Candidate fixed floors reported by prior steward: Go1.27.2, golang.org/x/net0.60 and go-gitv6.0.0-alpha.5 for GO-2026-6214. These are evidence leads, NOT settled version choices; verify exact current advisories, ranges, upstream fixes and ancestry (beta spelling alone is not evidence). Secondary diagnostics: /tmp/trail276-security-stop-receipt.md, /tmp/trail276-source-scan-v1.9.log; compatible temporary scanner retained at /tmp/trail276-govulncheck.MkmJpe. Do not mutate another slice's scanner/resources; may inspect or copy verified tool into your owned temporary path. Full native test:ci and test:cgo passed in old staged bot tree, but those receipts are NOT baseline verification. Prior benchmark wrapper failed under global Python3.12; repository CI explicitly usesPython3.14; installed /opt/homebrew/bin/python3.14(3.14.8) passed the exact unchanged native benchmark task body under command-local PATH with pinnedGo. A separate uncached fullsuite had one intermittent envelope-test failure; focused recheck passed, not equivalent to fullsuite green. These may guide environment setup but are not permission to skip gates. Brain memory snapshot was stale; normal Brain/Graph capability checks and source verification remain mandatory. No retained historical runtime root or checker-authority redesign is authorized; keep that work parked.
+
+Return regular concise ownership/progress receipts and exact next signals, including every temporary resource and cleanup recipe. The user wants the smallest verified endpoint, not an unbounded investigation. If the security-baseline scope cannot converge without changing provenance/contracts or broadening beyond this slice, stop with a decision packet before editing further.
+
+---
+
+Confirmed by parent: proceed with the bounded approach already authorized by Alex and COR-2129. Verify authoritative fixed-version/advisory/provenance evidence and actual repository usage, preserve unrelated selections/contracts/benchmark commitments, then produce your design and ephemeral plan and use Pi-native delegated test-first implementation, full verification and independent review. No need to ask Alex again for this settled approach. Exact target versions remain yours to validate, not guessed from the packet. Escalate only genuinely new contract/scope/security decisions or unavailable evidence. Complete the one coherent main-based security baseline under owning-workspace-slice; no merges or changes to other bot workspaces. Correct optional knowledge-base skill location if needed is /Users/alex/.claude/skills/using-agent-knowledge-base/SKILL.md. Retain verification receipts/input identity and give long native test suites enough time, not repeated restarts. Parent owns issue lifecycle, merge/postmerge watches and cleanup. Return aggregate progress/PR/Trail receipts and exact next signals.
+
+---
+
+Inspect subagent updates above. Answer pending supervisor requests within your authority. For completed work, read saved results and resume the already-authorized parent task, or report completion. If approval is required, explicitly ask the user. Do not silently yield, rerun completed work, or infer new authorization.

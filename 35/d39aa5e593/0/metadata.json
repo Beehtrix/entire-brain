@@ -1,0 +1,55 @@
+{
+  "cli_version": "0.11.5",
+  "checkpoint_id": "35d39aa5e593",
+  "session_id": "01a13d86-e8b9-722d-93f3-3f65b7f381f6",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-15T04:06:10.381958Z",
+  "branch": "alex/security-dependency-baseline",
+  "checkpoints_count": 2,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "CONTRIBUTING.md",
+    "go.mod",
+    "go.sum",
+    "mise.toml"
+  ],
+  "agent": "Pi",
+  "model": "gpt-6-luna",
+  "turn_id": "a19ba6b49100",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 270224,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 10460160,
+    "output_tokens": 27200,
+    "api_call_count": 90
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "pi-skill-owning-workspace-slice-2026-10-15T03:07:15.876Z-0",
+      "event_type": "prompt_invocation",
+      "skill": {
+        "name": "owning-workspace-slice"
+      },
+      "source": {
+        "agent": "pi",
+        "signal": "input_slash_command",
+        "confidence": "explicit"
+      },
+      "turn_id": "c260b5d5f9e3",
+      "timestamp": "2026-10-15T03:07:15.876Z",
+      "native": {
+        "command": "/skill:owning-workspace-slice"
+      },
+      "collapse": {
+        "target": "user_message",
+        "label": "/skill:owning-workspace-slice",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 2
+  }
+}

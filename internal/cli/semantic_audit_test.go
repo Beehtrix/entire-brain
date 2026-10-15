@@ -14,16 +14,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// statusSemanticDetail builds the full status report the way the status
-// command does: base report plus the expensive semantic detail pass (coverage
-// and blind spots, the former semantic-audit content).
+// statusSemanticDetail combines the strict report with store-backed coverage
+// for audit tests; the status command itself does not scan store contents.
 func statusSemanticDetail(t *testing.T, opts Options, repoDir string) brainStatusReport {
 	t.Helper()
 	report, err := buildBrainStatusReport(context.Background(), opts, repoDir)
 	if err != nil {
 		t.Fatalf("status report: %v", err)
 	}
-	populateBrainStatusSemanticDetail(context.Background(), opts, &report)
+	populateBrainStatusSemanticSummary(context.Background(), opts, &report)
+	coverage, err := semanticAuditStoreCoverage(report.Brain.Path, report.Manifest.Sources.Semantic, *report.Semantic.Freshness)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report.Semantic.Coverage.FileLanguages = coverage.FileLanguages
+	report.Semantic.Coverage.Languages = coverage.Languages
+	report.Semantic.Coverage.SymbolKinds = coverage.SymbolKinds
+	report.Semantic.Coverage.RelationTypes = coverage.RelationTypes
 	return report
 }
 
@@ -119,8 +126,8 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	if len(defaultReport.Semantic.BlindSpots) != 1 || defaultReport.Semantic.BlindSpots[0].Path != "src/broken.ts" || len(defaultReport.Semantic.Coverage.WarningDetails) != 1 || len(defaultReport.Semantic.Coverage.PartialFailureDetails) != 1 {
 		t.Fatalf("default status lost warnings or blind spots: %+v", defaultReport.Semantic)
 	}
-	if len(defaultReport.Semantic.Coverage.FileLanguages) == 0 || len(defaultReport.Semantic.Coverage.Languages) == 0 || len(defaultReport.Semantic.Coverage.SymbolKinds) == 0 || len(defaultReport.Semantic.Coverage.RelationTypes) == 0 {
-		t.Fatalf("default status omitted established coverage histograms: %+v", defaultReport.Semantic.Coverage)
+	if len(defaultReport.Semantic.Coverage.FileLanguages) != 0 || len(defaultReport.Semantic.Coverage.Languages) != 0 || len(defaultReport.Semantic.Coverage.SymbolKinds) != 0 || len(defaultReport.Semantic.Coverage.RelationTypes) != 0 {
+		t.Fatalf("status must not scan store-backed coverage histograms: %+v", defaultReport.Semantic.Coverage)
 	}
 
 	detailedOut, err := execute(t, NewRootCommand(opts), "status", "--json", "--details")
@@ -147,6 +154,25 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	if sem.Coverage.Warnings != 1 || sem.Coverage.PartialFailures != 1 || len(sem.Coverage.WarningDetails) != 1 || len(sem.Coverage.PartialFailureDetails) != 1 {
 		t.Fatalf("warning details missing: %+v", sem.Coverage)
 	}
+	if len(sem.Coverage.FileLanguages)+len(sem.Coverage.Languages)+len(sem.Coverage.SymbolKinds)+len(sem.Coverage.RelationTypes) != 0 {
+		t.Fatal("--details must not enable deep auditing")
+	}
+	doctorOut, err := execute(t, NewRootCommand(opts), "doctor", "--json", "--fail-on", "none")
+	if err != nil {
+		t.Fatalf("doctor: %v\n%s", err, doctorOut)
+	}
+	var doctor struct {
+		Coverage *brainStatusSemanticCoverage `json:"semantic_coverage"`
+	}
+	if err := json.Unmarshal([]byte(doctorOut), &doctor); err != nil {
+		t.Fatal(err)
+	}
+	if doctor.Coverage == nil || semanticAuditCountSummary(doctor.Coverage.RelationTypes) != "calls=1, imports=1" {
+		t.Fatalf("doctor must retain store-backed coverage: %s", doctorOut)
+	}
+	// Explicit audit coverage remains available to the deep diagnostic path.
+	populate := statusSemanticDetail(t, opts, repoDir)
+	sem = populate.Semantic
 	if got := semanticAuditCountSummary(sem.Coverage.FileLanguages); got != "go=1, markdown=1, typescript=1" {
 		t.Fatalf("file-language coverage = %q", got)
 	}

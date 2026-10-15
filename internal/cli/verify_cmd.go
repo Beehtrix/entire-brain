@@ -44,9 +44,8 @@ type verifyCommandOptions struct {
 	failOnUnverifiable bool
 	strict             bool // alias flag for failOnUnverifiable; OR'd in at run time
 	// sample verifies only the `limit` most recently updated facts in
-	// no-target mode. Set by hot-path callers (brain status): full
-	// verification shells two git subprocesses per distinct commit anchor,
-	// which is `verify`'s job, not a status check's.
+	// no-target mode. Full verification can shell out per distinct commit
+	// anchor, so status never invokes it; doctor and verify own that work.
 	sample bool
 }
 
@@ -906,30 +905,11 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	if err != nil {
 		return verifySummary{}, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, sample: true}, "")
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{all: true}, "")
 	if err != nil {
 		return verifySummary{}, err
 	}
 	return report.Summary, nil
-}
-
-func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport) {
-	if report == nil || !report.Sources.Facts {
-		return
-	}
-	branch := report.Live.Branch
-	if branch == "" {
-		branch = distillDefaultBranch
-	}
-	summary, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
-	if err != nil {
-		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
-		return
-	}
-	if report.Facts == nil {
-		report.Facts = &brainStatusFacts{}
-	}
-	report.Facts.Verification = &summary
 }
 
 func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {

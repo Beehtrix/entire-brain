@@ -811,7 +811,7 @@ func TestVerifyStrictFlagsFailOnUnverifiableAfterJSON(t *testing.T) {
 	}
 }
 
-func TestStatusIncludesVerificationSummary(t *testing.T) {
+func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
@@ -819,8 +819,13 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	f.runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	f.writeSessions(t, nil)
-	f.writeFacts(t, "main", []factRecord{
-		verifyFactFixture("fact:status", "Status summarizes fact verification.", "main", factOriginAuthored, factStatusActive, f.now, nil),
+	facts := make([]factRecord, 12)
+	for i := range facts {
+		facts[i] = verifyFactFixture(fmt.Sprintf("fact:status%d", i), "Doctor verifies fact anchors.", "main", factOriginAuthored, factStatusActive, f.now, nil)
+	}
+	f.writeFacts(t, "main", facts)
+	f.writeFacts(t, "other", []factRecord{
+		verifyFactFixture("fact:other", "Other branch.", "other", factOriginAuthored, factStatusActive, f.now, nil),
 	})
 
 	cmd := NewRootCommand(f.opts)
@@ -832,12 +837,19 @@ func TestStatusIncludesVerificationSummary(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("parse status json: %v\n%s", err, out)
 	}
-	if report.Facts == nil || report.Facts.Verification == nil || report.Facts.Verification.UnverifiableHere != 1 {
-		t.Fatalf("missing verification summary: %+v", report.Facts)
+	if report.Facts == nil || report.Facts.Verification != nil || report.Integrity != "not_checked" {
+		t.Fatalf("status must not verify fact anchors: %+v", report)
 	}
+	checks, _ := brainDoctorReadOnlyReport(context.Background(), f.opts, f.repoDir)
+	for _, check := range checks {
+		if check.Name == "facts_verification" && strings.Contains(check.Detail, "branch main: 12 facts") && strings.Contains(check.Detail, "12 unverifiable-here") {
+			return
+		}
+	}
+	t.Fatalf("doctor omitted fact verification: %+v", checks)
 }
 
-// TestVerifySamplingAndCommitMemoization covers the brain-status hot path:
+// TestVerifySamplingAndCommitMemoization covers bounded verification:
 // sampling caps verification to the most recent facts (with the corpus size
 // recorded so a sampled summary cannot be misread as full verification), and
 // commit checks are memoized — facts sharing a checkpoint commit must not

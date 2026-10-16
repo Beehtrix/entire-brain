@@ -47,7 +47,11 @@ brain data may go, in precedence order:
    hosted commands: `publish`, `facts sync --facts-backend=http`, and
    `facts proposals`.
 3. **Environment overrides** for those same flags: `ENTIRE_REPO_ID`,
-   `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`.
+   `ENTIRE_API_URL`, `ENTIRE_API_TOKEN`. These fill fields but never authorize
+   egress by themselves: a manual command refuses an env-only target unless the
+   repo is connected, a target flag was passed on the invocation, or the legacy
+   `ENTIRE_BRAIN_ALLOW_HOSTED=1` opt-in is set (deprecated; honored so existing
+   env-only scripts keep working, with a one-time warning).
 4. **The recorded connection** (`hosted.json`, written only by
    `entire brain connect` and `entire brain disconnect`). Background sync
    reads only this binding; the override variables above never redirect it.

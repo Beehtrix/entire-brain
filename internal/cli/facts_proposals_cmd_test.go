@@ -173,6 +173,7 @@ func newHostedProposalsFixture(t *testing.T) (verifyFixture, *hostedProposalsFak
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_API_URL", ts.URL)
 	t.Setenv("ENTIRE_API_TOKEN", "test-token")
 	t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
@@ -188,6 +189,7 @@ func TestFactsProposalsRefusesWithoutGates(t *testing.T) {
 		args []string
 		want string
 	}{
+		{name: "env-only without consent", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": ""}, want: "opt-in"},
 		{name: "no-egress wins", env: map[string]string{"ENTIRE_BRAIN_NO_EGRESS": "1"}, want: "no_egress"},
 		{name: "local-only wins", env: map[string]string{"ENTIRE_BRAIN_LOCAL_ONLY": "1"}, want: "no_egress"},
 		{name: "missing repo id", env: map[string]string{"ENTIRE_REPO_ID": ""}, want: "target repo id is required"},

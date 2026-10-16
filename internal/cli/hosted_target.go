@@ -3,11 +3,17 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/repoid"
 )
+
+// envBrainAllowHosted is the legacy env opt-in for hosted egress, kept as a
+// deprecated consent path so scripts written against it keep working. New
+// setups should use `entire brain connect` or explicit target flags.
+const envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
 
 // manualHostedTarget is the resolved destination for a manual hosted command
 // (publish, facts sync --facts-backend=http, facts proposals).
@@ -36,6 +42,23 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		b, present, err := readHostedRepoBinding(brainDir)
 		if err == nil && present && !b.OptedOut {
 			binding, connected = b, true
+		}
+	}
+
+	// Consent gate: ambient ENTIRE_* environment variables alone never
+	// authorize hosted egress — a machine that exports them for other tooling
+	// must not start uploading brain data because a command ran. Consent is the
+	// connected binding, an explicit target flag on this invocation, or the
+	// legacy ENTIRE_BRAIN_ALLOW_HOSTED opt-in (deprecated, honored for
+	// backwards compatibility). Checked before any field resolution, so a
+	// refusal is guaranteed egress-free.
+	explicitFlag := strings.TrimSpace(flagRepoID) != "" || strings.TrimSpace(flagAPIURL) != "" || strings.TrimSpace(flagToken) != ""
+	if !connected && !explicitFlag {
+		if !envBool(envBrainAllowHosted) {
+			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run 'entire brain connect', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, envBrainAllowHosted)
+		}
+		if _, seen := securityToggleWarned.LoadOrStore(envBrainAllowHosted+":deprecated", struct{}{}); !seen {
+			fmt.Fprintf(os.Stderr, "warning: %s is deprecated; run 'entire brain connect' or pass explicit target flags\n", envBrainAllowHosted)
 		}
 	}
 

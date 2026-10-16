@@ -37,6 +37,7 @@ func TestPublishRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
 	t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
 	t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
@@ -72,6 +73,7 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
 	t.Setenv("ENTIRE_API_TOKEN", "tok")
 	t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
@@ -91,6 +93,7 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 func TestFactsProposalsRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	f, fake, proposal := newHostedProposalsFixture(t)
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
+	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
 
 	for _, args := range [][]string{
@@ -133,6 +136,7 @@ func TestHostedCommandsRejectMalformedAPIURL(t *testing.T) {
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			// Even the plaintext opt-in must not rescue a malformed URL.
 			t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "1")
+			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_API_URL", raw)
 			t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
 			t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)
@@ -175,6 +179,7 @@ func TestPublishAllowsPlaintextLoopbackAndOptIn(t *testing.T) {
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", tc.optIn)
+			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_API_URL", tc.url)
 			t.Setenv("ENTIRE_API_TOKEN", testPublishToken)
 			t.Setenv("ENTIRE_REPO_ID", testPublishRepoID)

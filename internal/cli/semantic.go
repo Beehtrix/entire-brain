@@ -46,7 +46,15 @@ const (
 	// semanticSchemaVersion is the newest provider schema this build knows how
 	// to ingest in full. A newer minor is still accepted (ADR 0001: minors are
 	// additive) but warns, because facts added after this version are dropped.
-	semanticSchemaVersion               = "1.1"
+	//
+	// 1.2 added identity_revision (consumed: internal/entityindex keys every
+	// stored delta by it and re-migrates when it changes). 1.3 added
+	// completeness.health (consumed: carried verbatim as the Completeness raw
+	// message and persisted on the manifest) and the partial-failure language
+	// field above. Leaving this at 1.1 fired provider_schema_newer_minor on
+	// EVERY index against a current entire-graph, telling users facts were
+	// dropped when they were not.
+	semanticSchemaVersion               = "1.3"
 	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
@@ -180,6 +188,11 @@ type semanticWarning struct {
 	Code     string `json:"code"`
 	Severity string `json:"severity"`
 	Path     string `json:"path,omitempty"`
+	// Language is schema 1.3's optional partial-failure classification. The
+	// provider sets it when a source fails before any file record exists, so
+	// it is the ONLY signal of what failed in that case: Path is empty there.
+	// Dropping it left those failures unattributable to any language.
+	Language string `json:"language,omitempty"`
 	Effect   string `json:"effect,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 }

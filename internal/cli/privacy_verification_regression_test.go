@@ -123,6 +123,13 @@ func TestPrivacyVectorSnapshotFailsClosedDuringIteration(t *testing.T) {
 }
 
 func TestPrivacyVectorSnapshotEnforcesScanCeiling(t *testing.T) {
+	// Enumerating the production two-million-row ceiling under the race
+	// detector costs most of a CI minute; a lowered ceiling exercises the
+	// identical LIMIT-plus-count path. The production value is pinned by
+	// TestOverridableProductionBoundsKeepTheirDefaults.
+	prev := privacyVectorVerifyMaxRows
+	privacyVectorVerifyMaxRows = 16
+	t.Cleanup(func() { privacyVectorVerifyMaxRows = prev })
 	// The database is a single small view, not a multi-million-row fixture.
 	// Repeated retained IDs keep the scan's memory use bounded independently of
 	// its row count, while exercising the actual verification ceiling.

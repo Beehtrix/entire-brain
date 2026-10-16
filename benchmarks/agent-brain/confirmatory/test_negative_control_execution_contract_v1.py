@@ -683,11 +683,11 @@ class NegativeControlExecutionContractV1Test(unittest.TestCase):
     def test_checked_raw_hash_is_stable(self) -> None:
         self.assertEqual(
             hashlib.sha256(self.artifact_raw).hexdigest(),
-            "94422af8a5e24c6a855b66cf40868565ee3518d0c75eb5343b5d2450523b2c1e",
+            "c7f4227fa08e2aef92feb0e97514a3db68a1bce076fdfd85d57a1c81e7980cec",
         )
         self.assertEqual(
             self.artifact["contract_sha256"],
-            "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+            "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397",
         )
 
 

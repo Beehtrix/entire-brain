@@ -102,11 +102,11 @@ func hostCLIMissingExportError(err error, binary string) error {
 // for the identical reason. This is the same environmental condition and it
 // degrades the same way.
 //
-// The probe is what draws the line the brief cares about. A host CLI that is
-// PRESENT but has no `graph` subcommand is a different situation entirely: the
-// entire-graph plugin is installable right there, the error already says so by
-// name ("install it with `scripts/install.sh`"), and the user has the CLI
-// needed to run it. That one stays fatal.
+// The probe answers only the host-CLI-missing half. A host CLI that is
+// PRESENT but has no graph plugin degrades the same way, but by error shape
+// instead of probe: semanticDoctorFailureError types that class as
+// errSemanticProviderAbsent and refresh forgives it. Graph is encouraged,
+// never required — only a provider that is present and breaks stays fatal.
 func hostCLISemanticProviderAbsent(graphBinary string) bool {
 	return hostCLIBinaryName(graphBinary) == entireBinaryName && !hostCLIOnPath()
 }

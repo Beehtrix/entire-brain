@@ -11,7 +11,8 @@ func newDisconnectCommand(opts Options) *cobra.Command {
 		Use:   "disconnect",
 		Short: "Stop syncing this repository with its hosted brain",
 		Long: `disconnect opts this repository out of hosted-brain syncing: memories stop
-publishing and pulling, and the daemon's auto-connect will not re-bind it.
+publishing and pulling. Nothing reconnects it except an explicit
+'entire brain connect'.
 
 Your local brain keeps working exactly as before, and memories already pulled
 from teammates stay in the local store — disconnect is not a purge.
@@ -43,6 +44,12 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 	if err != nil {
 		return fmt.Errorf("disconnect: %w", err)
 	}
+	// Remove our pre-push hook (restoring any hook we had chained to). The
+	// opt-out already makes the hook a no-op, so a removal failure costs an
+	// empty spawn per push, never a sync — report and continue.
+	if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "disconnect: push hook not removed: %v\n", hookErr)
+	}
 
 	if binding.RepoID != "" {
 		renderHostedBanner(cmd.OutOrStdout(),
@@ -52,7 +59,7 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 		return nil
 	}
 	renderHostedBanner(cmd.OutOrStdout(),
-		"Disconnected: this repository will not auto-connect to a hosted brain",
+		"Disconnected: this repository does not sync with a hosted brain",
 		"Your local brain keeps working exactly as before.",
 		"Run `entire brain connect` to join.")
 	return nil

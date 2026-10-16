@@ -2272,6 +2272,11 @@ func TestExecDistillAgentTimesOutAndKillsTheProcess(t *testing.T) {
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "still-running")
+	// The orphaned sleep holds the pipes for the full wait delay after sh is
+	// killed, so the production value only adds wall-clock time.
+	prev := distillAgentWaitDelay
+	distillAgentWaitDelay = 500 * time.Millisecond
+	t.Cleanup(func() { distillAgentWaitDelay = prev })
 	// Sleep well past the timeout, then touch a file. If the process outlived
 	// the deadline the marker appears.
 	script := "sleep 30; touch " + marker

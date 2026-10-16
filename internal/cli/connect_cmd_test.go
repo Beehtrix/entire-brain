@@ -54,7 +54,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Connected: repo 01M2Q9WATHXVM46CD8Y4D3AX8W is now syncing memories",
-		"sync periodically and at session end",
+		"sync periodically, at session end, and on git push",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)

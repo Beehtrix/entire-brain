@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "bf67e91b3990",
+  "strategy": "manual-commit",
+  "branch": "cor-2143-state-model",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "SECURITY.md",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/cli/hosted_target.go",
+    "internal/cli/https_floor_test.go",
+    "internal/cli/publish_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/bf/67e91b3990/0/metadata.json",
+      "transcript": "/bf/67e91b3990/0/full.jsonl",
+      "compact_transcript": "/bf/67e91b3990/0/transcript.jsonl",
+      "content_hash": "/bf/67e91b3990/0/content_hash.txt",
+      "prompt": "/bf/67e91b3990/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 233799,
+    "cache_read_tokens": 3276335,
+    "output_tokens": 20205,
+    "api_call_count": 16
+  }
+}

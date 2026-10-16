@@ -1,0 +1,95 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "bf67e91b3990",
+  "session_id": "c460c6d3-8277-424a-8312-69c48e58eddb",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-16T02:58:30.800648Z",
+  "branch": "cor-2143-state-model",
+  "checkpoints_count": 2,
+  "save_step_count": 1,
+  "files_touched": [
+    "SECURITY.md",
+    "internal/cli/facts_proposals_cmd_test.go",
+    "internal/cli/hosted_target.go",
+    "internal/cli/https_floor_test.go",
+    "internal/cli/publish_test.go"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-fable-5",
+  "turn_id": "9cf63724d2d5",
+  "checkpoint_transcript_start": 818,
+  "transcript_lines_at_start": 818,
+  "compact_transcript_start": 185,
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 233799,
+    "cache_read_tokens": 3276335,
+    "output_tokens": 20205,
+    "api_call_count": 16
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01Nkz6xFpwZSZ5bKaJqK7Qq7",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "entire:address-findings"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "9cf63724d2d5",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 841,
+        "end": 842,
+        "entry_ids": [
+          "73458078-5090-4aed-ae1b-cd14b6df8494"
+        ],
+        "tool_use_id": "toolu_01Nkz6xFpwZSZ5bKaJqK7Qq7"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01Nkz6xFpwZSZ5bKaJqK7Qq7"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: entire:address-findings",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 9
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-16T02:58:30.751609Z",
+    "agent_lines": 52,
+    "agent_removed": 10,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 52,
+    "total_lines_changed": 62,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 52,
+      "agent_lines_removed": 10
+    }
+  ]
+}

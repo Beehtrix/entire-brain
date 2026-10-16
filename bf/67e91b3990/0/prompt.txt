@@ -1,0 +1,5 @@
+fix the high finding here:
+
+https://entire.io/gh/entireio/entire-brain/trails/301/retire-entire-brain-allow-hosted-canonicalize-the-kill
+
+also make sure that we're backwards compatabile

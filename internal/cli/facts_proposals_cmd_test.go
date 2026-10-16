@@ -173,7 +173,6 @@ func newHostedProposalsFixture(t *testing.T) (verifyFixture, *hostedProposalsFak
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_API_URL", ts.URL)
 	t.Setenv("ENTIRE_API_TOKEN", "test-token")
 	t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
@@ -189,8 +188,6 @@ func TestFactsProposalsRefusesWithoutGates(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "opt-in unset", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": ""}, want: "hosted_proposals_disabled"},
-		{name: "opt-in false", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": "false"}, want: "hosted_proposals_disabled"},
 		{name: "no-egress wins", env: map[string]string{"ENTIRE_BRAIN_NO_EGRESS": "1"}, want: "no_egress"},
 		{name: "local-only wins", env: map[string]string{"ENTIRE_BRAIN_LOCAL_ONLY": "1"}, want: "no_egress"},
 		{name: "missing repo id", env: map[string]string{"ENTIRE_REPO_ID": ""}, want: "target repo id is required"},
@@ -429,7 +426,7 @@ func TestFactsProposalsRegisteredUnderFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facts proposals --help: %v\n%s", err, out)
 	}
-	for _, want := range []string{"list", "show", "apply", "reject", envBrainAllowHosted} {
+	for _, want := range []string{"list", "show", "apply", "reject"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q:\n%s", want, out)
 		}

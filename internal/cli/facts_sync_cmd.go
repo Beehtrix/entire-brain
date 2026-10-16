@@ -56,9 +56,9 @@ Backends (--facts-backend, or ` + envFactsBackend + `):
   local-gitmeta  (default) a bare, on-disk git-meta store under the brain cache
                  (<cache>/brain/<repo-key>/gitmeta.git); fully local, no network,
                  entiredb, or Postgres.
-  http           the hosted entire-api FactSetStore; opt-in, requires
-                 --api-url/ENTIRE_API_URL, --repo-id/ENTIRE_REPO_ID,
-                 --token/ENTIRE_API_TOKEN and ENTIRE_BRAIN_ALLOW_HOSTED=1.`,
+  http           the hosted entire-api FactSetStore; opt-in, requires an
+                 explicit target: --api-url/ENTIRE_API_URL,
+                 --repo-id/ENTIRE_REPO_ID and --token/ENTIRE_API_TOKEN.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFactsSync(cmd, opts, syncOpts)
@@ -564,13 +564,10 @@ func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, sy
 		return b, storage.Key, "local-gitmeta (" + gitDir + ")", nil
 
 	case factsBackendHTTP:
-		// The master local-only switch always wins over the hosted opt-in.
+		// The master kill switch always wins over the hosted opt-in; the opt-in
+		// itself is the explicit target below (mirrors publish — no defaults).
 		if brainNoEgressMode() {
-			return nil, "", "", fmt.Errorf("no_egress: hosted fact sync is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it or use --facts-backend=local-gitmeta")
-		}
-		// Hosted egress is opt-in and fails closed (mirrors publish).
-		if !envBool(envBrainAllowHosted) {
-			return nil, "", "", fmt.Errorf("hosted_sync_disabled: the http fact backend is opt-in and off by default; set %s=1 to enable it, or use --facts-backend=local-gitmeta", envBrainAllowHosted)
+			return nil, "", "", fmt.Errorf("no_egress: hosted fact sync is disabled while ENTIRE_BRAIN_NO_EGRESS is set; unset it or use --facts-backend=local-gitmeta")
 		}
 		repoID := publishFlagOrEnv(syncOpts.repoID, envRepoID)
 		if repoID == "" {

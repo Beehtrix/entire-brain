@@ -30,7 +30,7 @@ import (
 //
 //   - Off unless ENTIRE_BRAIN_WEBHOOK_URL is set. No config file, no discovery,
 //     no default endpoint. A URL has to be typed.
-//   - brainNoEgressMode() wins. ENTIRE_BRAIN_NO_EGRESS / LOCAL_ONLY silences
+//   - brainNoEgressMode() wins. ENTIRE_BRAIN_NO_EGRESS silences
 //     webhooks even with a URL configured, and the check happens here rather
 //     than at each call site. A local-only promise one subsystem can opt out of
 //     is not a promise.
@@ -184,7 +184,7 @@ func newFactWebhookEvent(name, repoName, branch string, record factRecord, now t
 // because of a typo is distinguishable from one that was never configured.
 func webhookEndpoint() (endpoint string, ok bool, reason string) {
 	if brainNoEgressMode() {
-		return "", false, "egress is disabled by ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY"
+		return "", false, "egress is disabled by " + noEgressToggleName()
 	}
 	raw := strings.TrimSpace(os.Getenv(webhookURLEnv))
 	if raw == "" {

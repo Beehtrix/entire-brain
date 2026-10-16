@@ -34,7 +34,6 @@ func TestPublishRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	repoDir := t.TempDir()
 	dataDir := t.TempDir() // deliberately NO brain on disk
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
@@ -70,7 +69,6 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 		CreatedAt: f.now, UpdatedAt: f.now,
 	}})
 
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
@@ -131,7 +129,6 @@ func TestHostedCommandsRejectMalformedAPIURL(t *testing.T) {
 			dataDir := t.TempDir()
 			writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			// Even the plaintext opt-in must not rescue a malformed URL.
@@ -175,7 +172,6 @@ func TestPublishAllowsPlaintextLoopbackAndOptIn(t *testing.T) {
 			repoDir := t.TempDir()
 			dataDir := t.TempDir() // no brain: a passing URL check stops at "no brain found"
 
-			t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", tc.optIn)

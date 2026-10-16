@@ -943,8 +943,8 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - judged evaluation commands
 - `publish` uploads the serialized local brain to hosted Entire; opt-in and off
-  by default, requiring the command plus an explicit target (`--repo-id`,
-  `--api-url`, `--token`)
+  by default, requiring the command plus a target — the connected binding by
+  default, else explicit `--repo-id`/`--api-url`/`--token`
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
 `ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay

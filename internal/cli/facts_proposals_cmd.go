@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/hostedbrain"
 )
@@ -19,10 +18,10 @@ import (
 //
 // Hosted egress is opt-in and off by default, exactly like `publish` (ADR-P1-A, no
 // implicit egress): a network call happens only when the user explicitly runs one
-// of these commands with an explicit target — there are no target defaults. The
-// master kill switch (ENTIRE_BRAIN_NO_EGRESS) always wins. Every gate is checked
-// BEFORE any resolution or HTTP request, so a refusal is guaranteed egress-free
-// and the default behaviour stays strictly local.
+// of these commands with a target — the connected binding by default, else
+// explicit flags (COR-2143). The master kill switch (ENTIRE_BRAIN_NO_EGRESS)
+// always wins. Every gate is checked BEFORE any HTTP request, so a refusal is
+// guaranteed egress-free and the default behaviour stays strictly local.
 
 // factsProposalsOptions bundles the flag state shared by every `facts proposals` verb.
 type factsProposalsOptions struct {
@@ -63,11 +62,12 @@ conflict cross-link. Either way the resolved fact set and the shrunken open set 
 pushed under compare-and-swap, so every member converges.
 
 This surface is HOSTED and opt-in: nothing leaves your machine unless you run
-one of these commands with an explicit target. Use ` + "`facts review`" + ` for this
-member's own local, low-confidence proposals — that path is fully offline.
+one of these commands with a target — the connected binding by default, or an
+explicit one. Use ` + "`facts review`" + ` for this member's own local, low-confidence
+proposals — that path is fully offline.
 
-The target repo, API base URL, and bearer token resolve from --repo-id /` + " " + envRepoID + `,
---api-url / ` + envAPIBaseURL + `, and --token / ` + envAPIToken + `.`,
+The target resolves flag > env > connected binding: --repo-id /` + " " + envRepoID + `,
+--api-url / ` + envAPIBaseURL + `, --token / ` + envAPIToken + `.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// `--json` is a promise that this invocation answers in JSON. The
@@ -174,33 +174,31 @@ type hostedProposalTarget struct {
 // target. It performs NO network call, so every refusal below is egress-free.
 func resolveHostedProposalTarget(ctx context.Context, opts Options, pOpts factsProposalsOptions) (hostedProposalTarget, error) {
 	// The master kill switch always wins over the hosted opt-in; the opt-in
-	// itself is the explicit target below (mirrors publish — no defaults).
+	// itself is the resolved target (mirrors publish).
 	if brainNoEgressMode() {
-		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while ENTIRE_BRAIN_NO_EGRESS is set; unset it, or use 'facts review' for this member's local proposals")
+		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while %s is set; unset it, or use 'facts review' for this member's local proposals", noEgressToggleName())
 	}
 
-	repoID := publishFlagOrEnv(pOpts.repoID, envRepoID)
-	if repoID == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: target repo id is required; set --repo-id or %s", envRepoID)
+	// The binding default needs the repo's brain dir; this surface also works
+	// from a checkout without one, so a failed resolution only disables the
+	// default — explicit flags still carry the command.
+	var brainDir, repoDir string
+	if dir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); err == nil && local {
+		repoDir = dir
+		if storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, dir); err == nil {
+			brainDir = storage.BrainDir
+		}
 	}
-	baseURL := publishFlagOrEnv(pOpts.apiURL, envAPIBaseURL)
-	if baseURL == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API base URL is required; set --api-url or %s", envAPIBaseURL)
-	}
-	baseURL, urlErr := apiurl.Validate(baseURL)
-	if urlErr != nil {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: %w", urlErr)
-	}
-	token := publishFlagOrEnv(pOpts.token, envAPIToken)
-	if token == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API token is required; set --token or %s", envAPIToken)
+	target, err := resolveManualHostedTarget(ctx, opts, brainDir, repoDir, "facts proposals", pOpts.repoID, pOpts.apiURL, pOpts.token)
+	if err != nil {
+		return hostedProposalTarget{}, err
 	}
 
 	return hostedProposalTarget{
-		client:  &hostedbrain.Client{BaseURL: baseURL, Token: token},
-		repoID:  repoID,
+		client:  &hostedbrain.Client{BaseURL: target.baseURL, Token: target.token},
+		repoID:  target.repoID,
 		branch:  resolveProposalsBranch(ctx, opts, pOpts.branch),
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: strings.TrimRight(target.baseURL, "/"),
 	}, nil
 }
 

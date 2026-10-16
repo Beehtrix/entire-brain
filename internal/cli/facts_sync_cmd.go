@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/factgitmeta"
 	"github.com/entireio/entire-brain/internal/factsync"
 
@@ -56,9 +55,10 @@ Backends (--facts-backend, or ` + envFactsBackend + `):
   local-gitmeta  (default) a bare, on-disk git-meta store under the brain cache
                  (<cache>/brain/<repo-key>/gitmeta.git); fully local, no network,
                  entiredb, or Postgres.
-  http           the hosted entire-api FactSetStore; opt-in, requires an
-                 explicit target: --api-url/ENTIRE_API_URL,
-                 --repo-id/ENTIRE_REPO_ID and --token/ENTIRE_API_TOKEN.`,
+  http           the hosted entire-api FactSetStore; opt-in. Target resolves
+                 flag > env > connected binding: --api-url/ENTIRE_API_URL,
+                 --repo-id/ENTIRE_REPO_ID, --token/ENTIRE_API_TOKEN; on a
+                 connected repo the binding and a minted token are the default.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFactsSync(cmd, opts, syncOpts)
@@ -105,7 +105,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	}
 	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, syncOpts.member)
 
-	srv, repoID, backendLabel, err := buildFactsSyncBackend(opts, resolveFactsBackendName(syncOpts.backend), storage, syncOpts)
+	srv, repoID, backendLabel, err := buildFactsSyncBackend(ctx, opts, resolveFactsBackendName(syncOpts.backend), storage, repoDir, syncOpts)
 	if err != nil {
 		return err
 	}
@@ -550,7 +550,7 @@ func resolveFactsBackendName(flagVal string) string {
 // to thread through Sync, and a human label for output. The local-gitmeta path
 // is keyed by the repo storage key; the http path mirrors publish's opt-in gates
 // and flag/env resolution.
-func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, syncOpts factsSyncOptions) (factsync.Server, string, string, error) {
+func buildFactsSyncBackend(ctx context.Context, opts Options, backend string, storage repoStorage, repoDir string, syncOpts factsSyncOptions) (factsync.Server, string, string, error) {
 	switch backend {
 	case factsBackendLocalGitmeta:
 		gitDir, err := gitmetaDirForKey(opts.Env, storage.Key)
@@ -565,29 +565,17 @@ func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, sy
 
 	case factsBackendHTTP:
 		// The master kill switch always wins over the hosted opt-in; the opt-in
-		// itself is the explicit target below (mirrors publish — no defaults).
+		// itself is the resolved target (mirrors publish).
 		if brainNoEgressMode() {
-			return nil, "", "", fmt.Errorf("no_egress: hosted fact sync is disabled while ENTIRE_BRAIN_NO_EGRESS is set; unset it or use --facts-backend=local-gitmeta")
+			return nil, "", "", fmt.Errorf("no_egress: hosted fact sync is disabled while %s is set; unset it or use --facts-backend=local-gitmeta", noEgressToggleName())
 		}
-		repoID := publishFlagOrEnv(syncOpts.repoID, envRepoID)
-		if repoID == "" {
-			return nil, "", "", fmt.Errorf("facts sync: target repo id is required for the http backend; set --repo-id or %s", envRepoID)
+		// Flag > env > connected binding; validation (repo-id segment, URL
+		// scheme floor) happens inside, before the backend is built.
+		target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "facts sync", syncOpts.repoID, syncOpts.apiURL, syncOpts.token)
+		if err != nil {
+			return nil, "", "", err
 		}
-		baseURL := publishFlagOrEnv(syncOpts.apiURL, envAPIBaseURL)
-		if baseURL == "" {
-			return nil, "", "", fmt.Errorf("facts sync: API base URL is required for the http backend; set --api-url or %s", envAPIBaseURL)
-		}
-		// The fact-set advance carries this member's facts and the bearer token, so
-		// the target must clear the scheme floor before the backend is built.
-		baseURL, urlErr := apiurl.Validate(baseURL)
-		if urlErr != nil {
-			return nil, "", "", fmt.Errorf("facts sync: %w", urlErr)
-		}
-		token := publishFlagOrEnv(syncOpts.token, envAPIToken)
-		if token == "" {
-			return nil, "", "", fmt.Errorf("facts sync: API token is required for the http backend; set --token or %s", envAPIToken)
-		}
-		return &factsync.HTTPServer{BaseURL: baseURL, Token: token}, repoID, "http (" + strings.TrimRight(baseURL, "/") + ")", nil
+		return &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token}, target.repoID, "http (" + strings.TrimRight(target.baseURL, "/") + ")", nil
 
 	default:
 		return nil, "", "", fmt.Errorf("unknown --facts-backend %q (want %q or %q)", backend, factsBackendLocalGitmeta, factsBackendHTTP)

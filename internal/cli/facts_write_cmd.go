@@ -156,12 +156,13 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		kind = inferFactKind(paths, text)
 	}
 
-	anchor := factAnchor{SessionID: rememberSessionID(rememberOpts)}
-	// A global fact has no commit to cite. An anchor pointing at whatever
-	// happened to be checked out would be worse than none: verification would
-	// resolve it and report the fact as evidenced by a commit it has nothing to
-	// do with.
+	anchor := factAnchor{}
+	// A global fact has no provenance to cite: a commit from whatever happened
+	// to be checked out would be laundered by verification, and a session id is
+	// repo-scoped — stamping it on a record in the cross-repo store leaks one
+	// repository's session into every repository's recall.
 	if !global {
+		anchor.SessionID = rememberSessionID(rememberOpts)
 		if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
 			anchor.Commit = commit
 		}

@@ -15,6 +15,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 )
 
 type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
@@ -2389,5 +2393,86 @@ func TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument(t *testing.T) {
 	}
 	if !strings.Contains(message, "kind must be route, tool, or workflow") {
 		t.Fatalf("brain_boundaries did not name the accepted kind values: %s", message)
+	}
+}
+
+// TestEveryDeclaredToolIsRouted pins COR-2163's defect class: declaration and
+// dispatch are two separate lists and nothing compares them, so a tool can be
+// declared and unroutable, or routed and undeclared, with every other test
+// still green.
+//
+// That is not hypothetical. brain_remember shipped in v0.1.0 with a dispatch
+// case and no declaration: no client could see it, and the released brain
+// could not record a memory for weeks. brain_recall had neither half.
+//
+// This reads the switch in handleMCPToolCall from source rather than calling
+// the handlers, because calling them needs a real brain on disk.
+func TestEveryDeclaredToolIsRouted(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "mcp.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse mcp.go: %v", err)
+	}
+
+	routed := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		clause, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		for _, expr := range clause.List {
+			lit, ok := expr.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			name, unquoteErr := strconv.Unquote(lit.Value)
+			if unquoteErr == nil && strings.HasPrefix(name, "brain_") {
+				routed[name] = true
+			}
+		}
+		return true
+	})
+	if len(routed) == 0 {
+		t.Fatal("found no brain_* case clauses; the comparison below would be vacuous")
+	}
+
+	declared := map[string]bool{}
+	for _, def := range mcpToolDefinitions() {
+		name, _ := def["name"].(string)
+		if name == "" {
+			t.Fatalf("a tool definition has no name: %v", def)
+		}
+		if declared[name] {
+			t.Fatalf("tool %q is declared twice", name)
+		}
+		if _, ok := def["inputSchema"]; !ok {
+			t.Fatalf("tool %q has no inputSchema, so a client cannot call it correctly", name)
+		}
+		declared[name] = true
+	}
+	if len(declared) == 0 {
+		t.Fatal("no tool definitions; the comparison below would be vacuous")
+	}
+
+	for name := range declared {
+		if !routed[name] {
+			t.Errorf("tool %q is declared but has no dispatch case: a client can see it and calling it fails", name)
+		}
+	}
+	for name := range routed {
+		if !declared[name] {
+			t.Errorf("tool %q is routed but not declared: it works, and no client can discover it (this is exactly how brain_remember was lost)", name)
+		}
+	}
+
+	// The two memory tools are what this regression actually cost, so name
+	// them instead of trusting the set comparison to have covered them.
+	for _, required := range []string{"brain_remember", "brain_recall"} {
+		if !declared[required] || !routed[required] {
+			t.Errorf("%s must be both declared and routed (declared=%v routed=%v)",
+				required, declared[required], routed[required])
+		}
 	}
 }

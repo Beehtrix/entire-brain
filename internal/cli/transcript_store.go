@@ -1,28 +1,26 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-// transcript_store.go is COR-2128's single transcript read path. Transcript
-// content lives in git checkpoint refs — immutable, already stored — so the
-// manifest's transcript paths are VIRTUAL identifiers resolved to checkpoint
-// blob reads on demand rather than files duplicated under the brain dir.
+// transcript_store.go is COR-2128's single direct-transcript read path.
+// Transcript content lives in git checkpoint refs — immutable, already
+// stored — so the manifest's transcript paths are VIRTUAL identifiers
+// resolved to checkpoint blob reads on demand rather than files duplicated
+// under the brain dir.
 //
 // A materialized file still wins when present: exported bundles (--output)
 // are standalone artifacts that carry their transcripts as files, and brains
 // written before this change keep working until their cache is swept.
 //
-// Every consumer must read through this store, because the store is where two
+// Every direct read goes through the store, because the store is where two
 // invariants are enforced:
 //
 //   - A purged session stays purged. The tombstone gate used to be implicit —
@@ -33,17 +31,22 @@ import (
 //     is a read error the caller skips with a warning, never a fetch.
 
 // transcriptLocation addresses one session's transcript inside the snapshot.
+// sessionID rides along so the tombstone gate can refuse by SESSION as well as
+// by path: the path-keyed gate maps the CURRENT manifest, while byRel can hold
+// paths from the manifest as of snapshot resolution — a session re-keyed and
+// then purged must not slip through under its old path.
 type transcriptLocation struct {
+	sessionID  string
 	sourceKey  string
 	sourcePath string
 }
 
-// transcriptStore resolves in two lazy stages: the manifest and tombstones
-// load on first read (cheap, and the gate must precede every read), while the
-// checkpoint snapshot resolves only when a read actually needs git — a
-// bundle with materialized files never pays for checkpoint discovery. The
-// snapshot scan is amortized by the persisted checkpoint metadata cache (kept
-// warm by export); the store loads that cache read-only and never writes it.
+// transcriptStore resolves in two lazy stages: the tombstone gate loads on
+// every read (cheap, and the gate must precede every read), while the
+// checkpoint snapshot resolves only when a read actually needs git — a bundle
+// with materialized files never pays for checkpoint discovery. The snapshot
+// scan is amortized by the persisted checkpoint metadata cache (kept warm by
+// export); the store loads that cache read-only and never writes it.
 type transcriptStore struct {
 	runner   CommandRunner
 	brainDir string
@@ -68,9 +71,10 @@ func newTranscriptStore(runner CommandRunner, brainDir string) *transcriptStore 
 
 // transcriptStores memoizes one store per brain dir for the process, so the
 // checkpoint snapshot resolves at most once no matter how many reads a command
-// performs. ponytail: a snapshot's temp dir (when a backend extracts one) is
-// only reclaimed at process exit for registry stores; commands are short-lived
-// and the dir lives under os.TempDir.
+// performs. ponytail: process-wide memoization means a long-lived process (the
+// MCP server) keeps the snapshot and the hardwired ExecRunner for its
+// lifetime; threading per-command stores through the read call chains replaces
+// this in COR-2168.
 var transcriptStores sync.Map
 
 func transcriptStoreFor(brainDir string) *transcriptStore {
@@ -82,38 +86,30 @@ func transcriptStoreFor(brainDir string) *transcriptStore {
 	return store.(*transcriptStore)
 }
 
-// Close releases the snapshot's temp dir, if resolution created one.
-func (s *transcriptStore) Close() {
-	if s == nil {
-		return
-	}
-	s.snapshot.Cleanup()
-}
-
-// excludedNow loads the tombstone gate fresh on every read: a purge that
+// guardNow loads the tombstone gate fresh on every read: a purge that
 // tombstones a session mid-process must bind the very next read, so the gate
-// is deliberately NOT memoized (both inputs are small local files).
-func (s *transcriptStore) excludedNow() (map[string]string, error) {
-	stones, _, stonesErr := loadSessionTombstonesChecked(s.brainDir)
-	if stonesErr != nil {
+// is deliberately NOT memoized. The common empty-gate case costs one small
+// file read; only tombstoned brains pay the manifest read that maps sessions
+// to paths (the same two-step every guarded surface uses — see retrieve.go).
+func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
+	guard, err := loadSessionReadGuard(s.brainDir, nil)
+	if err != nil {
 		// Fail closed: an unreadable tombstone file must not open purged
 		// transcripts back up.
-		return nil, fmt.Errorf("transcript store: %w", stonesErr)
+		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
+	}
+	if guard.empty() {
+		return guard, nil
 	}
 	manifest, err := loadBrainManifest(s.brainDir)
 	if err != nil {
-		// A brain without a manifest has nothing tombstoned to map; refuse
-		// only when tombstones exist and cannot be resolved to paths.
-		if len(stones.Excluded) == 0 {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
+		return sessionReadGuard{}, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
 	}
-	excluded, err := excludedTranscriptPathsChecked(s.brainDir, manifest, stones)
+	guard, err = loadSessionReadGuard(s.brainDir, manifest)
 	if err != nil {
-		return nil, fmt.Errorf("transcript store: %w", err)
+		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
 	}
-	return excluded, nil
+	return guard, nil
 }
 
 func (s *transcriptStore) initSnapshot(ctx context.Context) error {
@@ -146,29 +142,12 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 	if repoDir == "" {
 		return fmt.Errorf("transcript store: brain manifest records no repo root to resolve checkpoints from")
 	}
-	defaultBranch, _ := detectDefaultBranch(ctx, s.runner, repoDir)
-	branchDestinations, _ := buildCheckpointBranchDestinations(ctx, s.runner, repoDir, defaultBranch)
 	cache := loadCheckpointMetadataCache(filepath.Join(s.brainDir, filepath.FromSlash(checkpointMetadataCachePath)))
 	mode := strings.TrimSpace(manifest.Sources.Sessions.TranscriptMode)
-
-	// The LOCAL union, not loadConfiguredCheckpointSnapshot: that wrapper
-	// refuses local snapshots whenever a checkpoint remote could extend the
-	// catalog, which is a completeness rule for DISCOVERY. A read resolves
-	// checkpoints the manifest already names — local refs either hold them or
-	// the read fails per session. localOnly is unconditionally true: reads
-	// never touch the network.
-	settings, settingsErr := readEntireSettings(repoDir)
-	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
-	if primaryErr != nil {
-		return fmt.Errorf("transcript store: %w", primaryErr)
-	}
-	if !configured {
-		primary = checkpointBackendGitBranch
-	}
-	if settingsErr != nil && !errors.Is(settingsErr, fs.ErrNotExist) && !configured {
-		return fmt.Errorf("transcript store: read settings: %w", settingsErr)
-	}
-	snapshot, _, err := loadLocalCheckpointUnionSnapshot(ctx, s.runner, repoDir, primary, mode == "raw", 0, branchDestinations, nil, cache, true)
+	// Branch destinations only affect which BRANCH a session is filed under;
+	// resolution here matches by (session, checkpoint, index) identity, so the
+	// zero value serves, exactly as verify's use of the same helper.
+	snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, s.runner, repoDir, mode == "raw", checkpointBranchDestinations{}, cache)
 	if err != nil {
 		return fmt.Errorf("transcript store: resolve checkpoint snapshot: %w", err)
 	}
@@ -190,7 +169,7 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 
 	s.byRel = make(map[string]transcriptLocation, len(manifest.Sources.Sessions.Sessions))
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		rel := cleanTranscriptRel(session.TranscriptPath)
+		rel := normalizePrivacyTranscriptPath(session.TranscriptPath)
 		if rel == "" {
 			continue
 		}
@@ -204,6 +183,7 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 		if !ok {
 			continue
 		}
+		location.sessionID = session.SessionID
 		s.byRel[rel] = location
 	}
 	return nil
@@ -229,71 +209,61 @@ func memberTranscriptLocation(member sessionCheckpoint, mode, snapshotFileName s
 	return transcriptLocation{sourceKey: member.SourceKey, sourcePath: sourcePath}, true
 }
 
-func cleanTranscriptRel(rel string) string {
-	rel = path.Clean(strings.TrimSpace(strings.ReplaceAll(rel, "\\", "/")))
-	if rel == "" || rel == "." {
-		return ""
-	}
-	return rel
-}
-
 // Read returns one session transcript's verbatim bytes by its manifest path.
 // A materialized file wins when present; otherwise the content reads from the
 // session's checkpoint blob. Both branches sit behind the tombstone gate.
 func (s *transcriptStore) Read(ctx context.Context, rel string) ([]byte, error) {
-	reader, finish, err := s.Open(ctx, rel)
+	if s == nil {
+		return nil, fmt.Errorf("transcript store is nil")
+	}
+	guard, err := s.guardNow()
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: reader}, maxDocumentTranscriptBytes, "canonical transcript "+rel)
-	finishErr := finish()
-	if readErr != nil || finishErr != nil {
-		combined := errors.Join(readErr, finishErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
-		}
-		return nil, combined
-	}
-	return data, nil
-}
-
-// Open is the streaming variant of Read, for consumers that scan line by line
-// without retaining the whole transcript. finish must be called after the
-// complete read; for a materialized file it revalidates the descriptor-bound
-// leaf exactly as the direct read contract always has.
-func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func() error, error) {
-	if s == nil {
-		return nil, nil, fmt.Errorf("transcript store is nil")
-	}
-	excluded, err := s.excludedNow()
-	if err != nil {
-		return nil, nil, err
-	}
-	rel = cleanTranscriptRel(rel)
-	if reason, purged := excluded[rel]; purged {
-		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned (%s)", memoryErrStateUnsafe, rel, reason)
+	rel = normalizePrivacyTranscriptPath(rel)
+	if _, purged := guard.paths[rel]; purged {
+		return nil, fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
 	}
 
 	file, finish, fileErr := openCanonicalHistoryTranscript(ctx, s.brainDir, rel)
 	if fileErr == nil {
-		return file, finish, nil
+		data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: file}, maxDocumentTranscriptBytes, "canonical transcript "+rel)
+		finishErr := finish()
+		if readErr != nil || finishErr != nil {
+			return nil, classifyTranscriptReadError(errors.Join(readErr, finishErr))
+		}
+		return data, nil
 	}
 	if !errors.Is(fileErr, fs.ErrNotExist) {
 		// A present-but-unsafe file (symlink games, swapped leaf) is a refusal,
 		// not an invitation to read the same path from somewhere else.
-		return nil, nil, fileErr
+		return nil, fileErr
 	}
 
 	if err := s.initSnapshot(ctx); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	location, ok := s.byRel[rel]
 	if !ok {
-		return nil, nil, fmt.Errorf("transcript %s has no readable checkpoint source", rel)
+		return nil, fmt.Errorf("transcript %s has no readable checkpoint source", rel)
 	}
-	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, s.snapshot, location.sourceKey, location.sourcePath, maxDocumentTranscriptBytes)
+	if guard.blocksSession(location.sessionID) {
+		return nil, fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
+	}
+	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, s.snapshot, location.sourceKey, location.sourcePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read transcript %s: %w", rel, err)
+		return nil, classifyTranscriptReadError(fmt.Errorf("read transcript %s: %w", rel, err))
 	}
-	return bytes.NewReader(data), func() error { return nil }, nil
+	return data, nil
+}
+
+// classifyTranscriptReadError labels size refusals with the error code
+// consumers degrade on (history treats memoryErrInputTooLarge as skippable),
+// identically for the file and checkpoint-blob branches.
+func classifyTranscriptReadError(err error) error {
+	var bound *readBoundExceededError
+	if errors.As(err, &bound) {
+		return fmt.Errorf("%s: %w", memoryErrInputTooLarge, err)
+	}
+	return err
 }

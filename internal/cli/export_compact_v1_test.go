@@ -97,7 +97,7 @@ func TestLoadConfiguredCheckpointSnapshotExportsV1CompactTranscript(t *testing.T
 		}
 	}
 
-	transcript, err := readSnapshotTranscriptFromSource(context.Background(), runner, snapshot, session.SourceKey, session.SourceTranscriptPath, 0)
+	transcript, err := readSnapshotTranscriptFromSource(context.Background(), runner, snapshot, session.SourceKey, session.SourceTranscriptPath)
 	if err != nil {
 		t.Fatalf("read exported transcript: %v", err)
 	}

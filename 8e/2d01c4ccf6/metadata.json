@@ -1,0 +1,46 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "8e2d01c4ccf6",
+  "strategy": "manual-commit",
+  "branch": "feat/bm25-facts-ranker",
+  "checkpoints_count": 6,
+  "files_touched": [
+    ".context/handoff-hosted-brain-ux.md",
+    "internal/cli/agent_surface.go",
+    "internal/cli/connect_cmd.go",
+    "internal/cli/facts_hosted_binding.go",
+    "internal/cli/hosted_binding.go",
+    "internal/cli/hosted_status.go",
+    "internal/cli/hosted_status_test.go",
+    "internal/cli/hosted_sync.go",
+    "internal/cli/hosted_sync_test.go",
+    "internal/cli/setup_render.go",
+    "internal/cli/setup_render_test.go",
+    "internal/cli/status_render.go",
+    "internal/cli/status_render_test.go",
+    "internal/cli/watch_hosted_test.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/8e/2d01c4ccf6/0/metadata.json",
+      "transcript": "/8e/2d01c4ccf6/0/full.jsonl",
+      "compact_transcript": "/8e/2d01c4ccf6/0/transcript.jsonl",
+      "content_hash": "/8e/2d01c4ccf6/0/content_hash.txt",
+      "prompt": "/8e/2d01c4ccf6/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 698,
+    "cache_creation_tokens": 6887362,
+    "cache_read_tokens": 100568632,
+    "output_tokens": 242616,
+    "api_call_count": 349,
+    "subagent_tokens": {
+      "input_tokens": 0,
+      "cache_creation_tokens": 0,
+      "cache_read_tokens": 0,
+      "output_tokens": 0,
+      "api_call_count": 0
+    }
+  }
+}

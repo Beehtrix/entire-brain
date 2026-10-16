@@ -337,17 +337,19 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeBrainSessionSourceLocked(outputDir, repoKey, manifest); err != nil {
 				return err
 			}
-			if exportOpts.historyIndex {
-				if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
-					return err
-				}
-			}
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
+		}
+		// History scans checkpoint payloads before taking its own short publish
+		// lock, then revalidates the session and privacy identities at commit.
+		if exportOpts.historyIndex {
+			if _, err := writeBrainHistoryIndexAndSourceContext(ctx, outputDir, opts.Now().UTC(), nil); err != nil {
+				return err
+			}
 		}
 	} else {
 		outputDir, err = prepareExportDir(outputDir, false)

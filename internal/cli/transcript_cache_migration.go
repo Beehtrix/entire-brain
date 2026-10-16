@@ -11,7 +11,8 @@ import (
 // planTranscriptCacheSweep proves each live cached transcript can be recovered
 // locally before the export switches storage modes. A missing/promisor-only
 // source must never turn migration into loss of the only readable copy.
-// Unlisted files are stale exports; tombstoned files are already excluded.
+// Unlisted files are stale exports. Exclusion is reversible, so excluded
+// sessions need the same recovery proof as every other legacy cached session.
 func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDir, repoDir string) (*historySessionInventory, error) {
 	if _, err := os.Lstat(brainDir); os.IsNotExist(err) {
 		return nil, nil
@@ -34,8 +35,7 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		return nil, err
 	}
 	sessions := historySessionByTranscriptPath(manifest)
-	guard, err := loadSessionReadGuard(brainDir, manifest)
-	if err != nil {
+	if _, err := loadSessionReadGuard(brainDir, manifest); err != nil {
 		return nil, err
 	}
 	store := newTranscriptStore(runner, brainDir)
@@ -43,8 +43,8 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 	// recorded worktree may have been removed since the cache was written.
 	store.repoDir = repoDir
 	for _, file := range inventory.files {
-		session, live := sessions[file.Rel]
-		if checkpointBackedSessions(manifest) || !live || guard.blocksExportSession(session) {
+		_, live := sessions[file.Rel]
+		if checkpointBackedSessions(manifest) || !live {
 			continue
 		}
 		location, snapshot, err := store.lookupLocation(ctx, file.Rel)

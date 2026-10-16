@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // transcript_store.go is COR-2128's single direct-transcript read path.
@@ -51,15 +53,45 @@ type transcriptStore struct {
 	runner   CommandRunner
 	brainDir string
 
-	// snapMu guards the memoized snapshot. Success and permanent failures are
-	// cached; a failure caused by the CALLER'S context (cancellation, timeout)
-	// is not — the store outlives its first caller, and a cancelled first
-	// resolve must not poison every later read in the process.
-	snapMu   sync.Mutex
-	snapErr  error
-	resolved bool
-	snapshot *checkpointSnapshot
-	byRel    map[string]transcriptLocation
+	// snapMu guards the memoized snapshot. The store outlives its first caller
+	// (a long-lived MCP server shares it for the process), so memoization must
+	// not freeze the first attempt's outcome:
+	//
+	//   - a failure caused by the caller's context is never recorded;
+	//   - a recorded failure retries once the manifest changes or after a
+	//     backoff, so a transient git failure heals;
+	//   - a lookup miss re-resolves when the manifest changed since the last
+	//     attempt, so sessions exported after the first read become readable.
+	snapMu      sync.Mutex
+	snapErr     error
+	resolved    bool
+	lastAttempt time.Time
+	stamp       transcriptManifestStamp
+	snapshot    *checkpointSnapshot
+	byRel       map[string]transcriptLocation
+
+	// resolve is a test seam; production stores resolve via resolveSnapshot.
+	resolve func(context.Context) error
+}
+
+// transcriptManifestStamp is the manifest file identity at the last resolve
+// attempt; a differing stamp means the brain re-exported since.
+type transcriptManifestStamp struct {
+	modTime time.Time
+	size    int64
+}
+
+// transcriptResolveRetryInterval bounds how often a FAILED resolve re-runs
+// when the manifest has not changed, so a persistently broken repo costs one
+// scan per interval instead of one per read, while a transient failure heals.
+const transcriptResolveRetryInterval = time.Minute
+
+func (s *transcriptStore) currentManifestStamp() transcriptManifestStamp {
+	info, err := os.Stat(filepath.Join(s.brainDir, exportManifestFileName))
+	if err != nil {
+		return transcriptManifestStamp{}
+	}
+	return transcriptManifestStamp{modTime: info.ModTime(), size: info.Size()}
 }
 
 // newTranscriptStore builds a store for one brain. The repository the brain
@@ -112,22 +144,52 @@ func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
 	return guard, nil
 }
 
-func (s *transcriptStore) initSnapshot(ctx context.Context) error {
+// lookupLocation resolves one manifest path to its checkpoint location,
+// re-resolving the snapshot when the memoized state cannot serve the request
+// honestly (see snapMu). It returns the snapshot alongside the location so the
+// caller reads from the same resolution the lookup used, race-free.
+func (s *transcriptStore) lookupLocation(ctx context.Context, rel string) (transcriptLocation, *checkpointSnapshot, error) {
 	s.snapMu.Lock()
 	defer s.snapMu.Unlock()
+
+	needResolve := !s.resolved
 	if s.resolved {
-		return s.snapErr
+		if s.snapErr != nil {
+			if s.currentManifestStamp() != s.stamp || time.Since(s.lastAttempt) > transcriptResolveRetryInterval {
+				needResolve = true
+			}
+		} else if _, ok := s.byRel[rel]; !ok && s.currentManifestStamp() != s.stamp {
+			needResolve = true
+		}
 	}
-	if err := ctx.Err(); err != nil {
-		return err
+	if needResolve {
+		if err := ctx.Err(); err != nil {
+			return transcriptLocation{}, nil, err
+		}
+		// Stamp BEFORE reading: a manifest written mid-resolve yields an old
+		// stamp, so the next miss sees the change and re-resolves again.
+		stamp := s.currentManifestStamp()
+		resolve := s.resolve
+		if resolve == nil {
+			resolve = s.resolveSnapshot
+		}
+		err := resolve(ctx)
+		if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+			return transcriptLocation{}, nil, err
+		}
+		s.resolved = true
+		s.snapErr = err
+		s.stamp = stamp
+		s.lastAttempt = time.Now()
 	}
-	err := s.resolveSnapshot(ctx)
-	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
-		return err
+	if s.snapErr != nil {
+		return transcriptLocation{}, nil, s.snapErr
 	}
-	s.resolved = true
-	s.snapErr = err
-	return err
+	location, ok := s.byRel[rel]
+	if !ok {
+		return transcriptLocation{}, nil, fmt.Errorf("transcript %s has no readable checkpoint source", rel)
+	}
+	return location, s.snapshot, nil
 }
 
 func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
@@ -240,17 +302,14 @@ func (s *transcriptStore) Read(ctx context.Context, rel string) ([]byte, error) 
 		return nil, fileErr
 	}
 
-	if err := s.initSnapshot(ctx); err != nil {
+	location, snapshot, err := s.lookupLocation(ctx, rel)
+	if err != nil {
 		return nil, err
-	}
-	location, ok := s.byRel[rel]
-	if !ok {
-		return nil, fmt.Errorf("transcript %s has no readable checkpoint source", rel)
 	}
 	if guard.blocksSession(location.sessionID) {
 		return nil, fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
 	}
-	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, s.snapshot, location.sourceKey, location.sourcePath)
+	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, snapshot, location.sourceKey, location.sourcePath)
 	if err != nil {
 		return nil, classifyTranscriptReadError(fmt.Errorf("read transcript %s: %w", rel, err))
 	}

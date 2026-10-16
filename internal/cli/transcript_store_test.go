@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +88,7 @@ func TestTranscriptStoreFallsBackToCheckpointBlob(t *testing.T) {
 	source, runner, base := chunkedTranscriptFixture(t, `{"type":"user"}`, `{"type":"assistant"}`)
 	store := newTranscriptStore(runner, brainDir)
 	store.resolved = true // pre-resolve: inject the snapshot directly
+	store.stamp = store.currentManifestStamp()
 	store.snapshot = &checkpointSnapshot{
 		GitDir:    source.GitDir,
 		Ref:       source.Ref,
@@ -131,31 +134,71 @@ func TestMemberTranscriptLocationPinsManifestMode(t *testing.T) {
 	}
 }
 
-// A cancelled first resolve must not poison the memoized store for the
-// process: context failures retry, other failures stay cached.
-func TestTranscriptStoreRetriesAfterCancelledResolve(t *testing.T) {
+// The memoized snapshot must not freeze the first attempt's outcome: context
+// failures never record, recorded failures retry when the manifest changes,
+// and a lookup miss re-resolves against a changed manifest so sessions
+// exported after the first read become readable.
+func TestTranscriptStoreResolveMemoization(t *testing.T) {
 	brainDir, rel := transcriptStoreFixture(t, true)
 	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(rel))); err != nil {
 		t.Fatal(err)
 	}
 	store := newTranscriptStore(ExecRunner{}, brainDir)
+	resolves := 0
+	store.resolve = func(context.Context) error {
+		resolves++
+		return fmt.Errorf("transient git failure")
+	}
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := store.initSnapshot(cancelled); err == nil {
-		t.Fatal("cancelled resolve must fail")
+	if _, _, err := store.lookupLocation(cancelled, rel); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled lookup = %v", err)
 	}
-	if store.resolved {
-		t.Fatal("a context failure must not be memoized")
+	if store.resolved || resolves != 0 {
+		t.Fatal("a cancelled context must not attempt or memoize a resolve")
 	}
 
-	// A fresh context retries; the fixture repo has no checkpoints so the
-	// resolve fails PERMANENTLY now, and that failure is cached.
-	if err := store.initSnapshot(context.Background()); err == nil {
-		t.Fatal("resolve against a checkpoint-less repo must fail")
+	if _, _, err := store.lookupLocation(context.Background(), rel); err == nil {
+		t.Fatal("failed resolve must surface")
 	}
-	if !store.resolved {
-		t.Fatal("a permanent failure memoizes")
+	if resolves != 1 || !store.resolved {
+		t.Fatalf("resolves = %d, resolved = %v", resolves, store.resolved)
+	}
+
+	// Unchanged manifest, within the backoff: the failure stays cached.
+	if _, _, err := store.lookupLocation(context.Background(), rel); err == nil || resolves != 1 {
+		t.Fatalf("cached failure must not re-resolve (resolves=%d err=%v)", resolves, err)
+	}
+
+	// The manifest changing retries the failure, and a successful re-resolve
+	// serves a session the first resolution never saw.
+	touchTranscriptManifest(t, brainDir, 2*time.Second)
+	store.resolve = func(context.Context) error {
+		resolves++
+		store.snapshot = &checkpointSnapshot{}
+		store.byRel = map[string]transcriptLocation{rel: {sessionID: "s1"}}
+		return nil
+	}
+	location, _, err := store.lookupLocation(context.Background(), rel)
+	if err != nil || resolves != 2 || location.sessionID != "s1" {
+		t.Fatalf("manifest change must retry: resolves=%d err=%v location=%+v", resolves, err, location)
+	}
+
+	// A byRel miss with a changed manifest re-resolves instead of answering
+	// from the stale map.
+	touchTranscriptManifest(t, brainDir, 4*time.Second)
+	if _, _, err := store.lookupLocation(context.Background(), "sessions/main/new.jsonl"); err == nil || resolves != 3 {
+		t.Fatalf("stale-map miss must re-resolve: resolves=%d err=%v", resolves, err)
+	}
+}
+
+func touchTranscriptManifest(t *testing.T, brainDir string, offset time.Duration) {
+	t.Helper()
+	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	future := time.Now().Add(offset)
+	if err := os.Chtimes(manifestPath, future, future); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -164,6 +207,7 @@ func TestTranscriptStoreUnknownPathFails(t *testing.T) {
 	brainDir, _ := transcriptStoreFixture(t, true)
 	store := newTranscriptStore(ExecRunner{}, brainDir)
 	store.resolved = true
+	store.stamp = store.currentManifestStamp()
 	store.snapshot = &checkpointSnapshot{}
 	store.byRel = map[string]transcriptLocation{}
 	if _, err := store.Read(context.Background(), "sessions/main/missing.jsonl"); err == nil {

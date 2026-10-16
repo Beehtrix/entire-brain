@@ -1,0 +1,27 @@
+<task-notification>
+<task-id>b1s91v3ie</task-id>
+<tool-use-id>toolu_01EweCbogJW6EDkSAiuA2v2f</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/b1s91v3ie.output</output-file>
+<status>completed</status>
+<summary>Background command "Full internal/cli suite" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2u4fp8ox</task-id>
+<tool-use-id>toolu_01Lou5wUp9q1RcxMyX2M4bXJ</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/b2u4fp8ox.output</output-file>
+<status>completed</status>
+<summary>Background command "Re-run full suite, extract failing test names" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bm4da5liq</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-evisdrenova-conductor-workspaces-entire-brain-hyderabad/2fbd5e7a-e1ee-4440-a5dc-35ea0a3d2070/tasks/bm4da5liq.output</output-file>
+<status>completed</status>
+<summary>Background command "Full internal/cli suite after golden fix" completed (exit code 0)</summary>
+</task-notification>

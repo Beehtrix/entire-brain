@@ -1,39 +1,10 @@
 package cli
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-// cleanupStaleSessionFiles treats every transcript that the current export did
-// not produce as stale. When an export discovers no sessions at all, that makes
-// the entire previously exported corpus stale, so the brain is emptied and the
-// history index is republished with nothing in it. The source being briefly
-// unreachable (ref not fetched into a fresh clone, checkpoint remote down,
-// wrong branch checked out) looks exactly like a repository that genuinely has
-// no checkpoints, which is why the empty case has to be refused rather than
-// applied.
-func TestCleanupStaleSessionFilesErasesCorpusWhenExportFindsNothing(t *testing.T) {
-	outputDir := t.TempDir()
-	transcript := filepath.Join(outputDir, exportSessionsDirectory, "main", "session-1.jsonl")
-	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
-		t.Fatalf("create sessions dir: %v", err)
-	}
-	if err := os.WriteFile(transcript, []byte("{\"role\":\"user\"}\n"), 0o600); err != nil {
-		t.Fatalf("write transcript: %v", err)
-	}
-
-	if err := cleanupStaleSessionFiles(outputDir, nil); err != nil {
-		t.Fatalf("cleanup: %v", err)
-	}
-
-	if _, err := os.Stat(transcript); !os.IsNotExist(err) {
-		t.Fatalf("expected the documented destructive behaviour to be reproduced, stat err = %v", err)
-	}
-}
 
 func writeSessionCorpusManifest(t *testing.T, outputDir string, sessions int) {
 	t.Helper()

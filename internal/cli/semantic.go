@@ -6028,6 +6028,21 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	layerFiles := map[string][]string{}
 	var layerOrder []string
 	for _, layer := range brainBundleLayers {
+		if layer.name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+			if !includeSessions {
+				sessionFamily = append(sessionFamily, layer.name)
+				continue
+			}
+			source := *manifest.Sources.Sessions
+			source.TranscriptStorage = ""
+			bundleSources.Sessions = &source
+			for _, session := range source.Sessions {
+				layerFiles[layer.name] = append(layerFiles[layer.name], session.TranscriptPath)
+			}
+			layerOrder = append(layerOrder, layer.name)
+			included = append(included, layer.name)
+			continue
+		}
 		paths, err := collectBrainBundleLayerPaths(storage.BrainDir, layer)
 		if err != nil {
 			return err
@@ -6106,8 +6121,16 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
+	transcriptStore := newTranscriptStore(opts.Runner, storage.BrainDir)
 	for _, name := range layerOrder {
 		for _, rel := range layerFiles[name] {
+			if name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+				if err := addTranscriptBundlePath(ctx, tw, transcriptStore, rel, opts.Now()); err != nil {
+					_ = f.Close()
+					return err
+				}
+				continue
+			}
 			if err := addBundlePath(tw, storage.BrainDir, rel); err != nil {
 				_ = f.Close()
 				return err

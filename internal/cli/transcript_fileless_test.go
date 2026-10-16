@@ -217,6 +217,7 @@ func TestFilelessDistillCacheSkipsReadsAndInvalidatesIdentity(t *testing.T) {
 	}
 	// Make any attempted read fail, while the manifest identity remains valid.
 	manifest.RepoRoot = filepath.Join(t.TempDir(), "missing-repo")
+	manifest.CheckpointGitDir = filepath.Join(manifest.RepoRoot, ".git")
 	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
 		t.Fatal(err)
 	}

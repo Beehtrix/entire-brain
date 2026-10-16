@@ -279,10 +279,34 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	}
 
 	if persistentBrain {
-		// A file-less brain must be resolvable through the local checkpoint
-		// store. Routed-only discovery cannot promise that contract.
+		// Discovery controls membership; it does not establish where bytes live.
+		// Routed and branch-scoped catalogs may already be fully available locally.
 		if snapshot == nil && len(sessions) > 0 {
-			return errors.New("persistent transcript storage requires local checkpoint refs; sync checkpoints and retry, or use --output for a standalone bundle")
+			local, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, branchDestinations, metadataCache)
+			if err != nil {
+				return fmt.Errorf("persistent transcript storage requires local checkpoint refs; sync checkpoints and retry, or use --output for a standalone bundle: %w", err)
+			}
+			defer local.Cleanup()
+			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
+			if err := validateLocalTranscriptSessions(local, sessions, manifest.TranscriptMode); err != nil {
+				return err
+			}
+		}
+		// Store the shared Git directory while this worktree still exists. It
+		// remains usable for local object reads after linked worktree removal.
+		if data, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, true, "rev-parse", "--git-common-dir"); err == nil {
+			common := strings.TrimSpace(string(data))
+			if common != "" {
+				if !filepath.IsAbs(common) {
+					common = filepath.Join(repoDir, common)
+				}
+				manifest.CheckpointGitDir = filepath.Clean(common)
+			}
+		}
+		settings, _ := readEntireSettings(repoDir)
+		manifest.CheckpointPrimary, _, err = configuredCheckpointPrimary(repoDir, settings)
+		if err != nil {
+			return err
 		}
 		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
 		if err != nil {
@@ -3870,8 +3894,11 @@ type exportManifest struct {
 	//
 	// omitempty, and never set on the on-disk brain manifest, so no stored
 	// manifest gains a field an older build would then refuse to rewrite.
-	BrainVersion       string          `json:"brain_version,omitempty"`
-	RepoRoot           string          `json:"repo_root,omitempty"`
+	BrainVersion string `json:"brain_version,omitempty"`
+	RepoRoot     string `json:"repo_root,omitempty"`
+	// Stable local checkpoint location, independent of the exporting worktree.
+	CheckpointGitDir   string          `json:"checkpoint_git_dir,omitempty"`
+	CheckpointPrimary  string          `json:"checkpoint_primary,omitempty"`
 	RepoKey            string          `json:"repo_key,omitempty"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
 	DefaultBranch      string          `json:"default_branch,omitempty"`

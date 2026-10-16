@@ -6910,7 +6910,15 @@ func brainBundleLayerConflicts(brainDir, bundleRoot string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(existing) > 0 {
+		occupied := len(existing) > 0
+		if layer.name == bundleLayerSessions && !occupied {
+			manifest, err := loadBrainManifest(brainDir)
+			if err != nil {
+				return nil, err
+			}
+			occupied = manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0
+		}
+		if occupied {
 			conflicts = append(conflicts, layer.name)
 		}
 	}

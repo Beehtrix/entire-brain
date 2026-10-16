@@ -762,7 +762,12 @@ local checkpoints; unavailable or different checkpoint content leaves the cache
 intact and reports an error. Sync missing checkpoint refs before retrying.
 `refresh sessions --output <directory>` and `bundle export --include-sessions`
 still materialize transcripts into standalone artifacts. Manifest transcript
-paths in a persistent brain are evidence addresses, not files on disk.
+paths in a persistent brain are evidence addresses, not files on disk. Refresh
+records the shared Git directory so removing the exporting linked worktree
+does not break reads. Routed and branch-scoped refreshes require the selected
+session checkpoints to be available locally. Bundle import treats a nonempty
+session catalog as occupied even without transcript files; replacing it requires
+`--overwrite`.
 
 Distillation caches checkpoint identity, transcript mode, and extraction settings,
 including a preprocessing version. Unchanged sessions need no transcript reads.
@@ -941,7 +946,10 @@ entrypoints, commands, key documents, and recent decisions.
 For interactive human exploration instead of scripted queries, `entire brain
 dash` opens a terminal dashboard over facts, sessions, history, and semantic
 records, and `entire brain viz` opens a local, no-egress browser view of the
-semantic call graph. Both are read-only and make no agent calls.
+semantic call graph. Both are read-only and make no agent calls. In the dashboard,
+`o` opens transcript sources in the detail pane on demand, including sources
+linked from facts, history, and search results. `esc` returns to the entry.
+Transcript reads honor current exclusions and create no temporary files.
 
 ### Keep the brain fresh
 

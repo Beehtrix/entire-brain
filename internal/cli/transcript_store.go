@@ -235,7 +235,12 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 	// Branch destinations only affect which BRANCH a session is filed under;
 	// resolution here matches by (session, checkpoint, index) identity, so the
 	// zero value serves, exactly as verify's use of the same helper.
-	snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, s.runner, repoDir, mode == "raw", checkpointBranchDestinations{}, cache)
+	var snapshot *checkpointSnapshot
+	if s.repoDir == "" && manifest.CheckpointGitDir != "" {
+		snapshot, _, err = loadLocalCheckpointUnionSnapshot(ctx, s.runner, manifest.CheckpointGitDir, manifest.CheckpointPrimary, mode == "raw", 0, checkpointBranchDestinations{}, nil, cache, true)
+	} else {
+		snapshot, _, err = loadLocalCheckpointSnapshotLocalOnly(ctx, s.runner, repoDir, mode == "raw", checkpointBranchDestinations{}, cache)
+	}
 	if err != nil {
 		return fmt.Errorf("transcript store: resolve checkpoint snapshot: %w", err)
 	}
@@ -398,4 +403,30 @@ func classifyTranscriptReadError(err error) error {
 		return fmt.Errorf("%s: %w", memoryErrInputTooLarge, err)
 	}
 	return err
+}
+
+// validateLocalTranscriptSessions checks the exact routed identities, not just
+// that some local catalog exists. Extra local sessions do not expand scope.
+func validateLocalTranscriptSessions(snapshot *checkpointSnapshot, sessions []exportSession, mode string) error {
+	type identity struct {
+		session, checkpoint string
+		index               int
+	}
+	available := make(map[identity]bool, len(snapshot.SessionCheckpoints))
+	for _, member := range snapshot.SessionCheckpoints {
+		location, ok := memberTranscriptLocation(member, mode, snapshot.TranscriptFileName)
+		if !ok {
+			continue
+		}
+		source := snapshot.Sources[location.sourceKey]
+		if _, exists := source.TreePaths[location.sourcePath]; exists {
+			available[identity{member.SessionID, member.CheckpointID, member.SessionIndex}] = true
+		}
+	}
+	for _, session := range sessions {
+		if !available[identity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}] {
+			return fmt.Errorf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle", session.SessionID, session.LatestCheckpoint, session.SessionIndex)
+		}
+	}
+	return nil
 }

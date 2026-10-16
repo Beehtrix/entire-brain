@@ -1819,7 +1819,7 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	if err != nil {
 		return err
 	}
-	if len(cache.Sessions) == 0 {
+	if len(cache.Sessions) == 0 && len(cache.Chunks) == 0 {
 		return nil
 	}
 	suffix := "/" + url.PathEscape(sessionID)
@@ -1827,6 +1827,12 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 	for key := range cache.Sessions {
 		if strings.HasSuffix(key, suffix) {
 			delete(cache.Sessions, key)
+			changed = true
+		}
+	}
+	for key := range cache.Chunks {
+		if strings.HasSuffix(key, suffix) {
+			delete(cache.Chunks, key)
 			changed = true
 		}
 	}

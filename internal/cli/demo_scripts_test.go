@@ -205,6 +205,11 @@ func TestDemoCleanupPreservesSignalExitAndStopsSandboxChild(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "sandbox")
 			script := "set -eu\ndemo_dir=$1\ntrial_dir=$1\nkeep=\nmkdir -p \"$1\"\ncp /bin/sleep \"$1/entire-brain\"\n" + block + "\n\"$1/entire-brain\" 60 &\nsleep 0.1\nkill -TERM $$\n"
 			cmd := exec.Command("sh", "-c", script, "test", root)
+			// The sleep child inherits the output pipe. If cleanup's kill ever
+			// misses it (seen on CI runners), CombinedOutput would block for
+			// the child's full 60s sleep; the exit-code and cleaned-directory
+			// assertions below do not need the pipe to drain that long.
+			cmd.WaitDelay = commandWaitDelay
 			out, err := cmd.CombinedOutput()
 			if err == nil || cmd.ProcessState.ExitCode() != 143 {
 				t.Fatalf("signal exit: %v, %s", err, out)

@@ -191,3 +191,121 @@ func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 		t.Fatalf("viewer materialized transcripts: %v", err)
 	}
 }
+
+// The tree and metadata remain readable after removing only a transcript blob.
+// Refresh must reject this before changing the existing catalog.
+func TestFilelessRefreshRejectsMissingTranscriptObjects(t *testing.T) {
+	for _, scope := range []string{"direct", "routed", "branch"} {
+		for _, variant := range []string{"raw", "compact", "chunk"} {
+			t.Run(scope+"/"+variant, func(t *testing.T) {
+				opts, brain, repo := filelessCheckpointFixture(t)
+				git := func(args ...string) string {
+					t.Helper()
+					cmd := exec.Command("git", args...)
+					cmd.Dir = repo
+					cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com")
+					out, err := cmd.CombinedOutput()
+					if err != nil {
+						t.Fatalf("git %v: %v %s", args, err, out)
+					}
+					return strings.TrimSpace(string(out))
+				}
+				root := checkpointPath("aaa111aaa111")
+				missingPath := root + "/0/full.jsonl"
+				if variant != "raw" {
+					if variant == "compact" {
+						missingPath = root + "/0/compact.jsonl"
+						metadata := fmt.Sprintf(`{"branch":"main","sessions":[{"metadata":"/%s/0/metadata.json","transcript":"/%s/0/full.jsonl","compact_transcript":"/%s/0/compact.jsonl"}]}`, root, root, root)
+						if err := os.WriteFile(filepath.Join(repo, root, "metadata.json"), []byte(metadata), 0600); err != nil {
+							t.Fatal(err)
+						}
+					} else {
+						missingPath += ".001"
+					}
+					if err := os.WriteFile(filepath.Join(repo, missingPath), []byte("unique transcript part\n"), 0600); err != nil {
+						t.Fatal(err)
+					}
+					git("add", ".")
+					git("-c", "commit.gpgsign=false", "commit", "-qm", "add transcript variant")
+					git("update-ref", v1MainRef, "HEAD")
+				}
+				exportScope := exportScopeAll
+				if scope != "direct" {
+					opts.Runner = &routedLocalTranscriptRunner{session: "session-one"}
+					if scope == "branch" {
+						exportScope = exportScopeBranch
+					} else {
+						if err := os.WriteFile(filepath.Join(repo, ".entire", "settings.json"), []byte(`{"enabled":true,"strategy_options":{"checkpoint_remote":{"provider":"github","repo":"example/checkpoints"}}}`), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+				}
+				run := func() error {
+					cmd := &cobra.Command{}
+					cmd.SetOut(io.Discard)
+					return runExport(context.Background(), cmd, opts, exportCommandOptions{scope: exportScope, entireBinary: "entire-test", rawTranscript: variant != "compact"})
+				}
+				if err := run(); err != nil {
+					t.Fatalf("initial refresh: %v", err)
+				}
+				before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+				if err != nil {
+					t.Fatal(err)
+				}
+				oid := git("rev-parse", v1MainRef+":"+missingPath)
+				objectPath := filepath.Join(repo, ".git", "objects", oid[:2], oid[2:])
+				blob, err := os.ReadFile(objectPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Remove(objectPath); err != nil {
+					t.Fatal(err)
+				}
+				if err := run(); err == nil || !strings.Contains(err.Error(), "unreadable local transcript") || !strings.Contains(err.Error(), missingPath) {
+					t.Fatalf("missing blob was not rejected: %v", err)
+				}
+				after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(after) != string(before) {
+					t.Fatal("failed validation replaced the session catalog")
+				}
+				if err := os.WriteFile(objectPath, blob, 0444); err != nil {
+					t.Fatal(err)
+				}
+				if err := run(); err != nil {
+					t.Fatalf("restored blob did not heal refresh: %v", err)
+				}
+			})
+		}
+	}
+}
+
+func TestLocalTranscriptValidationCannotFetchOrReadPayloads(t *testing.T) {
+	opts, brain, repo := filelessCheckpointFixture(t)
+	runFilelessExport(t, opts, "", false)
+	manifest, err := loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(context.Background(), opts.Runner, repo, true, checkpointBranchDestinations{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.Cleanup()
+	source := snapshot.Sources[snapshot.SessionCheckpoints[0].SourceKey]
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "cat-file", "-t", source.Ref+":"+checkpointPath("aaa111aaa111")+"/0/full.jsonl"): {stdout: "blob\n"},
+	}}
+	if err := validateLocalTranscriptSessions(context.Background(), runner, snapshot, manifest.Sessions, "raw"); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("calls = %+v", runner.calls)
+	}
+	call := runner.calls[0]
+	if call.env[gitNoLazyFetchEnv] != "1" || strings.Join(call.args[:2], " ") != "cat-file -t" {
+		t.Fatalf("validation read bytes or allowed fetching: %+v", call)
+	}
+}

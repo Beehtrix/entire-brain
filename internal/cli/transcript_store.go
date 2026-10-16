@@ -405,27 +405,48 @@ func classifyTranscriptReadError(err error) error {
 	return err
 }
 
-// validateLocalTranscriptSessions checks the exact routed identities, not just
-// that some local catalog exists. Extra local sessions do not expand scope.
-func validateLocalTranscriptSessions(snapshot *checkpointSnapshot, sessions []exportSession, mode string) error {
+// validateLocalTranscriptSessions checks the exact selected identities and every
+// transcript chunk. Tree entries alone do not establish object availability in
+// partial clones. Object type checks avoid reading transcript bytes or fetching
+// missing promisor blobs; extra local sessions do not expand discovery scope.
+func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sessions []exportSession, mode string) error {
 	type identity struct {
 		session, checkpoint string
 		index               int
 	}
-	available := make(map[identity]bool, len(snapshot.SessionCheckpoints))
+	available := make(map[identity]transcriptLocation, len(snapshot.SessionCheckpoints))
 	for _, member := range snapshot.SessionCheckpoints {
 		location, ok := memberTranscriptLocation(member, mode, snapshot.TranscriptFileName)
-		if !ok {
-			continue
-		}
-		source := snapshot.Sources[location.sourceKey]
-		if _, exists := source.TreePaths[location.sourcePath]; exists {
-			available[identity{member.SessionID, member.CheckpointID, member.SessionIndex}] = true
+		if ok {
+			available[identity{member.SessionID, member.CheckpointID, member.SessionIndex}] = location
 		}
 	}
+	type objectKey struct{ gitDir, ref, path string }
+	checked := make(map[objectKey]bool)
 	for _, session := range sessions {
-		if !available[identity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}] {
+		location, ok := available[identity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}]
+		source := snapshot.Sources[location.sourceKey]
+		chunks := snapshotTranscriptChunks(location.sourcePath, source.TreePaths)
+		if !ok || len(chunks) == 0 {
 			return fmt.Errorf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle", session.SessionID, session.LatestCheckpoint, session.SessionIndex)
+		}
+		for _, chunk := range chunks {
+			actualPath, err := source.actualPath(chunk)
+			if err != nil {
+				return err
+			}
+			key := objectKey{source.GitDir, source.Ref, actualPath}
+			if checked[key] {
+				continue
+			}
+			kind, _, err := runCheckpointGitLocal(ctx, runner, source.GitDir, "cat-file", "-t", source.Ref+":"+actualPath)
+			if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+				if err == nil {
+					err = fmt.Errorf("expected blob, got %q", strings.TrimSpace(string(kind)))
+				}
+				return fmt.Errorf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
+			}
+			checked[key] = true
 		}
 	}
 	return nil

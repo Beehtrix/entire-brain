@@ -2090,6 +2090,7 @@ func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 
 func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 	repoDir, runner := compactV1Fixture(t, true)
+	runner.responses[fakeCommandKey("git", "cat-file", "-t", v1MainRef+":aa/a111aaa111/0/transcript.jsonl")] = fakeCommandResponse{stdout: "blob\n"}
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "https://github.com/entireio/cli.git\n"}
 	opts := Options{Version: "test", Runner: runner, Env: EntireEnv{RepoRoot: repoDir, PluginDataDir: t.TempDir(), PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir()}, Now: func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }}
 	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
@@ -2125,6 +2126,14 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		}
 	}
 	for _, call := range runner.calls {
+		// Checking an object's type establishes local availability without
+		// reading its transcript payload.
+		if len(call.args) > 1 && call.args[0] == "cat-file" && call.args[1] == "-t" {
+			if call.env[gitNoLazyFetchEnv] != "1" {
+				t.Fatal("availability check may fetch missing objects")
+			}
+			continue
+		}
 		if strings.Contains(strings.Join(call.args, " "), "full.jsonl") || strings.Contains(strings.Join(call.args, " "), "transcript.jsonl") {
 			t.Fatalf("persistent export read transcript bytes: %+v", call)
 		}

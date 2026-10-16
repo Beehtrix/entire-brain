@@ -287,8 +287,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 				return fmt.Errorf("persistent transcript storage requires local checkpoint refs; sync checkpoints and retry, or use --output for a standalone bundle: %w", err)
 			}
 			defer local.Cleanup()
+			snapshot = local
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
-			if err := validateLocalTranscriptSessions(local, sessions, manifest.TranscriptMode); err != nil {
+		}
+		if len(sessions) > 0 {
+			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, sessions, manifest.TranscriptMode); err != nil {
 				return err
 			}
 		}

@@ -754,6 +754,26 @@ full buffer), so partial short-term coverage always consolidates promptly. You
 can run `entire brain refresh delta` by hand any time you want immediate
 recall of just-captured work.
 
+Persistent session refresh stores metadata in the manifest and reads transcript
+bytes from local Git checkpoint refs when needed. It does not maintain a second
+transcript cache. The first refresh after upgrading removes old cached files
+only after proving that active transcripts can be recovered byte-for-byte from
+local checkpoints; unavailable or different checkpoint content leaves the cache
+intact and reports an error. Sync missing checkpoint refs before retrying.
+`refresh sessions --output <directory>` and `bundle export --include-sessions`
+still materialize transcripts into standalone artifacts. Manifest transcript
+paths in a persistent brain are evidence addresses, not files on disk. Refresh
+records the shared Git directory so removing the exporting linked worktree
+does not break reads. Routed and branch-scoped refreshes require the selected
+session checkpoints to be available locally. Bundle import treats a nonempty
+session catalog as occupied even without transcript files; replacing it requires
+`--overwrite`.
+
+Distillation caches checkpoint identity, transcript mode, and extraction settings,
+including a preprocessing version. Unchanged sessions need no transcript reads.
+Older content-based cache entries are checked once and upgraded without another
+agent call when their input and settings still match.
+
 If you also want generated seed summaries, run refresh with an agent instead of
 the deterministic seed path (`entire brain refresh --agent auto --seed-model
 gpt-5.4-mini --seed-effort low`). Seed synthesis orients an agent on the
@@ -926,7 +946,10 @@ entrypoints, commands, key documents, and recent decisions.
 For interactive human exploration instead of scripted queries, `entire brain
 dash` opens a terminal dashboard over facts, sessions, history, and semantic
 records, and `entire brain viz` opens a local, no-egress browser view of the
-semantic call graph. Both are read-only and make no agent calls.
+semantic call graph. Both are read-only and make no agent calls. In the dashboard,
+`o` opens transcript sources in the detail pane on demand, including sources
+linked from facts, history, and search results. `esc` returns to the entry.
+Transcript reads honor current exclusions and create no temporary files.
 
 ### Keep the brain fresh
 
@@ -1540,15 +1563,18 @@ To keep specific sessions out of the brain's projections, use
 `entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
 session so every derived layer (history records, conversation exchanges,
 pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
-while keeping the exported transcript; `purge` additionally deletes the
-exported transcript copy and the derived stores, removes durable facts whose
+and the transcript read path refuses it. Legacy brains and bundles may retain
+a materialized transcript after exclusion; `purge` additionally deletes that
+copy and the derived stores, removes durable facts whose
 only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
 first). Skill-memory (your accept/decline curation) is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
 inspectable projection and from their lifecycle jobs, cancellation markers,
-optional abstracts, and metadata-only egress receipts (exit non-zero with named
+optional abstracts, and metadata-only egress receipts. In a checkpoint-backed
+brain it also checks the transcript read gate and reports stray materialized
+transcript files (exit non-zero with named
 violations otherwise; a re-purge repairs them), and `privacy retention
 --max-age <dur> [--branch b]
 [--purge] [--dry-run]` applies an age-based policy in one command. The full

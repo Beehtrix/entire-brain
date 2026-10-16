@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -229,6 +230,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				continue
 			}
+			if fingerprint, hit := cachedCheckpointDistill(prevCache, ps.session, ps.branch, duplicateKeys, distillOpts); hit {
+				ps.fingerprint, ps.cached = fingerprint, true
+				f <- ps
+				if !enqueue(f) {
+					return
+				}
+				continue
+			}
 			select {
 			case workSem <- struct{}{}:
 			case <-ctx.Done():
@@ -251,10 +260,10 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				distillInput := preprocessTranscriptForDistill(content)
 				ps.rawBytes = len(content)
 				ps.preBytes = len(distillInput)
-				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput, distillOpts.cacheSalt)
+				ps.fingerprint = distillFingerprintForSession(ps.session, ps.branch, distillInput, distillOpts)
 				if !distillOpts.force {
 					cacheKey := distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)
-					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && prev == ps.fingerprint {
+					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && (prev == ps.fingerprint || grandfatheredContentFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts)) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -269,7 +278,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					// export as done. One re-distill, once, then both hold
 					// distinct keys.
 					if !duplicateKeys[distillSessionCacheKey(ps.branch, ps.session.SessionID)] &&
-						grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
+						(!distillOpts.checkpointBacked || distillPreprocessingVersion == 1) && grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -403,11 +412,19 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 // work scheduling; this preflight deliberately favors the egress/publication
 // boundary over avoiding one extra descriptor-rooted read.
 func validateDistillCanonicalInputs(ctx context.Context, brainDir string, sessions []exportSession, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) error {
+	cache := loadDistillCache(brainDir)
+	duplicates := distillDuplicateSessionKeys(sessions, resolveBranch)
 	for _, session := range sessions {
 		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
 			continue
 		}
 		if distillOpts.session != "" && session.SessionID != distillOpts.session {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, hit := cachedCheckpointDistill(cache, session, resolveBranch(session), duplicates, distillOpts); hit {
 			continue
 		}
 		if _, err := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath); err != nil {
@@ -438,6 +455,9 @@ type distillCommandOptions struct {
 	dryRun              bool
 	jobs                int
 	cacheSalt           string
+	legacyCacheSalt     string
+	checkpointBacked    bool
+	transcriptMode      string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -887,6 +907,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
 	}
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
+	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
+	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, 0)
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
@@ -1401,7 +1424,14 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
 	distillOpts.dryRun = true
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
 	cacheSalt, err := distillCacheSaltForBrain(brainDir, distillOpts, now)
+	if err != nil {
+		return distillDryRunReport{}, err
+	}
+	legacyOpts := distillOpts
+	legacyOpts.checkpointBacked = false
+	distillOpts.legacyCacheSalt, err = distillCacheSaltForBrain(brainDir, legacyOpts, now)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
@@ -1581,6 +1611,9 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		return resolveDistillBranch(manifest, session)
 	})
 	branchSeen := map[string]struct{}{}
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
+	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
+	distillOpts.cacheSalt = cacheSalt
 	plan := distillPlan{CacheSalt: cacheSalt}
 	for _, session := range sessions {
 		branch := resolveDistillBranch(manifest, session)
@@ -1596,6 +1629,15 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		}
 		sessionPlan := distillSessionPlan{Session: session, Branch: branch}
 		plan.TotalSessions++
+		if err := ctx.Err(); err != nil {
+			return distillPlan{}, err
+		}
+		if fingerprint, hit := cachedCheckpointDistill(prevCache, session, branch, duplicateKeys, distillOpts); hit {
+			sessionPlan.Fingerprint, sessionPlan.Cached = fingerprint, true
+			plan.CachedSessions++
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
 
 		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath)
 		if readErr != nil {
@@ -1607,15 +1649,15 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		sessionPlan.PreprocessedBytes = len(distillInput)
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
-		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput, plan.CacheSalt)
+		sessionPlan.Fingerprint = distillFingerprintForSession(session, branch, distillInput, distillOpts)
 		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 		sessionPlan.ChunksIfUncached = len(chunks)
 		plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		if !distillOpts.force {
 			legacyKey := distillSessionCacheKey(branch, session.SessionID)
 			prev, ok := cachedDistillFingerprintForKey(prevCache, distillSessionCacheKeyFor(branch, session, duplicateKeys))
-			if (ok && prev == sessionPlan.Fingerprint) ||
-				(!duplicateKeys[legacyKey] && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
+			if (ok && (prev == sessionPlan.Fingerprint || grandfatheredContentFingerprint(prev, session, branch, distillInput, distillOpts))) ||
+				(!duplicateKeys[legacyKey] && (!distillOpts.checkpointBacked || distillPreprocessingVersion == 1) && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
@@ -2129,25 +2171,61 @@ func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions
 	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
 }
 
+// Bump whenever transcript preprocessing changes what the extractor sees.
+const distillPreprocessingVersion = 1
+
+func distillFingerprintForSession(session exportSession, branch, content string, opts distillCommandOptions) string {
+	if !opts.checkpointBacked || session.LatestCheckpoint == "" {
+		return distillSessionFingerprint(session, branch, content, opts.cacheSalt)
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{session.SessionID, session.LatestCheckpoint, strconv.Itoa(session.SessionIndex), branch, opts.transcriptMode, opts.cacheSalt}, "\x00")))
+	return "checkpoint-sha256:" + hex.EncodeToString(sum[:])
+}
+
+func cachedCheckpointDistill(cache distillCache, session exportSession, branch string, duplicates map[string]bool, opts distillCommandOptions) (string, bool) {
+	if opts.force || !opts.checkpointBacked || session.LatestCheckpoint == "" {
+		return "", false
+	}
+	fingerprint := distillFingerprintForSession(session, branch, "", opts)
+	prev, ok := cachedDistillFingerprintForKey(cache, distillSessionCacheKeyFor(branch, session, duplicates))
+	return fingerprint, ok && prev == fingerprint
+}
+
+// Read legacy entries once to prove the preprocessed input is unchanged, then
+// save checkpoint identity. Later preprocessing versions must invalidate them.
+func grandfatheredContentFingerprint(previous string, session exportSession, branch, content string, opts distillCommandOptions) bool {
+	return opts.checkpointBacked && distillPreprocessingVersion == 1 && opts.legacyCacheSalt != "" && previous == distillSessionFingerprint(session, branch, content, opts.legacyCacheSalt)
+}
+
 func distillCacheSalt(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) string {
+	version := 0
+	if distillOpts.checkpointBacked {
+		version = distillPreprocessingVersion
+	}
+	return distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, version)
+}
+
+func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions, preprocessingVersion int) string {
 	data, err := json.Marshal(struct {
-		Version         int     `json:"version"`
-		Prompt          string  `json:"prompt"`
-		ReconcilePrompt string  `json:"reconcile_prompt"`
-		Threshold       float64 `json:"threshold"`
-		Agent           string  `json:"agent"`
-		AgentCommand    string  `json:"agent_command,omitempty"`
-		Model           string  `json:"model,omitempty"`
-		Effort          string  `json:"effort,omitempty"`
+		Version              int     `json:"version"`
+		PreprocessingVersion int     `json:"preprocessing_version,omitempty"`
+		Prompt               string  `json:"prompt"`
+		ReconcilePrompt      string  `json:"reconcile_prompt"`
+		Threshold            float64 `json:"threshold"`
+		Agent                string  `json:"agent"`
+		AgentCommand         string  `json:"agent_command,omitempty"`
+		Model                string  `json:"model,omitempty"`
+		Effort               string  `json:"effort,omitempty"`
 	}{
-		Version:         distillCacheVersion,
-		Prompt:          prompt,
-		ReconcilePrompt: reconcilePromptText,
-		Threshold:       threshold,
-		Agent:           distillOpts.agent,
-		AgentCommand:    strings.Join(distillOpts.agentCommand, "\x00"),
-		Model:           distillOpts.model,
-		Effort:          distillOpts.effort,
+		Version:              distillCacheVersion,
+		PreprocessingVersion: preprocessingVersion,
+		Prompt:               prompt,
+		ReconcilePrompt:      reconcilePromptText,
+		Threshold:            threshold,
+		Agent:                distillOpts.agent,
+		AgentCommand:         strings.Join(distillOpts.agentCommand, "\x00"),
+		Model:                distillOpts.model,
+		Effort:               distillOpts.effort,
 	})
 	if err != nil {
 		return ""

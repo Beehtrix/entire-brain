@@ -189,3 +189,58 @@ func TestLiveHeaderRepoKeyCheckCannotFail(t *testing.T) {
 		t.Fatalf("provider repo_key = %q, want the provider's original spelling preserved for the real check", res.providerRepoKey)
 	}
 }
+
+// TestIdentitylessSnapshotRefusalCarriesTheProviderReason pins COR-2146.
+//
+// A snapshot with no commit is almost never a provider malfunction: it is the
+// provider declining to run git and saying why. The canonical case is a
+// promisor remote -- Entire's own `filtered_fetches: true` writes one -- which
+// makes entire-graph refuse git subprocesses to hold its no-egress guarantee.
+//
+// The detail strings below are copied verbatim from a real reproduction
+// against entire-graph v0.4.1-nightly: a repo with remote.ckpt.promisor=true
+// and remote.ckpt.partialclonefilter=blob:none emits an empty header commit
+// plus these two warnings on the trailing summary record.
+func TestIdentitylessSnapshotRefusalCarriesTheProviderReason(t *testing.T) {
+	t.Parallel()
+	const promisorDetail = `refuse Git subprocesses for unsafe or unreadable repository metadata under "/tmp/repo": its Git config declares a promisor remote (a partial clone), so Git commands here can fetch objects over the network; indexing falls back to a filesystem walk to stay offline`
+	header := semanticHeader{
+		RepoKey: "local/repo",
+		Warnings: []semanticWarning{
+			{Code: "W_GIT_WORKTREE_FALLBACK", Severity: "warning", Detail: "Git worktree enumeration was unavailable: ..."},
+			{Code: "E_NO_GIT_HEAD", Severity: "warning", Detail: promisorDetail},
+		},
+	}
+
+	err := validateLiveSemanticHeader(header, "", "", false)
+	if err == nil {
+		t.Fatal("an identity-less header must still be refused")
+	}
+	if !strings.Contains(err.Error(), "missing commit") {
+		t.Fatalf("refusal must still say what is missing: %v", err)
+	}
+	// The whole point: the reader learns the cause and the remedy.
+	if !strings.Contains(err.Error(), "E_NO_GIT_HEAD") {
+		t.Fatalf("refusal dropped the provider's explanation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "promisor remote") {
+		t.Fatalf("refusal does not name the actual cause: %v", err)
+	}
+	// E_NO_GIT_HEAD explains; the worktree-fallback warning only restates the
+	// symptom. Preferring the wrong one would be a regression in usefulness.
+	if strings.Contains(err.Error(), "W_GIT_WORKTREE_FALLBACK") {
+		t.Fatalf("refusal preferred the symptom warning over the cause: %v", err)
+	}
+
+	// A provider that said nothing must not grow an empty trailer.
+	bare := validateLiveSemanticHeader(semanticHeader{RepoKey: "local/repo"}, "", "", false)
+	if bare == nil || strings.Contains(bare.Error(), "the provider reported") {
+		t.Fatalf("a header with no warnings must stay bare, got: %v", bare)
+	}
+
+	// A healthy header is still accepted.
+	ok := semanticHeader{Commit: "c1", Tree: "t1", RepoKey: "local/repo"}
+	if err := validateLiveSemanticHeader(ok, "c1", "t1", false); err != nil {
+		t.Fatalf("a complete header must pass: %v", err)
+	}
+}

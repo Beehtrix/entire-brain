@@ -1477,13 +1477,13 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
 func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
-		return errors.New("semantic snapshot header missing commit")
+		return fmt.Errorf("semantic snapshot header missing commit%s", semanticProviderRefusalContext(header))
 	}
 	if header.Tree == "" {
-		return errors.New("semantic snapshot header missing tree")
+		return fmt.Errorf("semantic snapshot header missing tree%s", semanticProviderRefusalContext(header))
 	}
 	if header.RepoKey == "" {
-		return errors.New("semantic snapshot header missing repo_key")
+		return fmt.Errorf("semantic snapshot header missing repo_key%s", semanticProviderRefusalContext(header))
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
 		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
@@ -1492,6 +1492,48 @@ func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allo
 		return fmt.Errorf("semantic snapshot tree %q does not match HEAD tree %q", header.Tree, tree)
 	}
 	return nil
+}
+
+// semanticProviderRefusalContext renders the provider's own explanation for an
+// identity-less snapshot, for appending to an otherwise bare refusal.
+//
+// A snapshot with no commit is almost never the provider malfunctioning: it is
+// the provider declining to run git and SAYING SO. The canonical case is a
+// promisor remote -- Entire's own `filtered_fetches: true` writes one -- which
+// makes entire-graph refuse git subprocesses to keep its no-egress guarantee
+// and fall back to a filesystem walk. It reports that as E_NO_GIT_HEAD, naming
+// the cause and the remedy.
+//
+// mergeSemanticSummary has already folded the trailing summary record into the
+// header by the time this runs, so those warnings are in hand. Reporting only
+// "header missing commit" throws away the one sentence that tells the reader
+// what to do, and turns a self-describing refusal into a mystery. That cost
+// four wrong hypotheses and an instrumented bisect to rediscover something the
+// provider had already printed.
+func semanticProviderRefusalContext(header semanticHeader) string {
+	best := ""
+	for _, w := range append(append([]semanticWarning(nil), header.Warnings...), header.PartialFailures...) {
+		detail := strings.TrimSpace(w.Detail)
+		if detail == "" {
+			detail = strings.TrimSpace(w.Effect)
+		}
+		if detail == "" {
+			continue
+		}
+		line := w.Code + ": " + detail
+		// E_NO_GIT_HEAD is the one that names why identity is absent; prefer it
+		// over the worktree-fallback warning that merely reports the symptom.
+		if w.Code == "E_NO_GIT_HEAD" {
+			return "; the provider reported " + line
+		}
+		if best == "" {
+			best = line
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return "; the provider reported " + best
 }
 
 func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (semanticHeader, semanticCounts, []byte, error) {

@@ -306,6 +306,7 @@ func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 		t.Fatalf("acquire lock: %v", err)
 	}
 	defer unlock()
+	shortSemanticLockTimeout(t)
 
 	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {

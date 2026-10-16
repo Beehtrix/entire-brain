@@ -887,6 +887,36 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	timings.record("daemon", time.Since(daemonStarted))
 
+	// Push-hook refresh arrives from main. The two lines that came with it --
+	// report.Hook = inspectSessionEndHook(...) and reportSetupHook(progress, ...)
+	// -- are deliberately NOT carried over: this branch already inspects and
+	// reports the session-end hook in Phase 3 (AGENTS), and reportSetupHook is
+	// the old renderer, which this branch removed. Re-adding either would
+	// inspect twice and print the hook in two different styles.
+	//
+	// Setup owns the UPGRADE beat only: the baked plugin path goes stale when
+	// the binary moves. Fresh installs belong to `connect`, so a bare setup
+	// after a disconnect must not resurrect the hook, and setup on a
+	// never-connected repo must not rearrange another tool's hooks for a
+	// feature that is switched off.
+	if hookState, hookPath, hookErr := refreshPushHook(ctx, opts, repoDir); hookErr != nil {
+		progress.Skip("push hook: not refreshed (uploads ride the daemon tick): " + hookErr.Error())
+	} else {
+		switch hookState {
+		case pushHookSharedDir:
+			progress.Skip("push hook: core.hooksPath is shared across repos (" + hookPath + "); not managed — uploads ride the daemon tick")
+		case pushHookAbsent:
+			progress.Skip("push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)")
+		case pushHookUnchanged:
+			progress.Skip("push hook already current (" + hookPath + ")")
+		case pushHookChainedIn:
+			progress.Skip("push hook runs via the host CLI's chain (" + hookPath + ")")
+		default:
+			task := progress.Begin("push hook: refreshed (" + hookPath + ")")
+			task.Finish(nil)
+		}
+	}
+
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
@@ -988,6 +1018,13 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 		return steps.uninstall(ctx, plan)
 	}); err != nil {
 		return err
+	}
+	// Remove our pre-push hook (restoring any hook we had chained to).
+	// Best-effort: a hook problem must not block the daemon uninstall report.
+	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
+		}
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {

@@ -68,9 +68,32 @@ func TestSetupSummaryPlainGolden(t *testing.T) {
 		"\nNext\n" +
 		"  entire-brain overview        what this project is\n" +
 		"  entire-brain brief \"<task>\"  task-shaped context\n" +
-		"  entire-brain status          backfill progress and daemon health\n"
+		"  entire-brain status          backfill progress and daemon health\n" +
+		"  entire-brain connect         sync memories with your team (off by default)\n"
 	if got != want {
 		t.Fatalf("setup summary\n got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// TestSetupSummarySkipsConnectHintWhenBound pins the inverse: a repo that is
+// already connected (or explicitly opted out) gets no connect nag.
+func TestSetupSummarySkipsConnectHintWhenBound(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	report := setupRenderFixtureReport()
+	report.BrainPath = brainDir
+	if got := renderSetupSummaryPlain(t, report, nil); strings.Contains(got, "entire-brain connect") {
+		t.Fatalf("a connected repo must not be told to connect:\n%s", got)
+	}
+
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := renderSetupSummaryPlain(t, report, nil); strings.Contains(got, "entire-brain connect") {
+		t.Fatalf("an opted-out repo must not be nagged to reconnect:\n%s", got)
 	}
 }
 

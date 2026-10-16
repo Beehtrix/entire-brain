@@ -252,6 +252,13 @@ func renderSetupSummary(out io.Writer, render *tui.Renderer, report setupReport,
 	// now exists on their machine or how to take it off. Surfacing it does not
 	// change the default -- whether the default should be on is a product call,
 	// not this line's.
+	// Hosted sync is off by default and `connect` is the only opt-in, so
+	// onboarding is where a user learns it exists. Render-only read like the
+	// coverage line (setup --json is a published contract); an explicit opt-out
+	// is respected, not nagged.
+	if _, present, err := readHostedRepoBinding(report.BrainPath); err != nil || !present {
+		next = append(next, [2]string{brainCmd + " connect", "sync memories with your team (off by default)"})
+	}
 	if report.Daemon.Installed {
 		next = append(next, [2]string{brainCmd + " setup --uninstall-daemon", "stop and remove the background watcher"})
 	}

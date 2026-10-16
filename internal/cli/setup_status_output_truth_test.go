@@ -268,7 +268,9 @@ func dirtySeedRetrievalStatus(t *testing.T) *brainStatusRetrieval {
 	manifest := &exportManifest{Sources: &brainSources{
 		Seed: &seedSourceManifest{Commit: "58b0c54e", WorktreeMode: "commit", GeneratedAt: setupTestNow},
 	}}
-	return buildBrainRetrievalStatus(context.Background(), runner, t.TempDir(), repoDir, manifest, live)
+	// audit=false is the lightweight status path, which is the surface this
+	// test is about; the audit path is doctor's.
+	return buildBrainRetrievalStatus(context.Background(), runner, t.TempDir(), repoDir, manifest, live, false)
 }
 
 func TestDirtyWorktreeCauseCarriesNoRemedyOfItsOwn(t *testing.T) {

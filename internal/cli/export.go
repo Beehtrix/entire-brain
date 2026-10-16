@@ -3053,7 +3053,7 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 			sourcePath = snapshotTranscriptPath(session.LatestCheckpoint, session.SessionIndex, snapshot.TranscriptFileName)
 		}
 
-		transcript, err := readSnapshotTranscriptFromSource(ctx, runner, snapshot, session.SourceKey, sourcePath)
+		transcript, err := readSnapshotTranscriptFromSource(ctx, runner, snapshot, session.SourceKey, sourcePath, 0)
 		if err != nil {
 			// Skipping keeps the rest of the export usable, but it also drops
 			// this session from the returned list, which is what the caller
@@ -3141,39 +3141,62 @@ func ensureExportDirectories(outputDir string, branchDirs map[string]string) err
 }
 
 func readSnapshotTranscript(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourcePath string) ([]byte, error) {
-	return readSnapshotTranscriptFromSource(ctx, runner, snapshot, "", sourcePath)
+	return readSnapshotTranscriptFromSource(ctx, runner, snapshot, "", sourcePath, 0)
 }
 
-func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourceKey, sourcePath string) ([]byte, error) {
+// maxBytes, when positive, caps the CUMULATIVE bytes read across a
+// transcript's chunks: on-demand readers must not materialize an oversized
+// transcript in memory just to refuse it afterwards. The bound can overshoot
+// by at most one chunk (git materializes each cat-file fully). Zero means
+// unbounded — the export writer materializes whatever the checkpoint holds.
+func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sourceKey, sourcePath string, maxBytes int64) ([]byte, error) {
 	if sourceKey != "" {
 		source, ok := snapshot.Sources[sourceKey]
 		if !ok {
 			return nil, fmt.Errorf("checkpoint snapshot source %q not found", sourceKey)
 		}
-		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath)
+		return readCheckpointSourceTranscript(ctx, runner, source, sourcePath, maxBytes)
 	}
 	chunks := snapshotTranscriptChunks(sourcePath, snapshot.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
 	}
-	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
+	return readTranscriptChunks(chunks, budgetedTranscriptRead(maxBytes, sourcePath, func(chunk string) ([]byte, error) {
 		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
-	})
+	}))
 }
 
-func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string) ([]byte, error) {
-	readOne := func(candidate string) ([]byte, error) {
+func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, source checkpointSnapshotSource, virtualPath string, maxBytes int64) ([]byte, error) {
+	readOne := budgetedTranscriptRead(maxBytes, virtualPath, func(candidate string) ([]byte, error) {
 		actualPath, err := source.actualPath(candidate)
 		if err != nil {
 			return nil, err
 		}
 		return catFileWithPolicy(ctx, runner, source.GitDir, source.Ref, actualPath, source.LocalOnly)
-	}
+	})
 	chunks := snapshotTranscriptChunks(virtualPath, source.TreePaths)
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("transcript path %s not found in %s", virtualPath, source.Ref)
 	}
 	return readTranscriptChunks(chunks, readOne)
+}
+
+func budgetedTranscriptRead(maxBytes int64, path string, readOne func(string) ([]byte, error)) func(string) ([]byte, error) {
+	if maxBytes <= 0 {
+		return readOne
+	}
+	var total int64
+	return func(chunk string) ([]byte, error) {
+		data, err := readOne(chunk)
+		if err != nil {
+			return nil, err
+		}
+		total += int64(len(data))
+		if total > maxBytes {
+			return nil, fmt.Errorf("transcript %s exceeds maximum size of %d bytes", path, maxBytes)
+		}
+		return data, nil
+	}
 }
 
 // readTranscriptChunks reads the ordered parts of one stored transcript and

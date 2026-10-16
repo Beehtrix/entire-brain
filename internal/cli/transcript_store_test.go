@@ -26,6 +26,7 @@ func transcriptStoreFixture(t *testing.T, withManifest bool) (string, string) {
 			SchemaVersion: brainManifestSchemaVersion,
 			GeneratedAt:   now,
 			DefaultBranch: "main",
+			RepoRoot:      t.TempDir(),
 			Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 				{SessionID: "s1", Branch: "main", LatestCheckpoint: "cp1", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
 			}}},
@@ -84,7 +85,7 @@ func TestTranscriptStoreFallsBackToCheckpointBlob(t *testing.T) {
 
 	source, runner, base := chunkedTranscriptFixture(t, `{"type":"user"}`, `{"type":"assistant"}`)
 	store := newTranscriptStore(runner, brainDir)
-	store.snapOnce.Do(func() {}) // pre-resolve: inject the snapshot directly
+	store.resolved = true // pre-resolve: inject the snapshot directly
 	store.snapshot = &checkpointSnapshot{
 		GitDir:    source.GitDir,
 		Ref:       source.Ref,
@@ -103,11 +104,66 @@ func TestTranscriptStoreFallsBackToCheckpointBlob(t *testing.T) {
 	}
 }
 
+// The manifest's recorded transcript mode pins which stored bytes a member
+// serves; a member missing that mode's pointer is unreadable, never a silent
+// switch to the other mode's bytes.
+func TestMemberTranscriptLocationPinsManifestMode(t *testing.T) {
+	member := sessionCheckpoint{
+		CheckpointID:          "cp1",
+		SessionIndex:          0,
+		TranscriptPath:        "aa/cp1/0/full.jsonl",
+		CompactTranscriptPath: "aa/cp1/0/compact.jsonl",
+		SourceKey:             "src",
+	}
+	if loc, ok := memberTranscriptLocation(member, "compact", "full.jsonl"); !ok || loc.sourcePath != "aa/cp1/0/compact.jsonl" {
+		t.Fatalf("compact mode = %+v ok=%v", loc, ok)
+	}
+	if loc, ok := memberTranscriptLocation(member, "raw", "full.jsonl"); !ok || loc.sourcePath != "aa/cp1/0/full.jsonl" {
+		t.Fatalf("raw mode = %+v ok=%v", loc, ok)
+	}
+	member.CompactTranscriptPath = ""
+	if _, ok := memberTranscriptLocation(member, "compact", "full.jsonl"); ok {
+		t.Fatal("compact mode without a compact pointer must be unreadable, not raw")
+	}
+	member.TranscriptPath = ""
+	if loc, ok := memberTranscriptLocation(member, "raw", "full.jsonl"); !ok || loc.sourcePath == "" {
+		t.Fatalf("raw mode falls back to the snapshot path layout, got %+v ok=%v", loc, ok)
+	}
+}
+
+// A cancelled first resolve must not poison the memoized store for the
+// process: context failures retry, other failures stay cached.
+func TestTranscriptStoreRetriesAfterCancelledResolve(t *testing.T) {
+	brainDir, rel := transcriptStoreFixture(t, true)
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(rel))); err != nil {
+		t.Fatal(err)
+	}
+	store := newTranscriptStore(ExecRunner{}, brainDir)
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := store.initSnapshot(cancelled); err == nil {
+		t.Fatal("cancelled resolve must fail")
+	}
+	if store.resolved {
+		t.Fatal("a context failure must not be memoized")
+	}
+
+	// A fresh context retries; the fixture repo has no checkpoints so the
+	// resolve fails PERMANENTLY now, and that failure is cached.
+	if err := store.initSnapshot(context.Background()); err == nil {
+		t.Fatal("resolve against a checkpoint-less repo must fail")
+	}
+	if !store.resolved {
+		t.Fatal("a permanent failure memoizes")
+	}
+}
+
 // A path neither materialized nor resolvable names nothing readable.
 func TestTranscriptStoreUnknownPathFails(t *testing.T) {
 	brainDir, _ := transcriptStoreFixture(t, true)
 	store := newTranscriptStore(ExecRunner{}, brainDir)
-	store.snapOnce.Do(func() {})
+	store.resolved = true
 	store.snapshot = &checkpointSnapshot{}
 	store.byRel = map[string]transcriptLocation{}
 	if _, err := store.Read(context.Background(), "sessions/main/missing.jsonl"); err == nil {

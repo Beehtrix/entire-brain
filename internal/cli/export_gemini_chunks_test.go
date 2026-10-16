@@ -73,7 +73,7 @@ func TestReadCheckpointSourceTranscript_MergesGeminiChunks(t *testing.T) {
 
 	source, runner, base := chunkedTranscriptFixture(t, geminiChunkOne, geminiChunkTwo)
 
-	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base)
+	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base, 0)
 	if err != nil {
 		t.Fatalf("readCheckpointSourceTranscript: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestReadCheckpointSourceTranscript_JoinsJSONLChunks(t *testing.T) {
 
 	source, runner, base := chunkedTranscriptFixture(t, `{"type":"user"}`, `{"type":"assistant"}`)
 
-	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base)
+	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base, 0)
 	if err != nil {
 		t.Fatalf("readCheckpointSourceTranscript: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestReadCheckpointSourceTranscript_UnchunkedIsByteIdentical(t *testing.T) {
 		},
 	}
 
-	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base)
+	got, err := readCheckpointSourceTranscript(context.Background(), runner, source, base, 0)
 	if err != nil {
 		t.Fatalf("readCheckpointSourceTranscript: %v", err)
 	}

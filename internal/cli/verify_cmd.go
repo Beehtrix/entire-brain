@@ -682,7 +682,7 @@ func (v *verifyContext) verifyCheckpointTranscript(anchor factAnchor, session ex
 	if sourcePath == "" {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: "checkpoint transcript path is missing"}
 	}
-	transcript, err := readSnapshotTranscriptFromSource(v.ctx, v.opts.Runner, snapshot, sourceKey, sourcePath)
+	transcript, err := readSnapshotTranscriptFromSource(v.ctx, v.opts.Runner, snapshot, sourceKey, sourcePath, maxDocumentTranscriptBytes)
 	if err != nil {
 		return verifyCheck{Name: "checkpoint_transcript", Verdict: verifyVerdictOrphaned, Reason: err.Error()}
 	}

@@ -48,8 +48,13 @@ type transcriptStore struct {
 	runner   CommandRunner
 	brainDir string
 
-	snapOnce sync.Once
+	// snapMu guards the memoized snapshot. Success and permanent failures are
+	// cached; a failure caused by the CALLER'S context (cancellation, timeout)
+	// is not — the store outlives its first caller, and a cancelled first
+	// resolve must not poison every later read in the process.
+	snapMu   sync.Mutex
 	snapErr  error
+	resolved bool
 	snapshot *checkpointSnapshot
 	byRel    map[string]transcriptLocation
 }
@@ -112,8 +117,21 @@ func (s *transcriptStore) excludedNow() (map[string]string, error) {
 }
 
 func (s *transcriptStore) initSnapshot(ctx context.Context) error {
-	s.snapOnce.Do(func() { s.snapErr = s.resolveSnapshot(ctx) })
-	return s.snapErr
+	s.snapMu.Lock()
+	defer s.snapMu.Unlock()
+	if s.resolved {
+		return s.snapErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := s.resolveSnapshot(ctx)
+	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+		return err
+	}
+	s.resolved = true
+	s.snapErr = err
+	return err
 }
 
 func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
@@ -131,24 +149,43 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 	defaultBranch, _ := detectDefaultBranch(ctx, s.runner, repoDir)
 	branchDestinations, _ := buildCheckpointBranchDestinations(ctx, s.runner, repoDir, defaultBranch)
 	cache := loadCheckpointMetadataCache(filepath.Join(s.brainDir, filepath.FromSlash(checkpointMetadataCachePath)))
-	raw := manifest.Sources.Sessions.TranscriptMode == "raw"
-	snapshot, _, err := loadConfiguredCheckpointSnapshot(ctx, s.runner, repoDir, raw, 0, branchDestinations, nil, cache)
+	mode := strings.TrimSpace(manifest.Sources.Sessions.TranscriptMode)
+
+	// The LOCAL union, not loadConfiguredCheckpointSnapshot: that wrapper
+	// refuses local snapshots whenever a checkpoint remote could extend the
+	// catalog, which is a completeness rule for DISCOVERY. A read resolves
+	// checkpoints the manifest already names — local refs either hold them or
+	// the read fails per session. localOnly is unconditionally true: reads
+	// never touch the network.
+	settings, settingsErr := readEntireSettings(repoDir)
+	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
+	if primaryErr != nil {
+		return fmt.Errorf("transcript store: %w", primaryErr)
+	}
+	if !configured {
+		primary = checkpointBackendGitBranch
+	}
+	if settingsErr != nil && !errors.Is(settingsErr, fs.ErrNotExist) && !configured {
+		return fmt.Errorf("transcript store: read settings: %w", settingsErr)
+	}
+	snapshot, _, err := loadLocalCheckpointUnionSnapshot(ctx, s.runner, repoDir, primary, mode == "raw", 0, branchDestinations, nil, cache, true)
 	if err != nil {
 		return fmt.Errorf("transcript store: resolve checkpoint snapshot: %w", err)
 	}
 	s.snapshot = snapshot
 
-	// Index the snapshot's sessions by identity so manifest paths resolve by
-	// (session, checkpoint, index) rather than by the key format either side
-	// uses internally.
+	// Index EVERY (session, checkpoint) pair the snapshot read — not just each
+	// session's newest checkpoint. The manifest records the checkpoint as of
+	// the LAST EXPORT; a session that gained checkpoints since must still
+	// resolve by the id the manifest wrote.
 	type sessionIdentity struct {
 		sessionID    string
 		checkpointID string
 		sessionIndex int
 	}
-	byIdentity := make(map[sessionIdentity]selectedSession, len(snapshot.Selected))
-	for _, selected := range snapshot.Selected {
-		byIdentity[sessionIdentity{selected.SessionID, selected.CheckpointID, selected.SessionIndex}] = selected
+	byIdentity := make(map[sessionIdentity]sessionCheckpoint, len(snapshot.SessionCheckpoints))
+	for _, member := range snapshot.SessionCheckpoints {
+		byIdentity[sessionIdentity{member.SessionID, member.CheckpointID, member.SessionIndex}] = member
 	}
 
 	s.byRel = make(map[string]transcriptLocation, len(manifest.Sources.Sessions.Sessions))
@@ -157,19 +194,39 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 		if rel == "" {
 			continue
 		}
-		selected, ok := byIdentity[sessionIdentity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}]
+		member, ok := byIdentity[sessionIdentity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}]
 		if !ok {
 			// Checkpoint no longer resolvable locally: the session stays listed
 			// but unreadable, and Read reports it when asked.
 			continue
 		}
-		sourcePath := selected.SourceTranscriptPath
-		if sourcePath == "" {
-			sourcePath = snapshotTranscriptPath(selected.CheckpointID, selected.SessionIndex, snapshot.TranscriptFileName)
+		location, ok := memberTranscriptLocation(member, mode, snapshot.TranscriptFileName)
+		if !ok {
+			continue
 		}
-		s.byRel[rel] = transcriptLocation{sourceKey: selected.SourceKey, sourcePath: sourcePath}
+		s.byRel[rel] = location
 	}
 	return nil
+}
+
+// memberTranscriptLocation picks which stored bytes a manifest session reads.
+// The manifest's recorded mode decides: this brain's derived state (distill
+// fingerprints, evidence hashes, line anchors) was built against that mode's
+// bytes. The snapshot re-decides its own mode across CURRENT members, and
+// following that re-decision would serve different bytes than the export
+// materialized — so the choice is pinned per member, and a member without the
+// recorded mode's pointer stays unreadable rather than silently switching.
+func memberTranscriptLocation(member sessionCheckpoint, mode, snapshotFileName string) (transcriptLocation, bool) {
+	sourcePath := member.TranscriptPath
+	if mode == "compact" {
+		sourcePath = member.CompactTranscriptPath
+	} else if sourcePath == "" {
+		sourcePath = snapshotTranscriptPath(member.CheckpointID, member.SessionIndex, snapshotFileName)
+	}
+	if sourcePath == "" {
+		return transcriptLocation{}, false
+	}
+	return transcriptLocation{sourceKey: member.SourceKey, sourcePath: sourcePath}, true
 }
 
 func cleanTranscriptRel(rel string) string {
@@ -234,7 +291,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if !ok {
 		return nil, nil, fmt.Errorf("transcript %s has no readable checkpoint source", rel)
 	}
-	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, s.snapshot, location.sourceKey, location.sourcePath)
+	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, s.snapshot, location.sourceKey, location.sourcePath, maxDocumentTranscriptBytes)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read transcript %s: %w", rel, err)
 	}

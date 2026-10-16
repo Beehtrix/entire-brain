@@ -815,7 +815,7 @@ func TestLoadConfiguredCheckpointSnapshotUnionsAggregateAndGitRefsNewestFirst(t 
 		t.Fatalf("healthy mixed-backend routing emitted user warnings: %v", got)
 	}
 	for _, session := range unbounded.Selected {
-		data, err := readSnapshotTranscriptFromSource(context.Background(), unboundedRunner, unbounded, session.SourceKey, session.SourceTranscriptPath)
+		data, err := readSnapshotTranscriptFromSource(context.Background(), unboundedRunner, unbounded, session.SourceKey, session.SourceTranscriptPath, 0)
 		if err != nil {
 			t.Fatalf("read %s transcript: %v", session.CheckpointID, err)
 		}

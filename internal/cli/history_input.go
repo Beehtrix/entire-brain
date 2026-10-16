@@ -528,25 +528,13 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 }
 
 // readCanonicalHistoryTranscript is the complete direct-transcript read
-// contract. It binds the read to the canonical Brain descriptor tree, caps the
-// bytes retained in memory, checks cancellation while reading, and withholds
-// all bytes unless the mandatory finish revalidation succeeds.
+// contract: tombstone-gated, size-capped, cancellation-checked. It reads a
+// materialized file when one exists (exported bundles; brains written before
+// COR-2128), and otherwise reads the session's checkpoint blob from git via
+// the per-brain transcript store.
 func readCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, rel)
-	if err != nil {
-		return nil, err
-	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+filepath.ToSlash(rel))
-	finishErr := finish()
-	if readErr != nil || finishErr != nil {
-		combined := errors.Join(readErr, finishErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
-		}
-		return nil, combined
-	}
-	return data, nil
+	return transcriptStoreFor(brainDir).Read(ctx, rel)
 }

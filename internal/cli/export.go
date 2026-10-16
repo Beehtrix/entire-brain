@@ -3193,10 +3193,21 @@ func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, s
 // case is byte-identical to a plain read.
 func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error)) ([]byte, error) {
 	parts := make([][]byte, 0, len(chunks))
+	// The size cap is a package invariant, applied during assembly: every
+	// consumer refuses transcripts over maxDocumentTranscriptBytes, so
+	// materializing a larger one in memory — to write a file nothing can read,
+	// or to hand on-demand readers bytes they must refuse — is never useful.
+	// The bound can overshoot by at most one chunk (git materializes each
+	// cat-file fully).
+	var total int64
 	for _, chunk := range chunks {
 		data, err := readOne(chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
+		}
+		total += int64(len(data))
+		if total > maxDocumentTranscriptBytes {
+			return nil, &readBoundExceededError{source: "stored transcript " + chunks[0], max: maxDocumentTranscriptBytes}
 		}
 		parts = append(parts, data)
 	}

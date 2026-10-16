@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "3f86f623fead",
+  "strategy": "manual-commit",
+  "branch": "cor-2128-transcripts-from-git",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "docs/reference.md",
+    "internal/cli/brain.go",
+    "internal/cli/conversation.go",
+    "internal/cli/distill_cmd.go",
+    "internal/cli/export.go",
+    "internal/cli/export_empty_guard_test.go",
+    "internal/cli/export_partial_metadata_test.go",
+    "internal/cli/export_test.go",
+    "internal/cli/history.go",
+    "internal/cli/history_input.go",
+    "internal/cli/path_test.go",
+    "internal/cli/pattern_corpus.go",
+    "internal/cli/pattern_fact_refresh_command_test.go",
+    "internal/cli/review_regressions_test.go",
+    "internal/cli/semantic.go",
+    "internal/cli/session_privacy_verify.go",
+    "internal/cli/transcript_bundle.go",
+    "internal/cli/transcript_cache_migration.go",
+    "internal/cli/transcript_fileless_test.go",
+    "internal/cli/transcript_store.go"
+  ],
+  "sessions": [
+    {
+      "metadata": "/3f/86f623fead/0/metadata.json",
+      "transcript": "/3f/86f623fead/0/full.jsonl",
+      "compact_transcript": "/3f/86f623fead/0/transcript.jsonl",
+      "content_hash": "/3f/86f623fead/0/content_hash.txt",
+      "prompt": "/3f/86f623fead/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 2,
+    "cache_creation_tokens": 449,
+    "cache_read_tokens": 524051,
+    "output_tokens": 534,
+    "api_call_count": 2
+  }
+}

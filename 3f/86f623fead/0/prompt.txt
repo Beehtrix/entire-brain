@@ -1,0 +1,9 @@
+so this PR just simplifies the transcript store. then the second one is the one that actually removes the local cache?
+
+---
+
+okay this is merged in now: https://entire.io/gh/entireio/entire-brain/trails/304/transcripts-read-from-git-checkpoint-refs-when-no-cached/changes
+
+let's work on the next part. 
+
+also, make sure you clean up linear tickets and move them along as required

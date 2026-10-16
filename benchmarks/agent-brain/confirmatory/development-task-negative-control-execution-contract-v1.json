@@ -1567,7 +1567,7 @@
   "component_bindings": [
     {
       "artifact_file": "task_negative_control_gate_v1.py",
-      "artifact_sha256": "f04b8634caf619cc17bb495975d2b5358164be6eae2a124ade84efebd60c51dd",
+      "artifact_sha256": "07db2f44cc2d0cb925f6b1aeaeb0c6dcd48ed0be3af971c7f58e262eddc50d99",
       "role": "gate_primitive"
     },
     {
@@ -1592,7 +1592,7 @@
     },
     {
       "artifact_file": "task_negative_control_classification_v1.py",
-      "artifact_sha256": "5b8cad62c72e06e1cfae99630e98d06b1fe78b0660825f495085c6f89c5fd147",
+      "artifact_sha256": "88739a1503b3e08aa3f606247348c64f48e024fb53b3e3b2663bbe127c3fabe7",
       "role": "attempt_classifier"
     },
     {
@@ -1621,7 +1621,7 @@
       "role": "offline_schema_validator"
     }
   ],
-  "contract_sha256": "1e290b91d5e0be42f750bf0e655edee48d297f86ad3e3867b8fe9177fd5125ef",
+  "contract_sha256": "c8f4d032ff622a0cb05fbd8d044fbfc2ca2e7ef300be067653221d8407503397",
   "enforcement_requirements": [
     "authenticated_owner_approval_bound_to_exact_contract_before_any_external_effect",
     "actual_cache_archive_safely_traversed_and_content_verified_before_staging",

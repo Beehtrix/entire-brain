@@ -536,10 +536,8 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 			if tc.version != 0 && report.Brain.Schema != tc.version {
 				t.Fatalf("observed schema = %d, want %d", report.Brain.Schema, tc.version)
 			}
-			for _, section := range []string{"install", "locks", "schemas", "coordinator", "worker_log"} {
-				if _, ok := report.Memory[section]; !ok {
-					t.Fatalf("partial status missing %q: %#v", section, report.Memory)
-				}
+			if report.Memory != nil || report.Integrity != "not_checked" {
+				t.Fatalf("status must leave deep memory health to doctor: %+v", report)
 			}
 			found := false
 			for _, issue := range report.Issues {
@@ -576,8 +574,7 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 			}
 			payload := mcpTextJSONPayload(t, responses[0])
 			brain, _ := payload["brain"].(map[string]any)
-			memory, _ := payload["memory"].(map[string]any)
-			if brain["manifest_state"] != tc.state || memory["install"] == nil || memory["issues"] == nil {
+			if brain["manifest_state"] != tc.state || payload["integrity"] != "not_checked" || payload["issues"] == nil {
 				t.Fatalf("partial MCP brain_status = %#v", payload)
 			}
 			if tc.symlink {

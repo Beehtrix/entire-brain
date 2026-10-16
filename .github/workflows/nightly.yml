@@ -18,7 +18,7 @@ jobs:
   # answer, not easier.
   changed:
     name: has main moved
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
       version: ${{ steps.check.outputs.version }}
@@ -53,14 +53,14 @@ jobs:
     name: nightly build
     needs: changed
     if: needs.changed.outputs.should_release == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: depot-ubuntu-24.04-4
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.27.x"
 

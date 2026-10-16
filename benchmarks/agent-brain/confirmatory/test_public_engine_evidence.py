@@ -154,11 +154,8 @@ class PublicEngineEvidenceTest(unittest.TestCase):
                 "node_version": "v-test",
                 "node_sha256": "5" * 64,
                 "server_script_repo_path": "scripts/bench/embed-server.mjs",
-                "server_script_sha256": "d6893dc33b96d1d2d593cec25da67efe8bc8f21f7e0f3b25367662d8125b2971",
                 "package_manifest_repo_path": "scripts/bench/package.json",
-                "package_manifest_sha256": "8c8a9c0b6a6944c86799559d776862d0e679e7ba826823e5c96d5940f450ee75",
                 "package_lock_repo_path": "scripts/bench/package-lock.json",
-                "package_lock_sha256": "4a3eea2319165ee0253fa07c0bbffd07b8834ac552cce1947c99d5ea7d132e1a",
                 "dependency_inventory_algorithm": "sha256_ordered_relative_path_nul_sha256_newline_v1",
                 "dependency_inventory_sha256": "9" * 64,
                 "dependency_file_count": 2,
@@ -169,6 +166,12 @@ class PublicEngineEvidenceTest(unittest.TestCase):
                 "server_health_interval_seconds": 2.0,
             },
         }
+        for stem in ("server_script", "package_manifest", "package_lock"):
+            relative = self.pins["runtime"][f"{stem}_repo_path"]
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((CHECK.REPO / relative).read_bytes())
+            self.pins["runtime"][f"{stem}_sha256"] = PUBLIC.sha256_file(target)
         self.descriptor = {
             "id": self.pins["pin_set_id"],
             "sha256": PUBLIC.canonical_sha256(self.pins),
@@ -392,9 +395,23 @@ class PublicEngineEvidenceTest(unittest.TestCase):
             repo=self.root,
             pins=self.pins,
             require_production=False,
-            pin_repo=CHECK.REPO,
+            pin_repo=self.root,
         )
         self.assertEqual([], protocol_errors)
+
+    def test_test_fixture_pins_cannot_establish_production_authority(self) -> None:
+        self.assertEqual([], self.errors())
+        errors = CHECK.validate_engine_verification(
+            self.matrix,
+            {"status": "pass", "evidence": self.public_manifest.relative_to(self.root).as_posix()},
+            here=self.root,
+            repo=self.root,
+            pins=self.pins,
+            require_production=True,
+            pin_repo=self.root,
+        )
+        self.assertIn("engine verification did not use the canonical production pin set", errors)
+        self.assertIn("engine production pin authority is invalid", errors)
 
     def test_stored_v4_cannot_close_gate_without_restricted_replay_attestation(self) -> None:
         contract_path = self.root / CHECK.ENGINE_EVIDENCE_STORAGE_REPO_PATH

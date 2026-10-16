@@ -369,38 +369,80 @@ func trimRetrievalExtrasOnce(extras *retrievalTransportExtras) bool {
 	return true
 }
 
-// boundedRetrievalJSONPayload removes whole tail rows until the exact CLI or
-// MCP serialization fits. The response_truncated marker is present during
-// every truncated size check, so the marker itself can never push the emitted
-// document over budget.
+// countRetrievalExtrasTrims reports how many steps trimRetrievalExtrasOnce
+// can apply to extras before it is exhausted.
+func countRetrievalExtrasTrims(extras retrievalTransportExtras) int {
+	ex := cloneRetrievalTransportExtras(extras)
+	n := 0
+	for trimRetrievalExtrasOnce(&ex) {
+		n++
+	}
+	return n
+}
+
+// smallestTrimStepsThatFit finds the fewest trim steps, between 1 and
+// maxSteps, whose rendering fits the response budget. Trimming is monotone —
+// every step only removes content — so once some step count fits, every
+// larger one fits, and a binary search returns the same state the former
+// one-step-at-a-time loop reached while rendering O(log n) candidates
+// instead of O(n). sizeAt must rebuild from pristine inputs so probes are
+// order-independent. The untrimmed rendering is the caller's job to check
+// first: step one adds the truncation marker and can grow the output.
+func smallestTrimStepsThatFit(maxSteps int, sizeAt func(int) (int, error)) (int, bool, error) {
+	if maxSteps < 1 {
+		return 0, false, nil
+	}
+	if size, err := sizeAt(maxSteps); err != nil || size > conversationConceptResponseMaxBytes {
+		return 0, false, err
+	}
+	lo, hi := 1, maxSteps
+	for lo < hi {
+		mid := (lo + hi) / 2
+		size, err := sizeAt(mid)
+		if err != nil {
+			return 0, false, err
+		}
+		if size <= conversationConceptResponseMaxBytes {
+			hi = mid
+		} else {
+			lo = mid + 1
+		}
+	}
+	return lo, true, nil
+}
+
+// boundedRetrievalJSONPayload removes optional extras, then whole tail rows,
+// until the exact CLI or MCP serialization fits. The response_truncated
+// marker is present during every truncated size check, so the marker itself
+// can never push the emitted document over budget.
 func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, results []unifiedResult, extras retrievalTransportExtras, surface string) (map[string]any, error) {
 	allRows := compactUnifiedResults(results, query)
 	extras = cloneRetrievalTransportExtras(extras)
-	count := len(allRows)
-	anythingTruncated := false
-	for {
-		rows := append([]compactUnifiedResult{}, allRows[:count]...)
-		truncated := anythingTruncated || count != len(allRows)
-		payload := buildRetrievalJSONPayload(query, branch, rows, extras, truncated)
-		size, err := retrievalSerializedSize(ctx, payload, surface)
-		if err != nil {
-			return nil, err
+	extrasSteps := countRetrievalExtrasTrims(extras)
+	build := func(steps int) map[string]any {
+		ex := cloneRetrievalTransportExtras(extras)
+		for i := 0; i < min(steps, extrasSteps); i++ {
+			trimRetrievalExtrasOnce(&ex)
 		}
-		if size <= conversationConceptResponseMaxBytes {
-			return payload, nil
-		}
-		if trimRetrievalExtrasOnce(&extras) {
-			anythingTruncated = true
-			continue
-		}
-		if count > 0 {
-			count--
-			anythingTruncated = true
-			continue
-		}
-		break
+		rows := append([]compactUnifiedResult{}, allRows[:len(allRows)-max(steps-extrasSteps, 0)]...)
+		return buildRetrievalJSONPayload(query, branch, rows, ex, steps > 0)
 	}
-	return nil, fmt.Errorf("retrieval response envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	sizeAt := func(steps int) (int, error) {
+		return retrievalSerializedSize(ctx, build(steps), surface)
+	}
+	if size, err := sizeAt(0); err != nil {
+		return nil, err
+	} else if size <= conversationConceptResponseMaxBytes {
+		return build(0), nil
+	}
+	steps, ok, err := smallestTrimStepsThatFit(extrasSteps+len(allRows), sizeAt)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("retrieval response envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	}
+	return build(steps), nil
 }
 
 type retrievalIDQualifier func(string) string
@@ -492,26 +534,28 @@ func renderSingleRepoRetrievalText(query string, results []unifiedResult, extras
 
 func boundedSingleRepoRetrievalText(query string, results []unifiedResult, extras retrievalTransportExtras) ([]byte, error) {
 	extras = cloneRetrievalTransportExtras(extras)
-	count := len(results)
-	anythingTruncated := false
-	for {
-		truncated := anythingTruncated || count != len(results)
-		data := renderSingleRepoRetrievalText(query, results[:count], extras, truncated)
-		if len(data) <= conversationConceptResponseMaxBytes {
-			return data, nil
+	extrasSteps := countRetrievalExtrasTrims(extras)
+	render := func(steps int) []byte {
+		ex := cloneRetrievalTransportExtras(extras)
+		for i := 0; i < min(steps, extrasSteps); i++ {
+			trimRetrievalExtrasOnce(&ex)
 		}
-		if trimRetrievalExtrasOnce(&extras) {
-			anythingTruncated = true
-			continue
-		}
-		if count > 0 {
-			count--
-			anythingTruncated = true
-			continue
-		}
-		break
+		count := len(results) - max(steps-extrasSteps, 0)
+		return renderSingleRepoRetrievalText(query, results[:count], ex, steps > 0)
 	}
-	return nil, fmt.Errorf("retrieval text envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	if data := render(0); len(data) <= conversationConceptResponseMaxBytes {
+		return data, nil
+	}
+	steps, ok, err := smallestTrimStepsThatFit(extrasSteps+len(results), func(steps int) (int, error) {
+		return len(render(steps)), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("retrieval text envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	}
+	return render(steps), nil
 }
 
 func qualifyWorkspaceAddressableID(repoKey, workspaceName, id string) string {
@@ -672,48 +716,69 @@ func trimWorkspaceExtrasOnce(groups []workspaceRetrieveResult) bool {
 	return false
 }
 
+// countWorkspaceExtrasTrims reports how many steps trimWorkspaceExtrasOnce
+// can apply to groups before it is exhausted.
+func countWorkspaceExtrasTrims(groups []workspaceRetrieveResult) int {
+	gs := cloneWorkspaceRetrieveGroups(groups)
+	n := 0
+	for trimWorkspaceExtrasOnce(gs) {
+		n++
+	}
+	return n
+}
+
+// applyWorkspaceTrimSteps rebuilds the trim state after `steps` steps of the
+// deterministic sequence shared by both workspace surfaces: optional extras
+// first, then one kept row at a time, then whole tail groups.
+func applyWorkspaceTrimSteps(pristine []workspaceRetrieveResult, extrasSteps, total, steps int) (groups []workspaceRetrieveResult, keep int) {
+	gs := cloneWorkspaceRetrieveGroups(pristine)
+	for i := 0; i < min(steps, extrasSteps); i++ {
+		trimWorkspaceExtrasOnce(gs)
+	}
+	rowDrops := min(max(steps-extrasSteps, 0), total)
+	groupDrops := max(steps-extrasSteps-total, 0)
+	return gs[:len(gs)-groupDrops], total - rowDrops
+}
+
 func boundedWorkspaceRetrievalJSONPayload(workspaceName, query string, groups []workspaceRetrieveResult) (map[string]any, error) {
 	qualified := cloneWorkspaceRetrieveGroups(qualifyWorkspaceRetrieveGroups(workspaceName, groups))
 	total := 0
 	for _, group := range qualified {
 		total += len(group.Results)
 	}
-	keep := total
-	anythingTruncated := false
-	for {
-		truncated := anythingTruncated || keep != total
+	extrasSteps := countWorkspaceExtrasTrims(qualified)
+	build := func(steps int) map[string]any {
+		gs, keep := applyWorkspaceTrimSteps(qualified, extrasSteps, total, steps)
 		payload := map[string]any{
 			"workspace": workspaceName,
 			"query":     query,
-			"results":   trimWorkspaceGroupsToCount(qualified, keep, truncated),
+			"results":   trimWorkspaceGroupsToCount(gs, keep, steps > 0),
 		}
-		if truncated {
+		if steps > 0 {
 			payload["response_truncated"] = true
 		}
-		data, err := jsonOutputBytes(payload)
-		if err != nil {
-			return nil, err
-		}
-		if len(data) <= conversationConceptResponseMaxBytes {
-			return payload, nil
-		}
-		if trimWorkspaceExtrasOnce(qualified) {
-			anythingTruncated = true
-			continue
-		}
-		if keep > 0 {
-			keep--
-			anythingTruncated = true
-			continue
-		}
-		if len(qualified) > 0 {
-			qualified = qualified[:len(qualified)-1]
-			anythingTruncated = true
-			continue
-		}
-		break
+		return payload
 	}
-	return nil, fmt.Errorf("workspace retrieval response envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	sizeAt := func(steps int) (int, error) {
+		data, err := jsonOutputBytes(build(steps))
+		if err != nil {
+			return 0, err
+		}
+		return len(data), nil
+	}
+	if size, err := sizeAt(0); err != nil {
+		return nil, err
+	} else if size <= conversationConceptResponseMaxBytes {
+		return build(0), nil
+	}
+	steps, ok, err := smallestTrimStepsThatFit(extrasSteps+total+len(qualified), sizeAt)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("workspace retrieval response envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	}
+	return build(steps), nil
 }
 
 func renderWorkspaceRetrievalText(workspaceName string, groups []workspaceRetrieveResult, keep int, truncated bool) []byte {
@@ -738,28 +803,22 @@ func boundedWorkspaceRetrievalText(workspaceName string, groups []workspaceRetri
 	for _, group := range groups {
 		total += len(group.Results)
 	}
-	keep := total
-	anythingTruncated := false
-	for {
-		data := renderWorkspaceRetrievalText(workspaceName, groups, keep, anythingTruncated || keep != total)
-		if len(data) <= conversationConceptResponseMaxBytes {
-			return data, nil
-		}
-		if trimWorkspaceExtrasOnce(groups) {
-			anythingTruncated = true
-			continue
-		}
-		if keep > 0 {
-			keep--
-			anythingTruncated = true
-			continue
-		}
-		if len(groups) > 0 {
-			groups = groups[:len(groups)-1]
-			anythingTruncated = true
-			continue
-		}
-		break
+	extrasSteps := countWorkspaceExtrasTrims(groups)
+	render := func(steps int) []byte {
+		gs, keep := applyWorkspaceTrimSteps(groups, extrasSteps, total, steps)
+		return renderWorkspaceRetrievalText(workspaceName, gs, keep, steps > 0)
 	}
-	return nil, fmt.Errorf("workspace retrieval text envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	if data := render(0); len(data) <= conversationConceptResponseMaxBytes {
+		return data, nil
+	}
+	steps, ok, err := smallestTrimStepsThatFit(extrasSteps+total+len(groups), func(steps int) (int, error) {
+		return len(render(steps)), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("workspace retrieval text envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
+	}
+	return render(steps), nil
 }

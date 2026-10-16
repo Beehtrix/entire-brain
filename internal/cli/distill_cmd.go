@@ -477,6 +477,10 @@ type distillCommandOptions struct {
 	// nil (the zero value, and the value in every pre-index caller) keeps the
 	// original coarse anchoring exactly.
 	entityProvenance *entityProvenanceResolver
+	// checkpointCommits resolves each fact's checkpoint to its on-branch
+	// commit (checkpoint_commit.go). nil stamps no commit, the pre-COR-2126
+	// behavior.
+	checkpointCommits *checkpointCommitResolver
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
@@ -784,6 +788,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// the index as of the moment it actually owns the pass — the session-end
 		// hook refreshes that index just before calling in.
 		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		distillOpts.checkpointCommits = newCheckpointCommitResolver(ctx, opts, repoDir)
 		var runErr error
 		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
 		return runErr
@@ -1208,6 +1213,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			anchor := factAnchor{
 				SessionID:    session.SessionID,
 				CheckpointID: session.LatestCheckpoint,
+				Commit:       distillOpts.checkpointCommits.commitFor(session.LatestCheckpoint, branch),
 				Transcript:   filepath.ToSlash(session.TranscriptPath),
 				Line:         chunk.StartLine,
 			}

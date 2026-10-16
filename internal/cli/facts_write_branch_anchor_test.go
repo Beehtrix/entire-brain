@@ -61,3 +61,40 @@ func TestRememberKeepsHeadWhenNoBranchOverrideIsGiven(t *testing.T) {
 		t.Fatalf("anchor commit = %q, want HEAD (%s)", got, entityFixtureCommitB)
 	}
 }
+
+// TestRememberStampsSessionID pins COR-2126's session dimension: --session
+// wins, $ENTIRE_BRAIN_SESSION_ID is the fallback, and neither leaves the
+// anchor's SessionID empty — valid for a human at a terminal.
+func TestRememberStampsSessionID(t *testing.T) {
+	fixture := newEntityIndexFixture(t)
+	fixture.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: entityFixtureCommitB + "\n"}
+	t.Setenv(rememberSessionEnv, "env-session-id")
+
+	fixture.run(t, "remember", "--session", "flag-session-id", "--path", "architecture.data.flow", "Session flag wins over the environment.")
+	fixture.run(t, "remember", "--path", "architecture.data.flow", "The environment supplies the session id.")
+
+	t.Setenv(rememberSessionEnv, "")
+	fixture.run(t, "remember", "--path", "architecture.data.flow", "No session anywhere stays valid.")
+
+	facts, err := loadFacts(fixture.storage.BrainDir, "main")
+	if err != nil {
+		t.Fatalf("load facts: %v", err)
+	}
+	bySession := map[string]string{}
+	for _, fact := range facts {
+		if len(fact.Provenance) != 1 {
+			t.Fatalf("provenance = %+v", fact.Provenance)
+		}
+		bySession[fact.Text] = fact.Provenance[0].SessionID
+	}
+	want := map[string]string{
+		"Session flag wins over the environment.":  "flag-session-id",
+		"The environment supplies the session id.": "env-session-id",
+		"No session anywhere stays valid.":         "",
+	}
+	for text, session := range want {
+		if got, ok := bySession[text]; !ok || got != session {
+			t.Fatalf("fact %q session = %q (present=%v), want %q", text, got, ok, session)
+		}
+	}
+}

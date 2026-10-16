@@ -925,6 +925,22 @@ func mcpToolDefinitions() []map[string]any {
 			}),
 		},
 		{
+			"name": "brain_recall",
+			// The read that pairs with brain_remember. brain_query is not a
+			// substitute: it searches history and docs as well, ranks them
+			// together, and answers "what does this repository contain".
+			// Recall answers "what did we already decide, and why" -- the
+			// question the agent guide marks ALWAYS before proposing to
+			// replace an existing approach. Without it on this surface an
+			// MCP-driven agent can write a fact and never read one back.
+			"description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this before replacing an existing approach or explaining why code is the way it is; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{
+				"query":  stringArg("query", "What you want to know about prior decisions, rationale, or gotchas"),
+				"limit":  integerArg("limit", "Maximum facts to return"),
+				"branch": branchArg(),
+			}),
+		},
+		{
 			"name":        "brain_search_code",
 			"description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
@@ -1209,6 +1225,23 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			json:   true,
 			global: factGlobal,
 		}, factText)
+	case "brain_recall":
+		err = requireMCPQuery(query)
+		if err == nil {
+			// The recall command owns fact loading, filtering and ranking in a
+			// long RunE. Driving the real command keeps this surface honest:
+			// MCP and the CLI cannot drift into answering differently.
+			recallCmd := newRecallCommand(opts)
+			recallCmd.SetOut(&out)
+			recallCmd.SetErr(io.Discard)
+			recallCmd.SetContext(ctx)
+			recallArgs := []string{query, "--json", "--limit", strconv.Itoa(limit)}
+			if strings.TrimSpace(branch) != "" {
+				recallArgs = append(recallArgs, "--branch", strings.TrimSpace(branch))
+			}
+			recallCmd.SetArgs(recallArgs)
+			err = recallCmd.Execute()
+		}
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {

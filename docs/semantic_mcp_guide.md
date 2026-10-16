@@ -15,6 +15,12 @@ Available tools:
   `category.subcategory.type`; `path` is required rather than inferred, because
   the CLI infers it by shelling out to a coding agent and an MCP call must not
   spend model tokens its caller did not ask for.
+- `brain_recall` — the read that pairs with `brain_remember`: prior decisions and
+  their rationale, invariants, and gotchas. Not interchangeable with
+  `brain_query`, which also searches history and docs and ranks them together;
+  recall answers "what did we already decide, and why". An empty result means no
+  fact was recorded, not that no such decision was made. Facts are stored per
+  branch, so pass `branch` to read ones recorded on the integration branch.
 - Unified retrieval: `brain_query` (hybrid by default; optional mutually exclusive
   `keyword: true` or `semantic: true`), `brain_get`, `brain_multi_get`.
   Compatibility tools: `brain_search` (lexical), `brain_vsearch` (vector).

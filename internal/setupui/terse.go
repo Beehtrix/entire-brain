@@ -42,6 +42,10 @@ const (
 	DistillNoAgent
 	// DistillAlreadyDone means a previous run already distilled them.
 	DistillAlreadyDone
+	// DistillFailed means distillation was attempted and did not start. It
+	// carries a reason, because "no sessions" and "it broke" look identical
+	// from the outside and need opposite reactions.
+	DistillFailed
 )
 
 // WatcherOutcome is what happened to the background watcher.
@@ -78,6 +82,8 @@ type TerseReport struct {
 	Distilled int
 	Agent     string
 	Distill   DistillOutcome
+	// DistillReason explains a DistillFailed outcome in one clause.
+	DistillReason string
 
 	Watcher       WatcherOutcome
 	WatcherReason string
@@ -183,6 +189,12 @@ func (rep TerseReport) distillLine(brainCmd string) (string, tui.Mark) {
 			plural(rep.Sessions, "session"), brainCmd), tui.MarkSkipped
 	case DistillAlreadyDone:
 		return fmt.Sprintf("%s already distilled", plural(rep.Distilled, "session")), tui.MarkDone
+	case DistillFailed:
+		line := "Distillation did not start"
+		if reason := strings.TrimSpace(rep.DistillReason); reason != "" {
+			line += " — " + reason
+		}
+		return line, tui.MarkFailed
 	}
 	return "", tui.MarkDone
 }

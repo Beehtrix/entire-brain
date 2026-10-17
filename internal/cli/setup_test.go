@@ -224,6 +224,7 @@ func TestSetupStopsBackfillWhenItsStateCannotBeRecorded(t *testing.T) {
 	// by flag, exactly as a CI run must.
 	opts.yes = true
 	opts.noDaemon = true
+	opts.verbose = true // asserts a phase row
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
 		t.Fatalf("setup should preserve the usable instant phase: %v", err)
@@ -287,6 +288,11 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 
 func runSetupForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
 	t.Helper()
+	// These tests assert the PHASE view: component names, skip reasons, phase
+	// order. That report still exists and is still worth pinning, it just is
+	// not the default any more. Tests for the short form use
+	// runSetupTerseForTest below, so each shape is asserted by name.
+	opts.verbose = true
 	out := &bytes.Buffer{}
 	cmd := setupTestCommand(t, out, opts)
 	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
@@ -353,6 +359,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	steps.instant = nil // the real, best-effort instant phase
 	opts := defaultSetupOptions()
 	opts.noBackfill = true
+	opts.verbose = true // asserts phase rows: component failures and FAILED list
 	out := &bytes.Buffer{}
 	cmd := setupTestCommand(t, out, opts)
 
@@ -1545,4 +1552,16 @@ func TestBrainWatchDaemonPlanReadsTheEnvOverride(t *testing.T) {
 	if filepath.Dir(plan.UnitPath) != sandbox {
 		t.Fatalf("%s must redirect the unit into %s, got %s", envDaemonUnitDir, sandbox, plan.UnitPath)
 	}
+}
+
+// runSetupTerseForTest runs setup as a person runs it: the default short form.
+func runSetupTerseForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
+	t.Helper()
+	opts.verbose = false
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
+	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+		t.Fatalf("runSetup: %v", err)
+	}
+	return out.String()
 }

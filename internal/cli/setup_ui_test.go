@@ -37,6 +37,7 @@ func TestSetupSpendsNothingWithoutATerminalOrYes(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 
 	out := &bytes.Buffer{}
@@ -74,6 +75,7 @@ func TestSetupSpendsWhenToldYes(t *testing.T) {
 	}
 
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 	opts.yes = true
 	cmd := setupTestCommand(t, out, opts)
@@ -105,6 +107,7 @@ func TestSetupNeverPromptsWhenThereIsNothingToSpendOn(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f, rec := build(t)
 			opts := defaultSetupOptions()
+			opts.verbose = true // this file asserts the phase view, now behind --verbose
 			opts.noDaemon = true
 			out := &bytes.Buffer{}
 			cmd := setupTestCommand(t, out, opts)
@@ -159,6 +162,7 @@ func TestSetupBuildPhaseGivesNoSubStepItsOwnLine(t *testing.T) {
 	}
 
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
@@ -204,6 +208,7 @@ func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 		newSetupComponent(brainComponentHistory, dirty, setupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 	out := &bytes.Buffer{}
 
@@ -230,6 +235,7 @@ func TestSetupExitsZeroWhenOnlyASupportingComponentFails(t *testing.T) {
 		newSetupComponent(brainComponentEntities, errors.New("entity index unavailable"), setupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 	out := &bytes.Buffer{}
 
@@ -324,6 +330,7 @@ func TestSetupEmptyRepositoryReportsAPreconditionNotFailures(t *testing.T) {
 		newSetupComponent(brainComponentDocs, nil, setupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	out := &bytes.Buffer{}
 
 	err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f))
@@ -523,6 +530,7 @@ func TestSetupFactsLineKeepsTheDistilledCounter(t *testing.T) {
 	f.markDistilled(t, "s1")
 	rec := &recordedSetup{} // no agent CLI: skipped, and still counted
 	opts := defaultSetupOptions()
+	opts.verbose = true // this file asserts the phase view, now behind --verbose
 	opts.noDaemon = true
 
 	out := runSetupForTest(t, f, opts, rec)

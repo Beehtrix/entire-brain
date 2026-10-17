@@ -349,9 +349,13 @@ func setupInstantFailureReasons(fatal error, failed []setupComponent) string {
 }
 
 type setupCommandOptions struct {
-	workspace       string
-	daemonName      string
-	noDaemon        bool
+	workspace  string
+	daemonName string
+	noDaemon   bool
+	// verbose selects the per-phase report. The default is the short form:
+	// the phase view names every component, path and provider error, which is
+	// what you want when something is wrong and noise the rest of the time.
+	verbose         bool
 	uninstallDaemon bool
 	noBackfill      bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
@@ -530,6 +534,7 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	}
 	cmd.Flags().StringVar(&setupOpts.workspace, "workspace", setupOpts.workspace, "Workspace the repo joins (created when absent)")
 	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher")
+	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
 	cmd.Flags().BoolVar(&setupOpts.uninstallDaemon, "uninstall-daemon", false, "Stop and remove the background watcher, then exit")
 	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill (no token spend at all)")
 	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
@@ -607,7 +612,21 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// --json must keep stdout parseable, so the friendly per-step lines are
 	// dropped rather than interleaved with the report.
 	progressOut := cmd.OutOrStdout()
+	// The CONSENT PROMPT is not a progress row and must never follow
+	// progressOut into io.Discard. It is the question that decides whether
+	// this run spends the reader's money, and a prompt written to a discarded
+	// writer asks for consent nobody can see. Bound to the real stream before
+	// the suppression below, and suppressed only for --json, which does not
+	// prompt at all.
+	promptOut := cmd.OutOrStdout()
 	if setupOpts.json {
+		promptOut = io.Discard
+	}
+	// The phase rows ARE a progress report, and they are suppressed for both
+	// --json and the default short form: they describe what the machine did,
+	// while the short form answers the three questions a person has.
+	// --verbose brings them back.
+	if setupOpts.json || !setupOpts.verbose {
 		progressOut = io.Discard
 	}
 	progress := newProgress(progressOut, "setup")
@@ -787,6 +806,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			Action:    "make one commit, then: " + setupBrainCommand(brainCmd) + " setup",
 		})
 		renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+		if !setupOpts.json && !setupOpts.verbose {
+			setupui.RenderTerse(cmd.OutOrStdout(), rend,
+				terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+		}
 		if setupOpts.json {
 			if err := writeJSON(cmd, report); err != nil {
 				return err
@@ -815,7 +838,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
-	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(progressOut),
+	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
 
@@ -915,6 +938,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// failure's one line, and what to run next. It does NOT re-list the
 	// phases: they are on the screen directly above it.
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+
+	if !setupOpts.json && !setupOpts.verbose {
+		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	if setupOpts.json {
 		if err := writeJSON(cmd, report); err != nil {
@@ -1198,12 +1226,13 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// BEFORE the detached child starts rather than after: the whole point of a
 	// cost line is that someone who did not want this can see it and Ctrl-C.
 	if !outcome.Prompted {
-		ui.Interject(setupui.Line{
-			Title:  setupui.PhaseFacts.Title(),
-			Accent: setupui.PhaseFacts.Accent(),
-			Text: fmt.Sprintf("fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)",
-				setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending())),
-		})
+		// Written to promptOut, NOT through the phase sink. The phase rows are
+		// discarded in the default short form, and a cost line a reader cannot
+		// see defeats its own purpose: someone who did not want this has to be
+		// able to read it and Ctrl-C. promptOut is the real stream in every
+		// mode except --json, which does not spend without --yes anyway.
+		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
+			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}
 
 	pid, err := steps.spawnBackfill(ctx, plan)

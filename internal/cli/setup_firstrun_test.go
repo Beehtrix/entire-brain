@@ -523,7 +523,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 			{Name: brainComponentEntities, State: "failed", Detail: "entityindex: resolve HEAD"},
 			{Name: brainComponentMemory, State: "ok"},
 		},
-	})
+	}, nil)
 	states := map[string]string{}
 	for _, component := range components {
 		states[component.Name] = component.State

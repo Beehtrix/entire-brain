@@ -154,13 +154,8 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 	}
 }
 
-// TestStatusNamesTheCorruptStoreAndTheCommandThatRebuildsIt is the third state.
-// The signal already existed -- semanticStaleReport runs PRAGMA integrity_check
-// on the semantic SQLite store and records store=unsafe with the sqlite error,
-// which is exactly what `overview` prints -- and the short status report threw
-// it away, leaving one word and a pointer to a command that re-reports rather
-// than repairs.
-func TestStatusNamesTheCorruptStoreAndTheCommandThatRebuildsIt(t *testing.T) {
+// Status reports freshness, while overview and doctor still validate contents.
+func TestStatusDefersCorruptStoreDiagnosisToDoctor(t *testing.T) {
 	opts, repoDir, brainDir := statusTruthFixture(t)
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
@@ -191,27 +186,13 @@ func TestStatusNamesTheCorruptStoreAndTheCommandThatRebuildsIt(t *testing.T) {
 	if strings.Contains(out, "healthy") {
 		t.Fatalf("status called a brain with an unreadable semantic store healthy:\n%s", out)
 	}
-	if !strings.Contains(out, "store=unsafe") {
-		t.Fatalf("status does not name the store as the failing axis, which `overview` already does:\n%s", out)
-	}
-	if !strings.Contains(out, "refresh --agent none`") {
-		t.Fatalf("status does not name the command that rebuilds the store:\n%s", out)
-	}
-	if strings.Contains(out, "doctor`") {
-		t.Fatalf("status sent the reader to `doctor`, which reports the problem again instead of fixing it:\n%s", out)
+	if strings.Contains(out, "store=unsafe") || !strings.Contains(out, "Integrity not checked") || !strings.Contains(out, "doctor`") {
+		t.Fatalf("status must leave content validation to doctor:\n%s", out)
 	}
 }
 
-// TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt covers the last
-// line of the default report that still called a shredded store fine. The
-// verdict and its cause were fixed to name `store=unsafe`, but the onboarding
-// block two lines above kept printing `+ semantic`, because the component marks
-// answer from manifest PRESENCE and a shredded file is still present. One
-// screen said the index built and the next said it cannot be opened.
-//
-// The control half matters as much as the failing half: the mark has to go back
-// to `+` on a store that opens, or the fix is just a second constant.
-func TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt(t *testing.T) {
+// Artifact presence remains part of status even though content audits do not.
+func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	opts, repoDir, brainDir := statusTruthFixture(t)
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
@@ -231,7 +212,9 @@ func TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt(t *testing.T) {
 		t.Fatalf("the fixture never reported a built semantic index, so the failing case proves nothing:\n%s", healthy)
 	}
 
-	shredSemanticStore(t, storePath)
+	if err := os.Remove(storePath); err != nil {
+		t.Fatal(err)
+	}
 
 	out, err := execute(t, NewRootCommand(opts), "status")
 	if err != nil {
@@ -239,10 +222,10 @@ func TestTheInstantLineDoesNotCallAnUnreadableSemanticIndexBuilt(t *testing.T) {
 	}
 	instant := statusInstantLine(t, out)
 	if strings.Contains(instant, "+ semantic") {
-		t.Fatalf("the instant line still marks an unreadable semantic index as built:\n%s", out)
+		t.Fatalf("the instant line still marks a missing semantic index as built:\n%s", out)
 	}
 	if !strings.Contains(instant, "x semantic") {
-		t.Fatalf("the instant line does not mark the unreadable semantic index as failed:\n%s", out)
+		t.Fatalf("the instant line does not mark the missing semantic index as failed:\n%s", out)
 	}
 	// Every other source keeps the mark it had. A report that fails everything
 	// the moment one axis trips is no more usable than one that passes

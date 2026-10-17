@@ -27,6 +27,24 @@ func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	}
 }
 
+func TestHostedRepoBindingOptOutRoundTrip(t *testing.T) {
+	brainDir := t.TempDir()
+	in := hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com", OptedOut: true}
+	if err := writeHostedRepoBinding(brainDir, in); err != nil {
+		t.Fatal(err)
+	}
+	got, present, err := readHostedRepoBinding(brainDir)
+	if err != nil || !present {
+		t.Fatalf("opted-out binding must still be present: present=%v err=%v", present, err)
+	}
+	if !got.OptedOut {
+		t.Fatal("opt-out must survive the round trip")
+	}
+	if got.RepoID != in.RepoID || got.BaseURL != in.BaseURL {
+		t.Fatalf("opt-out must keep the coordinates for easy re-connect, got %+v", got)
+	}
+}
+
 func TestHostedRepoBindingAbsent(t *testing.T) {
 	_, present, err := readHostedRepoBinding(t.TempDir())
 	if err != nil {

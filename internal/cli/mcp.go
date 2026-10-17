@@ -803,8 +803,8 @@ func mcpToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, coverage totals/blind spots, and live workspace state. Set details=true for the full status JSON contract.",
-			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
+			"description": "Lightweight local brain overview: recorded sources, semantic and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include staged, unstaged, and untracked file classifications without auditing index contents")}),
 		},
 		{
 			"name":        "brain_refresh",
@@ -884,8 +884,8 @@ func mcpToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_status",
-			"description": "Alias for brain_status with semantic and retrieval freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
-			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include coverage histograms, staged-file classifications, and changed-symbol records")}),
+			"description": "Alias for lightweight brain_status: recorded coverage/counts and current freshness, not a content-integrity audit. Set details=true to include file classifications.",
+			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include staged, unstaged, and untracked file classifications without auditing index contents")}),
 		},
 		{
 			"name":        "brain_index_repository",
@@ -917,11 +917,12 @@ func mcpToolDefinitions() []map[string]any {
 			// The caller already knows what it learned.
 			"description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
 			"inputSchema": objectSchema([]string{"fact", "path"}, map[string]any{
-				"fact":   stringArg("fact", "The durable fact, as one self-contained sentence"),
-				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
-				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
-				"branch": branchArg(),
-				"global": boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
+				"fact":    stringArg("fact", "The durable fact, as one self-contained sentence"),
+				"path":    stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
+				"kind":    enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
+				"branch":  branchArg(),
+				"global":  boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
+				"session": stringArg("session", "Session id the fact was authored in, so it carries session provenance (default: $"+rememberSessionEnv+")"),
 			}),
 		},
 		{
@@ -1201,13 +1202,19 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = globalErr
 			break
 		}
+		factSession, sessionErr := mcpOptionalString(params.Arguments, "session")
+		if sessionErr != nil {
+			err = sessionErr
+			break
+		}
 		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
-			path:   strings.TrimSpace(taxonomyPath),
-			kind:   strings.TrimSpace(factKind),
-			branch: strings.TrimSpace(factBranch),
-			agent:  "none",
-			json:   true,
-			global: factGlobal,
+			path:    strings.TrimSpace(taxonomyPath),
+			kind:    strings.TrimSpace(factKind),
+			branch:  strings.TrimSpace(factBranch),
+			session: strings.TrimSpace(factSession),
+			agent:   "none",
+			json:    true,
+			global:  factGlobal,
 		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")

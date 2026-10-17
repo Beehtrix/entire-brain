@@ -811,18 +811,35 @@ func TestVerifyStrictFlagsFailOnUnverifiableAfterJSON(t *testing.T) {
 	}
 }
 
-// Verification is charged to --details: the walk it runs is too expensive to
-// sit on the default status path (see populateBrainStatusVerification, #325).
-func TestStatusDetailsIncludesVerificationSummary(t *testing.T) {
+func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	f := newVerifyFixture(t)
 	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
-	f.writeSessions(t, nil)
-	f.writeFacts(t, "main", []factRecord{
-		verifyFactFixture("fact:status", "Status summarizes fact verification.", "main", factOriginAuthored, factStatusActive, f.now, nil),
+	// More than ten active facts catches accidental sampling; retired anchors
+	// must not turn doctor's active-fact overview into a warning.
+	const currentTranscript = "sessions/main/current.jsonl"
+	const retiredTranscript = "sessions/main/retired.jsonl"
+	f.writeBrainFile(t, currentTranscript, "current transcript\n")
+	f.writeBrainFile(t, retiredTranscript, "retired transcript\n")
+	f.writeSessions(t, []exportSession{{
+		SessionID: "sess1", Branch: "main", TranscriptPath: currentTranscript, CreatedAt: f.now,
+	}})
+	facts := make([]factRecord, 12)
+	for i := range facts {
+		facts[i] = verifyFactFixture(fmt.Sprintf("fact:status%d", i), "Doctor verifies fact anchors.", "main", factOriginAuthored, factStatusActive, f.now, nil)
+	}
+	facts = append(facts,
+		verifyFactFixture("fact:superseded", "Superseded fact has a stale transcript path.", "main", factOriginDistilled, factStatusSuperseded, f.now, []factAnchor{{
+			SessionID: "sess1", Transcript: retiredTranscript, Line: 1,
+		}}),
+		verifyFactFixture("fact:retracted", "Retracted fact has a missing session.", "main", factOriginDistilled, factStatusRetracted, f.now, []factAnchor{{SessionID: "missing"}}),
+	)
+	f.writeFacts(t, "main", facts)
+	f.writeFacts(t, "other", []factRecord{
+		verifyFactFixture("fact:other", "Other branch.", "other", factOriginAuthored, factStatusActive, f.now, nil),
 	})
 
 	cmd := NewRootCommand(f.opts)
@@ -834,12 +851,42 @@ func TestStatusDetailsIncludesVerificationSummary(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &report); err != nil {
 		t.Fatalf("parse status json: %v\n%s", err, out)
 	}
-	if report.Facts == nil || report.Facts.Verification == nil || report.Facts.Verification.UnverifiableHere != 1 {
-		t.Fatalf("missing verification summary: %+v", report.Facts)
+	if report.Facts == nil || report.Facts.Verification != nil || report.Integrity != "not_checked" {
+		t.Fatalf("status must not verify fact anchors: %+v", report)
+	}
+	checks, _ := brainDoctorReadOnlyReport(context.Background(), f.opts, f.repoDir)
+	found := false
+	for _, check := range checks {
+		if check.Name == "facts_verification" {
+			found = true
+			if check.State != "ok" || !strings.Contains(check.Detail, "branch main: 12 facts") || !strings.Contains(check.Detail, "0 stale, 0 orphaned, 12 unverifiable-here") {
+				t.Errorf("doctor must verify all active facts and exclude retired anchors: %+v", check)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("doctor omitted fact verification: %+v", checks)
+	}
+
+	out, err = execute(t, NewRootCommand(f.opts), "verify", "--all", "--json")
+	if !errors.Is(err, errVerifyIssues) {
+		t.Fatalf("explicit verify --all must still report retired anchor issues: %v\n%s", err, out)
+	}
+	all := parseVerifyReport(t, out)
+	if all.Summary != (verifySummary{Facts: 14, Stale: 1, Orphaned: 1, UnverifiableHere: 12}) {
+		t.Fatalf("explicit verify --all must include both retired facts without sampling: %+v", all.Summary)
+	}
+	for _, result := range all.Results {
+		if result.Fact.ID == "fact:superseded" && result.Verdict != verifyVerdictStale {
+			t.Errorf("superseded anchor verdict = %s, want stale", result.Verdict)
+		}
+		if result.Fact.ID == "fact:retracted" && result.Verdict != verifyVerdictOrphaned {
+			t.Errorf("retracted anchor verdict = %s, want orphaned", result.Verdict)
+		}
 	}
 }
 
-// TestVerifySamplingAndCommitMemoization covers the brain-status hot path:
+// TestVerifySamplingAndCommitMemoization covers bounded verification:
 // sampling caps verification to the most recent facts (with the corpus size
 // recorded so a sampled summary cannot be misread as full verification), and
 // commit checks are memoized — facts sharing a checkpoint commit must not

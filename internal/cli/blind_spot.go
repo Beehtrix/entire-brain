@@ -317,7 +317,7 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 		return ""
 	}
 	binding, connected, err := readHostedRepoBinding(brainDir)
-	if err != nil || !connected {
+	if err != nil || !connected || binding.OptedOut {
 		return ""
 	}
 	if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {

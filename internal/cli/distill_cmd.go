@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -59,14 +60,6 @@ const (
 	// session cache). A distill run is hours of agent calls; flushing every ~50
 	// calls bounds what an interruption can lose to minutes instead of the run.
 	distillFlushCallInterval = 50
-
-	// distillAgentWaitDelay is how long Wait may keep waiting on an agent's
-	// output pipes after the agent process itself has been killed for exceeding
-	// its timeout. It exists because the pipes are inherited by whatever the
-	// agent spawned, which the kill does not reach. Long enough to collect the
-	// output of an agent that is merely finishing up, short enough that the
-	// timeout stays a bound.
-	distillAgentWaitDelay = 5 * time.Second
 )
 
 // maxPersistedDistillWarnings bounds what reaches the manifest.
@@ -113,6 +106,16 @@ func distillWarningsForDisplay(warnings []string) []string {
 		"... and %d more warnings (not shown here; all %d are recorded in the brain manifest under sources.facts.warnings, and in --json output)",
 		extra, len(warnings)))
 }
+
+// distillAgentWaitDelay is how long Wait may keep waiting on an agent's
+// output pipes after the agent process itself has been killed for exceeding
+// its timeout. It exists because the pipes are inherited by whatever the
+// agent spawned, which the kill does not reach. Long enough to collect the
+// output of an agent that is merely finishing up, short enough that the
+// timeout stays a bound. A var so timeout tests whose orphaned grandchildren
+// always hold the pipes for the full delay can lower it; the default is
+// pinned by TestOverridableProductionBoundsKeepTheirDefaults.
+var distillAgentWaitDelay = 5 * time.Second
 
 // capWarnings truncates a warning list to max entries, replacing the overflow
 // with a single summary line so a systemic failure stays legible.
@@ -168,6 +171,10 @@ type preparedSession struct {
 	rawBytes    int
 	preBytes    int
 	chunks      []transcriptChunk
+	// chunkHashes covers the FULL current transcript (salted, in chunk order),
+	// including chunks the cache let this run skip; it becomes the session's
+	// cache record. chunks above holds only the chunks to dispatch.
+	chunkHashes []string
 	results     []chan agentCallResult
 	sem         chan struct{}
 	// release frees the session's work-lookahead slot; the consumer calls it
@@ -272,6 +279,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				continue
 			}
+			if fingerprint, hit := cachedCheckpointDistill(prevCache, ps.session, ps.branch, duplicateKeys, distillOpts); hit {
+				ps.fingerprint, ps.cached = fingerprint, true
+				f <- ps
+				if !enqueue(f) {
+					return
+				}
+				continue
+			}
 			select {
 			case workSem <- struct{}{}:
 			case <-ctx.Done():
@@ -294,10 +309,10 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				distillInput := preprocessTranscriptForDistill(content)
 				ps.rawBytes = len(content)
 				ps.preBytes = len(distillInput)
-				ps.fingerprint = distillSessionFingerprint(ps.session, ps.branch, distillInput, distillOpts.cacheSalt)
+				ps.fingerprint = distillFingerprintForSession(ps.session, ps.branch, distillInput, distillOpts)
 				if !distillOpts.force {
 					cacheKey := distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)
-					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && prev == ps.fingerprint {
+					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && (prev == ps.fingerprint || grandfatheredContentFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts)) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -312,7 +327,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					// export as done. One re-distill, once, then both hold
 					// distinct keys.
 					if !duplicateKeys[distillSessionCacheKey(ps.branch, ps.session.SessionID)] &&
-						grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
+						(!distillOpts.checkpointBacked || distillPreprocessingVersion == 1) && grandfatheredDistillFingerprint(prevCache, ps.session, ps.branch, distillInput) {
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -320,6 +335,23 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					}
 				}
 				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
+				ps.chunkHashes = distillChunkHashes(ps.chunks, distillOpts.cacheSalt)
+				if !distillOpts.force {
+					// Re-dispatch only chunks the cache has not seen succeed.
+					// Facts from skipped chunks are already in the store, and
+					// upsert-by-content-id makes even a stale skip harmless. A
+					// force run bypasses reuse: it just DROPPED the distilled
+					// facts it is about to regenerate.
+					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
+						kept := ps.chunks[:0]
+						for i := range ps.chunks {
+							if !done[ps.chunkHashes[i]] {
+								kept = append(kept, ps.chunks[i])
+							}
+						}
+						ps.chunks = kept
+					}
+				}
 				ps.release = releaseWork
 				f <- ps
 			}(ps)
@@ -429,11 +461,19 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 // work scheduling; this preflight deliberately favors the egress/publication
 // boundary over avoiding one extra descriptor-rooted read.
 func validateDistillCanonicalInputs(ctx context.Context, brainDir string, sessions []exportSession, distillOpts distillCommandOptions, resolveBranch func(exportSession) string) error {
+	cache := loadDistillCache(brainDir)
+	duplicates := distillDuplicateSessionKeys(sessions, resolveBranch)
 	for _, session := range sessions {
 		if distillOpts.branch != "" && resolveBranch(session) != distillOpts.branch {
 			continue
 		}
 		if distillOpts.session != "" && session.SessionID != distillOpts.session {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if _, hit := cachedCheckpointDistill(cache, session, resolveBranch(session), duplicates, distillOpts); hit {
 			continue
 		}
 		if _, err := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath); err != nil {
@@ -464,6 +504,9 @@ type distillCommandOptions struct {
 	dryRun              bool
 	jobs                int
 	cacheSalt           string
+	legacyCacheSalt     string
+	checkpointBacked    bool
+	transcriptMode      string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -503,6 +546,10 @@ type distillCommandOptions struct {
 	// nil (the zero value, and the value in every pre-index caller) keeps the
 	// original coarse anchoring exactly.
 	entityProvenance *entityProvenanceResolver
+	// checkpointCommits resolves each fact's checkpoint to its on-branch
+	// commit (checkpoint_commit.go). nil stamps no commit, the pre-COR-2126
+	// behavior.
+	checkpointCommits *checkpointCommitResolver
 }
 
 // distillProgress reports how far the distillation loop has advanced. Distill
@@ -530,6 +577,49 @@ type transcriptChunk struct {
 type distillCache struct {
 	Version  int               `json:"version"`
 	Sessions map[string]string `json:"sessions"`
+	// Chunks records, per session cache key, the content hashes of the
+	// transcript chunks whose agent calls succeeded. Chunking is prefix-stable
+	// (greedy by line from the transcript start), so a GROWN transcript — the
+	// per-commit checkpoint distill — keeps earlier chunks byte-identical and
+	// re-dispatches only the hashes this map has not seen. Absent on older
+	// cache files: no reuse, one full distill repopulates it.
+	Chunks map[string][]string `json:"chunks,omitempty"`
+}
+
+// chunkSet returns the recorded chunk hashes for a cache key as a lookup set.
+func (c distillCache) chunkSet(key string) map[string]bool {
+	hashes := c.Chunks[key]
+	if len(hashes) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(hashes))
+	for _, h := range hashes {
+		set[h] = true
+	}
+	return set
+}
+
+// carryChunks copies the previous cache's chunk record for key, so a session
+// that is skipped, cached, or lazily re-keyed keeps its chunk reuse.
+func carryDistillChunks(dst *distillCache, src distillCache, dstKey, srcKey string) {
+	if hashes, ok := src.Chunks[srcKey]; ok {
+		if dst.Chunks == nil {
+			dst.Chunks = make(map[string][]string)
+		}
+		dst.Chunks[dstKey] = hashes
+	}
+}
+
+// distillChunkHashes hashes each chunk's exact agent input together with the
+// configuration salt, so a prompt/model/taxonomy change invalidates chunk
+// reuse exactly like it invalidates session fingerprints.
+func distillChunkHashes(chunks []transcriptChunk, salt string) []string {
+	hashes := make([]string, len(chunks))
+	for i, chunk := range chunks {
+		sum := sha256.Sum256([]byte(salt + "\x00" + chunk.Text))
+		hashes[i] = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	return hashes
 }
 
 type distillPlan struct {
@@ -788,6 +878,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// the index as of the moment it actually owns the pass — the session-end
 		// hook refreshes that index just before calling in.
 		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		distillOpts.checkpointCommits = newCheckpointCommitResolver(ctx, opts, repoDir)
 		var runErr error
 		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
 		return runErr
@@ -886,6 +977,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
 	}
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
+	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
+	distillOpts.legacyCacheSalt = distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, 0)
 	distillOpts.cacheSalt = distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts)
 
 	sessions := append([]exportSession(nil), manifest.Sources.Sessions.Sessions...)
@@ -1091,9 +1185,15 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		cache := newCache
 		if !final && !distillOpts.force {
-			cache = distillCache{Version: distillCacheVersion, Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions))}
+			cache = distillCache{
+				Version:  distillCacheVersion,
+				Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions)),
+				Chunks:   make(map[string][]string, len(prevCache.Chunks)+len(newCache.Chunks)),
+			}
 			maps.Copy(cache.Sessions, prevCache.Sessions)
 			maps.Copy(cache.Sessions, newCache.Sessions)
+			maps.Copy(cache.Chunks, prevCache.Chunks)
+			maps.Copy(cache.Chunks, newCache.Chunks)
 		}
 		return saveDistillCache(brainDir, cache)
 	}
@@ -1166,6 +1266,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			key := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			if prev, ok := prevCache.Sessions[key]; ok {
 				newCache.Sessions[key] = prev
+				carryDistillChunks(&newCache, prevCache, key, key)
 			} else if prev, ok := prevCache.Sessions[session.SessionID]; ok {
 				// A legacy entry stays under its legacy key (and formula) until
 				// its session is actually visited and grandfathered — copying it
@@ -1192,7 +1293,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
 			cacheHits++
-			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			cachedKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+			newCache.Sessions[cachedKey] = ps.fingerprint // unchanged; retain in cache and keep existing facts
+			carryDistillChunks(&newCache, prevCache, cachedKey, cachedKey)
 			reportProgress()
 			continue
 		}
@@ -1203,6 +1306,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			anchor := factAnchor{
 				SessionID:    session.SessionID,
 				CheckpointID: session.LatestCheckpoint,
+				Commit:       distillOpts.checkpointCommits.commitFor(session.LatestCheckpoint, branch),
 				Transcript:   filepath.ToSlash(session.TranscriptPath),
 				Line:         chunk.StartLine,
 			}
@@ -1283,7 +1387,12 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// session whose agent calls failed is retried on the next run rather
 		// than being silently treated as done.
 		if !sessionFailed {
-			newCache.Sessions[distillSessionCacheKeyFor(branch, session, duplicateKeys)] = ps.fingerprint
+			doneKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
+			newCache.Sessions[doneKey] = ps.fingerprint
+			if newCache.Chunks == nil {
+				newCache.Chunks = make(map[string][]string)
+			}
+			newCache.Chunks[doneKey] = ps.chunkHashes
 		}
 		reportProgress()
 	}
@@ -1392,7 +1501,14 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
 	}
 	distillOpts.dryRun = true
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
 	cacheSalt, err := distillCacheSaltForBrain(brainDir, distillOpts, now)
+	if err != nil {
+		return distillDryRunReport{}, err
+	}
+	legacyOpts := distillOpts
+	legacyOpts.checkpointBacked = false
+	distillOpts.legacyCacheSalt, err = distillCacheSaltForBrain(brainDir, legacyOpts, now)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
@@ -1574,6 +1690,9 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		return resolveDistillBranch(manifest, session)
 	})
 	branchSeen := map[string]struct{}{}
+	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
+	distillOpts.transcriptMode = manifest.Sources.Sessions.TranscriptMode
+	distillOpts.cacheSalt = cacheSalt
 	plan := distillPlan{CacheSalt: cacheSalt}
 	for _, session := range sessions {
 		branch := resolveDistillBranch(manifest, session)
@@ -1589,6 +1708,15 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		}
 		sessionPlan := distillSessionPlan{Session: session, Branch: branch}
 		plan.TotalSessions++
+		if err := ctx.Err(); err != nil {
+			return distillPlan{}, err
+		}
+		if fingerprint, hit := cachedCheckpointDistill(prevCache, session, branch, duplicateKeys, distillOpts); hit {
+			sessionPlan.Fingerprint, sessionPlan.Cached = fingerprint, true
+			plan.CachedSessions++
+			plan.Sessions = append(plan.Sessions, sessionPlan)
+			continue
+		}
 
 		data, readErr := readCanonicalHistoryTranscript(ctx, brainDir, session.TranscriptPath)
 		if readErr != nil {
@@ -1600,15 +1728,15 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		sessionPlan.PreprocessedBytes = len(distillInput)
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
-		sessionPlan.Fingerprint = distillSessionFingerprint(session, branch, distillInput, plan.CacheSalt)
+		sessionPlan.Fingerprint = distillFingerprintForSession(session, branch, distillInput, distillOpts)
 		chunks := chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 		sessionPlan.ChunksIfUncached = len(chunks)
 		plan.ChunksIfUncached += sessionPlan.ChunksIfUncached
 		if !distillOpts.force {
 			legacyKey := distillSessionCacheKey(branch, session.SessionID)
 			prev, ok := cachedDistillFingerprintForKey(prevCache, distillSessionCacheKeyFor(branch, session, duplicateKeys))
-			if (ok && prev == sessionPlan.Fingerprint) ||
-				(!duplicateKeys[legacyKey] && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
+			if (ok && (prev == sessionPlan.Fingerprint || grandfatheredContentFingerprint(prev, session, branch, distillInput, distillOpts))) ||
+				(!duplicateKeys[legacyKey] && (!distillOpts.checkpointBacked || distillPreprocessingVersion == 1) && grandfatheredDistillFingerprint(prevCache, session, branch, distillInput)) {
 				sessionPlan.Cached = true
 				plan.CachedSessions++
 				plan.Sessions = append(plan.Sessions, sessionPlan)
@@ -2122,25 +2250,61 @@ func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions
 	return distillCacheSalt(prompt, reconcilePrompt(), threshold, distillOpts), nil
 }
 
+// Bump whenever transcript preprocessing changes what the extractor sees.
+const distillPreprocessingVersion = 1
+
+func distillFingerprintForSession(session exportSession, branch, content string, opts distillCommandOptions) string {
+	if !opts.checkpointBacked || session.LatestCheckpoint == "" {
+		return distillSessionFingerprint(session, branch, content, opts.cacheSalt)
+	}
+	sum := sha256.Sum256([]byte(strings.Join([]string{session.SessionID, session.LatestCheckpoint, strconv.Itoa(session.SessionIndex), branch, opts.transcriptMode, opts.cacheSalt}, "\x00")))
+	return "checkpoint-sha256:" + hex.EncodeToString(sum[:])
+}
+
+func cachedCheckpointDistill(cache distillCache, session exportSession, branch string, duplicates map[string]bool, opts distillCommandOptions) (string, bool) {
+	if opts.force || !opts.checkpointBacked || session.LatestCheckpoint == "" {
+		return "", false
+	}
+	fingerprint := distillFingerprintForSession(session, branch, "", opts)
+	prev, ok := cachedDistillFingerprintForKey(cache, distillSessionCacheKeyFor(branch, session, duplicates))
+	return fingerprint, ok && prev == fingerprint
+}
+
+// Read legacy entries once to prove the preprocessed input is unchanged, then
+// save checkpoint identity. Later preprocessing versions must invalidate them.
+func grandfatheredContentFingerprint(previous string, session exportSession, branch, content string, opts distillCommandOptions) bool {
+	return opts.checkpointBacked && distillPreprocessingVersion == 1 && opts.legacyCacheSalt != "" && previous == distillSessionFingerprint(session, branch, content, opts.legacyCacheSalt)
+}
+
 func distillCacheSalt(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) string {
+	version := 0
+	if distillOpts.checkpointBacked {
+		version = distillPreprocessingVersion
+	}
+	return distillCacheSaltVersion(prompt, reconcilePromptText, threshold, distillOpts, version)
+}
+
+func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions, preprocessingVersion int) string {
 	data, err := json.Marshal(struct {
-		Version         int     `json:"version"`
-		Prompt          string  `json:"prompt"`
-		ReconcilePrompt string  `json:"reconcile_prompt"`
-		Threshold       float64 `json:"threshold"`
-		Agent           string  `json:"agent"`
-		AgentCommand    string  `json:"agent_command,omitempty"`
-		Model           string  `json:"model,omitempty"`
-		Effort          string  `json:"effort,omitempty"`
+		Version              int     `json:"version"`
+		PreprocessingVersion int     `json:"preprocessing_version,omitempty"`
+		Prompt               string  `json:"prompt"`
+		ReconcilePrompt      string  `json:"reconcile_prompt"`
+		Threshold            float64 `json:"threshold"`
+		Agent                string  `json:"agent"`
+		AgentCommand         string  `json:"agent_command,omitempty"`
+		Model                string  `json:"model,omitempty"`
+		Effort               string  `json:"effort,omitempty"`
 	}{
-		Version:         distillCacheVersion,
-		Prompt:          prompt,
-		ReconcilePrompt: reconcilePromptText,
-		Threshold:       threshold,
-		Agent:           distillOpts.agent,
-		AgentCommand:    strings.Join(distillOpts.agentCommand, "\x00"),
-		Model:           distillOpts.model,
-		Effort:          distillOpts.effort,
+		Version:              distillCacheVersion,
+		PreprocessingVersion: preprocessingVersion,
+		Prompt:               prompt,
+		ReconcilePrompt:      reconcilePromptText,
+		Threshold:            threshold,
+		Agent:                distillOpts.agent,
+		AgentCommand:         strings.Join(distillOpts.agentCommand, "\x00"),
+		Model:                distillOpts.model,
+		Effort:               distillOpts.effort,
 	})
 	if err != nil {
 		return ""

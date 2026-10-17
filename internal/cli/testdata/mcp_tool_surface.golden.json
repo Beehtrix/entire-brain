@@ -1,11 +1,11 @@
 [
   {
-    "description": "Compact freshness preflight for the local brain: sources, fact verification, semantic and retrieval freshness, coverage totals/blind spots, and live workspace state. Set details=true for the full status JSON contract.",
+    "description": "Lightweight local brain overview: recorded sources, semantic and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "details": {
-          "description": "Include coverage histograms, staged-file classifications, and changed-symbol records",
+          "description": "Include staged, unstaged, and untracked file classifications without auditing index contents",
           "title": "details",
           "type": "boolean"
         }
@@ -639,12 +639,12 @@
     "name": "brain_code"
   },
   {
-    "description": "Alias for brain_status with semantic and retrieval freshness, coverage, and counts. Set details=true for coverage histograms, staged-file classifications, and changed-symbol records.",
+    "description": "Alias for lightweight brain_status: recorded coverage/counts and current freshness, not a content-integrity audit. Set details=true to include file classifications.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "details": {
-          "description": "Include coverage histograms, staged-file classifications, and changed-symbol records",
+          "description": "Include staged, unstaged, and untracked file classifications without auditing index contents",
           "title": "details",
           "type": "boolean"
         }
@@ -757,6 +757,12 @@
           "description": "Taxonomy path: category.subcategory.type, comma-separated for several",
           "maxLength": 8192,
           "title": "path",
+          "type": "string"
+        },
+        "session": {
+          "description": "Session id the fact was authored in, so it carries session provenance (default: $ENTIRE_BRAIN_SESSION_ID)",
+          "maxLength": 8192,
+          "title": "session",
           "type": "string"
         }
       },

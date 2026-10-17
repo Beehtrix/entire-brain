@@ -405,16 +405,23 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		semanticCheckTask := progress.Begin(refreshSemanticCheckLabel(manifest))
 		semanticWorktree := refreshOpts.semanticWorktree
 		// Both semantic failure paths below are forgiven for exactly one
-		// reason: the provider IS the host CLI and the host CLI is not
-		// installed. Evaluated once, before either, so the two stages cannot
-		// disagree about the machine they are running on.
+		// reason: the graph provider is ABSENT — the host CLI itself is not
+		// installed (probed once here, so the two stages cannot disagree
+		// about the machine they are running on), or the failure is
+		// recognisably "provider not installed" (typed as
+		// errSemanticProviderAbsent). Graph is encouraged, never required;
+		// every other brain source builds without it. A provider that is
+		// present and breaks stays fatal.
 		semanticHostAbsent := hostCLISemanticProviderAbsent(refreshOpts.graphBinary)
+		semanticForgiven := func(err error) bool {
+			return semanticHostAbsent || errors.Is(err, errSemanticProviderAbsent)
+		}
 		needSemantic, identityWarning, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree, refreshOpts.graphBinary)
 		switch {
 		case err != nil:
 			semanticCheckTask.Finish(err)
 			if reportStageAndShouldAbort(brainComponentSemantic, err) {
-				if !semanticHostAbsent {
+				if !semanticForgiven(err) {
 					return err
 				}
 				noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)
@@ -455,7 +462,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				if err := runRefreshSemanticPhase(ctx, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
 					semanticTask.Finish(err)
 					if reportStageAndShouldAbort(brainComponentSemantic, err) {
-						if !semanticHostAbsent {
+						if !semanticForgiven(err) {
 							return err
 						}
 						noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)

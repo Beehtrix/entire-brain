@@ -122,7 +122,19 @@ func TestBrainStatusDefaultSkipsFactVerificationReachabilityWalk(t *testing.T) {
 	}
 }
 
-func TestBrainStatusDetailsStillVerifiesFacts(t *testing.T) {
+// Verification is DOCTOR's, not status's -- not even behind --details.
+//
+// This test used to assert the opposite: that --details still ran the walk.
+// main settled it the other way, deleting populateBrainStatusVerification and
+// calling verificationSummaryForBranch from the doctor path instead, with its
+// own test asserting the placement. The reasoning that won: `brain status` is
+// what the docs put in session-start hooks and what the MCP brain_status tool
+// calls, and the surest way to guarantee that path never pays a refs x history
+// walk is for the code not to be reachable from it at all. `brain verify` and
+// `brain doctor` remain the explicit entry points.
+//
+// Kept rather than deleted, flipped to guard the decision that was made.
+func TestBrainStatusDetailsDoesNotVerifyFacts(t *testing.T) {
 	t.Parallel()
 	opts, _, runner := statusVerificationFixture(t)
 
@@ -131,15 +143,13 @@ func TestBrainStatusDetailsStillVerifiesFacts(t *testing.T) {
 		t.Fatalf("status --json --details: %v\n%s", err, out)
 	}
 
-	if walks := reachabilityWalks(runner); walks == 0 {
-		t.Fatalf("status --details did not verify anchors: no `git for-each-ref --contains` call was made")
+	if walks := reachabilityWalks(runner); walks != 0 {
+		t.Fatalf("status --details ran %d reachability walk(s); verification belongs to doctor", walks)
 	}
-	facts := statusFactsPayload(t, out)
-	if facts == nil {
-		t.Fatalf("status --json --details carries no facts block:\n%s", out)
-	}
-	if _, present := facts["verification"]; !present {
-		t.Fatalf("status --details dropped the verification block: %v", facts)
+	if facts := statusFactsPayload(t, out); facts != nil {
+		if _, present := facts["verification"]; present {
+			t.Fatalf("status --details carries a verification block; that is doctor's report now: %v", facts)
+		}
 	}
 }
 

@@ -315,8 +315,14 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 		}
 	}
 	// The stage genuinely not having run still points at the stage.
+	//
+	// Asserted through brainInvocation, not against the literal
+	// "entire brain refresh": #348 made every printed remedy use the
+	// reader's own dispatch spelling, so a standalone install is told
+	// `entire-brain refresh`. Pinning one spelling here would fail that
+	// change for being correct.
 	never := captureCheckFor(t, false)
-	if never.State != "warn" || !strings.Contains(never.Detail, "entire brain refresh") {
+	if never.State != "warn" || !strings.Contains(never.Detail, brainInvocation(os.LookupEnv, "refresh")) {
 		t.Errorf("a sessions stage that never ran is still a refresh away: %+v", never)
 	}
 }

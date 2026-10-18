@@ -29,7 +29,6 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 		cmd.Args = cobra.MaximumNArgs(1)
 		cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit changed file paths as JSON")
 		cmd.Flags().BoolVar(&noHooks, "no-agent-hooks", false, "Write the instructions but do not merge the Claude Code PreToolUse entry")
-		cmd.Flags().BoolVar(&noHooks, "no-agent-hooks", false, "Write the instructions but do not merge the Claude Code PreToolUse entry")
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		mode, err := agentsetup.SelectMode(strict, normal)

@@ -146,7 +146,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 	}
 	if refreshOpts.seed.agent == "auto" {
-		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		// #346's resolver announces the choice; #328's warning still fires
+		// when ollama is present but unusable. Both, because they answer
+		// different questions: which agent, and why not the private one.
+		refreshOpts.seed.agent = resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, refreshOpts.seed.model, cmd.ErrOrStderr())
 		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, refreshOpts.seed.agent); warning != "" {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
 		}
@@ -847,51 +850,35 @@ func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManif
 	return true
 }
 
-// defaultRefreshAgent picks the agent that will read session transcripts.
+// defaultRefreshAgent resolves `--agent auto`.
 //
-// ollama is tried FIRST, and that ordering is the point of issue #328. It was
-// absent from this list entirely, so a user who had installed a local model
-// specifically to keep transcripts off a third party got one of two outcomes:
-// "none", and silently no distillation at all, or -- if they also happened to
-// have codex or claude installed -- their session content sent to a cloud
-// provider instead. Neither is what installing ollama asked for.
+// It used to be no-egress → codex → claude-code → none, which meant a user
+// sitting INSIDE Claude Code, who had codex installed for some other purpose,
+// had their repository's own content routed to the other vendor's agent — and
+// nothing said so. The harness the user is actually running under is a stronger
+// signal than PATH order, so it is consulted first.
 //
-// Transcripts are the most sensitive thing this product touches. When a local
-// model is available, preferring it is the behaviour the user configured, and
-// the only one that needs no explanation afterwards.
-//
-// This does change the agent for someone who has both ollama and a cloud CLI
-// installed. --agent still overrides it per run.
+// Detection is positive and verified for exactly one harness: CLAUDECODE and
+// CLAUDE_CODE_ENTRYPOINT are genuinely exported by Claude Code. There is NO
+// verified Codex signal — CODEX_HOME resolves a write destination and does not
+// imply a running Codex — so Codex keeps the PATH probe it always had. Guessing
+// one would repeat a mistake this codebase has already paid for: a guard
+// written against a key the real CLI never emits.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
 	if brainNoEgressMode() {
 		return "none"
 	}
-	// Ollama is preferred ONLY when a model is actually named.
-	//
-	// The preference above is right and deliberate: transcripts are the most
-	// sensitive thing this product touches, and a user who installed a local
-	// model asked for it to be used. But execOllamaDistillAgent hard-errors
-	// with "--agent ollama requires --model", and no model is resolved here --
-	// so merely having ollama ON PATH made every agent-backed command fail:
-	// distill, refresh, watch --distill, remember without --path, and
-	// recall --expand. `ollama --version` succeeds with no server and no
-	// models pulled, so installing it was enough to break them.
-	//
-	// AUTO selection can never supply that model. The distill path reads it
-	// from --model alone (distill_cmd.go takes args[1]); the only ollama
-	// environment variable, ENTIRE_BRAIN_OLLAMA_MODEL, is read by the
-	// EMBEDDING path and does nothing here. So "auto -> ollama" is a state
-	// that cannot work, whatever else is configured.
-	//
-	// A model is NOT auto-picked instead. `ollama list` routinely offers
-	// nomic-embed-text, an EMBEDDING model that would return nonsense for
-	// distillation; choosing one is a product decision, not a default worth
-	// guessing.
-	//
-	// Ollama is still fully available EXPLICITLY -- `--agent ollama --model
-	// <name>` is unaffected. What is removed is only the automatic choice that
-	// then failed. The caller warns when it falls through, so a
-	// privacy-motivated install does not quietly become a cloud call.
+	// Prefer the detected harness ONLY IF its binary is runnable. Detection
+	// alone is not enough to return it: distillAgentCommandArgs turns
+	// "claude-code" into an argv that starts with `claude` and there is no
+	// fallback at exec time, so a session whose child PATH lacks `claude` would
+	// have a WORKING codex run replaced by a hard exec failure. A detected but
+	// unavailable harness falls through to the probe order below, unchanged.
+	if harness := detectedAgentHarness(); harness != "" {
+		if binary := agentProbeBinary(harness); binary != "" && commandLooksAvailable(ctx, runner, repoDir, binary) {
+			return harness
+		}
+	}
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -1076,4 +1063,52 @@ func announceResolvedAgent(out io.Writer, agent, model string) {
 		return
 	}
 	fmt.Fprintf(out, "agent: auto-selected %s, model: the agent's own default (SPENDS TOKENS) — override with --agent, pin a model with --model\n", agent)
+}
+
+// resolveRefreshAgentAnnounced is defaultRefreshAgent plus a line saying which
+// agent it picked. Auto-selection used to be silent everywhere except setup's
+// backfill spend label, so on every other path a user's repository content went
+// to an agent they were never told about.
+//
+// It is a WRAPPER on purpose. defaultRefreshAgent has 13 call sites and three
+// tests calling it with its 3-arg shape; threading a writer through all of them
+// would churn the lot to serve the three places a human is actually watching.
+// Internal and non-interactive callers keep the pure function.
+//
+// A nil writer means "say nothing", which is how --json callers stay silent.
+func resolveRefreshAgentAnnounced(ctx context.Context, runner CommandRunner, repoDir, model string, out io.Writer) string {
+	agent := defaultRefreshAgent(ctx, runner, repoDir)
+	announceResolvedAgent(out, agent, model)
+	return agent
+}
+
+// detectedAgentHarness names the agent harness THIS process is running under,
+// or "" when none is recognized. Env-read style follows brainNoEgressMode /
+// envBool in agent_policy.go.
+//
+// CLAUDE_CODE_ENTRYPOINT carries a mode ("cli", "vscode", …), not a boolean, so
+// it is tested for presence; CLAUDECODE is a flag and goes through envBool, so
+// an explicit CLAUDECODE=0 is honoured as "no".
+func detectedAgentHarness() string {
+	if envBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
+		return "claude-code"
+	}
+	return ""
+}
+
+// agentProbeBinary maps an agent NAME to the executable behind it. The two
+// differ for Claude Code — the agent is "claude-code", the binary is "claude" —
+// and that mismatch is exactly where an unverified preference turns into an
+// exec failure.
+func agentProbeBinary(agent string) string {
+	switch agent {
+	case "claude-code":
+		return "claude"
+	case "codex":
+		return "codex"
+	case "ollama":
+		return "ollama"
+	default:
+		return ""
+	}
 }

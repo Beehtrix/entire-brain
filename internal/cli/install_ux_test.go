@@ -496,23 +496,41 @@ func TestDefaultRefreshAgentWithoutHarnessIsDeterministic(t *testing.T) {
 	}
 }
 
-// PARTIALLY RESOLVED, recorded so the remainder is not forgotten.
-//
-// TestResolveRefreshAgentAnnouncesChoice lived here and covered #346's
-// resolveRefreshAgentAnnounced. That PR bundled two separate things: the
-// announcement of the auto-selected agent, and a reordering that prefers the
-// harness the process runs under.
-//
-// The ANNOUNCEMENT survived: announceResolvedAgent is carried into refresh.go
-// and wired into setup, so a user is told which agent was chosen and on what
-// model. TestAnnounceResolvedAgentNamesTheModel below still covers it.
-//
-// The ORDERING was not taken. HEAD carries #328's ollama-first rule, which is
-// a deliberate privacy decision, and choosing between two agent policies is a
-// product call rather than a merge resolution. This test went with it because
-// a skipped test still has to compile, and keeping it alive would have meant
-// carrying resolveRefreshAgentAnnounced and detectedAgentHarness as
-// production code that nothing calls.
+// TestResolveRefreshAgentAnnouncesChoice covers the second half of the report:
+// "idk what model". Auto-selection was silent on every path but setup's
+// backfill spend label, so a user was never told which vendor's agent was about
+// to read their repository.
+func TestResolveRefreshAgentAnnouncesChoice(t *testing.T) {
+	clearAgentHarnessEnv(t)
+	t.Setenv("CLAUDECODE", "1")
+	var out bytes.Buffer
+	agent := resolveRefreshAgentAnnounced(context.Background(), agentAvailability("codex", "claude"), t.TempDir(), "", &out)
+	if agent != "claude-code" {
+		t.Fatalf("resolved agent = %q, want claude-code", agent)
+	}
+	for _, want := range []string{"auto-selected", "claude-code", "--agent"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("announcement does not mention %q: %q", want, out.String())
+		}
+	}
+	// "none" is announced too: a user whose distillation silently did nothing
+	// deserves to know no agent was found.
+	out.Reset()
+	if agent := resolveRefreshAgentAnnounced(context.Background(), agentAvailability(), t.TempDir(), "", &out); agent != "none" {
+		t.Fatalf("resolved agent with nothing installed = %q, want none", agent)
+	}
+	if !strings.Contains(out.String(), "none") {
+		t.Fatalf("falling through to no agent was not announced: %q", out.String())
+	}
+	// A nil writer is how every --json caller stays silent.
+	out.Reset()
+	if agent := resolveRefreshAgentAnnounced(context.Background(), agentAvailability("codex"), t.TempDir(), "sonnet", nil); agent != "codex" {
+		t.Fatalf("resolved agent with a nil writer = %q, want codex", agent)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("a nil writer still produced output: %q", out.String())
+	}
+}
 
 // TestRefreshAnnouncesAutoSelectedAgentOnStderr is the call-site half, and the
 // --json case beside it. The announcement has to reach stderr before anything

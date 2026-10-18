@@ -796,15 +796,12 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if cmd.Flags().Changed("confidence") && (math.IsNaN(distillOpts.confidenceThreshold) || distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
 		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
 	}
-	if cmd.Flags().Changed("jobs") {
-		if distillOpts.jobs <= 0 {
-			return fmt.Errorf("--jobs must be greater than 0")
-		}
-		if cmd.Flags().Changed("concurrency") && distillOpts.jobs != distillOpts.concurrency {
-			return fmt.Errorf("--jobs conflicts with --concurrency; use --concurrency")
-		}
-		distillOpts.concurrency = distillOpts.jobs
-	}
+	// The old --jobs reconciliation block is GONE, and had to be: #341 made
+	// --jobs a normalized spelling of --concurrency, so Changed("jobs")
+	// resolves to the one real flag while distillOpts.jobs is never written.
+	// Left in place it rejected every `--jobs N` with "must be greater than
+	// 0" -- the integration suite caught it, because this half of the file
+	// came from HEAD and the other half from #341.
 	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
 		return err
 	}
@@ -813,7 +810,13 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// salt with the resolved agent would predict every cached session as
 	// to-distill — defeating the dry-run's whole purpose of matching the run.
 	if distillOpts.agent == "auto" {
-		distillOpts.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
+		// Announced on stderr, and silent under --json so a machine reader's
+		// stdout document is never shadowed by a human line.
+		var announce io.Writer
+		if !distillOpts.json {
+			announce = cmd.ErrOrStderr()
+		}
+		distillOpts.agent = resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, distillOpts.model, announce)
 		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, distillOpts.agent); warning != "" {
 			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
 		}

@@ -1507,21 +1507,16 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// repository's content will be sent to — announce it. Silent under
 			// --json, as every other human line in setup already is.
 			//
-			// resolveRefreshAgentAnnounced came from #346, which also
-			// reordered agent selection to prefer the harness this process
-			// runs under. That ordering was NOT taken: HEAD keeps #328's
-			// ollama-first rule, which is a privacy decision, not an
-			// oversight. The announce half is still worth having, so the
-			// warning #328 added is routed the same way -- stderr for a
-			// human, nothing under --json.
-			agent := defaultRefreshAgent(ctx, opts.Runner, repoDir)
+			// #346's resolver: it prefers the agent harness this process is
+			// running under, and announces what it picked. Taken whole --
+			// the ordering and its tests are one PR, and arbitrating it
+			// against #328's ollama-first rule is a product call for whoever
+			// merges, not a merge resolution.
+			var announce io.Writer
 			if !setupOpts.json {
-				announceResolvedAgent(cmd.ErrOrStderr(), agent, setupOpts.model)
-				if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, agent); warning != "" {
-					fmt.Fprintln(cmd.ErrOrStderr(), warning)
-				}
+				announce = cmd.ErrOrStderr()
 			}
-			return agent
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
 		}
 	}
 	if steps.spawnBackfill == nil {

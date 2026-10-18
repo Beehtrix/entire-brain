@@ -1345,7 +1345,7 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 	// only one copy appeared, so this read as correct on macOS and failed on
 	// Linux.
 	if plan.UnitPath != "" {
-		outcome.details = append(outcome.details, "unit: "+plan.UnitPath)
+		outcome.details = append(outcome.details, "persistent service, unit: "+plan.UnitPath)
 	}
 	return outcome
 }

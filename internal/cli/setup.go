@@ -1575,9 +1575,36 @@ func readSetupInstantRecord(stateDir string) setupInstantRecord {
 
 // failedSetupComponents is what `doctor` prints: the components the last setup
 // could not build, with the reason and the hint.
-func failedSetupComponents(stateDir string) []setupComponent {
-	_, failed := partitionSetupComponents(readSetupInstantRecord(stateDir).Components)
-	return failed
+// failedSetupComponents returns the components the last setup could not
+// build, with failures that have since been fixed removed.
+//
+// It takes brainDir for the same reason instantPhaseComponents does: a
+// recorded failure is only still a failure if the component's own subsystem
+// has not produced a successful run since. Without that, `brain status`
+// clears a stale failure and `brain doctor` keeps reporting it from the same
+// record -- which is the two-surfaces-disagree bug this rule exists to end,
+// reproduced between a different pair of surfaces.
+func failedSetupComponents(stateDir, brainDir string) []setupComponent {
+	record := readSetupInstantRecord(stateDir)
+	_, failed := partitionSetupComponents(record.Components)
+	return pruneRebuiltFailures(failed, componentRunTimes(brainDir), record.UpdatedAt)
+}
+
+// pruneRebuiltFailures drops failures whose component has produced a
+// successful run since the failure was recorded.
+//
+// One implementation, shared by `status` and `doctor`. They used to each
+// decide for themselves, which is how status came to report a component as
+// built while doctor reported the same record as an error.
+func pruneRebuiltFailures(failed []setupComponent, runs map[string]time.Time, recordedAt time.Time) []setupComponent {
+	kept := make([]setupComponent, 0, len(failed))
+	for _, component := range failed {
+		if componentRebuiltSince(runs, component.Name, recordedAt) {
+			continue
+		}
+		kept = append(kept, component)
+	}
+	return kept
 }
 
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {

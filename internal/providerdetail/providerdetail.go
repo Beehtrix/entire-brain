@@ -172,6 +172,30 @@ func SetupCommand(lookup EnvLookup) string {
 // this: it presupposes an entire-brain source checkout, which someone who
 // installed the brain as a plugin does not have. `graph` is in the official
 // plugin index, so one command installs it from anywhere.
+// MissingSuffix is the clause to append to message: the remedy when the
+// provider is missing, and nothing when message already carries it.
+//
+// A host CLI whose own stderr names `entire plugin install graph` made both
+// the semantic index and the entity index print the install sentence twice,
+// because each decided for itself and neither looked at what the host had
+// already said. Deciding here is the same rule as MissingRemedy: one home,
+// so the two components cannot disagree -- including about when NOT to speak.
+//
+// Note WHICH two strings this reads, because the obvious version is wrong.
+// Whether the provider is missing is decided on the FULL detail, since the
+// marker is often below the host's usage text. Whether the remedy would be a
+// REPEAT is decided on the message being built, which is the summary -- and
+// the summary is exactly what cuts the host's own remedy line. Deduping
+// against the detail therefore suppresses a sentence the reader never
+// received, and the first version of this did that: the output lost the
+// install command entirely for the one host that had tried to be helpful.
+func MissingSuffix(message, detail, graphBinary string, lookup EnvLookup) string {
+	if !Missing(detail) || strings.Contains(message, InstallGraphCommand) {
+		return ""
+	}
+	return "; " + MissingRemedy(graphBinary, lookup)
+}
+
 func MissingRemedy(graphBinary string, lookup EnvLookup) string {
 	binary := strings.TrimSpace(graphBinary)
 	if binary == "" {

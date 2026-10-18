@@ -1317,24 +1317,20 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 	if summary := semanticProviderDetailSummary(detail); summary != "" {
 		message += ": " + summary
 	}
-	if semanticProviderMissing(detail) {
-		// A host CLI whose own error already names the install command
-		// (`entire plugin install graph`) needs no second, older remedy
-		// stacked on top of it.
-		if !strings.Contains(detail, "entire plugin install graph") {
-			binary := strings.TrimSpace(graphBinary)
-			if binary == "" {
-				binary = entireBinaryName
-			}
-			// The shared remedy, not an inline copy: the entity index fails
-			// from the same cause and must say the same thing. It also names
-			// `entire plugin install graph` rather than `scripts/install.sh`,
-			// which assumed a source checkout a plugin user does not have.
-			message += "; " + providerdetail.MissingRemedy(binary, os.LookupEnv)
-		}
-		if semanticDetailMeansProviderAbsent(detail) {
-			return semanticProviderAbsentError{errors.New(message)}
-		}
+	binary := strings.TrimSpace(graphBinary)
+	if binary == "" {
+		binary = entireBinaryName
+	}
+	// One decision, shared with the entity index, about BOTH what the remedy
+	// is and whether to say it. The guard this replaces lived here only, so
+	// the entity index stacked a duplicate on hosts that name the install
+	// command themselves -- and it tested the DETAIL, which is wrong in the
+	// other direction: the message is a summary of the detail, and the
+	// summary is what cuts the host's remedy line, so a multi-line detail
+	// suppressed a sentence the reader never got. See MissingSuffix.
+	message += providerdetail.MissingSuffix(message, detail, binary, os.LookupEnv)
+	if providerdetail.Missing(detail) && semanticDetailMeansProviderAbsent(detail) {
+		return semanticProviderAbsentError{errors.New(message)}
 	}
 	return errors.New(message)
 }

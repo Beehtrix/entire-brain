@@ -78,10 +78,10 @@ func identityError(binary string, err error) error {
 		message += ": " + summary
 	}
 	// Detection runs against the FULL detail, never the summary, so the marker
-	// is still found when the host CLI prints it below its usage text.
-	if providerdetail.Missing(detail) {
-		message += "; " + providerdetail.MissingRemedy(binary, os.LookupEnv)
-	}
+	// is still found when the host CLI prints it below its usage text -- and
+	// so is the host's own copy of the remedy, which MissingSuffix declines to
+	// repeat.
+	message += providerdetail.MissingSuffix(message, detail, binary, os.LookupEnv)
 	return &identityFailure{message: message, cause: err}
 }
 

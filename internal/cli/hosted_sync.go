@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
@@ -16,11 +18,25 @@ import (
 // the caller's environment (the daemon plist bakes PATH at install time).
 const hostEntireBinary = "entire"
 
-// hostedFactsSyncAndPull closes the hosted-memory loop for one branch: publish
-// the branch's local facts through factsync.Sync (read-merge-CAS), record the
-// per-branch hosted target, then merge the settled head — with server-stamped
-// authors — back into the local branch store so teammates' facts become
-// first-class in brief/recall.
+const (
+	// hostedUpsertChunk stays well under brainstore's 5000-record batch cap
+	// and its 32 MiB body cap.
+	hostedUpsertChunk = 1000
+	// hostedFeedPageSize is brainstore's page-size ceiling.
+	hostedFeedPageSize = 100
+	// maxHostedFeedPages bounds one pull so the never-fails path cannot spin
+	// on a pathological feed. ponytail: a delta larger than 20k records
+	// finishes on the next trigger — the cursor persists either way.
+	maxHostedFeedPages = 200
+)
+
+// hostedFactsSyncAndPull closes the hosted-memory loop for one branch on the
+// per-fact wire (COR-2126): batch-upsert this machine's branch store to
+// brainstore, pull the repo-wide delta feed into the repo-level cache, and
+// rebuild the branch store as the pull filter's output plus this machine's
+// own facts the feed has not seen. No CAS, no branch heads, no proposals —
+// per-fact storage keeps conflicting facts side by side and resolution stays
+// deferred to the async pipeline.
 //
 // It is a NEVER-FAILS step: every gated or soft failure is one stderr line and
 // a nil return, because its callers (daemon tick, session-end hook, connect)
@@ -65,108 +81,166 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return false, nil
 	}
-
-	facts, err := loadFacts(storage.BrainDir, branch)
-	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s: %v\n", branch, err)
-		return false, nil
-	}
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
-	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, "")
-	res, err := factsync.Sync(ctx, srv, binding.RepoID, branch, memberID, facts, opts.Now().UTC())
-	if err != nil {
-		// Publish can be denied (missing push grant, 5xx) while the pull grant
-		// works; discarding the readable head would starve this member of the
-		// team's facts — the receive half of the loop. Pull-only: no marker
-		// (the branch did not sync), no proposals, head verified fail-closed.
-		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; attempting pull-only\n", branch, err)
-		pullOnlyHostedFacts(ctx, errW, opts, storage, srv, binding.RepoID, branch)
+
+	pushed, counts := pushHostedFacts(ctx, errW, storage, srv, binding.RepoID, branch)
+	if pushed {
+		// The per-branch marker records that this branch has published against
+		// this target; the blind-spot note keys off its absence. A pull-only
+		// run deliberately leaves it unwritten.
+		if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
+			fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
+		}
+	}
+
+	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
+	if pullErr != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
 		return true, nil
 	}
-	// The per-branch marker records that this branch has synced against this
-	// target; the blind-spot note keys off its absence.
-	if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
-		fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
+	if manifestErr != nil {
+		fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
 	}
-	// Promote raises a keep-both conflict proposal only on FIRST contact (both
-	// facts are in the head afterwards), so dropping res.Proposals here would
-	// lose the review signal forever. Persist to the local review queue like
-	// the manual sync; v1 cuts the hosted queue endpoints, so no publish.
-	if err := persistFactsSyncProposals(storage.BrainDir, branch, res.Proposals); err != nil {
-		fmt.Fprintf(errW, "hosted sync: persist raised conflicts: %v\n", err)
-	}
-
-	// Best-effort attribution: the authors map is additive on the GET response,
-	// so a second read is the only way to fetch it. Failure costs display
-	// attribution, never the pull.
-	var authors map[string]string
-	if _, _, a, found, authorsErr := srv.CurrentWithAuthors(ctx, binding.RepoID, branch); authorsErr == nil && found {
-		authors = a
-	}
-	// The server map is the only attribution source: it overwrites whatever
-	// the blob carried (SanitizeForEgress clears Author on upload, but an old
-	// or hostile peer's value must not survive either). Records absent from
-	// the map arrive unattributed, and Upsert keeps any handle already stored.
-	merged := append([]factmerge.Record(nil), res.Facts...)
-	for i := range merged {
-		merged[i].Author = authors[merged[i].ID]
-	}
-
-	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, merged) {
-		fmt.Fprintf(errW, "hosted sync: branch %s published=%v attempts=%d facts=%d\n", branch, res.Published, res.Attempts, len(res.Facts))
-	}
+	fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
+		branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
 	return true, nil
 }
 
-// pullOnlyHostedFacts is the degraded receive path when publish failed: read
-// the head, verify it fail-closed exactly like Sync does, stamp attribution,
-// and merge it into the local store. Deliberately NOT written: the per-branch
-// marker (this branch has not synced, so the blind-spot note keeps firing)
-// and proposals (no merge ran, none were raised).
-func pullOnlyHostedFacts(ctx context.Context, errW io.Writer, opts Options, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) {
-	_, plaintext, authors, found, err := srv.CurrentWithAuthors(ctx, repoID, branch)
+// pushHostedFacts batch-upserts the branch store. Idempotent server-side, so
+// every trigger can fire it without coordination. Any failure degrades to
+// pull-only: one stderr line, pushed=false, and the caller skips the synced
+// marker so the blind-spot note keeps firing.
+func pushHostedFacts(ctx context.Context, errW io.Writer, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (bool, factsync.UpsertCounts) {
+	facts, err := loadFacts(storage.BrainDir, branch)
 	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull-only read failed: %v\n", branch, err)
-		return
+		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
+		return false, factsync.UpsertCounts{}
 	}
-	if !found || len(plaintext) == 0 {
-		return
+	if len(facts) == 0 {
+		// Nothing to publish counts as a successful (empty) publish; the
+		// server rejects an empty body, so don't send one.
+		return true, factsync.UpsertCounts{}
 	}
-	head, err := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
-	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull-only parse failed: %v\n", branch, err)
-		return
+	// Redact local-only provenance coordinates before these facts leave, and
+	// verify this member's own facts BEFORE publishing them — the server
+	// rejects a whole batch for one malformed record, and a failure the member
+	// produced should be taken here, not exported.
+	egress := factsync.SanitizeForEgress(facts)
+	if err := factmerge.VerifyIdentities(egress); err != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): local fact set is not publishable: %v; pull-only\n", branch, err)
+		return false, factsync.UpsertCounts{}
 	}
-	// Same fail-closed rule as Sync: a head record whose content id does not
-	// re-derive is a forgery and nothing from that head may be merged.
-	if err := factmerge.VerifyIdentities(head); err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull-only refused untrustworthy head: %v\n", branch, err)
-		return
+	var total factsync.UpsertCounts
+	for start := 0; start < len(egress); start += hostedUpsertChunk {
+		end := min(start+hostedUpsertChunk, len(egress))
+		var buf bytes.Buffer
+		if err := factmerge.WriteNDJSON(&buf, egress[start:end]); err != nil {
+			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
+			return false, factsync.UpsertCounts{}
+		}
+		counts, err := srv.UpsertFacts(ctx, repoID, buf.Bytes())
+		if err != nil {
+			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
+			return false, factsync.UpsertCounts{}
+		}
+		total.Added += counts.Added
+		total.Changed += counts.Changed
+		total.Unchanged += counts.Unchanged
 	}
-	for i := range head {
-		head[i].Author = authors[head[i].ID]
-	}
-	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, head) {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull-only facts=%d (local facts not shared)\n", branch, len(head))
-	}
+	return true, total
 }
 
-// mergeHostedFactsIntoLocal writes a verified hosted fact set into the local
-// branch store with the import write composition: everything under one write
-// lock, manifest refresh included; a manifest failure reports alongside the
-// successful pull instead of masking it. upsertFact never moves a local
-// status, so a locally retracted fact stays retracted whatever the head says.
-// The head is authoritative for RETIREMENTS, though: a non-active head status
-// is a settled retraction/supersession and must reach the local store.
-// Lifecycle moves one way — active to retired, never a revival.
-func mergeHostedFactsIntoLocal(errW io.Writer, opts Options, storage repoStorage, branch string, merged []factmerge.Record) bool {
-	var manifestErr error
-	if err := withBrainWriteLock(storage.BrainDir, func() error {
-		existing, loadErr := loadFacts(storage.BrainDir, branch)
-		if loadErr != nil {
-			return loadErr
+// pullHostedFacts fetches the repo delta feed since the stored cursor into
+// the repo-level cache, filters the WHOLE cache by local visibility
+// (keepHostedFact), and rebuilds the branch store from the result. Returns
+// (kept, total cached) for the caller's summary line.
+//
+// Everything runs under the brain write lock: the cache and the branch store
+// must move together, and concurrent triggers (tick, hook, push hint) must
+// not interleave their rebuilds.
+func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage repoStorage, srv *factsync.HTTPServer, repoID, baseURL, token, branch string) (kept, total int, manifestErr, err error) {
+	feedDir, err := hostedFeedDirForKey(opts.Env, storage.Key)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	err = withBrainWriteLock(storage.BrainDir, func() error {
+		state, items, err := loadHostedFeedCache(feedDir)
+		if err != nil {
+			return err
 		}
-		for _, fact := range merged {
+		// A different hosted target invalidates everything: cached facts from
+		// another repo (or another cell) must never rebuild this branch store.
+		if state.RepoID != repoID || state.BaseURL != baseURL {
+			state = hostedFeedState{RepoID: repoID, BaseURL: baseURL}
+			items = make(map[string]factsync.FeedItem)
+		}
+		cursor := state.Cursor
+		cursorReset := false
+		for page := 0; page < maxHostedFeedPages; page++ {
+			feedPage, err := srv.FactsFeedPage(ctx, repoID, cursor, hostedFeedPageSize)
+			if errors.Is(err, factsync.ErrInvalidPageToken) && !cursorReset && cursor != "" {
+				// The server's cursor epoch moved: the stored position is
+				// meaningless, so refetch from the start. The cache rebuild is
+				// idempotent (keyed by fact id).
+				cursorReset = true
+				cursor = ""
+				items = make(map[string]factsync.FeedItem)
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if len(feedPage.Items) == 0 {
+				break
+			}
+			for _, item := range feedPage.Items {
+				if item.Record.ID != "" {
+					items[item.Record.ID] = item
+				}
+			}
+			if feedPage.NextPageToken == nil {
+				break
+			}
+			cursor = *feedPage.NextPageToken
+		}
+
+		member := jwtSubClaim(token)
+		reachable := newCommitReachability(ctx, opts.Runner, repoDir)
+		keptIDs := make(map[string]bool)
+		var keptRecords []factRecord
+		for id, item := range items {
+			if !keepHostedFact(item, member, reachable) {
+				continue
+			}
+			rec := item.Record
+			// Server attribution is the only author source: it overwrites
+			// whatever the wire record carried (an old or hostile peer's value
+			// must not survive).
+			rec.Author = item.CreatedByHandle
+			keptRecords = append(keptRecords, rec)
+			keptIDs[id] = true
+		}
+		// Same fail-closed rule as the old head pull: a record whose content id
+		// does not re-derive is a forgery, and nothing from this feed — cache
+		// and cursor included — may land until the server stops serving it.
+		if err := factmerge.VerifyIdentities(keptRecords); err != nil {
+			return fmt.Errorf("refused untrustworthy feed: %w", err)
+		}
+		sort.Slice(keptRecords, func(i, j int) bool { return keptRecords[i].ID < keptRecords[j].ID })
+
+		if err := writeHostedFeedCache(feedDir, hostedFeedState{RepoID: repoID, BaseURL: baseURL, Cursor: cursor}, items); err != nil {
+			return err
+		}
+
+		existing, err := loadFacts(storage.BrainDir, branch)
+		if err != nil {
+			return err
+		}
+		for _, fact := range keptRecords {
+			// upsertFact never moves a local status, so a locally retracted
+			// fact stays retracted whatever the feed says. The feed is
+			// authoritative for RETIREMENTS, though: lifecycle moves one way —
+			// active to retired, never a revival.
 			existing = upsertFact(existing, fact)
 			if fact.Status == factStatusActive {
 				continue
@@ -177,19 +251,28 @@ func mergeHostedFactsIntoLocal(errW io.Writer, opts Options, storage repoStorage
 				existing[i].UpdatedAt = opts.Now().UTC()
 			}
 		}
-		if err := writeFacts(storage.BrainDir, branch, existing); err != nil {
+		// The branch store is the filter output plus this machine's own facts
+		// the feed has not seen (unsynced or push-denied). A record the feed
+		// knows but the filter rejected is another branch's — or a recycled
+		// name's — fact: drop it. This is what replaces rename/recycle
+		// detection (lineage.json is cancelled).
+		rebuilt := existing[:0]
+		for _, rec := range existing {
+			if _, inFeed := items[rec.ID]; inFeed && !keptIDs[rec.ID] {
+				continue
+			}
+			rebuilt = append(rebuilt, rec)
+		}
+		if err := writeFacts(storage.BrainDir, branch, rebuilt); err != nil {
 			return err
 		}
+		// A manifest failure reports alongside the successful pull instead of
+		// masking it.
 		manifestErr = updateFactSourceManifestLocked(storage.BrainDir, opts.Now().UTC())
+		kept, total = len(keptRecords), len(items)
 		return nil
-	}); err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local store unchanged): %v\n", branch, err)
-		return false
-	}
-	if manifestErr != nil {
-		fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
-	}
-	return true
+	})
+	return kept, total, manifestErr, err
 }
 
 // hostedSyncBranch resolves the branch a hosted sync step should cover: the

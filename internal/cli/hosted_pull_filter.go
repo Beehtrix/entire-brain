@@ -36,16 +36,22 @@ func newCommitReachability(ctx context.Context, runner CommandRunner, repoDir st
 //  1. A merged trail id — stamped by brainstore only at trail merge — marks
 //     the fact main-visible even when its anchor commits never became
 //     ancestors (squash merges rewrite them).
-//  2. Any anchor commit reachable from HEAD.
-//  3. The member's own facts follow them to every machine.
+//  2. The member's own facts follow them to every machine. Checked before
+//     reachability: it is free, the anchor loop shells out to git, and the
+//     caller holds the brain write lock — a member's own commit-anchored
+//     facts (the common case) must not each cost a git invocation there.
+//  3. Any anchor commit reachable from HEAD.
 //  4. No session/commit anchors at all: the repo pool, kept by everyone.
 //
-// ponytail: rule 3 keys on the fact's server-stamped creator, not per-anchor
+// ponytail: rule 2 keys on the fact's server-stamped creator, not per-anchor
 // session ownership — a teammate-created fact that unions in one of this
 // member's session anchors is dropped until its commits merge. Upgrade path:
 // match anchor session ids against the local session manifest as well.
 func keepHostedFact(item factsync.FeedItem, memberAccountID string, reachable func(string) bool) bool {
 	if item.TrailID != "" {
+		return true
+	}
+	if memberAccountID != "" && item.CreatedBy == memberAccountID {
 		return true
 	}
 	anchored := false
@@ -57,10 +63,19 @@ func keepHostedFact(item factsync.FeedItem, memberAccountID string, reachable fu
 			anchored = true
 		}
 	}
-	if memberAccountID != "" && item.CreatedBy == memberAccountID {
-		return true
-	}
 	return !anchored
+}
+
+// hasLocalProvenance reports whether a record carries an anchor only this
+// machine's distill could have written: the brain-relative transcript path,
+// which SanitizeForEgress strips before any record leaves.
+func hasLocalProvenance(rec factRecord) bool {
+	for _, anchor := range rec.Provenance {
+		if anchor.Transcript != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // jwtSubClaim extracts the sub claim from a JWT without verifying it. The

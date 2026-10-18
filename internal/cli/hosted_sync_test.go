@@ -903,3 +903,78 @@ func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 		t.Fatal("a forged feed must leave the local store byte-identical on the pull-only path too")
 	}
 }
+
+func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
+	// Attribution collision: two members distill the same text+paths, the
+	// teammate's push wins first-writer attribution, and this machine's copy —
+	// session-anchored, commit unreachable — fails the filter. The local copy
+	// carries a transcript anchor (local-only provenance SanitizeForEgress
+	// strips on push), which proves it was distilled HERE: it must survive.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	mine := hostedSyncAnchoredFact("independently distilled fact", now,
+		factmerge.Anchor{SessionID: "local-session", Transcript: "export/sessions/local.ndjson", Line: 3})
+	theirs := hostedSyncAnchoredFact("independently distilled fact", now,
+		factmerge.Anchor{SessionID: "their-session"})
+	fake := &hostedFake{denyPush: true}
+	fake.seed(theirs, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == mine.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a locally distilled fact must survive the removal pass even when the feed's copy fails the filter")
+	}
+}
+
+func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
+	// A token whose sub claim cannot be read disables the member rule; with it
+	// the removal pass must stand down too, or every previously pushed
+	// session-anchored fact on this machine would be silently evicted.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	cached := hostedSyncAnchoredFact("fact this machine pushed earlier", now, factmerge.Anchor{SessionID: "s1"})
+	fake := &hostedFake{}
+	fake.seed(cached, "", "ulrich", "ulrich")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{cached}); err != nil {
+		t.Fatal(err)
+	}
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte("aa.bb.cc\n"), nil, nil // passes looksLikeJWT, sub unreadable
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == cached.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("with no member identity the removal pass must stand down, not evict the machine's facts")
+	}
+}

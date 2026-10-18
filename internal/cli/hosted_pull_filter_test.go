@@ -88,3 +88,15 @@ func TestJwtSubClaim(t *testing.T) {
 		}
 	}
 }
+
+func TestKeepHostedFactMemberRuleCostsNoGitCalls(t *testing.T) {
+	calls := 0
+	reachable := func(string) bool { calls++; return false }
+	it := item("", "me", factmerge.Anchor{SessionID: "s", Commit: "c1"}, factmerge.Anchor{Commit: "c2"})
+	if !keepHostedFact(it, "me", reachable) {
+		t.Fatal("member rule must keep the fact")
+	}
+	if calls != 0 {
+		t.Fatalf("the member's own facts must not cost reachability checks, got %d", calls)
+	}
+}

@@ -255,10 +255,17 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 		// the feed has not seen (unsynced or push-denied). A record the feed
 		// knows but the filter rejected is another branch's — or a recycled
 		// name's — fact: drop it. This is what replaces rename/recycle
-		// detection (lineage.json is cancelled).
+		// detection (lineage.json is cancelled). Two stand-downs guard against
+		// evicting this machine's own knowledge: a transcript anchor is proof
+		// the fact was distilled HERE (SanitizeForEgress strips it on push, so
+		// a pulled copy can never carry one) and exempts the record even when
+		// the feed's copy — first-writer attribution can belong to a teammate
+		// who pushed the same statement first — fails the filter; and with no
+		// member identity the filter cannot recognize this member's facts at
+		// all, so removal is disabled rather than evicting them wholesale.
 		rebuilt := existing[:0]
 		for _, rec := range existing {
-			if _, inFeed := items[rec.ID]; inFeed && !keptIDs[rec.ID] {
+			if _, inFeed := items[rec.ID]; member != "" && inFeed && !keptIDs[rec.ID] && !hasLocalProvenance(rec) {
 				continue
 			}
 			rebuilt = append(rebuilt, rec)

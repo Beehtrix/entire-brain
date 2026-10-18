@@ -16,7 +16,7 @@
 - Gate ladder order fixed: kill switch → repo binding present/opt-out → `apiurl.Validate` → `mintHostedToken`. Unchanged from today.
 - Pull-only degradation: a failed/denied push must not prevent the pull, and must not write the per-branch synced marker (`writeHostedFactsBinding`) — the blind-spot note keys off its absence.
 - `SanitizeForEgress` before any record leaves; `factmerge.VerifyIdentities` on local facts before push (server rejects a whole batch on one bad record).
-- Wire paths are BARE: `POST {base}/repos/{id}/brain/facts:upsert`, `GET {base}/repos/{id}/brain/facts` — no `/api/v1` prefix. Repo id validated via `repoid.Validate` before any request exists.
+- Wire paths carry the gateway's `/api/v1` prefix like every other route: `POST {base}/api/v1/repos/{id}/brain/facts:upsert`, `GET {base}/api/v1/repos/{id}/brain/facts` (live-verified during Task 6; the bare path 404s). Repo id validated via `repoid.Validate` before any request exists.
 - Server caps: 5000 records/batch, 32 MiB body. Client chunks at 1000 records.
 - Feed paging: `pageSize` ≤ 100 server-side; every non-empty page returns `nextPageToken`; only an empty page is terminal. Invalid `pageToken` is a 400 → client resets cursor + cache and refetches.
 - Lifecycle stays one-way: pull may move a local fact active → superseded/retracted, never revive one.

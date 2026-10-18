@@ -1336,11 +1336,16 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 		verb = "updated"
 	}
 	outcome := setupDaemonOutcome{state: after, summary: "background watcher " + verb}
-	// Say plainly, at the moment of install, that this is a persistent service
-	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
-	// does not tell a first-time reader that something now survives reboots.
+	// The unit path, and ONLY the unit path. Saying "a persistent service
+	// that starts again at every login" here as well is the UX-24 duplicate:
+	// the pre-flight line already said it, in the same words, BEFORE the
+	// install -- which is the half that can still be acted on. Repeating it
+	// underneath afterwards warns about something that has already happened.
+	// Platform-dependent, too: on a host where the preflight did not fire
+	// only one copy appeared, so this read as correct on macOS and failed on
+	// Linux.
 	if plan.UnitPath != "" {
-		outcome.details = append(outcome.details, "persistent service, starts again at every login: "+plan.UnitPath)
+		outcome.details = append(outcome.details, "unit: "+plan.UnitPath)
 	}
 	return outcome
 }

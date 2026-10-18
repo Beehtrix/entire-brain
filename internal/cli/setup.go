@@ -831,10 +831,20 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	agentsPhase := run.Begin(setupui.PhaseAgents)
 	agentsPhase.Step("session-end hook")
 	report.Hook = inspectSessionEndHook(repoDir)
-	if line, ok := setupHookSummary(report.Hook, rend.Dash()); ok {
-		agentsPhase.OK(line)
+	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
+
+	// The push hook rides this phase for the reason the phase exists: both
+	// hooks are wiring that makes later work reach the brain without anyone
+	// remembering to run anything. It arrived on main as a flat block after
+	// the watcher; it depends on nothing the watcher does, so it belongs
+	// beside the hook it is a sibling of rather than in a row of its own.
+	agentsPhase.Step("push hook")
+	pushDetails := refreshSetupPushHook(ctx, opts, repoDir, brainCmd)
+
+	if hookWired {
+		agentsPhase.OK(hookLine, pushDetails...)
 	} else {
-		agentsPhase.Skip(line)
+		agentsPhase.Skip(hookLine, pushDetails...)
 	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
@@ -993,7 +1003,7 @@ func renderSetupReady(run *setupui.Run, rend *setupui.Renderer, report setupRepo
 		Failures:  run.Failures(),
 	}
 	if queryable {
-		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending())
+		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending(), setupOffersConnect(report.BrainPath))
 	}
 	verdict := summary.Verdict(rend)
 	if total := timings.total(); total > 0 {
@@ -1019,6 +1029,13 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 		return steps.uninstall(ctx, plan)
 	}); err != nil {
 		return err
+	}
+	// Remove our pre-push hook (restoring any hook we had chained to).
+	// Best-effort: a hook problem must not block the daemon uninstall report.
+	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
+		}
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {
@@ -1895,5 +1912,36 @@ func describeDaemonState(state daemonState, brainCmd string) string {
 		return fmt.Sprintf("installed but not running (%s)", state.Label)
 	default:
 		return "not installed"
+	}
+}
+
+// refreshSetupPushHook refreshes an ALREADY-INSTALLED pre-push hook and
+// returns the detail line describing what happened.
+//
+// Setup owns the upgrade beat because the baked plugin path goes stale when
+// the binary moves and the hook's [ -x ] guard turns that into a silent
+// no-op. Fresh installs stay with `connect`: a bare setup after a disconnect
+// must not resurrect the hook, and setup on a never-connected repo must not
+// rearrange another tool's hooks for a feature that is switched off.
+//
+// Every branch returns a line, including the ones that did nothing, because
+// these are phase DETAILS -- `--verbose` only -- and the reader who asked for
+// them is the one who wants to know why their push is not uploading.
+func refreshSetupPushHook(ctx context.Context, opts Options, repoDir, brainCmd string) []string {
+	state, path, err := refreshPushHook(ctx, opts, repoDir)
+	if err != nil {
+		return []string{"push hook not refreshed (uploads ride the daemon tick): " + setupui.FlattenText(err.Error())}
+	}
+	switch state {
+	case pushHookSharedDir:
+		return []string{"push hook: core.hooksPath is shared across repos (" + path + "); not managed - uploads ride the daemon tick"}
+	case pushHookAbsent:
+		return []string{"push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
+	case pushHookUnchanged:
+		return []string{"push hook already current (" + path + ")"}
+	case pushHookChainedIn:
+		return []string{"push hook runs via the host CLI's chain (" + path + ")"}
+	default:
+		return []string{"push hook refreshed (" + path + ")"}
 	}
 }

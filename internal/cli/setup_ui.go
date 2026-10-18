@@ -545,7 +545,21 @@ func setupWarningRows(warnings []string) []setupui.Line {
 
 // setupNextSteps are the runnable follow-ups the Ready block prints. Every one
 // of them is spelled the way the reader reached this binary.
-func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int) []setupui.NextStep {
+// setupOffersConnect reports whether onboarding should name `connect`.
+//
+// Hosted sync is off by default and `connect` is the only opt-in, so setup is
+// the one moment a person learns it exists. A repo that is already bound, or
+// that explicitly opted out, is not nagged -- both of those are recorded in
+// the same binding, so one read answers both. The read is render-only, like
+// the coverage line: `setup --json` is a published contract and this must not
+// reach it. An unreadable binding offers the step: being told about a command
+// that turns out to be unnecessary is the cheaper of the two mistakes.
+func setupOffersConnect(brainPath string) bool {
+	_, present, err := readHostedRepoBinding(brainPath)
+	return err != nil || !present
+}
+
+func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect bool) []setupui.NextStep {
 	cmd := setupBrainCommand(brainCmd)
 	next := []setupui.NextStep{
 		{Command: cmd + " overview", Why: "what this project is"},
@@ -556,6 +570,12 @@ func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int) 
 		next = append(next, setupui.NextStep{
 			Command: cmd + " distill",
 			Why:     "turn " + strconv.Itoa(pendingSessions) + " pending session(s) into facts (spends tokens)",
+		})
+	}
+	if offerConnect {
+		next = append(next, setupui.NextStep{
+			Command: cmd + " connect",
+			Why:     "sync memories with your team (off by default)",
 		})
 	}
 	if daemonInstalled {

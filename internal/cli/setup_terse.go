@@ -46,6 +46,11 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 		}
 	}
 
+	// Same read as the verbose Next block, same rule: not already bound, not
+	// explicitly opted out. The short form is the DEFAULT, so this is where
+	// the opt-in actually gets discovered.
+	out.OfferConnect = setupOffersConnect(report.BrainPath)
+
 	out.Distill = terseDistillOutcome(report)
 	if out.Distill == setupui.DistillFailed {
 		out.DistillReason = setupui.FlattenText(report.Backfill.Detail)

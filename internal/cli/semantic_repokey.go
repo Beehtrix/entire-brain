@@ -192,7 +192,7 @@ func shellQuotedRepoDir(repoDir string) string {
 		return "."
 	}
 	if strings.ContainsAny(repoDir, " \t\"'") {
-		return "'" + strings.ReplaceAll(repoDir, "'", `'\''`) + "'"
+		return shellSingleQuote(repoDir)
 	}
 	return repoDir
 }

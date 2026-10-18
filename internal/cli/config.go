@@ -43,9 +43,9 @@ type configReport struct {
 	// DomainSlugs is the persisted content of brain.json. Always emitted, even
 	// when empty, so the shape of this report does not change under a caller.
 	DomainSlugs map[string]string `json:"domain_slugs"`
-	// NoEgress is the master local-only switch (ENTIRE_BRAIN_NO_EGRESS /
-	// ENTIRE_BRAIN_LOCAL_ONLY) that hosted publish, fact sync and non-local
-	// agents fail closed against.
+	// NoEgress is the master kill switch (ENTIRE_BRAIN_NO_EGRESS, deprecated
+	// alias ENTIRE_BRAIN_LOCAL_ONLY) that hosted publish, fact sync and
+	// non-local agents fail closed against.
 	NoEgress bool `json:"no_egress"`
 	// MCPGraphBinary is the semantic-provider binary the MCP server resolves
 	// from its own environment (ENTIRE_BRAIN_GRAPH_BINARY, else "entire"). It is

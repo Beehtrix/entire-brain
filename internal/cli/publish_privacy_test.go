@@ -69,7 +69,6 @@ func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {
 func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 	for _, failUpload := range []bool{false, true} {
 		t.Run(map[bool]string{false: "success", true: "failure"}[failUpload], func(t *testing.T) {
-			t.Setenv(envBrainAllowHosted, "1")
 			t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 			t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 			dataDir := t.TempDir()
@@ -159,7 +158,6 @@ func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 }
 
 func TestPublishPrivacyCorruptPolicyRefusesUpload(t *testing.T) {
-	t.Setenv(envBrainAllowHosted, "1")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
 	dataDir := t.TempDir()

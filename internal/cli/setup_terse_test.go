@@ -240,3 +240,126 @@ func TestProgressWriterIsOnlySilencedByJSON(t *testing.T) {
 		t.Fatalf("--json must silence the reporter to keep stdout parseable, got %T", got)
 	}
 }
+
+// TestConnectOfferSurvivesTheShortForm is the merge guard for COR-2112.
+//
+// Hosted sync is opt-in and `connect` is the only way in, so main put it in
+// setup's closing Next block. The short form replaced that block as the
+// DEFAULT output, which would have retired the only announcement the feature
+// has without anyone deciding to. These three assertions are the whole
+// contract: offered when nothing is bound, silent once something is, and
+// silent again when the person has said no.
+func TestConnectOfferSurvivesTheShortForm(t *testing.T) {
+	t.Parallel()
+	brainDir := t.TempDir()
+
+	if !setupOffersConnect(brainDir) {
+		t.Fatal("a repo with no binding has never been told `connect` exists; it must be offered")
+	}
+
+	// The rendered line, not just the flag: a bool nobody prints is not a
+	// feature.
+	out := renderTerseFor(t, setupui.TerseReport{Queryable: true, BrainCmd: "entire brain", OfferConnect: true})
+	if !strings.Contains(out, "entire brain connect") {
+		t.Fatalf("the short form must name the command:\n%s", out)
+	}
+	if off := renderTerseFor(t, setupui.TerseReport{Queryable: true, BrainCmd: "entire brain"}); strings.Contains(off, "connect") {
+		t.Fatalf("a bound repo must not be nagged:\n%s", off)
+	}
+
+	// And the wiring between the two. Asserting the predicate and the
+	// renderer separately leaves the line that joins them untested, which is
+	// exactly how this got lost in the merge in the first place.
+	report := setupReport{BrainPath: brainDir}
+	if !terseReportFor(report, nil, true, defaultSetupOptions(), "entire brain").OfferConnect {
+		t.Fatal("terseReportFor must carry the offer, not just be able to compute it")
+	}
+
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	if setupOffersConnect(brainDir) {
+		t.Fatal("a repo that is already connected must not be told to connect")
+	}
+
+	if _, err := setHostedOptOut(brainDir); err != nil {
+		t.Fatal(err)
+	}
+	if setupOffersConnect(brainDir) {
+		t.Fatal("an explicit opt-out is a decision, not a prompt to re-ask")
+	}
+}
+
+// TestUpToDateRerunDoesNotRepeatTheConnectOffer keeps the discovery a
+// discovery. The one-line re-run is the output a person sees most often, and
+// a sales line on every single run is the noise this whole PR removes.
+func TestUpToDateRerunDoesNotRepeatTheConnectOffer(t *testing.T) {
+	t.Parallel()
+	out := renderTerseFor(t, setupui.TerseReport{
+		Queryable:    true,
+		UpToDate:     true,
+		BrainCmd:     "entire brain",
+		OfferConnect: true,
+	})
+	if strings.Contains(out, "connect") {
+		t.Fatalf("an up-to-date re-run must stay one line:\n%s", out)
+	}
+}
+
+// renderTerseFor renders the short form into a string.
+func renderTerseFor(t *testing.T, rep setupui.TerseReport) string {
+	t.Helper()
+	var buf bytes.Buffer
+	theme, _ := tui.ThemeByName("default")
+	setupui.RenderTerse(&buf, setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200), rep)
+	return buf.String()
+}
+
+// TestVerboseNextBlockStillNamesConnect holds the surface main actually
+// changed. The short form is the default, but `--verbose` is what a person
+// reaches for when setup did something they did not expect, and the Next
+// block there is where `connect` was announced before this PR existed.
+func TestVerboseNextBlockStillNamesConnect(t *testing.T) {
+	t.Parallel()
+	named := func(steps []setupui.NextStep) bool {
+		for _, step := range steps {
+			if strings.Contains(step.Command, "connect") {
+				return true
+			}
+		}
+		return false
+	}
+	if !named(setupNextSteps("entire brain", false, 0, true)) {
+		t.Fatal("an unconnected repo must be offered `connect` in the Next block")
+	}
+	if named(setupNextSteps("entire brain", false, 0, false)) {
+		t.Fatal("a connected or opted-out repo must not be offered it")
+	}
+}
+
+// TestSetupStillRefreshesThePushHook is the second merge guard.
+//
+// main added the push-hook refresh as a flat block after the watcher; this PR
+// replaced that whole region with phases, so the refresh had to move or be
+// lost. Nothing on main asserted setup called it at all -- the block was only
+// ever progress text -- which is precisely why it was one `--ours` away from
+// disappearing. The AGENTS phase is where it lives now, and `--verbose` is
+// where its line shows.
+func TestSetupStillRefreshesThePushHook(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	opts.noBackfill = true
+
+	out := runSetupForTest(t, f, opts, rec) // forces verbose
+
+	if !strings.Contains(out, "push hook") {
+		t.Fatalf("setup must still report what it did about the push hook:\n%s", out)
+	}
+	// And not in the default output: it is a detail, and details are what
+	// --verbose is for.
+	if terse := runSetupTerseForTest(t, newSetupTestFixture(t), opts, &recordedSetup{}); strings.Contains(terse, "push hook") {
+		t.Fatalf("the short form must not carry hook plumbing:\n%s", terse)
+	}
+}

@@ -94,6 +94,15 @@ type TerseReport struct {
 
 	// BrainCmd is the command name to put in the "try this" line.
 	BrainCmd string
+
+	// OfferConnect asks for one closing line about team sync.
+	//
+	// Hosted sync is off unless someone runs `connect`, and the short form is
+	// now the default output, so without this the only place the feature is
+	// announced is a block most people never see. It is deliberately NOT
+	// shown on an up-to-date re-run: onboarding is a moment, and a line that
+	// reappears every run is a nag rather than a discovery.
+	OfferConnect bool
 }
 
 // RenderTerse writes the short form.
@@ -148,6 +157,9 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	fmt.Fprintln(w)
 	if rep.Queryable {
 		fmt.Fprintf(w, "Ready. Try: %s brief \"<your task>\"\n", brainCmd)
+		if rep.OfferConnect {
+			fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
+		}
 		return
 	}
 	fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)

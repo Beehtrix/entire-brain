@@ -121,9 +121,14 @@ func TestSemanticIndexNamesTheMissingGraphPlugin(t *testing.T) {
 	// The install step must be RUNNABLE for this reader: `graph` is in the
 	// official plugin index, whereas the `scripts/install.sh` form this
 	// replaced presupposes an entire-brain source checkout a plugin user does
-	// not have.
+	// not have. Asserted through the shared constant so the message and the
+	// test cannot drift, and paired with the negative: naming the runnable
+	// command is not enough if the unrunnable one is still there beside it.
 	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, providerdetail.InstallGraphCommand) {
-		t.Fatalf("a missing plugin must name the install step, got: %s", message)
+		t.Fatalf("a missing plugin must name an install step the reader can run, got: %s", message)
+	}
+	if strings.Contains(message, "scripts/install.sh") {
+		t.Fatalf("the message sends the reader to a source checkout they may not have, got: %s", message)
 	}
 	if strings.Contains(message, "scripts/install.sh") {
 		t.Fatalf("remedy still points at a source checkout: %s", message)

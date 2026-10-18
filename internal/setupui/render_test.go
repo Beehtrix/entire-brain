@@ -161,15 +161,50 @@ func TestPipeModeIsGolden(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(golden)
+	raw, err := os.ReadFile(golden)
 	if err != nil {
 		t.Fatalf("read golden: %v (regenerate with UPDATE_GOLDEN=1)", err)
 	}
-	if len(want) == 0 {
+	if len(raw) == 0 {
 		t.Fatal("non-vacuity: the golden file is empty")
 	}
-	if out != string(want) {
-		t.Errorf("pipe output drifted.\n--- got ---\n%s\n--- want ---\n%s", out, want)
+	// Normalise line endings before comparing. A Windows checkout hands this
+	// file back with CRLF unless .gitattributes pins it, and the failure is
+	// invisible: got and want print identically and differ by one byte per
+	// line. The pin is there too -- this is the half that cannot rot, because
+	// it does not depend on how the tree was checked out.
+	want := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	if out != want {
+		t.Errorf("pipe output drifted.\n--- got ---\n%q\n--- want ---\n%q", out, want)
+	}
+}
+
+// TestTheGoldenIsComparedByBytesNotByEyes guards the guard.
+//
+// The CRLF failure above printed two blocks that looked character-for-
+// character identical, because a terminal does not show you a \r. %q in the
+// message is what makes the next one readable; this asserts the comparison
+// itself is still exact, so normalising line endings has not quietly turned
+// the golden test into a fuzzy match.
+func TestTheGoldenIsComparedByBytesNotByEyes(t *testing.T) {
+	t.Parallel()
+	out, _ := renderRun(scriptedRun, tui.PlainCaps(), 100)
+	raw, err := os.ReadFile(filepath.Join("testdata", "pipe.golden"))
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	want := strings.ReplaceAll(string(raw), "\r\n", "\n")
+
+	// One space added anywhere must still fail.
+	if out == want+" " {
+		t.Fatal("comparison is not exact: trailing whitespace was ignored")
+	}
+	if strings.TrimSpace(out) == out && strings.TrimSpace(want) != want {
+		t.Fatal("comparison tolerates leading or trailing whitespace drift")
+	}
+	// And CRLF in the OUTPUT is still a defect; only the FILE is normalised.
+	if strings.Contains(out, "\r") {
+		t.Error("the renderer emitted a carriage return into pipe output")
 	}
 }
 

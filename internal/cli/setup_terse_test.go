@@ -533,9 +533,22 @@ func TestSetupItselfFlagsTheEmptyRepository(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	repoDir := t.TempDir()
+	// NOT t.TempDir(). Its cleanup is a strict RemoveAll, and on Windows a
+	// directory cannot be removed while any handle into it is open -- this
+	// path runs real `git` subprocesses and opens the brain's stores, so the
+	// cleanup failed the test on content it had already asserted correctly.
+	// The directory still goes; failing to remove it does not fail the run.
+	repoDir, err := os.MkdirTemp("", "brain-empty-repo-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(repoDir) })
 	gitAt(t, repoDir, "init", "-q")
-	home := t.TempDir()
+	home, err := os.MkdirTemp("", "brain-empty-home-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	isolateDaemonEnv(t, home)
 	env := semanticTestEnv(t, repoDir)
 	env.RepoRoot = repoDir

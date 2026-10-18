@@ -723,7 +723,7 @@ entire brain recall "MirrorCommittedMetadataRef" --expand
 When a task depends on structure rather than text, the agent should use semantic
 tools. The normal path is: find candidate symbols, inspect relation-aware
 context, inspect likely impact, then ask for tests. The normal tools are
-`brain_code` or `brain_search_code`, followed by `brain_context`,
+`brain_code`, followed by `brain_context`,
 `brain_impact`, and `brain_tests`.
 
 This is where `entire-graph` matters. It is not an agent memory layer; it is the

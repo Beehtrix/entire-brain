@@ -299,14 +299,14 @@ func TestSetupAndDoctorDoNotReferToEachOther(t *testing.T) {
 // TestDoctorCaptureCheckDoesNotRecommendANoOp is the third site of the same
 // self-referential-remedy class. doctor's `capture` check answered BOTH "the
 // sessions stage never ran" and "it ran and Entire has captured nothing" with
-// "run `entire brain refresh`". For the second, refresh succeeds, exports zero
+// "run `"+brainInvocation(os.LookupEnv, "refresh")+"`". For the second, refresh succeeds, exports zero
 // sessions again, and doctor re-prints the identical line forever.
 func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	ran := captureCheckFor(t, true)
 	if ran.State != "ok" {
 		t.Errorf("a repo that has captured nothing yet is not broken: %+v", ran)
 	}
-	if strings.Contains(ran.Detail, "entire brain refresh") {
+	if strings.Contains(ran.Detail, ""+brainInvocation(os.LookupEnv, "refresh")+"") {
 		t.Errorf("the remedy for 'nothing captured yet' cannot be a refresh that captures nothing: %s", ran.Detail)
 	}
 	for _, want := range []string{"no captured sessions", "entire checkpoint list"} {
@@ -317,7 +317,7 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	// The stage genuinely not having run still points at the stage.
 	//
 	// Asserted through brainInvocation, not against the literal
-	// "entire brain refresh": #348 made every printed remedy use the
+	// ""+brainInvocation(os.LookupEnv, "refresh")+"": #348 made every printed remedy use the
 	// reader's own dispatch spelling, so a standalone install is told
 	// `entire-brain refresh`. Pinning one spelling here would fail that
 	// change for being correct.
@@ -432,8 +432,17 @@ func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
 	if err := runSetup(context.Background(), setupTestCommand(t, out, setupOpts), f.opts, setupOpts, f.repoDir, steps); err != nil {
 		t.Fatalf("one failed component must not fail setup: %v\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "no captured sessions") {
-		t.Fatalf("setup must explain the state rather than only report it:\n%s", out)
+	// The state must be EXPLAINED, not merely reported. The short form is the
+	// default now and says it in a reader's words ("No past sessions to
+	// distill -- memories accrue as you work"); the verbose report keeps the
+	// component phrasing ("no captured sessions"). Either is the explanation
+	// this test is about; what would fail it is a bare failure with no
+	// account of why.
+	printed := out.String()
+	explained := strings.Contains(printed, "no captured sessions") ||
+		strings.Contains(printed, "No past sessions to distill")
+	if !explained {
+		t.Fatalf("setup must explain the state rather than only report it:\n%s", printed)
 	}
 	// Fault 2, setup's half: the hint's own remedy is `setup`, so adding a
 	// referral to `doctor` would close the circle.

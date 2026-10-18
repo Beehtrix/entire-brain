@@ -130,10 +130,16 @@ func Consent(req ConsentRequest, in io.Reader, out io.Writer, r *Renderer) Conse
 	}
 
 	switch {
-	case req.Override == OverrideNo:
-		return ConsentOutcome{Reason: "not distilled (--no-backfill); start later: " + resume, Why: ConsentReasonNoBackfill}
+	// Nothing to distill comes FIRST, ahead of --no-backfill. The flag
+	// declines work; it cannot decline work that does not exist, and saying
+	// "not distilled (--no-backfill)" to someone whose repo has no captured
+	// sessions reports a decision instead of explaining the state. The state
+	// is that there is nothing here yet, and that is not a problem -- it is
+	// what every repository looks like before its first agent session.
 	case req.Sessions <= 0:
 		return ConsentOutcome{Reason: "no sessions to distill; the brain is queryable now", Why: ConsentReasonNoSessions}
+	case req.Override == OverrideNo:
+		return ConsentOutcome{Reason: "not distilled (--no-backfill); start later: " + resume, Why: ConsentReasonNoBackfill}
 	case req.Agent == "":
 		return ConsentOutcome{Reason: "no agent CLI on PATH, nothing can distill; " + RemedyAgent, Why: ConsentReasonNoAgent}
 	case req.Override == OverrideYes:

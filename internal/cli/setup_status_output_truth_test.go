@@ -200,9 +200,15 @@ func TestSetupSummaryUnchangedWhenNoComponentsWereReported(t *testing.T) {
 	}
 }
 
-// TestSetupExitsZeroButSaysWhatIsUnavailable is the whole-run property: the
-// exit code is deliberately unchanged (one component built, so the brain is
-// worth keeping) and the words are not.
+// TestSetupExitsZeroButSaysWhatIsUnavailable: the words are the point.
+//
+// The NAME is now half wrong and is kept so the history is findable. The exit
+// code is no longer unconditionally zero: the stack settled that it follows
+// queryability, and with both the seed baseline and the semantic index down
+// there is nothing for a query to read. What this test is actually for -- that
+// the run says WHICH sources are unavailable rather than only that something
+// is -- is unchanged, and is asserted below against the error and the output
+// together.
 func TestSetupExitsZeroButSaysWhatIsUnavailable(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
 	rec := &recordedSetup{instantComponents: []setupComponent{
@@ -215,15 +221,36 @@ func TestSetupExitsZeroButSaysWhatIsUnavailable(t *testing.T) {
 	opts.noBackfill = true
 
 	out := &bytes.Buffer{}
-	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
-		t.Fatalf("one surviving component still exits 0: %v", err)
+	err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f))
+	if err == nil {
+		t.Fatal("with no index and no baseline a query has nothing to read; the exit code follows queryability")
+	}
+	// The refusal names the sources, not just the state.
+	for _, want := range []string{"seed baseline", "semantic index"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %q: %v", want, err)
+		}
 	}
 	printed := out.String()
 	if strings.Contains(printed, "the brain is queryable now") {
 		t.Fatalf("setup claimed queryability with no index and no baseline:\n%s", printed)
 	}
-	if !strings.Contains(printed, "no semantic index and no seed baseline") {
-		t.Fatalf("setup must name what is unavailable:\n%s", printed)
+
+	// The full phrasing lives on the BUILD line, which is the verbose report:
+	// #401 made the short form the default, and it names missing capabilities
+	// in a reader's words ("semantic search") rather than component ids. Both
+	// are right for their surface, so this asks the surface that carries the
+	// sentence it is about.
+	verbose := opts
+	verbose.verbose = true
+	vout := &bytes.Buffer{}
+	rec2 := &recordedSetup{instantComponents: rec.instantComponents}
+	f2 := newSetupTestFixture(t, "s1")
+	if err := runSetup(context.Background(), setupTestCommand(t, vout, verbose), f2.opts, verbose, f2.repoDir, rec2.steps(f2)); err == nil {
+		t.Fatal("the verbose run must refuse for the same reason")
+	}
+	if !strings.Contains(vout.String(), "no semantic index and no seed baseline") {
+		t.Fatalf("the build line must name what is unavailable:\n%s", vout)
 	}
 }
 

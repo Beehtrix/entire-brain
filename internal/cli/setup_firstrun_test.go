@@ -649,7 +649,7 @@ func TestRoutedDiscoveryFailureKeepsItsOwnDetail(t *testing.T) {
 // `entire-brain setup` -- the command setup's own "Next" block recommends --
 // answered without its transcript half and printed
 //
-//	warning: history index missing; run `entire brain refresh`
+//	warning: history index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`
 //
 // Reproduced against a real captured session in scripts/demo-agent-session.sh:
 // the brief returned the distilled fact but no `history` line until a bare

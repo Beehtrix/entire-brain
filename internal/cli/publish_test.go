@@ -162,7 +162,7 @@ func TestPublishRefusesWithoutTarget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("publish succeeded on ambient env vars alone; want refusal. output:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "opt-in") || !strings.Contains(err.Error(), "entire brain connect") {
+	if !strings.Contains(err.Error(), "opt-in") || !strings.Contains(err.Error(), ""+brainInvocation(os.LookupEnv, "connect")+"") {
 		t.Fatalf("refusal should explain the opt-in and name connect; got: %v", err)
 	}
 }

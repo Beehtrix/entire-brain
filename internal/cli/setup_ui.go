@@ -606,7 +606,14 @@ func setupConsentOverride(setupOpts setupCommandOptions) setupui.Override {
 	switch {
 	case setupOpts.noBackfill:
 		return setupui.OverrideNo
-	case setupOpts.yes:
+	case setupOpts.yes, setupOpts.backfill:
+		// --backfill belongs here as much as --yes does. It is #342's
+		// affirmative override -- "start the backfill even if a previous run
+		// declined it (SPENDS TOKENS)" -- so a reader who passes it has
+		// already answered the question this gate asks. Without it the flag
+		// cleared the remembered decline and was then stopped by the prompt
+		// it had just answered, which on a non-interactive run means it did
+		// nothing at all.
 		return setupui.OverrideYes
 	default:
 		return setupui.OverrideNone

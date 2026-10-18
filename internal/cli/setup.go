@@ -409,6 +409,12 @@ func setupComponentNoun(n int) string {
 // top-level line either.
 func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string) []string {
 	details := make([]string, 0, 2*len(failed))
+	// One remedy, one appearance. Two components can fail for the same
+	// reason -- a dirty worktree stops both the seed baseline and the
+	// semantic index -- and printing the identical hint under each is the
+	// repetition the short form exists to remove. Dedup is not suppression:
+	// two DIFFERENT hints are both shown.
+	seenHints := make(map[string]bool, len(failed))
 	for _, component := range failed {
 		// Flatten the DETAIL, not the composed line. A component's Detail is
 		// another process's stderr: it can be three lines of git refusal, and
@@ -419,7 +425,8 @@ func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string
 		// that need it.
 		component.Detail = setupui.FlattenText(component.Detail)
 		details = append(details, setupComponentFailureLine(component, dash, brainCmd))
-		if hint := strings.TrimSpace(component.Hint); hint != "" {
+		if hint := strings.TrimSpace(component.Hint); hint != "" && !seenHints[hint] {
+			seenHints[hint] = true
 			details = append(details, setupui.FlattenText("hint: "+hint))
 		}
 	}
@@ -1304,13 +1311,17 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 		// to date so the inherited PATH is refreshed at the next natural restart
 		// instead of being frozen at whatever the first install saw.
 		_ = refreshDaemonUnitBytes(plan)
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher already running (%s)", plan.Label)}
+		// No hashed label: the daemon id is machine noise, and a guard
+		// elsewhere forbids it outside the unit path -- it answers nothing a
+		// reader of `setup` came to ask, and the unit path is where someone
+		// who needs it looks.
+		return setupDaemonOutcome{state: before, skipped: true, summary: "background watcher already running"}
 	}
 	// A no-register run can never observe "running", so byte-identical is the
 	// whole of idempotence there; without this a second setup would report
 	// "updated" forever and a harness could not demonstrate re-run safety.
 	if plan.NoRegister && before.Installed && before.Current {
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s, %s)", plan.Label, envDaemonNoRegister)}
+		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s)", envDaemonNoRegister)}
 	}
 	phase.Step("installing the service")
 	if err := steps.install(ctx, plan); err != nil {
@@ -1324,7 +1335,7 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 	if before.Installed {
 		verb = "updated"
 	}
-	outcome := setupDaemonOutcome{state: after, summary: fmt.Sprintf("background watcher %s (%s)", verb, plan.Label)}
+	outcome := setupDaemonOutcome{state: after, summary: "background watcher " + verb}
 	// Say plainly, at the moment of install, that this is a persistent service
 	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
 	// does not tell a first-time reader that something now survives reboots.
@@ -2370,8 +2381,26 @@ func setupAgentsPhaseDetails(agents setupAgentsState, declinedHooks bool, dash, 
 	} else {
 		details = append(details, "agent instructions written ("+what+") "+dash+" agents are told this brain exists")
 	}
-	if declinedHooks {
+	// The pre-edit hook's three states, kept verbatim from the reporter this
+	// replaced. Wiring it IS work and says "done": the old code reported a
+	// hook it had just WRITTEN through a skip, rendering "pre-edit hook wired
+	// (...) skipped" -- a line that both claims and denies the same action,
+	// found by reading a live first run while every assertion passed.
+	switch {
+	case declinedHooks:
 		details = append(details, "pre-edit hook (--no-agent-hooks)")
+	case agents.Hook != "" && agents.HookChanged:
+		details = append(details, fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited, done",
+			agents.Hook, dash))
+	case agents.Hook != "":
+		// "skipped" is carried in the text, not a marker: a phase DETAIL has
+		// no glyph of its own, and the distinction this line exists for is
+		// precisely wired-now versus already-there.
+		details = append(details, fmt.Sprintf("pre-edit hook already wired (%s), skipped", agents.Hook))
+	case agents.Detail != "":
+		// A hook that could not be wired is a warning, like the instructions.
+		warning = agents.Detail
+		details = append(details, agents.Detail)
 	}
-	return details, ""
+	return details, warning
 }

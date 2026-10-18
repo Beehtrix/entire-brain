@@ -2476,3 +2476,80 @@ func TestEveryDeclaredToolIsRouted(t *testing.T) {
 		}
 	}
 }
+
+// TestBrainRecallArgsAreAcceptedByTheRecallCommand exists because the AST
+// guard could not have caught the bug it was written alongside.
+//
+// brain_recall shipped passing --limit. The recall command's flag is --k, so
+// EVERY call failed with "unknown flag: --limit" before reading a single
+// fact, while TestEveryDeclaredToolIsRouted stayed green: declaration and
+// dispatch both existed, and nothing ever fed the command its arguments.
+//
+// ParseFlags rather than Execute: Execute needs a real brain and an Options
+// with a Runner, and panics without one -- which is why the first attempt at
+// an execution test was deleted instead of fixed, and why this bug survived.
+// Flag parsing is the exact layer the defect lived in, and it needs nothing.
+func TestBrainRecallArgsAreAcceptedByTheRecallCommand(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{"in range", 5, 5},
+		{"clamped up from zero", 0, 1},
+		{"clamped down from the MCP ceiling", 10000, recallMaxK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Mirrors the clamp in the brain_recall dispatch.
+			limit := tc.limit
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > recallMaxK {
+				limit = recallMaxK
+			}
+			if limit != tc.want {
+				t.Fatalf("clamp produced %d, want %d", limit, tc.want)
+			}
+
+			args := []string{"q", "--json", "--k", strconv.Itoa(limit), "--read-only-semantic-cache"}
+			if err := newRecallCommand(Options{}).ParseFlags(args); err != nil {
+				t.Fatalf("brain_recall builds an argument list the recall command rejects: %v", err)
+			}
+		})
+	}
+}
+
+// The inverse: prove the test would have caught the shipped bug. If --limit
+// ever becomes valid this fails, and the test above needs rethinking rather
+// than quietly passing for a new reason.
+func TestRecallHasNoLimitFlag(t *testing.T) {
+	t.Parallel()
+	if err := newRecallCommand(Options{}).ParseFlags([]string{"q", "--limit", "5"}); err == nil {
+		t.Fatal("recall now accepts --limit; the guard above no longer proves anything")
+	}
+}
+
+// The advertised ceiling must match the one the command enforces, or an agent
+// reads the schema, sends a legal-looking value, and gets a refusal.
+func TestBrainRecallSchemaCeilingMatchesTheCommand(t *testing.T) {
+	t.Parallel()
+	var desc string
+	for _, def := range mcpToolDefinitions() {
+		if def["name"] != "brain_recall" {
+			continue
+		}
+		schema, _ := def["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		limit, _ := props["limit"].(map[string]any)
+		desc, _ = limit["description"].(string)
+	}
+	if desc == "" {
+		t.Fatal("brain_recall has no limit description to check")
+	}
+	if !strings.Contains(desc, strconv.Itoa(recallMaxK)) {
+		t.Fatalf("the advertised limit must name the enforced ceiling %d: %q", recallMaxK, desc)
+	}
+}

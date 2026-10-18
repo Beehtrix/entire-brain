@@ -786,7 +786,7 @@
           "type": "string"
         },
         "limit": {
-          "description": "Maximum facts to return (removable rows may be trimmed with response_truncated; otherwise errors)",
+          "description": "Maximum facts to return (1-128) (removable rows may be trimmed with response_truncated; otherwise errors)",
           "maximum": 10000,
           "minimum": 1,
           "title": "limit",

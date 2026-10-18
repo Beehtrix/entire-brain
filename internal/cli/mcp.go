@@ -937,7 +937,7 @@ func mcpToolDefinitions() []map[string]any {
 			"description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this before replacing an existing approach or explaining why code is the way it is; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{
 				"query":  stringArg("query", "What you want to know about prior decisions, rationale, or gotchas"),
-				"limit":  integerArg("limit", "Maximum facts to return"),
+				"limit":  integerArg("limit", "Maximum facts to return (1-128)"),
 				"branch": branchArg(),
 			}),
 		},
@@ -1242,7 +1242,22 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			recallCmd.SetOut(&out)
 			recallCmd.SetErr(io.Discard)
 			recallCmd.SetContext(ctx)
-			recallArgs := []string{query, "--json", "--limit", strconv.Itoa(limit)}
+			// --k, NOT --limit: that is the flag newRecallCommand declares.
+			// Getting this wrong does not degrade the tool, it breaks it
+			// outright -- cobra rejects the call with "unknown flag" before
+			// any fact is read.
+			//
+			// Clamped to recall's own documented 1-128. The MCP schema cannot
+			// advertise a ceiling the command will refuse.
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > recallMaxK {
+				limit = recallMaxK
+			}
+			// read-only: brain_recall is documented as a read, and recall
+			// otherwise persists and prunes semantic vectors on every call.
+			recallArgs := []string{query, "--json", "--k", strconv.Itoa(limit), "--read-only-semantic-cache"}
 			if strings.TrimSpace(branch) != "" {
 				recallArgs = append(recallArgs, "--branch", strings.TrimSpace(branch))
 			}

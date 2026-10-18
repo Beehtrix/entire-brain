@@ -727,7 +727,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
 			return err
 		}
-		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
+		if err := validateLiveSemanticHeader(header, head, tree, repoDir, indexOpts.worktree && dirty); err != nil {
 			return err
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
@@ -1475,15 +1475,15 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	validateSemanticProviderRepoKey   the spelling the provider stamped
 //	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
-func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
+func validateLiveSemanticHeader(header semanticHeader, commit, tree, repoDir string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
-		return fmt.Errorf("semantic snapshot header missing commit%s", semanticProviderRefusalContext(header))
+		return fmt.Errorf("semantic snapshot header missing commit%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.Tree == "" {
-		return fmt.Errorf("semantic snapshot header missing tree%s", semanticProviderRefusalContext(header))
+		return fmt.Errorf("semantic snapshot header missing tree%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.RepoKey == "" {
-		return fmt.Errorf("semantic snapshot header missing repo_key%s", semanticProviderRefusalContext(header))
+		return fmt.Errorf("semantic snapshot header missing repo_key%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
 		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
@@ -1510,7 +1510,7 @@ func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allo
 // what to do, and turns a self-describing refusal into a mystery. That cost
 // four wrong hypotheses and an instrumented bisect to rediscover something the
 // provider had already printed.
-func semanticProviderRefusalContext(header semanticHeader) string {
+func semanticProviderRefusalContext(header semanticHeader, repoDir string) string {
 	best := ""
 	for _, w := range append(append([]semanticWarning(nil), header.Warnings...), header.PartialFailures...) {
 		detail := strings.TrimSpace(w.Detail)
@@ -1520,6 +1520,13 @@ func semanticProviderRefusalContext(header semanticHeader) string {
 		if detail == "" {
 			continue
 		}
+		// This runs BEFORE sanitizeSemanticWarnings does -- validation is the
+		// gate the snapshot has not passed yet -- so the text here is exactly
+		// what the provider wrote, host paths and all. The error is printed,
+		// and the component detail built from it is recorded and can travel
+		// in a bundle, so it is redacted here rather than trusted to a later
+		// pass that this path never reaches.
+		detail = redactSemanticPathsInText(detail, repoDir)
 		line := w.Code + ": " + detail
 		// E_NO_GIT_HEAD is the one that names why identity is absent; prefer it
 		// over the worktree-fallback warning that merely reports the symptom.
@@ -2516,6 +2523,7 @@ func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []sema
 	sanitized := make([]semanticWarning, 0, len(warnings))
 	for _, warning := range warnings {
 		warning.Path = sanitizeSemanticWarningPath(warning.Path)
+		warning.Language = sanitizeSemanticWarningLanguage(warning.Language)
 		warning.Effect = sanitizeSemanticWarningText(warning.Effect, repoDir)
 		warning.Detail = sanitizeSemanticWarningText(warning.Detail, repoDir)
 		sanitized = append(sanitized, warning)
@@ -2544,6 +2552,82 @@ func sanitizeSemanticWarningPath(path string) string {
 	return clean
 }
 
+// sanitizeSemanticWarningLanguage clamps schema 1.3's language tag.
+//
+// Path and the two text fields are sanitized because they are provider-
+// supplied and end up in the manifest, which ships in a bundle. Language
+// arrived with 1.3 and went straight through -- the same untrusted string
+// from the same untrusted process, reaching the same shared artifact, with
+// no check at all.
+//
+// It is clamped rather than redacted because a language tag is an identifier,
+// not prose: there is no legitimate value with a space, a slash or a quote in
+// it, so anything outside that shape is not a language tag and the honest
+// thing to record is that this failure had no language, which is exactly what
+// the field already means when a provider omits it.
+func sanitizeSemanticWarningLanguage(language string) string {
+	const maxLanguageLen = 32
+	if language == "" || len(language) > maxLanguageLen {
+		return ""
+	}
+	for i := 0; i < len(language); i++ {
+		ch := language[i]
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9':
+		case ch == '+' || ch == '#' || ch == '-' || ch == '_' || ch == '.':
+		default:
+			return ""
+		}
+	}
+	return language
+}
+
+// redactSemanticPathsInText removes the paths from provider text and keeps
+// the sentence they were in.
+//
+// sanitizeSemanticWarningText is all-or-nothing on purpose: a warning body is
+// data nobody reads unless something has already gone wrong, so collapsing
+// the whole string to <redacted> costs nothing and cannot leak. A refusal
+// REASON is the opposite. It is the one sentence that tells the reader what
+// happened and what to do, and <redacted> turns a self-describing refusal
+// back into the mystery that cost four wrong hypotheses and an instrumented
+// bisect -- the exact failure semanticProviderRefusalContext exists to end.
+//
+// So the paths go and the words stay: the repo's own directory becomes
+// <repo>, every other absolute path becomes <path>. What a path means is
+// decided by the same scanner the all-or-nothing sanitizer uses, so the two
+// cannot disagree about what counts as one.
+func redactSemanticPathsInText(text, repoDir string) string {
+	if text == "" {
+		return ""
+	}
+	if repoDir != "" {
+		text = strings.ReplaceAll(text, repoDir, "<repo>")
+		if slashed := filepath.ToSlash(repoDir); slashed != repoDir {
+			text = strings.ReplaceAll(text, slashed, "<repo>")
+		}
+	}
+	text = replaceAbsolutePathSpans(text, unixAbsolutePathSpans)
+	return replaceAbsolutePathSpans(text, windowsDrivePathSpans)
+}
+
+// replaceAbsolutePathSpans swaps every span the finder reports for <path>.
+func replaceAbsolutePathSpans(text string, find func(string) [][2]int) string {
+	spans := find(text)
+	if len(spans) == 0 {
+		return text
+	}
+	var b strings.Builder
+	prev := 0
+	for _, span := range spans {
+		b.WriteString(text[prev:span[0]])
+		b.WriteString("<path>")
+		prev = span[1]
+	}
+	b.WriteString(text[prev:])
+	return b.String()
+}
+
 func sanitizeSemanticWarningText(text, repoDir string) string {
 	if text == "" {
 		return ""
@@ -2564,6 +2648,17 @@ func sanitizeSemanticWarningText(text, repoDir string) string {
 }
 
 func containsWindowsDrivePathText(text string) bool {
+	return len(windowsDrivePathSpans(text)) > 0
+}
+
+// windowsDrivePathSpans reports every drive-letter path in text as a
+// half-open [start, end) byte range.
+//
+// This is the single definition of what a Windows path IS: the all-or-nothing
+// sanitizer asks whether there is one, the refusal redactor asks where they
+// are, and neither gets to hold its own opinion.
+func windowsDrivePathSpans(text string) [][2]int {
+	var spans [][2]int
 	for i := 0; i+2 < len(text); i++ {
 		if !isASCIIAlpha(text[i]) || text[i+1] != ':' {
 			continue
@@ -2572,14 +2667,31 @@ func containsWindowsDrivePathText(text string) bool {
 			continue
 		}
 		next := text[i+2]
-		if next == '\\' || next == '/' || !isPathBoundary(next) {
-			return true
+		if next != '\\' && next != '/' && isPathBoundary(next) {
+			continue
 		}
+		end := i + 2
+		for end < len(text) && !isPathBoundary(text[end]) {
+			end++
+		}
+		spans = append(spans, [2]int{i, end})
+		i = end - 1
 	}
-	return false
+	return spans
 }
 
 func containsUnixAbsolutePathText(text string) bool {
+	return len(unixAbsolutePathSpans(text)) > 0
+}
+
+// unixAbsolutePathSpans reports every absolute POSIX path in text as a
+// half-open [start, end) byte range. See windowsDrivePathSpans: one
+// definition, two questions.
+//
+// Trailing "." and ":" are left OUTSIDE the span, so a path at the end of a
+// sentence keeps its full stop.
+func unixAbsolutePathSpans(text string) [][2]int {
+	var spans [][2]int
 	for i := 0; i < len(text); i++ {
 		if text[i] != '/' {
 			continue
@@ -2598,11 +2710,13 @@ func containsUnixAbsolutePathText(text string) bool {
 			end++
 		}
 		candidate := strings.TrimRight(text[i:end], ".:")
-		if looksLikeUnixAbsolutePath(candidate) {
-			return true
+		if !looksLikeUnixAbsolutePath(candidate) {
+			continue
 		}
+		spans = append(spans, [2]int{i, i + len(candidate)})
+		i = end - 1
 	}
-	return false
+	return spans
 }
 
 func looksLikeUnixAbsolutePath(candidate string) bool {

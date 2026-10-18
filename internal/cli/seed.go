@@ -272,18 +272,16 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return fmt.Errorf("seed target must be an existing local path: %s", target)
 	}
 	if !seedOpts.worktree {
-		// Loaded here rather than inside worktreeDirty so the refusal below can
-		// name the paths through the same filter the gate applied.
-		ignore, err := loadBrainIgnore(repoDir)
+		gateIgnore, err := worktreeGateIgnore(repoDir)
 		if err != nil {
 			return err
 		}
-		dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
+		dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)
 		if err != nil {
 			return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("check worktree before seed refresh: %w", err))
 		}
 		if dirty {
-			return dirtyWorktreeRefusalFor(ctx, opts.Runner, repoDir, ignore, "seed")
+			return dirtyWorktreeRefusal("seed", dirtyPaths)
 		}
 	}
 

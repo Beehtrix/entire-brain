@@ -1044,3 +1044,36 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	}
 	return seed.WorktreeMode == "worktree", nil
 }
+
+// announceResolvedAgent says which agent auto-selection chose, and on what
+// model, so the choice is not a secret.
+//
+// Carried from #346. That PR bundled this with a reordering of agent
+// selection, which the integration did not take -- but the announcement is
+// independent of WHICH resolver picks, so it survives the decision and is
+// wired onto the ordering that did win.
+//
+// The model is stated outright rather than omitted: silence about the model
+// is the exact condition being fixed, and a line naming only the agent would
+// leave a reader guessing in the same way for the same reason. It does NOT
+// default the model -- setupBackfillDefaultEffort already settled that ("model
+// ids age badly") -- it just stops the agent's own default being a secret.
+//
+// Deliberately a plain line rather than a progress task: this text is asserted
+// in tests and read by users, and routing it through the spinner would make
+// the bytes depend on TTY detection and on elapsed time.
+func announceResolvedAgent(out io.Writer, agent, model string) {
+	if out == nil || agent == "" {
+		return
+	}
+	if agent == "none" {
+		// No agent means no model to name.
+		fmt.Fprintln(out, "agent: auto-selected none — no supported agent CLI found (codex, claude); deterministic steps only")
+		return
+	}
+	if model = strings.TrimSpace(model); model != "" {
+		fmt.Fprintf(out, "agent: auto-selected %s, model %s (SPENDS TOKENS) — override with --agent/--model\n", agent, model)
+		return
+	}
+	fmt.Fprintf(out, "agent: auto-selected %s, model: the agent's own default (SPENDS TOKENS) — override with --agent, pin a model with --model\n", agent)
+}

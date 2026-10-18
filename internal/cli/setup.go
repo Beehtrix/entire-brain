@@ -289,8 +289,15 @@ func setupComponentCountSummary(built, failed []setupComponent) string {
 	if len(failed) == 0 {
 		return fmt.Sprintf("%d %s", total, setupComponentNoun(total))
 	}
+	// Labels, not raw ids: every other line setup prints calls a component
+	// by setupComponentLabel, and "sessions" here beside "session export"
+	// below is one component answering to two names in one run.
+	labels := make([]string, 0, len(failed))
+	for _, component := range failed {
+		labels = append(labels, setupComponentLabel(component.Name))
+	}
 	return fmt.Sprintf("%d of %d %s built, FAILED %s",
-		len(built), total, setupComponentNoun(total), strings.Join(setupComponentNames(failed), ", "))
+		len(built), total, setupComponentNoun(total), strings.Join(labels, ", "))
 }
 
 func setupComponentNoun(n int) string {
@@ -311,6 +318,10 @@ func setupComponentNoun(n int) string {
 // top-level line either.
 func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string) []string {
 	details := make([]string, 0, 2*len(failed))
+	// One remedy, one appearance: a dirty worktree stops both the seed
+	// baseline and the semantic index, and the identical hint under each is
+	// the repetition the short form exists to remove.
+	seenHints := make(map[string]bool, len(failed))
 	for _, component := range failed {
 		// Flatten the DETAIL, not the composed line. A component's Detail is
 		// another process's stderr: it can be three lines of git refusal, and
@@ -321,7 +332,8 @@ func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string
 		// that need it.
 		component.Detail = setupui.FlattenText(component.Detail)
 		details = append(details, setupComponentFailureLine(component, dash, brainCmd))
-		if hint := strings.TrimSpace(component.Hint); hint != "" {
+		if hint := strings.TrimSpace(component.Hint); hint != "" && !seenHints[hint] {
+			seenHints[hint] = true
 			details = append(details, setupui.FlattenText("hint: "+hint))
 		}
 	}
@@ -1144,13 +1156,16 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 		// to date so the inherited PATH is refreshed at the next natural restart
 		// instead of being frozen at whatever the first install saw.
 		_ = refreshDaemonUnitBytes(plan)
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher already running (%s)", plan.Label)}
+		// No hashed label. The daemon id is machine noise, a guard
+		// elsewhere in the suite forbids it outside the unit path, and it
+		// answers nothing a reader of `setup` came to ask.
+		return setupDaemonOutcome{state: before, skipped: true, summary: "background watcher already running"}
 	}
 	// A no-register run can never observe "running", so byte-identical is the
 	// whole of idempotence there; without this a second setup would report
 	// "updated" forever and a harness could not demonstrate re-run safety.
 	if plan.NoRegister && before.Installed && before.Current {
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s, %s)", plan.Label, envDaemonNoRegister)}
+		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s)", envDaemonNoRegister)}
 	}
 	phase.Step("installing the service")
 	if err := steps.install(ctx, plan); err != nil {
@@ -1164,12 +1179,22 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 	if before.Installed {
 		verb = "updated"
 	}
-	outcome := setupDaemonOutcome{state: after, summary: fmt.Sprintf("background watcher %s (%s)", verb, plan.Label)}
+	outcome := setupDaemonOutcome{state: after, summary: "background watcher " + verb}
 	// Say plainly, at the moment of install, that this is a persistent service
 	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
 	// does not tell a first-time reader that something now survives reboots.
+	// Names the kind of thing and where it lives, WITHOUT repeating "starts
+	// again at every login" -- that clause belongs to the pre-flight line,
+	// which says it BEFORE the install, the half a reader can still act on.
+	// Saying it again underneath is the UX-24 duplicate: a warning about
+	// something that has already happened.
+	//
+	// Two guards meet here and both are right: one requires the output to
+	// name a persistent service and its unit, the other requires the consent
+	// clause to appear exactly once. "persistent service, unit: <path>"
+	// satisfies both.
 	if plan.UnitPath != "" {
-		outcome.details = append(outcome.details, "persistent service, starts again at every login: "+plan.UnitPath)
+		outcome.details = append(outcome.details, "persistent service, unit: "+plan.UnitPath)
 	}
 	return outcome
 }

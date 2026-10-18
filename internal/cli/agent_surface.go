@@ -4640,7 +4640,13 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			// changes", the two appeared together on one screen: the verdict
 			// said commit or stash, the next line said index the uncommitted
 			// content instead.
-			axes["seed"] = staleAxis{State: dirtyUnindexedAxisState, Detail: "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{
+				State:   dirtyUnindexedAxisState,
+				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
+				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Current: live.Head,
+				Indexed: seed.Commit,
+			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
@@ -4755,12 +4761,12 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
 		}
-		// The dirty-worktree remedy was moved out of axis.Detail so the short
-		// status would not print it twice. This surface never re-pairs it: it
-		// renders Detail directly, so without this it shows the cause and no way
-		// out at all. Same single resolver, so the two surfaces cannot drift.
-		if axis.State == dirtyUnindexedAxisState {
-			line += " — " + setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv))
+		// The remedy comes from the axis now, not from this renderer asking
+		// the same question again. Re-deriving it here meant the JSON report
+		// carried a cause with no next step -- which is what an agent and
+		// every script read -- while only the text surface was whole.
+		if axis.Remedy != "" {
+			line += " — " + axis.Remedy
 		}
 		fmt.Fprintln(out, line)
 	}

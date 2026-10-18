@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -377,8 +379,16 @@ func TestDirtyWorktreeRemedyNamesBothWaysOut(t *testing.T) {
 func TestVerboseAxesStillNameTheWayOut(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
+	// The remedy now travels ON the axis, so the fixture carries it the way
+	// a producer does. Rendering it from the state alone is what left the
+	// JSON report -- which is what an agent and every script read -- holding
+	// a cause with no next step.
 	renderFreshnessAxes(&buf, map[string]staleAxis{
-		"seed": {State: dirtyUnindexedAxisState, Detail: "seed and docs are based on committed HEAD"},
+		"seed": {
+			State:  dirtyUnindexedAxisState,
+			Detail: "seed and docs are based on committed HEAD",
+			Remedy: setupDirtyWorktreeHint("entire brain"),
+		},
 	})
 	line := buf.String()
 
@@ -474,4 +484,85 @@ func TestAMultiLineWarningKeepsItsCauses(t *testing.T) {
 	if sep[1] != "second" {
 		t.Errorf("the second warning was altered: %q", sep[1])
 	}
+}
+
+// TestEveryDirtyUnindexedAxisShipsItsRemedy closes the gap the renderer-only
+// fix left: an agent reading `status --json` got the diagnosis and no way
+// out, because only the text surface re-attached the hint.
+//
+// It walks the PRODUCERS, so adding a third dirty-unindexed axis without a
+// remedy fails here rather than silently reaching the JSON consumers.
+func TestEveryDirtyUnindexedAxisShipsItsRemedy(t *testing.T) {
+	t.Parallel()
+	for _, file := range []string{"semantic.go", "agent_surface.go"} {
+		src := readGoSourceForTest(t, file)
+		rest := src
+		for {
+			i := strings.Index(rest, "State:  dirtyUnindexedAxisState")
+			if i < 0 {
+				i = strings.Index(rest, "State:   dirtyUnindexedAxisState")
+			}
+			if i < 0 {
+				break
+			}
+			// The literal ends at the first line that closes it.
+			end := strings.Index(rest[i:], "\n\t\t\t}")
+			if end < 0 {
+				end = strings.Index(rest[i:], "\n\t\t}")
+			}
+			if end < 0 {
+				end = len(rest) - i
+			}
+			literal := rest[i : i+end]
+			if !strings.Contains(literal, "Remedy:") {
+				t.Errorf("%s: a dirty-unindexed axis ships with no remedy, so `status --json` states a cause and no next step:\n%s", file, literal)
+			}
+			rest = rest[i+end:]
+		}
+	}
+}
+
+// And the JSON side specifically: the field must survive encoding, because
+// that is the surface the finding was about.
+func TestTheRemedyReachesTheJSONReport(t *testing.T) {
+	t.Parallel()
+	axis := staleAxis{
+		State:  dirtyUnindexedAxisState,
+		Detail: "semantic index is based on committed HEAD",
+		Remedy: setupDirtyWorktreeHint("entire brain"),
+	}
+	encoded, err := json.Marshal(axis)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back map[string]any
+	if err := json.Unmarshal(encoded, &back); err != nil {
+		t.Fatal(err)
+	}
+	remedy, _ := back["remedy"].(string)
+	if !strings.Contains(remedy, "--worktree") {
+		t.Fatalf("an agent reading the report gets no next step; remedy=%q in %s", remedy, encoded)
+	}
+	// Additive: a clean axis must not grow an empty key.
+	clean, err := json.Marshal(staleAxis{State: "current"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(clean), "remedy") {
+		t.Fatalf("remedy must be omitempty so existing readers are unaffected: %s", clean)
+	}
+}
+
+// readGoSourceForTest reads one of this package's source files.
+//
+// Walking the producers is the only way to hold "every axis of this kind
+// ships a remedy": the alternative is listing the two known call sites in a
+// test, which passes forever the moment someone adds a third.
+func readGoSourceForTest(t *testing.T, name string) string {
+	t.Helper()
+	data, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(data)
 }

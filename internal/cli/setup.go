@@ -178,7 +178,13 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // states the cause only (see buildBrainRetrievalStatus) and the remedy comes
 // from here.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree, then re-run `" + setupBrainCommand(brainCmd) +
+	// Three real ways out, and the two PRs that wrote this each had two of
+	// them. Union rather than a pick: commit/stash is the default answer,
+	// .brainignore is the right one for files that should never be indexed,
+	// and --worktree is the right one for changes you want indexed AS they
+	// are. Dropping either of the last two sends a whole class of reader to
+	// the wrong remedy.
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
 		" setup`, or `" + setupBrainCommand(brainCmd) +
 		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }

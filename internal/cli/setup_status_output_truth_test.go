@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"strings"
 	"testing"
 
@@ -553,16 +552,7 @@ func TestTheRemedyReachesTheJSONReport(t *testing.T) {
 	}
 }
 
-// readGoSourceForTest reads one of this package's source files.
-//
-// Walking the producers is the only way to hold "every axis of this kind
-// ships a remedy": the alternative is listing the two known call sites in a
-// test, which passes forever the moment someone adds a third.
-func readGoSourceForTest(t *testing.T, name string) string {
-	t.Helper()
-	data, err := os.ReadFile(name)
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	return string(data)
-}
+// readGoSourceForTest lives in regression_caps_propagation_test.go. This file
+// had its own copy, which collided in the integration: both PRs needed to walk
+// package source for a structural guard and each grew the same helper. The
+// surviving one also fails on an empty file, which is the stricter contract.

@@ -53,6 +53,8 @@ func ephemeralPathRootsFor(goos string, getenv func(string) string, systemTemp s
 		roots = append(roots, filepath.Clean(dir))
 	}
 
+	// tempDirEnvVars names the variables this platform actually uses, so a
+	// test can set the right one without duplicating the branch below.
 	if goos == "windows" {
 		// Windows has no /tmp and does not read TMPDIR, so every root this
 		// list used to hold was a POSIX path that cannot exist there: the
@@ -79,6 +81,17 @@ func ephemeralPathRootsFor(goos string, getenv func(string) string, systemTemp s
 	// configured one it is the only entry that is right.
 	add(systemTemp)
 	return roots
+}
+
+// tempDirEnvVar is the environment variable this platform uses to override
+// the temp directory. Exported to tests so a fixture sets the one that is
+// actually read: TMPDIR on Windows is ignored, and a test that sets it there
+// is asserting nothing while looking like it asserts something.
+func tempDirEnvVar() string {
+	if runtime.GOOS == "windows" {
+		return "TEMP"
+	}
+	return "TMPDIR"
 }
 
 // pathsEqualHere compares two cleaned paths the way this filesystem would.

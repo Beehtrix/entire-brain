@@ -219,19 +219,26 @@ func TestSymlinkedTMPDIRStillMatches(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Guard the fixture: with TMPDIR unset this location must NOT be
-	// ephemeral, or the assertion below could pass via some other root.
-	t.Setenv("TMPDIR", "")
+	// Set the variable this platform actually reads. Hardcoding TMPDIR made
+	// this test fail on Windows, which ignores it -- and the failure was the
+	// honest one: the fixture was asserting against a variable the product
+	// does not consult there.
+	tmpVar := tempDirEnvVar()
+
+	// Guard the fixture: with the temp override cleared this location must
+	// NOT be ephemeral, or the assertion below could pass via some other root.
+	t.Setenv(tmpVar, "")
 	if ephemeral, resolved := pathIsEphemeral(probe); ephemeral {
 		t.Skipf("fixture location is already covered by another root (%s)", resolved)
 	}
 
 	linkDir := filepath.Join(t.TempDir(), "link-to-tmp")
 	if err := os.Symlink(realTmp, linkDir); err != nil {
+		// Unprivileged Windows cannot create one. Nothing to prove here.
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	// Point TMPDIR at the LINK, as a shell exporting a symlinked path does.
-	t.Setenv("TMPDIR", linkDir)
+	// Point it at the LINK, as a shell exporting a symlinked path does.
+	t.Setenv(tmpVar, linkDir)
 
 	if ephemeral, resolved := pathIsEphemeral(probe); !ephemeral {
 		t.Fatalf("a file under a symlinked TMPDIR must be flagged; resolved=%s", resolved)
@@ -287,9 +294,9 @@ func TestWindowsRootsComeFromTheVariablesWindowsActuallyUses(t *testing.T) {
 		"TEMP":   `C:\Users\someone\AppData\Local\Temp`,
 		"TMPDIR": "/this/is/not/read/on/windows",
 	}
-	roots := ephemeralPathRootsFor("windows", func(k string) string { return env[k] }, `C:\Windows\Temp`)
+	roots := slashed(ephemeralPathRootsFor("windows", func(k string) string { return env[k] }, `C:\Windows\Temp`))
 
-	for _, want := range []string{`C:\Users\someone\AppData\Local\Temp`, `C:\Windows\Temp`} {
+	for _, want := range []string{"C:/Users/someone/AppData/Local/Temp", "C:/Windows/Temp"} {
 		if !slices.Contains(roots, want) {
 			t.Errorf("windows roots must include %q; got %v", want, roots)
 		}
@@ -310,7 +317,7 @@ func TestPosixRootsStillReadTMPDIRAndNotTheWindowsVariables(t *testing.T) {
 		"TMPDIR": "/custom/tmpdir",
 		"TEMP":   "/windows/only",
 	}
-	roots := ephemeralPathRootsFor("linux", func(k string) string { return env[k] }, "/tmp")
+	roots := slashed(ephemeralPathRootsFor("linux", func(k string) string { return env[k] }, "/tmp"))
 
 	for _, want := range []string{"/custom/tmpdir", "/tmp", "/var/tmp", "/dev/shm"} {
 		if !slices.Contains(roots, want) {
@@ -324,7 +331,31 @@ func TestPosixRootsStillReadTMPDIRAndNotTheWindowsVariables(t *testing.T) {
 	if slices.Contains(roots, "/var/folders") {
 		t.Errorf("/var/folders is a macOS path and must not be claimed on linux; got %v", roots)
 	}
-	if !slices.Contains(ephemeralPathRootsFor("darwin", func(string) string { return "" }, "/tmp"), "/var/folders") {
-		t.Error("darwin must still claim /var/folders")
+	darwin := slashed(ephemeralPathRootsFor("darwin", func(string) string { return "" }, "/tmp"))
+	if !slices.Contains(darwin, "/var/folders") {
+		t.Errorf("darwin must still claim /var/folders; got %v", darwin)
 	}
+}
+
+// slashed normalises separators so a cross-platform SIMULATION can be
+// asserted on any host.
+//
+// ephemeralPathRootsFor cleans with filepath.Clean, which is the HOST's
+// Clean, not the simulated platform's. Ask it for the linux roots on Windows
+// and `/tmp` comes back as `\tmp`; ask it for the Windows roots on a Mac and
+// `C:\Windows\Temp` keeps its backslashes, because they are ordinary
+// characters there. filepath.ToSlash is no help -- it is also the host's, so
+// it fixes exactly one of those two directions and the test still fails on
+// the other platform. Replacing the separator literally is host-independent,
+// which is the only thing that works for a simulation.
+//
+// This is an artifact of simulating a foreign GOOS, not a product defect: in
+// production the goos argument is always this host's. These tests are about
+// WHICH inputs each platform selects, so the spelling is left to the host.
+func slashed(paths []string) []string {
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		out = append(out, strings.ReplaceAll(p, `\`, "/"))
+	}
+	return out
 }

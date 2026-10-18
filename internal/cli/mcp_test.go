@@ -372,7 +372,9 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 }
 
 func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		schema, ok := tool["inputSchema"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s missing inputSchema", tool["name"])
@@ -386,7 +388,9 @@ func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
 func TestMCPToolSchemasMatchArgumentValidator(t *testing.T) {
 	allPublicKeys := map[string]bool{"__unexpected": true}
 	toolKeys := map[string]map[string]bool{}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -448,7 +452,9 @@ func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
 	var input strings.Builder
 	var wants []string
 	id := 1
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -566,7 +572,9 @@ func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
 		"brain_search_graph":     "offset",
 		"brain_get_code_snippet": "context_lines",
 	}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		key, ok := wantMinZero[name]
 		if !ok {
@@ -2212,7 +2220,9 @@ func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 	}
 
 	seen := 0
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		schema, _ := tool["inputSchema"].(map[string]any)
 		props, _ := schema["properties"].(map[string]any)

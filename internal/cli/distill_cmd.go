@@ -953,7 +953,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return nil, errors.New("no exported sessions; run `entire brain refresh` first")
+		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	if distillOpts.run == nil {
 		return nil, errors.New("distill: no agent runner configured")
@@ -1511,7 +1511,7 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return distillDryRunReport{}, errors.New("no exported sessions; run `entire brain refresh` first")
+		return distillDryRunReport{}, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	distillOpts.dryRun = true
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)

@@ -31,6 +31,14 @@ func ephemeralPathRoots() []string {
 		roots = append(roots, "/var/folders", "/private/var/folders")
 	}
 	if tmp := strings.TrimSpace(os.Getenv("TMPDIR")); tmp != "" {
+		// Resolved, not just cleaned: matching below compares against an
+		// EvalSymlinks'd path, so a TMPDIR that is itself a symlink (the
+		// macOS default /var/folders/... reached via /tmp, for one) could
+		// never match and the root silently did nothing. Today that is masked
+		// only because /private/var/folders is also hardcoded.
+		if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
+			roots = append(roots, filepath.Clean(resolved))
+		}
 		roots = append(roots, filepath.Clean(tmp))
 	}
 	return roots
@@ -46,9 +54,11 @@ func pathIsEphemeral(path string) (bool, string) {
 	}
 	resolved, err := filepath.EvalSymlinks(trimmed)
 	if err != nil {
-		// A path that cannot be resolved is a different problem, reported
-		// elsewhere. Guessing here would turn a missing file into a scary and
-		// probably wrong "ephemeral" verdict.
+		// Unresolvable. Reported by checkEphemeralInstall as its own warn
+		// rather than folded in here: "this path does not resolve" and "this
+		// path is temporary" need different sentences, and for the RUNNING
+		// binary the first one usually means the temp directory has already
+		// been reaped -- the disaster this check exists to pre-empt.
 		return false, ""
 	}
 	resolved = filepath.Clean(resolved)
@@ -90,9 +100,17 @@ func checkEphemeralInstall(add func(name, state, detail string)) {
 		return
 	}
 	ephemeral, resolved := pathIsEphemeral(exe)
-	if !ephemeral {
+	switch {
+	case ephemeral:
+		add("install_durability", "warn", ephemeralInstallWarning(exe, resolved))
+	case resolved == "":
+		// pathIsEphemeral could not resolve the executable. Reporting "ok"
+		// with an empty path -- which is what this did -- is exactly wrong
+		// for the running binary: the usual cause is that the directory
+		// holding it has already been deleted.
+		add("install_durability", "warn",
+			"this build's own path does not resolve ("+exe+"); if it ran from a temp directory, that directory is already gone -- reinstall to a durable location")
+	default:
 		add("install_durability", "ok", "runs from "+resolved)
-		return
 	}
-	add("install_durability", "warn", ephemeralInstallWarning(exe, resolved))
 }

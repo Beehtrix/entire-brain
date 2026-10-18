@@ -141,3 +141,81 @@ func TestMacOSPerUserTempIsEphemeral(t *testing.T) {
 		t.Fatal("/var/folders must be treated as ephemeral on macOS")
 	}
 }
+
+// A TMPDIR that is itself a symlink must still match. It was appended
+// Clean()'d but not resolved, while matching compares against an
+// EvalSymlinks'd path — so the root could never fire.
+//
+// The real directory MUST live somewhere no other root covers. The first
+// version of this test put it under os.MkdirTemp(""), which lands in
+// /var/folders and is matched by a hardcoded root, so it stayed green with
+// the fix removed and proved nothing. That is exactly the masking the fix is
+// about.
+func TestSymlinkedTMPDIRStillMatches(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("no home directory: %v", err)
+	}
+	realTmp, err := os.MkdirTemp(home, ".entire-tmpdir-test-")
+	if err != nil {
+		t.Skipf("cannot create a directory outside the known roots: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(realTmp) })
+
+	probe := filepath.Join(realTmp, "binary")
+	if err := os.WriteFile(probe, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Guard the fixture: with TMPDIR unset this location must NOT be
+	// ephemeral, or the assertion below could pass via some other root.
+	t.Setenv("TMPDIR", "")
+	if ephemeral, resolved := pathIsEphemeral(probe); ephemeral {
+		t.Skipf("fixture location is already covered by another root (%s)", resolved)
+	}
+
+	linkDir := filepath.Join(t.TempDir(), "link-to-tmp")
+	if err := os.Symlink(realTmp, linkDir); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Point TMPDIR at the LINK, as a shell exporting a symlinked path does.
+	t.Setenv("TMPDIR", linkDir)
+
+	if ephemeral, resolved := pathIsEphemeral(probe); !ephemeral {
+		t.Fatalf("a file under a symlinked TMPDIR must be flagged; resolved=%s", resolved)
+	}
+}
+
+// An executable whose own path does not resolve is the live form of this
+// disaster: the directory holding it has already been reaped. Reporting "ok"
+// with an empty path is the worst available answer.
+func TestUnresolvableInstallWarnsRatherThanReportingOK(t *testing.T) {
+	t.Parallel()
+	var name, state, detail string
+	gone := filepath.Join(t.TempDir(), "already-reaped", "entire-brain")
+
+	// Drive the same branch checkEphemeralInstall takes for an unresolvable
+	// executable.
+	ephemeral, resolved := pathIsEphemeral(gone)
+	if ephemeral {
+		t.Fatalf("a missing path must not be called ephemeral; resolved=%s", resolved)
+	}
+	if resolved != "" {
+		t.Fatalf("an unresolvable path must report no resolved location, got %q", resolved)
+	}
+	add := func(n, s, d string) { name, state, detail = n, s, d }
+	switch {
+	case ephemeral:
+		add("install_durability", "warn", ephemeralInstallWarning(gone, resolved))
+	case resolved == "":
+		add("install_durability", "warn", "this build's own path does not resolve ("+gone+")")
+	default:
+		add("install_durability", "ok", "runs from "+resolved)
+	}
+	if name != "install_durability" || state != "warn" {
+		t.Fatalf("want a warn for an unresolvable install, got %s/%s", name, state)
+	}
+	if !strings.Contains(detail, gone) {
+		t.Fatalf("the warning must name the path it could not resolve: %s", detail)
+	}
+}

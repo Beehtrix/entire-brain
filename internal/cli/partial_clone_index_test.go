@@ -195,3 +195,68 @@ func TestStampedProvenanceIsVerifiedBeforeItIsDisclosed(t *testing.T) {
 			"verifySemanticHeadStable first, so nothing verifies it")
 	}
 }
+
+// TestADirtyWorktreeIndexIsNotStampedWithHEADsTree is the provenance half of
+// the same problem, from the other direction.
+//
+// The stamp exists to fill an identity the provider refused to COMPUTE. It
+// must not invent one. In `--worktree` mode the content indexed is the
+// working tree, which by definition does not hash to HEAD^{tree} -- and
+// validateLiveSemanticHeader deliberately skips the tree comparison there
+// (allowWorktreeTree), so a wrong tree would be written into the snapshot and
+// nothing downstream could catch it. Every later consumer reads tree as the
+// content identity of what was indexed.
+func TestADirtyWorktreeIndexIsNotStampedWithHEADsTree(t *testing.T) {
+	t.Parallel()
+
+	src := readGoSourceForTest(t, "semantic.go")
+	withdraw := "if indexOpts.worktree && dirty {"
+	assign := "indexOpts.localCommit = head"
+	dirtyCheck := "dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)"
+
+	wi := indexOfForTest(src, withdraw)
+	ai := indexOfForTest(src, assign)
+	di := indexOfForTest(src, dirtyCheck)
+	if wi < 0 {
+		t.Fatal("nothing withdraws the stamp for a dirty worktree index, so HEAD's tree is recorded " +
+			"as the identity of content that is not HEAD's tree")
+	}
+	if ai < 0 || di < 0 {
+		t.Fatal("the assignment or the dirtiness check moved; this test needs rewriting")
+	}
+	if !(ai < di && di < wi) {
+		t.Errorf("order must be assign (%d) -> learn dirtiness (%d) -> withdraw (%d); "+
+			"withdrawing before dirtiness is known cannot work", ai, di, wi)
+	}
+
+	// Both fields, not one. The stamp's own contract calls a header with a
+	// commit and no tree a provider that answered inconsistently, and makes
+	// it keep failing validation; withdrawing half would manufacture exactly
+	// that state from our own side.
+	between := src[wi:]
+	if end := indexOfForTest(between, "\n\t}\n"); end > 0 {
+		between = between[:end]
+	}
+	for _, want := range []string{`indexOpts.localCommit = ""`, `indexOpts.localTree = ""`} {
+		if indexOfForTest(between, want) < 0 {
+			t.Errorf("the withdrawal must clear both fields; %q is missing from:\n%s", want, between)
+		}
+	}
+}
+
+// And the unit the withdrawal protects: with nothing to stamp, the header
+// stays identity-less, which is what makes validation refuse it rather than
+// accept a false tree.
+func TestAnEmptyStampLeavesTheHeaderIdentityless(t *testing.T) {
+	t.Parallel()
+	var blank semanticHeader
+	if note := stampSemanticHeaderFromLocalGit(&blank, "", ""); note != "" {
+		t.Fatalf("there was nothing to stamp, so there is nothing to disclose; got %q", note)
+	}
+	if blank.Commit != "" || blank.Tree != "" {
+		t.Fatalf("an empty stamp must leave the header untouched, got commit=%q tree=%q", blank.Commit, blank.Tree)
+	}
+	if err := validateLiveSemanticHeader(blank, "", "", true); err == nil {
+		t.Fatal("an identity-less header must be refused even in worktree mode; accepting it is the false provenance")
+	}
+}

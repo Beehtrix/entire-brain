@@ -292,6 +292,11 @@ type semanticIndexOptions struct {
 	// network and it runs --no-network -- and returns an empty commit and
 	// tree, which made brain discard an index it had already parsed in full.
 	//
+	// They are withdrawn for a dirty --worktree index: see runSemanticIndex.
+	// What is indexed there is the working tree, which does not hash to
+	// HEAD^{tree}, and the validator skips the tree check in that mode -- so a
+	// stamp would write a wrong content identity that nothing could catch.
+	//
 	// These are facts rather than options, and they live here only because the
 	// stream path already threads this struct end to end.
 	localCommit string
@@ -593,6 +598,26 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
 	if err != nil {
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
+	}
+	// ...and withdrawn again for a dirty --worktree index, because then they
+	// are not true of what was indexed.
+	//
+	// The stamp exists to fill in an identity the provider refused to compute;
+	// it must not invent one. In worktree mode the content indexed is the
+	// WORKING TREE, which by definition does not hash to HEAD^{tree}, and
+	// validateLiveSemanticHeader deliberately skips the tree comparison there
+	// (allowWorktreeTree) -- so a wrong tree would be written down and nothing
+	// downstream could catch it. Every later consumer treats tree as the
+	// content identity of the snapshot.
+	//
+	// Stamping the commit alone is not the answer either: a header with one
+	// and not the other is what the stamp's own contract calls a provider that
+	// answered inconsistently. So in this one case the snapshot stays
+	// identity-less and is refused -- with the provider's reason attached, so
+	// the reader learns it is a partial clone rather than a mystery.
+	if indexOpts.worktree && dirty {
+		indexOpts.localCommit = ""
+		indexOpts.localTree = ""
 	}
 	if dirty && !indexOpts.worktree {
 		return errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content without --worktree")

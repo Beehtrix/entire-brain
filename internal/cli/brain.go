@@ -42,7 +42,14 @@ type brainSources struct {
 	Patterns *patternSourceManifest  `json:"patterns,omitempty"`
 }
 
+const transcriptStorageCheckpoint = "checkpoint"
+
+func checkpointBackedSessions(manifest *exportManifest) bool {
+	return manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil && manifest.Sources.Sessions.TranscriptStorage == transcriptStorageCheckpoint
+}
+
 type sessionSourceManifest struct {
+	TranscriptStorage  string          `json:"transcript_storage,omitempty"`
 	GeneratedAt        time.Time       `json:"generated_at"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
 	DefaultBranch      string          `json:"default_branch,omitempty"`
@@ -272,6 +279,7 @@ func sessionSourceFromExport(manifest exportManifest) *sessionSourceManifest {
 		EntireCLIVersion:   manifest.EntireCLIVersion,
 		DefaultBranch:      manifest.DefaultBranch,
 		TranscriptMode:     manifest.TranscriptMode,
+		TranscriptStorage:  manifest.TranscriptStorage,
 		Scope:              manifest.Scope,
 		CheckpointLimit:    manifest.CheckpointLimit,
 		CheckpointsScanned: manifest.CheckpointsScanned,
@@ -379,6 +387,7 @@ func applySessionSourceAliases(manifest *exportManifest) {
 	manifest.EntireCLIVersion = sessions.EntireCLIVersion
 	manifest.DefaultBranch = sessions.DefaultBranch
 	manifest.TranscriptMode = sessions.TranscriptMode
+	manifest.TranscriptStorage = sessions.TranscriptStorage
 	manifest.Scope = sessions.Scope
 	manifest.CheckpointLimit = sessions.CheckpointLimit
 	manifest.CheckpointsScanned = sessions.CheckpointsScanned

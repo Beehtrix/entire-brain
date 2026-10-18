@@ -39,12 +39,14 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 				cmd := NewRootCommand(Options{Env: env, Runner: runner, Now: time.Now})
 				return execute(t, cmd, append([]string{"refresh", "sessions", "--entire-binary", "entire-test", "--history-index"}, extra...)...)
 			}
-			if out, err := run(); err != nil {
-				t.Fatalf("initial export: %v %s", err, out)
-			}
 			storage, err := repoStoragePaths(context.Background(), runner, env, env.RepoRoot)
 			if err != nil {
 				t.Fatal(err)
+			}
+			// Seed a legacy materialized brain. Routed-only discovery may
+			// still export bundles, but cannot replace durable local sources.
+			if out, err := run("--output", storage.BrainDir); err != nil {
+				t.Fatalf("initial bundle: %v %s", err, out)
 			}
 			manifest, err := loadBrainManifest(storage.BrainDir)
 			if err != nil {
@@ -52,6 +54,9 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 			}
 			if len(manifest.Sessions) != 2 {
 				t.Fatalf("initial sessions = %d", len(manifest.Sessions))
+			}
+			if err := writeExportCursor(storage.HeadPath, *manifest); err != nil {
+				t.Fatal(err)
 			}
 			// Capture every published artifact, including the history index and cursor.
 			before := map[string][]byte{}
@@ -106,27 +111,19 @@ func TestRoutedExportPartialMetadataPreservesPublishedBrain(t *testing.T) {
 			if len(partial.Sessions) != 1 || !strings.Contains(strings.Join(partial.Warnings, "\n"), "skipped checkpoint aaa111aaa111") {
 				t.Fatalf("explicit subset missing session/warning: %+v", partial)
 			}
-			// Once discovery is complete, publication and stale-file cleanup resume.
+			// A complete routed catalog still cannot justify deleting local
+			// materializations until checkpoint refs are available locally.
 			runner.responses[firstKey] = firstDetail
-			runner.responses[listKey] = fakeCommandResponse{stdout: `[{"checkpoint_id":"bbb222bbb222","is_logs_only":true}]`}
-			if out, err := run(); err != nil {
-				t.Fatalf("complete retry: %v %s", err, out)
+			if out, err := run(); err == nil || !strings.Contains(err.Error(), "local checkpoint refs") {
+				t.Fatalf("routed-only retry: %v %s", err, out)
 			}
-			after, err := loadBrainManifest(storage.BrainDir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(after.Sessions) != 1 || after.Sessions[0].SessionID != "second-session" {
-				t.Fatalf("retry sessions = %+v", after.Sessions)
-			}
-			for _, session := range manifest.Sessions {
-				if session.SessionID == "first-session" {
-					_, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(session.TranscriptPath)))
-					if !errors.Is(err, os.ErrNotExist) {
-						t.Fatalf("complete export did not remove stale transcript: %v", err)
-					}
+			for path, want := range before {
+				got, err := os.ReadFile(path)
+				if err != nil || !bytes.Equal(got, want) {
+					t.Fatalf("routed retry changed %s: %v", path, err)
 				}
 			}
+
 		})
 	}
 }

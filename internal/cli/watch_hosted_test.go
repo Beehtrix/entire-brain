@@ -13,7 +13,7 @@ func TestWatchTickRunsHostedSyncAfterRefresh(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) error { synced++; return nil }
+	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
@@ -33,7 +33,7 @@ func TestWatchTickRunsHostedSyncWhenRefreshFails(t *testing.T) {
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
 	steps.refresh = func(context.Context) error { return errors.New("refresh broke") }
-	steps.factsSync = func(context.Context) error { synced++; return nil }
+	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
@@ -50,7 +50,7 @@ func TestWatchTickHostedSyncErrorDoesNotFailTick(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) error { return errors.New("hosted outage") }
+	steps.factsSync = func(context.Context) (bool, error) { return false, errors.New("hosted outage") }
 	var out bytes.Buffer
 	var agentCalls int
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
@@ -73,7 +73,7 @@ func TestWatchTickThrottlesHostedSync(t *testing.T) {
 	fp := "ck1:head1"
 	steps := fakeWatchSteps("", &refreshed, &seeded, &distilled)
 	steps.fingerprint = func(context.Context) string { return fp }
-	steps.factsSync = func(context.Context) error { synced++; return nil }
+	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
 	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
@@ -106,7 +106,7 @@ func TestWatchTickRunsHostedSyncOnNoChangeTick(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) error { synced++; return nil }
+	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	// Seed a cursor matching the fingerprint with a prior refresh: the idle,
 	// no-change tick — the main pull scenario for a machine receiving facts.
 	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck1:head1", LastRefreshAt: steps.now()}); err != nil {
@@ -120,5 +120,24 @@ func TestWatchTickRunsHostedSyncOnNoChangeTick(t *testing.T) {
 	}
 	if synced != 1 {
 		t.Fatalf("an idle repo must still pull teammates' facts, got sync=%d", synced)
+	}
+}
+
+// TestWatchTickSilentWhenHostedSyncNotAttempted pins the log honesty rule: an
+// unbound repo's sync step is a no-op, and the tick must not print "hosted
+// fact sync ran" for work that never happened.
+func TestWatchTickSilentWhenHostedSyncNotAttempted(t *testing.T) {
+	cursorPath := filepath.Join(t.TempDir(), "watch.json")
+	var refreshed, seeded, distilled int
+	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
+	steps.factsSync = func(context.Context) (bool, error) { return false, nil }
+	var out bytes.Buffer
+	var agentCalls int
+	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	if strings.Contains(out.String(), "hosted fact sync ran") {
+		t.Fatalf("a skipped sync must not be reported as ran:\n%s", out.String())
+	}
+	if readWatchCursor(t, cursorPath).LastFactsSyncAt.IsZero() {
+		t.Fatal("the throttle must still record the attempt window")
 	}
 }

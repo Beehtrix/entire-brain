@@ -14,7 +14,7 @@ import (
 // HTTPServer), not over MCP.
 //
 // Every call goes through the same egress chokepoint as the MCP calls: the no-egress
-// gate (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY) refuses the request BEFORE
+// gate (ENTIRE_BRAIN_NO_EGRESS) refuses the request BEFORE
 // any connection is made, so a local-only workspace can neither read nor settle a
 // hosted proposal. The merge itself still runs here on the runner (ADR-P1-E) — the
 // server only compare-and-swaps the two heads.

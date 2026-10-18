@@ -28,73 +28,48 @@ const hostEntireBinary = "entire"
 // errors only.
 //
 // Gate order is fixed: (1) the local-only kill switch always wins; (2) a
-// recorded opt-out (`entire brain disconnect`) stops sync AND auto-connect
-// until `connect` clears it — it is deliberately SILENT, the user asked for
-// this; (3) the repo binding is the connection state — absent, each run tries
-// to resolve it through the host CLI and falls back to local-only, REPORTING
-// why like every other unasked-for gate here; (4) apiurl.Validate before any
-// client exists. A fresh token is minted per call via the host CLI's own login
-// and held only in memory.
-func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) error {
+// recorded opt-out (`entire brain disconnect`) stops sync until `connect`
+// clears it; (3) the repo binding is the consent AND the connection state —
+// only `entire brain connect` (or the future onboarding flow) writes it, so an
+// absent binding means local-only, silently, every run. Background triggers
+// never connect a repo. (4) apiurl.Validate before any client exists. A fresh
+// token is minted per call via the host CLI's own login and held only in
+// memory.
+//
+// The bool reports whether a sync was actually ATTEMPTED (gates passed, the
+// server was contacted): callers that log success must not report a gated
+// no-op as a sync that ran.
+func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (bool, error) {
 	if brainNoEgressMode() {
-		return nil
+		return false, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
+		// NO unreadable binding may fall through to auto-connect: the file may
+		// hide a recorded opt-out (privacy) or a custom target, and neither
+		// survives a rewrite. Skip loudly; the remedy is an explicit
+		// `entire brain connect`.
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
-	if present && binding.OptedOut {
-		return nil
-	}
-	if !present {
-		// Auto-connect: placement comes from the host CLI's `entire repo view
-		// --json`, which is NOT SHIPPED (COR-2029) — so on a stock host CLI
-		// this gate is the one that always fires. It also fails for a
-		// logged-out user or an unregistered repo. All of them mean "stay
-		// local", and all of them used to mean it SILENTLY: this was the only
-		// unasked-for gate in this function that returned without a word, so
-		// the hosted loop appeared to work and simply never engaged.
-		//
-		// cachedHostedPlacement carries the negative cache: a failure
-		// suppresses the next shell-out for hostedPlacementNegativeTTL, which
-		// is what stops the session-end pair (current branch, then default
-		// branch) spending two hostedShellOutTimeout windows per session end.
-		// A suppressed attempt stays quiet so the note appears once per
-		// window, not once per branch.
-		resolved, attempted, placementErr := cachedHostedPlacement(ctx, opts.Runner, repoDir, opts.Now().UTC())
-		if placementErr != nil {
-			if attempted {
-				fmt.Fprintf(errW, "hosted sync: %s branch %s: staying local, not connected to a hosted brain: automatic binding needs a host CLI providing `entire repo view --json`, which is not shipped yet (COR-2029): %v; bind now with `entire brain connect --repo-id <repo id> --api-url <https://cell>`; the local brain is unaffected\n", repoDir, branch, placementErr)
-			}
-			return nil
-		}
-		var bound bool
-		binding, bound, err = bindHostedRepoIfNotOptedOut(storage.BrainDir, resolved.RepoID, resolved.APIURL)
-		if err != nil {
-			fmt.Fprintf(errW, "hosted sync: auto-connect skipped: %v\n", err)
-			return nil
-		}
-		if !bound {
-			// A disconnect landed while placement was resolving; honor it.
-			return nil
-		}
+	if !present || binding.OptedOut {
+		return false, nil
 	}
 	baseURL, err := apiurl.Validate(binding.BaseURL)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
 	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return nil
+		return false, nil
 	}
 
 	facts, err := loadFacts(storage.BrainDir, branch)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s: %v\n", branch, err)
-		return nil
+		return false, nil
 	}
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
 	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, "")
@@ -106,7 +81,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		// (the branch did not sync), no proposals, head verified fail-closed.
 		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; attempting pull-only\n", branch, err)
 		pullOnlyHostedFacts(ctx, errW, opts, storage, srv, binding.RepoID, branch)
-		return nil
+		return true, nil
 	}
 	// The per-branch marker records that this branch has synced against this
 	// target; the blind-spot note keys off its absence.
@@ -140,7 +115,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if mergeHostedFactsIntoLocal(errW, opts, storage, branch, merged) {
 		fmt.Fprintf(errW, "hosted sync: branch %s published=%v attempts=%d facts=%d\n", branch, res.Published, res.Attempts, len(res.Facts))
 	}
-	return nil
+	return true, nil
 }
 
 // pullOnlyHostedFacts is the degraded receive path when publish failed: read

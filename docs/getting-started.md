@@ -943,10 +943,11 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - judged evaluation commands
 - `publish` uploads the serialized local brain to hosted Entire; opt-in and off
-  by default, requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+  by default, requiring the command plus a target — the connected binding by
+  default, else explicit `--repo-id`/`--api-url`/`--token`
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
-`ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay
+`ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
 strictly local. No-egress mode enforces locality for no-agent, dry-run, and
 loopback-Ollama paths by validating URLs, redirects, and resolved dial targets.
 A custom `--agent command` runner is treated as a trusted local command and is

@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -90,29 +90,52 @@ func seedRegressionDeepDossier(t *testing.T, brainDir, taskID string) {
 	}
 }
 
+// fakeCodexBinaryDir compiles the portable fake codex responder once per test
+// process; sixteen callers previously paid a `go build` each. The responder
+// prints whatever event JSON ENTIRE_FAKE_CODEX_EVENT carries, so the binary
+// itself is response-independent. It lives under os.TempDir rather than a
+// t.TempDir because the first caller's directory is removed when that test
+// ends; the one small leaked directory is the cost of sharing the build.
+var fakeCodexBinaryDir = sync.OnceValues(func() (string, error) {
+	dir, err := os.MkdirTemp("", "entire-fake-codex-")
+	if err != nil {
+		return "", err
+	}
+	// Compile a native responder instead of scripting one: Windows does not
+	// execute shebang files, and the environment variable keeps every JSON
+	// byte safe if future provider output contains shell-significant
+	// characters.
+	source := "package main\nimport (\"fmt\"; \"io\"; \"os\")\nfunc main() { _, _ = io.Copy(io.Discard, os.Stdin); fmt.Print(os.Getenv(\"ENTIRE_FAKE_CODEX_EVENT\") + \"\\n\") }\n"
+	sourcePath := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
+		return "", err
+	}
+	binary := filepath.Join(dir, "codex")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	build := exec.Command("go", "build", "-o", binary, sourcePath)
+	if output, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build portable fake codex: %w\n%s", err, output)
+	}
+	return dir, nil
+})
+
 func fakeCodexProvider(t *testing.T, response string) {
 	t.Helper()
-	binDir := t.TempDir()
 	event, err := json.Marshal(map[string]any{"type": "item.completed", "item": map[string]string{"type": "agent_message", "text": response}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Compile a native responder instead of scripting one: Windows does not
-	// execute shebang files, and a Go string literal keeps every JSON byte safe
-	// if future provider output contains shell-significant characters.
-	source := "package main\nimport (\"fmt\"; \"io\"; \"os\")\nfunc main() { _, _ = io.Copy(io.Discard, os.Stdin); fmt.Print(" + strconv.Quote(string(event)+"\n") + ") }\n"
-	sourcePath := filepath.Join(binDir, "main.go")
-	if err := os.WriteFile(sourcePath, []byte(source), 0o600); err != nil {
+	binDir, err := fakeCodexBinaryDir()
+	if err != nil {
 		t.Fatal(err)
 	}
 	binary := filepath.Join(binDir, "codex")
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	build := exec.Command("go", "build", "-o", binary, sourcePath)
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build portable fake codex: %v\n%s", err, output)
-	}
+	t.Setenv("ENTIRE_FAKE_CODEX_EVENT", string(event))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	resolved, err := exec.LookPath("codex")
 	if err != nil || filepath.Clean(resolved) != filepath.Clean(binary) {

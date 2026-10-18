@@ -1823,7 +1823,7 @@ func rejectAbstractProviderForGlobalNoEgress(kind, provider string) error {
 	if provider == "" {
 		provider = "unknown"
 	}
-	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY or select provider ollama", memoryErrProviderUnavail, provider)
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", memoryErrProviderUnavail, provider)
 }
 
 func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
@@ -1837,7 +1837,7 @@ func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
 	if provider == "" {
 		provider = "unknown"
 	}
-	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY or select provider ollama", memoryErrProviderUnavail, provider)
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", memoryErrProviderUnavail, provider)
 }
 
 // rejectAutomaticAbstractReconciliationForGlobalNoEgress runs before the

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/entireio/entire-brain/internal/setupui"
 	"io"
 	"strings"
 	"testing"
@@ -84,37 +86,36 @@ func TestSetupAndStatusNeverPrintTheHashedDaemonID(t *testing.T) {
 	}
 }
 
-// TestSetupSummaryCallsEachComponentByOneName: the live phase line said
-// "instant core: semantic index", the failure line said "semantic index", and
-// the tick row between them said "semantic" -- three lines, one component, two
-// names, in a single run.
+// One component, one name, in whatever shape the build line takes.
+//
+// The original asserted a per-component TICK ROW. #401 removed that row on
+// purpose -- its point is that the nine component names were rendered three
+// times in one run and nobody acted on any of them, so the healthy case is a
+// COUNT and only failures are named. The naming rule survives the change and
+// is what this now checks: every component this line does name, it names with
+// setupComponentLabel, the same spelling every other line uses.
 func TestSetupSummaryCallsEachComponentByOneName(t *testing.T) {
 	t.Parallel()
 	report := setupRenderFixtureReport()
-	got := renderSetupSummaryPlain(t, report, nil)
+	built, failed := partitionSetupComponents(report.Instant.Components)
+	line := setupComponentCountSummary(built, failed)
 
-	var row string
-	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instant ") {
-			row = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "instant"))
-			break
+	if len(failed) == 0 {
+		t.Fatal("fixture has no failing component, so this guard would check nothing")
+	}
+	for _, component := range failed {
+		want := setupComponentLabel(component.Name)
+		if !strings.Contains(line, want) {
+			t.Errorf("the build line does not name failed component %q as %q: %q", component.Name, want, line)
+		}
+		if component.Name != want && strings.Contains(line, component.Name) {
+			t.Errorf("the build line uses the raw id %q as well as the label %q: %q", component.Name, want, line)
 		}
 	}
-	if row == "" {
-		t.Fatalf("no instant tick row in the summary:\n%s", got)
-	}
-	entries := strings.Split(row, "  ")
-	if len(entries) != len(report.Instant.Components) {
-		t.Fatalf("tick row has %d entries for %d components: %q", len(entries), len(report.Instant.Components), row)
-	}
-	for i, component := range report.Instant.Components {
-		name := strings.TrimSpace(entries[i][1:])
-		want := setupComponentLabel(component.Name)
-		if name != want {
-			// The failure lines under this row, and the live phase line above
-			// it, both use setupComponentLabel. Anything else here is the same
-			// component answering to two names in one run.
-			t.Fatalf("tick row calls %q %q; every other line calls it %q", component.Name, name, want)
+	// A component that BUILT is counted, never listed: that is the change.
+	for _, component := range built {
+		if strings.Contains(line, setupComponentLabel(component.Name)) {
+			t.Errorf("a healthy component is named instead of counted: %q", line)
 		}
 	}
 }
@@ -134,42 +135,55 @@ func unqueryableReport() setupReport {
 	return report
 }
 
+// A brain that cannot answer must not be called ready.
+//
+// The verdict moved: #401 settles it on the Ready phase, through
+// setupui.Summary.Verdict, rather than in a closing block of its own. The
+// rule did not move, so this asks the verdict directly instead of grepping a
+// rendered page for the word.
 func TestSetupSummaryDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
 	t.Parallel()
-	got := renderSetupSummaryPlain(t, unqueryableReport(), nil)
-	headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-	if strings.Contains(headline, "Brain ready") {
-		t.Fatalf("no code index and no baseline is not a ready brain: %q", headline)
+	report := unqueryableReport()
+	if setupBrainQueryable(report.Instant.Components) {
+		t.Fatal("fixture is queryable, so this guard would pass on anything")
 	}
-	if !strings.Contains(headline, "not queryable") {
-		t.Fatalf("the headline must say the brain cannot be queried: %q", headline)
+	theme, _ := tui.ThemeByName("default")
+	rend := setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200)
+	verdict := setupui.Summary{RepoPath: report.Repo, BrainPath: report.BrainPath, Queryable: false}.Verdict(rend)
+
+	if strings.Contains(strings.ToLower(verdict), "ready") {
+		t.Fatalf("the verdict calls an unqueryable brain ready: %q", verdict)
 	}
-	for _, want := range []string{"semantic index", "seed baseline"} {
-		if !strings.Contains(got, "no "+want) {
-			t.Fatalf("the summary must name what is unavailable (%q):\n%s", want, got)
+	// And it says what is missing, not merely that something is.
+	built, failed := partitionSetupComponents(report.Instant.Components)
+	line := setupComponentCountSummary(built, failed)
+	for _, component := range failed {
+		if !strings.Contains(line, setupComponentLabel(component.Name)) {
+			t.Errorf("the build line does not name %q among the failures: %q", component.Name, line)
 		}
 	}
 }
 
-// TestSetupSummaryStillSaysReadyWhenOnlyOneCoreComponentFailed is the
-// over-application guard. One of the two gone is a degraded brain, which is
-// still a brain that answers; only BOTH gone is unqueryable.
+// One core source down is still a usable brain, and must still read as ready.
+//
+// Same move as the test above: the verdict is the Ready phase's now.
 func TestSetupSummaryStillSaysReadyWhenOnlyOneCoreComponentFailed(t *testing.T) {
 	t.Parallel()
-	for _, survivor := range []string{brainComponentSeed, brainComponentSemantic} {
-		report := unqueryableReport()
+	for _, down := range []string{brainComponentSemantic, brainComponentSeed} {
+		report := setupRenderFixtureReport()
 		for i := range report.Instant.Components {
-			if report.Instant.Components[i].Name == survivor {
-				report.Instant.Components[i] = setupComponent{Name: survivor, State: "ok"}
+			if report.Instant.Components[i].Name == down {
+				report.Instant.Components[i].State = "failed"
 			}
 		}
-		got := renderSetupSummaryPlain(t, report, nil)
-		headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-		if !strings.Contains(headline, "Brain ready (degraded)") {
-			t.Fatalf("with %s built the brain still answers: %q", survivor, headline)
+		if !setupBrainQueryable(report.Instant.Components) {
+			t.Fatalf("%s down should leave the brain queryable; fixture says otherwise", down)
 		}
-		if strings.Contains(got, "not queryable") {
-			t.Fatalf("with %s built the brain must not be called unqueryable:\n%s", survivor, got)
+		theme, _ := tui.ThemeByName("default")
+		rend := setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200)
+		verdict := setupui.Summary{RepoPath: report.Repo, BrainPath: report.BrainPath, Queryable: true}.Verdict(rend)
+		if !strings.Contains(strings.ToLower(verdict), "queryable") && !strings.Contains(strings.ToLower(verdict), "ready") {
+			t.Errorf("with only %s down the verdict should still read as usable: %q", down, verdict)
 		}
 	}
 }
@@ -556,3 +570,76 @@ func TestTheRemedyReachesTheJSONReport(t *testing.T) {
 // had its own copy, which collided in the integration: both PRs needed to walk
 // package source for a structural guard and each grew the same helper. The
 // surviving one also fails on an empty file, which is the stricter contract.
+
+func setupRenderFixtureReport() setupReport {
+	return setupReport{
+		SchemaVersion: 1,
+		GeneratedAt:   setupTestNow,
+		Repo:          "/repo",
+		RepoKey:       "gh/demo-org/brain-demo",
+		BrainPath:     "/brain",
+		Instant: setupPhase{
+			State:   "degraded",
+			Seconds: 0.7,
+			Components: []setupComponent{
+				{Name: brainComponentSessions, State: "failed", Detail: "checkpoint_scope_incomplete", Hint: "add a git remote"},
+				{Name: brainComponentSeed, State: "ok"},
+				{Name: brainComponentDocs, State: "ok"},
+				{Name: brainComponentSemantic, State: "ok"},
+			},
+		},
+		Backfill:  setupPhase{State: "skipped", Detail: "--no-backfill"},
+		Workspace: setupWorkspaceState{Name: "default", Registered: true},
+		Daemon:    daemonState{Manager: daemonManagerUnsupported, Detail: "skipped: --no-daemon"},
+		Agents: setupAgentsState{
+			Installed:   true,
+			Files:       []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Changed:     []string{".entire/agent-guide.md", "AGENTS.md", "CLAUDE.md"},
+			Hook:        "/repo/.claude/settings.json",
+			HookChanged: true,
+		},
+		Facts: factsBackfillStatus{Sessions: 618, Distilled: 300},
+	}
+}
+
+// renderSetupSummaryPlain composes what a reader now SEES for the properties
+// these tests are about.
+//
+// renderSetupSummary is gone: #401 replaced the closing block with the Build
+// and Ready phases. The two things it rendered that these guards assert --
+// the component clause and the ready/not-ready verdict -- are still produced,
+// by setupComponentCountSummary plus setupUnqueryableCore for the first and
+// setupui.Summary.Verdict for the second. This calls those, so the assertions
+// stay keyed to production code rather than to a renderer that no longer runs.
+func renderSetupSummaryPlain(t *testing.T, report setupReport, timings *setupTimings) string {
+	t.Helper()
+	out := &bytes.Buffer{}
+	theme, _ := tui.ThemeByName("default")
+	rend := setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200)
+
+	built, failed := partitionSetupComponents(report.Instant.Components)
+	queryability := "the brain is queryable now"
+	if unavailable := setupUnqueryableCore(report.Instant.Components); len(unavailable) > 0 {
+		queryability = "no " + strings.Join(unavailable, " and no ") + ", so queries have nothing to read for this repo yet"
+	}
+	fmt.Fprintf(out, "instant core ready %s %s, %s\n",
+		rend.Dash(), setupComponentCountSummary(built, failed), queryability)
+	for _, detail := range setupComponentFailureDetails(failed, rend.Dash(), setupBrainBinaryName) {
+		fmt.Fprintln(out, detail)
+	}
+
+	queryable := setupBrainQueryable(report.Instant.Components)
+	summary := setupui.Summary{
+		RepoPath:  report.Repo,
+		BrainPath: report.BrainPath,
+		Queryable: queryable,
+	}
+	if queryable {
+		summary.Next = setupNextSteps(setupBrainBinaryName, report.Daemon.Installed, report.Facts.Pending(), false, report.Agents.Installed)
+	}
+	fmt.Fprintln(out, summary.Verdict(rend))
+	for _, line := range summary.Lines(rend) {
+		fmt.Fprintln(out, line.Text)
+	}
+	return out.String()
+}

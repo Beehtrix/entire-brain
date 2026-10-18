@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"github.com/entireio/entire-brain/internal/setupui"
 	"strings"
 	"testing"
 
@@ -20,8 +22,19 @@ import (
 func TestSetupNextBlockNamesInitAgents(t *testing.T) {
 	t.Parallel()
 
+	// renderSetupSummary is gone -- #401 replaced the closing block with the
+	// Ready phase -- but the Next block it rendered survives as
+	// setupui.Summary.Next, built here. The assertion is unchanged: this is
+	// the same list, asked for at its source.
 	var out bytes.Buffer
-	renderSetupSummary(&out, tui.NewRenderer(&out), setupReport{}, nil, setupWatchPlan{}, "entire brain")
+	rend := setupui.NewRendererWidth(tui.NewRenderer(&out), 200)
+	summary := setupui.Summary{
+		Queryable: true,
+		Next:      setupNextSteps("entire brain", false, 0, false, false),
+	}
+	for _, line := range summary.Lines(rend) {
+		fmt.Fprintln(&out, line.Text)
+	}
 
 	got := out.String()
 	if !strings.Contains(got, "init-agents") {

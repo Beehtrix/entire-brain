@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/providerdetail"
-	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/setupui"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -354,17 +354,76 @@ func setupHintReferralLoops(hint, brainCmd string) bool {
 	return strings.Contains(hint, setupBrainCommand(brainCmd)+" setup")
 }
 
-// reportSetupComponentFailures prints one line per degraded component (plus its
-// hint) and returns. It must never abort: losing the workspace, the daemon and
-// the status output because one source could not be built is the failure this
-// whole path exists to prevent.
-func reportSetupComponentFailures(progress *refreshProgress, failed []setupComponent, brainCmd string) {
+// reportSetupComponentFailures is gone: #401 replaces the progress-row
+// reporter with setupComponentFailureDetails, which returns the same lines as
+// phase DETAILS. Its signature survived the union of this hunk with no body
+// attached; the body was on the side that deleted it.
+// setupComponentCountSummary is the Build phase's clause, and it COUNTS where
+// the old one listed.
+//
+// The nine component names used to be rendered three times in one run: as a
+// cryptic tick run beside the spinner, again inside this sentence, and a third
+// time in the summary block. Nobody acted on any of the three. What a reader
+// acts on is "did everything build, and if not, which one" — so the healthy
+// case is a count and a failure is named, because one name is a fact and nine
+// are a list.
+func setupComponentCountSummary(built, failed []setupComponent) string {
+	total := len(built) + len(failed)
+	if total == 0 {
+		// The pre-component contract: an injected step or an older build
+		// reports nothing and built fine.
+		return "deterministic core built"
+	}
+	if len(failed) == 0 {
+		return fmt.Sprintf("%d %s", total, setupComponentNoun(total))
+	}
+	// Labels, not raw ids. Every other line setup prints -- the failure
+	// details under this one, the phase rows, doctor's report -- calls a
+	// component by setupComponentLabel; naming it "sessions" here while the
+	// line below says "session export" is the same component answering to two
+	// names in one run, which is precisely what the guard on this behaviour
+	// exists to stop.
+	labels := make([]string, 0, len(failed))
 	for _, component := range failed {
-		progress.NotePhase(setupComponentFailureLine(component, progress.dash(), brainCmd), tui.PhaseFailed)
+		labels = append(labels, setupComponentLabel(component.Name))
+	}
+	return fmt.Sprintf("%d of %d %s built, FAILED %s",
+		len(built), total, setupComponentNoun(total), strings.Join(labels, ", "))
+}
+
+func setupComponentNoun(n int) string {
+	if n == 1 {
+		return "component"
+	}
+	return "components"
+}
+
+// setupComponentFailureDetails are the continuation rows a degraded Build
+// phase is allowed: what failed, why, that setup is continuing anyway, and the
+// hint for the failure modes whose error text is not actionable on its own.
+//
+// They hang off the phase instead of being printed by the phase, which is the
+// whole difference: a degraded component must never abort the run — losing the
+// workspace, the daemon and the status output because one source could not be
+// built is the failure this path exists to prevent — and it must never get a
+// top-level line either.
+func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string) []string {
+	details := make([]string, 0, 2*len(failed))
+	for _, component := range failed {
+		// Flatten the DETAIL, not the composed line. A component's Detail is
+		// another process's stderr: it can be three lines of git refusal, and
+		// a newline inside it escapes the row budget entirely (that budget
+		// governs width, not line count). Bounding the line as a whole looked
+		// equivalent and was not — the clip landed before the actionable tail
+		// and ate "run `… doctor` for detail" on exactly the long failures
+		// that need it.
+		component.Detail = setupui.FlattenText(component.Detail)
+		details = append(details, setupComponentFailureLine(component, dash, brainCmd))
 		if hint := strings.TrimSpace(component.Hint); hint != "" {
-			progress.NotePhase("hint: "+hint, tui.PhaseSkipped)
+			details = append(details, setupui.FlattenText("hint: "+hint))
 		}
 	}
+	return details
 }
 
 // setupInstantFailureReasons collects every reason the phase produced nothing
@@ -388,9 +447,13 @@ func setupInstantFailureReasons(fatal error, failed []setupComponent) string {
 }
 
 type setupCommandOptions struct {
-	workspace       string
-	daemonName      string
-	noDaemon        bool
+	workspace  string
+	daemonName string
+	noDaemon   bool
+	// verbose selects the per-phase report. The default is the short form:
+	// the phase view names every component, path and provider error, which is
+	// what you want when something is wrong and noise the rest of the time.
+	verbose         bool
 	uninstallDaemon bool
 	noBackfill      bool
 	noAgentHooks    bool
@@ -399,9 +462,13 @@ type setupCommandOptions struct {
 	// way back from one would be `--no-daemon=false`, which nothing documents
 	// and nobody guesses. Their value is only ever read when cobra reports the
 	// flag as typed.
-	daemon         bool
-	backfill       bool
-	agentHooks     bool
+	daemon     bool
+	backfill   bool
+	agentHooks bool
+	// yes answers the Facts phase's consent prompt without a human. It is the
+	// ONLY way to spend tokens non-interactively: a run with no terminal and no
+	// --yes distills nothing, because silence is not consent to spend.
+	yes            bool
 	agent          string
 	model          string
 	effort         string
@@ -439,9 +506,15 @@ type setupSteps struct {
 	// progress line can tick components off live instead of revealing all of
 	// them at once when the phase returns.
 	observeComponent *setupComponentObserver
-	detectAgent      func(context.Context) string
-	spawnBackfill    func(context.Context, setupBackfillPlan) (int, error)
-	stopBackfill     func(int) error
+	// stepOutput receives the nested refresh reporter's whole-line output so
+	// each stage feeds the Build phase's transient line instead of becoming a
+	// permanent row of its own. Twenty-five lines of another command's phases
+	// inside setup's one Build phase is the bulk of what the seven-phase model
+	// deletes.
+	stepOutput    *setupStepSink
+	detectAgent   func(context.Context) string
+	spawnBackfill func(context.Context, setupBackfillPlan) (int, error)
+	stopBackfill  func(int) error
 	// plan resolves the daemon artifact for a set of options. It is a step, not
 	// a direct call, for the same reason planBrainWatchDaemon takes goos as an
 	// argument: the install/idempotence/retirement logic above it is
@@ -468,6 +541,11 @@ type setupPhase struct {
 	State   string  `json:"state"` // ok | degraded | skipped | failed
 	Detail  string  `json:"detail,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
+	// consentWhy is the typed reason the facts phase landed where it did.
+	// Unexported on purpose: encoding/json never sees it, so the report's
+	// shape is unchanged, and the short form gets to branch on a value
+	// instead of matching English against Detail.
+	consentWhy setupui.ConsentReason
 	// Components is the instant phase's per-component outcome. "degraded" means
 	// the brain is queryable but at least one of these failed.
 	Components []setupComponent `json:"components,omitempty"`
@@ -536,21 +614,27 @@ that way. It runs three phases:
 
 TOKEN SPEND: phases 2 and 3 call an agent. This is the first release in which
 the watcher's --distill step and the session-end hook's distill actually run
-(both were dead before), so setup is a real, recurring cost, bounded by four
-gates: --backfill-budget sessions per background pass, one gated agent run per
---distill-every per repo, the persisted distill cache (a session is never
-distilled twice), and the cheap --model/--effort. Passing --no-backfill with
---no-daemon spends nothing at all, and "%[1]s status" reports what the
-backfill has done so far and whether the watcher is alive.
+(both were dead before), so setup is a real, recurring cost, bounded by five
+gates: the fact phase ASKS before it spends (default no, and a run with no
+terminal never spends unless --yes is passed), --backfill-budget sessions per
+background pass, one gated agent run per --distill-every per repo, the
+persisted distill cache (a session is never distilled twice), and the cheap
+--model/--effort. Passing --no-backfill with --no-daemon spends nothing at all,
+and "%[1]s status" reports what the backfill has done so far and whether the
+watcher is alive.
 
-EXIT CODE: setup exits 0 whenever the brain is queryable — that is, whenever at
-least one instant-phase component built. A component that fails (a semantic
-index whose snapshot carries a different repo key, say) is reported as one line,
-skipped, and the remaining components, the backfill, the workspace registration
-and the daemon install all still run; "%[1]s status" then shows that
-component as failed and "%[1]s doctor" prints the reason. setup exits
-non-zero only when nothing usable exists: the brain directory cannot be built,
-or every component failed.
+EXIT CODE: setup exits 0 whenever the brain is QUERYABLE, and queryable means
+it can answer: at least one of the semantic index, the seed baseline or the
+history index built. Those are the sources "%[1]s query", "%[1]s brief" and
+"%[1]s overview" read, so "%[1]s setup && %[1]s query ..." cannot proceed on a
+brain that has nothing to answer from. A component that fails without costing
+that (a doc index, an entity index, a stale semantic snapshot beside a seed
+that built) is reported as one line, skipped, and the remaining components, the
+backfill, the workspace registration and the daemon install all still run;
+"%[1]s status" then shows that component as failed and "%[1]s doctor" prints
+the reason. setup exits non-zero when nothing usable exists: the brain
+directory cannot be built, every component failed, the worktree is too dirty to
+index, or the repository has no commits yet.
 
 Re-running setup is safe: it detects the existing workspace membership and
 daemon instead of duplicating them, resumes rather than restarts a backfill
@@ -569,6 +653,8 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().BoolVar(&setupOpts.backfill, "backfill", false, "Start the background fact backfill even if a previous run declined it (SPENDS TOKENS)")
 	cmd.Flags().BoolVar(&setupOpts.noAgentHooks, "no-agent-hooks", false, "Write the agent guide but do not merge the Claude Code PreToolUse entry (remembered)")
 	cmd.Flags().BoolVar(&setupOpts.agentHooks, "agent-hooks", false, "Merge the Claude Code PreToolUse entry even if a previous run declined it")
+	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
+	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
 	cmd.Flags().StringVar(&setupOpts.model, "model", "", "Cheap/fast model for the background backfill (recommended)")
 	cmd.Flags().StringVar(&setupOpts.effort, "effort", setupOpts.effort, "Reasoning effort for the background backfill")
@@ -638,15 +724,35 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if steps.observeComponent == nil {
 		steps.observeComponent = &setupComponentObserver{}
 	}
+	if steps.stepOutput == nil {
+		steps.stepOutput = &setupStepSink{}
+	}
 	steps = resolveSetupSteps(cmd, perRepo, setupOpts, repoDir, brainCmd, steps)
 
 	// --json must keep stdout parseable, so the friendly per-step lines are
 	// dropped rather than interleaved with the report.
 	progressOut := cmd.OutOrStdout()
+	// The CONSENT PROMPT is not a progress row. It is the question that
+	// decides whether this run spends the reader's money, so it is bound to
+	// the real stream and silenced only by --json, which does not prompt.
+	promptOut := cmd.OutOrStdout()
 	if setupOpts.json {
-		progressOut = io.Discard
+		promptOut = io.Discard
 	}
+	// progressOut keeps the REAL writer unless --json, even though the default
+	// short form drops the phase rows. Handing newProgress io.Discard to
+	// silence them also destroys terminal detection -- io.Discard is not an
+	// *os.File, so caps collapse to PlainCaps, the sink reports tty=false, and
+	// setupui.Consent answers "no terminal to ask" instead of prompting. The
+	// rows are suppressed at the SINK instead, which is the thing that should
+	// be quiet.
+	progressOut = setupProgressWriter(progressOut, setupOpts.json)
 	progress := newProgress(progressOut, "setup")
+	// The seven-phase UI. One live line per phase, one permanent row when it
+	// settles, and sub-steps that structurally cannot reach a row of their own.
+	ui := newSetupSink(progress, !setupOpts.verbose && !setupOpts.json)
+	rend := ui.Renderer()
+	run := setupui.NewRun(ui, rend)
 	timings := &setupTimings{}
 
 	report := setupReport{
@@ -732,35 +838,53 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// both the flag that skips it and the command that removes it, is not.
 	if !setupOpts.noDaemon && planErr == nil && plan.supported() {
 		if line := setupDaemonPreflightLine(plan, steps.inspect(ctx, plan), brainCmd); line != "" {
-			progress.NotePhase(line, tui.PhaseDaemon)
+			ui.Interject(setupPreflightRows(rend, line)...)
 		}
 	}
 
-	// Phase 1 — INSTANT. Per-component BEST-EFFORT: a component that fails is
+	// Phase 1 — DETECT. Spends nothing, decides nothing; it states what the
+	// later phases will be able to offer, so the Facts phase's spend prompt is
+	// an informed decision rather than a yes/no about an unknown.
+	detectPhase := run.Begin(setupui.PhaseDetect)
+	detected, commitsKnown := detectSetupFacts(ctx, perRepo, setupOpts, repoDir, storage.BrainDir, brainCmd, detectPhase)
+	detected.Report(detectPhase, rend)
+	// An empty repository is not a broken one. Three red component failures
+	// for "you have not committed anything yet" was 47 lines describing a
+	// repository where nothing is wrong; a Precondition is two.
+	emptyRepo := commitsKnown && detected.Repo.Commits == 0
+
+	// Phase 2 — BUILD. Per-component BEST-EFFORT: a component that fails is
 	// reported as one line and the phase carries on, because first-run
 	// onboarding must not die on one broken source. Losing the workspace, the
 	// daemon and the status output because a stale semantic snapshot carried
 	// another CLI's repo key is a worse outcome, by far, than a brain with four
 	// sources instead of five.
-	instantTask := progress.BeginPhase("instant core (deterministic, no agent tokens)", tui.PhaseInstant)
-	// Tick each component off as it lands. The marks accumulate on the live
-	// line, so a twenty-second phase shows five components already built rather
-	// than a spinner that reveals everything at the end.
-	var liveMarks []tui.Mark
-	var liveMarksMu sync.Mutex
+	buildPhase := run.Begin(setupui.PhaseBuild)
+	// The nine components feed ONE line. The previous run's count sizes the
+	// bar exactly; a first run uses the estimate, clamped so the gauge can
+	// never read more than total.
+	recordedComponents := len(readSetupInstantRecord(stateDir).Components)
+	var observed int
+	var observedMu sync.Mutex
 	steps.observeComponent.bind(func(component setupComponent) {
-		liveMarksMu.Lock()
-		liveMarks = append(liveMarks, setupComponentMark(component.State))
-		marks := append([]tui.Mark(nil), liveMarks...)
-		liveMarksMu.Unlock()
-		instantTask.SetMarks(marks)
-		instantTask.Update("instant core: " + setupComponentLabel(component.Name))
+		observedMu.Lock()
+		observed++
+		done := observed
+		observedMu.Unlock()
+		buildPhase.Progress(done, setupBuildTotal(recordedComponents, done))
+		buildPhase.Step(setupComponentLabel(component.Name))
 	})
+	steps.stepOutput.bind(buildPhase.Step)
 	instantStarted := time.Now()
 	components, instantErr := steps.instant(ctx)
 	elapsed := time.Since(instantStarted)
 	timings.record("instant", elapsed)
 	steps.observeComponent.bind(nil)
+	steps.stepOutput.bind(nil)
+	// A warning the nested refresh wrote is the one thing in that stream that
+	// must survive being a repaint: it named something the reader has to know
+	// and no phase line carries it.
+	report.Warnings = append(report.Warnings, steps.stepOutput.Warnings()...)
 	seconds := elapsed.Seconds()
 	built, failed := partitionSetupComponents(components)
 	// Persist the outcome BEFORE deciding whether to continue: `status` and
@@ -778,7 +902,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// it as "everything failed" would fail every such caller.
 	if instantErr != nil || (len(failed) > 0 && len(built) == 0) {
 		reasons := setupInstantFailureReasons(instantErr, failed)
-		instantTask.Finish(fmt.Errorf("%s", reasons))
+		buildPhase.Fail("instant core failed "+rend.Dash()+" nothing usable was built", fmt.Errorf("%s", reasons))
 		report.Instant.State = "failed"
 		report.Instant.Detail = reasons
 		if instantErr != nil {
@@ -791,20 +915,43 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		report.Instant.State = "degraded"
 		report.Instant.Detail = setupInstantFailureReasons(nil, failed)
 	}
-	summary := setupComponentSummary(built, failed)
-	if summary != "" {
-		summary += "; "
+	queryable := setupBrainQueryable(components) && !emptyRepo
+	if emptyRepo {
+		// The condition once, the action once, a skipped glyph. No component
+		// list, no red, because nothing failed.
+		buildPhase.Unmet(setupui.Precondition{
+			Condition: "no commits yet, so there is nothing to index",
+			Action:    "make one commit, then: " + setupBrainCommand(brainCmd) + " setup",
+		})
+		renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+		if !setupOpts.json && !setupOpts.verbose {
+			// The report stops here: the daemon was never inspected and no
+			// source was built, so every field the normal short form reads
+			// is unset rather than measured. Flagged, not rendered from, or
+			// the output claims "Brain could not be built" and "Watcher
+			// unavailable" about things nobody looked at.
+			terse := terseReportFor(report, timings, queryable, setupOpts, brainCmd)
+			terse.NoCommitsYet = true
+			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
+		}
+		if setupOpts.json {
+			if err := writeJSON(cmd, report); err != nil {
+				return err
+			}
+		}
+		return fmt.Errorf("the brain is not queryable: this repository has no commits yet, so there is nothing to index")
 	}
-	// Never assert queryability this brain does not have: see
-	// setupUnqueryableCore. Exit 0 is unchanged.
+	// #401's phase form, carrying the queryability guard it would otherwise
+	// have dropped: a brain missing every content source must not be told
+	// "the brain is queryable now", which is the one sentence setup is read
+	// for. setupUnqueryableCore names what is missing; exit 0 is unchanged.
 	queryability := "the brain is queryable now"
 	if unavailable := setupUnqueryableCore(components); len(unavailable) > 0 {
 		queryability = "no " + strings.Join(unavailable, " and no ") + ", so queries have nothing to read for this repo yet"
 	}
-	instantTask.Update(fmt.Sprintf("instant core ready in %s %s %s%s",
-		roundedSeconds(seconds), progress.dash(), summary, queryability))
-	instantTask.Finish(nil)
-	reportSetupComponentFailures(progress, failed, brainCmd)
+	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
+		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
+		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
 
 	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
 	// is told the brain exists it will never ask, and setup used to end without
@@ -821,28 +968,64 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	agentsStarted := time.Now()
 	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks)
 	timings.record("agents", time.Since(agentsStarted))
-	reportSetupAgents(progress, report.Agents, &report, setupOpts.noAgentHooks, brainCmd)
 
 	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 
-	// Phase 2 — BACKFILL (detached, spends tokens).
+	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
+	// without anyone remembering to run anything.
+	agentsPhase := run.Begin(setupui.PhaseAgents)
+	agentsPhase.Step("session-end hook")
+	report.Hook = inspectSessionEndHook(repoDir)
+	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
+
+	// The push hook rides this phase for the reason the phase exists: both
+	// hooks are wiring that makes later work reach the brain without anyone
+	// remembering to run anything. It arrived on main as a flat block after
+	// the watcher; it depends on nothing the watcher does, so it belongs
+	// beside the hook it is a sibling of rather than in a row of its own.
+	agentsPhase.Step("push hook")
+	pushDetails := refreshSetupPushHook(ctx, opts, repoDir, brainCmd)
+
+	// The agent INSTRUCTIONS belong to this phase as much as the hooks do,
+	// and #401 deleted the only thing that reported them. AGENTS.md and
+	// CLAUDE.md are how an agent learns this brain exists, and a failure to
+	// write them has to become a WARNING on the report -- that is what
+	// carries into `--json` and the closing block. Silently skipping the one
+	// step that makes the brain discoverable is the defect #342 fixed; a
+	// silent failure here would reintroduce it.
+	agentDetails, agentWarning := setupAgentsPhaseDetails(report.Agents, setupOpts.noAgentHooks, rend.Dash(), brainCmd)
+	if agentWarning != "" {
+		report.Warnings = append(report.Warnings, agentWarning)
+	}
+	details := append(pushDetails, agentDetails...)
+
+	if hookWired && agentWarning == "" {
+		agentsPhase.OK(hookLine, details...)
+	} else {
+		agentsPhase.Skip(hookLine, details...)
+	}
+
+	// Phase 4 — FACTS. The only phase that can spend money, and the only one
+	// that asks first.
 	backfillStarted := time.Now()
-	report.Backfill = runSetupBackfill(ctx, progress.withPhase(tui.PhaseBackfill), perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
+	factsPhase := run.Begin(setupui.PhaseFacts)
+	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
+		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
 
-	// Phase 3 — DAEMON (workspace registration + one machine-wide watcher).
-	daemonProgress := progress.withPhase(tui.PhaseDaemon)
+	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
+	workspacePhase := run.Begin(setupui.PhaseWorkspace)
+	workspacePhase.Step("registering repo")
 	report.Workspace, err = registerRepoInWorkspace(ctx, cmd, perRepo, setupOpts.workspace, repoDir, storage.Key)
-	if err != nil {
+	switch {
+	case err != nil:
 		report.Warnings = append(report.Warnings, "workspace registration failed: "+err.Error())
-		daemonProgress.Skip("workspace registration: " + err.Error())
-	} else if report.Workspace.Already {
-		daemonProgress.Skip(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
-	} else {
-		task := daemonProgress.BeginPhase("workspace registration", tui.PhaseDaemon)
-		task.Update(fmt.Sprintf("workspace %q now tracks %s", report.Workspace.Name, report.Workspace.RepoKey))
-		task.Finish(nil)
+		workspacePhase.Fail("workspace registration failed", err)
+	case report.Workspace.Already:
+		workspacePhase.OK(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
+	default:
+		workspacePhase.OK(fmt.Sprintf("workspace %q now tracks %s", report.Workspace.Name, report.Workspace.RepoKey))
 	}
 	timings.record("workspace", time.Since(workspaceStarted))
 
@@ -855,64 +1038,48 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !setupOpts.noDaemon && planErr == nil && report.Workspace.Registered {
 		if _, watchPlanErr = recordSetupWatchPlan(perRepo.Env, setupOpts.daemonName, setupWatchPlanEntryFor(setupOpts, steps.now())); watchPlanErr != nil {
 			report.Warnings = append(report.Warnings, "machine watch plan not saved: "+watchPlanErr.Error())
-			daemonProgress.Skip("machine watch plan not saved: " + watchPlanErr.Error())
 		}
 	}
 
+	// Phase 6 — WATCHER. Nine reasons, one line. Whichever of them applies is
+	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
+	watcherPhase := run.Begin(setupui.PhaseWatcher)
 	switch {
 	case setupOpts.noDaemon:
-		daemonProgress.Skip("background watcher (--no-daemon)")
+		watcherPhase.Skip("background watcher (--no-daemon)")
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: --no-daemon"}
 	case !report.Workspace.Registered:
-		daemonProgress.Skip("background watcher: workspace registration failed")
+		watcherPhase.Skip("background watcher: workspace registration failed")
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: workspace registration failed"}
 	case watchPlanErr != nil:
+		watcherPhase.Skip("background watcher: machine watch plan not saved " + rend.Dash() + " " + setupui.FlattenText(watchPlanErr.Error()))
 		report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "skipped: machine watch plan not saved"}
 	case planErr != nil:
-		daemonProgress.Skip("background watcher: " + planErr.Error())
+		watcherPhase.Skip("background watcher: " + setupui.FlattenText(planErr.Error()))
 		report.Daemon = daemonState{Manager: daemonManagerUnsupported, Detail: planErr.Error()}
 	default:
-		report.Daemon = runSetupDaemon(ctx, daemonProgress, opts.Env, steps, plan, &report, brainCmd)
+		outcome := runSetupDaemon(ctx, watcherPhase, opts.Env, steps, plan, &report, brainCmd)
+		report.Daemon = outcome.state
 		// Switch watcher names only after the replacement is confirmed on disk.
 		// This preserves the old service if the instant phase or new install
 		// fails, while still preventing two names from running indefinitely.
 		if report.Daemon.Installed && report.Daemon.Label == plan.Label {
 			if detail, retireErr := retireRenamedDaemon(ctx, setupOpts, previousName, previousKnown, steps, planErr); retireErr != nil {
 				report.Warnings = append(report.Warnings, retireErr.Error())
-				daemonProgress.Skip(retireErr.Error())
+				outcome.details = append(outcome.details, setupui.FlattenError(retireErr))
 			} else if detail != "" {
-				daemonProgress.Skip(detail)
+				outcome.details = append(outcome.details, detail)
 			}
 		}
+		if report.Daemon.Installed {
+			if coverage := describeWatchPlanCoverage(watchPlanAfterInstall(perRepo.Env)); coverage != "" {
+				outcome.details = append(outcome.details, coverage)
+			}
+		}
+		outcome.settle(watcherPhase)
 	}
 	timings.record("daemon", time.Since(daemonStarted))
-
-	report.Hook = inspectSessionEndHook(repoDir)
-	reportSetupHook(progress, report.Hook)
-
-	// Refresh our pre-push hook when one is already installed — setup owns
-	// the upgrade beat (the baked plugin path goes stale when the binary
-	// moves). Fresh installs belong to `connect`: a bare setup after a
-	// disconnect must not resurrect the hook, and setup on a never-connected
-	// repo must not rearrange other tools' hooks for a feature that is off.
-	if hookState, hookPath, hookErr := refreshPushHook(ctx, opts, repoDir); hookErr != nil {
-		progress.Skip("push hook: not refreshed (uploads ride the daemon tick): " + hookErr.Error())
-	} else {
-		switch hookState {
-		case pushHookSharedDir:
-			progress.Skip("push hook: core.hooksPath is shared across repos (" + hookPath + "); not managed — uploads ride the daemon tick")
-		case pushHookAbsent:
-			progress.Skip("push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)")
-		case pushHookUnchanged:
-			progress.Skip("push hook already current (" + hookPath + ")")
-		case pushHookChainedIn:
-			progress.Skip("push hook runs via the host CLI's chain (" + hookPath + ")")
-		default:
-			task := progress.Begin("push hook: refreshed (" + hookPath + ")")
-			task.Finish(nil)
-		}
-	}
 
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
@@ -944,15 +1111,75 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 	}
 
-	if setupOpts.json {
-		return writeJSON(cmd, report)
+	// Phase 7 — READY. The verdict, the two paths nobody can infer, each
+	// failure's one line, and what to run next. It does NOT re-list the
+	// phases: they are on the screen directly above it.
+	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+
+	if !setupOpts.json && !setupOpts.verbose {
+		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
-	// Re-read rather than reuse the value recordSetupWatchPlan returned: another
-	// repo's `setup` may have joined the plan while this one was building, and
-	// the coverage line is only worth printing if it is the truth right now.
-	summaryPlan, _ := loadSetupWatchPlan(perRepo.Env)
-	renderSetupSummary(cmd.OutOrStdout(), tui.NewRenderer(cmd.OutOrStdout()), report, timings, summaryPlan, brainCmd)
+
+	if setupOpts.json {
+		if err := writeJSON(cmd, report); err != nil {
+			return err
+		}
+	}
+	if !queryable {
+		return fmt.Errorf("the brain is not queryable: %s", setupNotQueryableReason(failed))
+	}
 	return nil
+}
+
+// watchPlanAfterInstall re-reads the machine plan rather than reusing the
+// value recordSetupWatchPlan returned: another repo's `setup` may have joined
+// it while this one was building, and the coverage line is only worth printing
+// if it is the truth right now.
+func watchPlanAfterInstall(env EntireEnv) setupWatchPlan {
+	plan, _ := loadSetupWatchPlan(env)
+	return plan
+}
+
+// setupNotQueryableReason says which sources had to build and did not, so the
+// non-zero exit names the problem instead of only reporting that there is one.
+func setupNotQueryableReason(failed []setupComponent) string {
+	reasons := make([]string, 0, len(failed))
+	for _, component := range failed {
+		if !setupContentComponents[component.Name] {
+			continue
+		}
+		reasons = append(reasons, setupComponentLabel(component.Name)+": "+setupui.FlattenText(component.Detail))
+	}
+	if len(reasons) == 0 {
+		return "no source this brain answers from was built"
+	}
+	return strings.Join(reasons, "; ")
+}
+
+// renderSetupReady settles the last phase and writes the closing block.
+func renderSetupReady(run *setupui.Run, rend *setupui.Renderer, report setupReport, timings *setupTimings, queryable bool, brainCmd string) {
+	phase := run.Begin(setupui.PhaseReady)
+	summary := setupui.Summary{
+		RepoPath:  report.Repo,
+		BrainPath: report.BrainPath,
+		Queryable: queryable,
+		Failures:  run.Failures(),
+	}
+	if queryable {
+		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending(), setupOffersConnect(report.BrainPath), report.Agents.Installed)
+	}
+	verdict := summary.Verdict(rend)
+	if total := timings.total(); total > 0 {
+		verdict += " " + rend.Bullet() + " " + roundedDuration(total)
+	}
+	if queryable {
+		phase.OK(verdict)
+	} else {
+		phase.Skip(verdict)
+	}
+	run.EmitAll(summary.Lines(rend))
+	run.EmitAll(setupWarningRows(report.Warnings))
 }
 
 func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts setupCommandOptions, steps setupSteps, plan daemonPlan, planErr error, report setupReport) error {
@@ -1024,23 +1251,51 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 // deterministic phases built stays usable. Pretending to install a launchd
 // agent on windows, or failing setup because the platform has no launchd, would
 // both be worse than saying plainly that freshness there is manual for now.
-func runSetupDaemon(ctx context.Context, progress *refreshProgress, env EntireEnv, steps setupSteps, plan daemonPlan, report *setupReport, brainCmd string) daemonState {
+// setupDaemonOutcome is what the watcher phase decided, held as DATA until
+// every contributor has had its say. The install, the retirement of a renamed
+// predecessor and the coverage line all belong to the same one line; building
+// them as a value instead of printing each as it happens is what keeps the
+// phase to one row plus its details.
+type setupDaemonOutcome struct {
+	state   daemonState
+	summary string
+	details []string
+	err     error
+	skipped bool
+}
+
+// settle writes the phase's single row.
+func (o setupDaemonOutcome) settle(phase *setupui.PhaseRun) {
+	switch {
+	case o.err != nil:
+		phase.Fail(o.summary, o.err)
+	case o.skipped:
+		phase.Skip(o.summary, o.details...)
+	default:
+		phase.OK(o.summary, o.details...)
+	}
+}
+
+func runSetupDaemon(ctx context.Context, phase *setupui.PhaseRun, env EntireEnv, steps setupSteps, plan daemonPlan, report *setupReport, brainCmd string) setupDaemonOutcome {
 	if !plan.supported() {
-		// progress.Skip appends "skipped", so the label must not say it twice.
-		progress.Skip(fmt.Sprintf("background watcher: not supported on %s yet (run `%s workspace watch %s` yourself to keep the brain fresh)", plan.OS, setupBrainCommand(brainCmd), report.Workspace.Name))
-		return daemonState{Manager: daemonManagerUnsupported, Detail: "not supported on " + plan.OS + " yet"}
+		return setupDaemonOutcome{
+			state:   daemonState{Manager: daemonManagerUnsupported, Detail: "not supported on " + plan.OS + " yet"},
+			summary: fmt.Sprintf("background watcher: not supported on %s yet (run `%s workspace watch %s` yourself to keep the brain fresh)", plan.OS, setupBrainCommand(brainCmd), report.Workspace.Name),
+			skipped: true,
+		}
 	}
 	// Observe, decide and act as one step across processes: see
 	// withDaemonRegistrationLock.
-	var state daemonState
+	var outcome setupDaemonOutcome
 	_ = withDaemonRegistrationLock(env, func() error {
-		state = runSetupDaemonLocked(ctx, progress, steps, plan, report)
+		outcome = runSetupDaemonLocked(ctx, phase, steps, plan, report)
 		return nil
 	})
-	return state
+	return outcome
 }
 
-func runSetupDaemonLocked(ctx context.Context, progress *refreshProgress, steps setupSteps, plan daemonPlan, report *setupReport) daemonState {
+func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps setupSteps, plan daemonPlan, report *setupReport) setupDaemonOutcome {
+	phase.Step("inspecting the service manager")
 	before := steps.inspect(ctx, plan)
 	// Idempotence: an installed, byte-identical, running unit is left strictly
 	// alone. Reloading it would kill an in-flight refresh for no reason.
@@ -1049,55 +1304,58 @@ func runSetupDaemonLocked(ctx context.Context, progress *refreshProgress, steps 
 		// to date so the inherited PATH is refreshed at the next natural restart
 		// instead of being frozen at whatever the first install saw.
 		_ = refreshDaemonUnitBytes(plan)
-		// No hashed label: see setupDaemonPreflightLine.
-		progress.Skip("background watcher already running")
-		return before
+		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher already running (%s)", plan.Label)}
 	}
 	// A no-register run can never observe "running", so byte-identical is the
 	// whole of idempotence there; without this a second setup would report
 	// "updated" forever and a harness could not demonstrate re-run safety.
 	if plan.NoRegister && before.Installed && before.Current {
-		progress.Skip(fmt.Sprintf("background watcher unit current, not registered (%s)", envDaemonNoRegister))
-		return before
+		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s, %s)", plan.Label, envDaemonNoRegister)}
 	}
-	task := progress.Begin("background watcher")
+	phase.Step("installing the service")
 	if err := steps.install(ctx, plan); err != nil {
-		task.Finish(err)
 		report.Warnings = append(report.Warnings, "daemon install failed: "+err.Error())
 		state := before
 		state.Detail = err.Error()
-		return state
+		return setupDaemonOutcome{state: state, summary: "background watcher not installed", err: err}
 	}
 	after := steps.inspect(ctx, plan)
 	verb := "installed"
 	if before.Installed {
 		verb = "updated"
 	}
-	task.Update("background watcher " + verb)
-	task.Finish(nil)
-	return after
+	outcome := setupDaemonOutcome{state: after, summary: fmt.Sprintf("background watcher %s (%s)", verb, plan.Label)}
+	// Say plainly, at the moment of install, that this is a persistent service
+	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
+	// does not tell a first-time reader that something now survives reboots.
+	if plan.UnitPath != "" {
+		outcome.details = append(outcome.details, "persistent service, starts again at every login: "+plan.UnitPath)
+	}
+	return outcome
 }
 
 // runSetupBackfill starts the detached distill pass. Every skip reason is one
 // clear line and never an error: a machine with no agent CLI, or a repo with no
 // captured sessions yet, is a completely valid setup — it just has no facts to
 // extract.
-func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Options, setupOpts setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) setupPhase {
-	if setupOpts.noBackfill {
-		progress.Skip("fact backfill (--no-backfill)")
-		return setupPhase{State: "skipped", Detail: "--no-backfill"}
-	}
+func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSink, in io.Reader, promptOut io.Writer, opts Options, setupOpts setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) setupPhase {
+	rend := ui.Renderer()
+	dash := rend.Dash()
+	resume := setupBrainCommand(brainCmd) + " distill"
+	counter := setupFactsCounter(rend, report.Facts)
+	phase.Step("counting distillable sessions")
+
+	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
+	// --yes in a paused brain reports the truth instead of claiming it spent.
 	if backgroundPaused(opts.Env) {
-		progress.Skip("fact backfill: background work is paused " + progress.dash() + " run `" + setupBrainCommand(brainCmd) + " start`, then re-run setup")
-		return setupPhase{State: "skipped", Detail: "background work paused"}
+		return setupBackfillSkippedBecause(phase, "background work paused",
+			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
+			setupui.ConsentReasonPaused)
 	}
-	if report.Facts.Sessions == 0 {
-		progress.Skip("fact backfill: no captured sessions yet " + progress.dash() + " it will start once sessions land")
-		return setupPhase{State: "skipped", Detail: "no captured sessions"}
-	}
-	if report.Facts.Pending() == 0 {
-		progress.Skip(fmt.Sprintf("fact backfill: already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions))
-		return setupPhase{State: "skipped", Detail: "all sessions already distilled"}
+	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
+		return setupBackfillSkippedBecause(phase, "all sessions already distilled",
+			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions),
+			setupui.ConsentReasonAlreadyDistilled)
 	}
 	// Re-entrancy: `setup` is the command people re-run when they are impatient,
 	// and the backfill is the phase that takes hours. Without this check a second
@@ -1107,43 +1365,68 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 	if previous, ok := readSetupBackfillState(stateDir); ok && backfillRunning(storage.BrainDir, previous.PID) {
 		detail := fmt.Sprintf("already running (pid %d, started %s, %d/%d sessions distilled so far)",
 			previous.PID, previous.StartedAt.Format(time.RFC3339), report.Facts.Distilled, report.Facts.Sessions)
-		progress.Skip("fact backfill: " + detail)
+		line := detail
+		// The log path was its own line for no reason other than that it was
+		// printed by its own call. It is a clause.
 		if previous.LogPath != "" {
-			progress.Skip("fact backfill log: " + previous.LogPath)
+			line += "; log: " + previous.LogPath
 		}
-		return setupPhase{State: "skipped", Detail: detail}
+		return setupBackfillSkippedBecause(phase, detail, line, setupui.ConsentReasonAlreadyRunning)
 	}
 	agent := strings.TrimSpace(setupOpts.agent)
 	if agent == "" || agent == "auto" {
 		agent = steps.detectAgent(ctx)
 	}
 	if agent == "none" {
-		progress.Skip("fact backfill: no agent CLI on PATH (install codex or claude, then re-run `" + setupBrainCommand(brainCmd) + " setup`)")
-		return setupPhase{State: "skipped", Detail: "no agent CLI available"}
+		agent = ""
 	}
 	budget := setupResolvedBackfillBudget(setupOpts)
-	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
-	if plan.Binary == "" {
-		progress.Skip("fact backfill: could not resolve this executable's path")
-		return setupPhase{State: "skipped", Detail: "executable path unavailable"}
-	}
-	// Say what this is about to cost BEFORE spending it. Everything the phase
-	// used to print — how many sessions, which agent, which model — arrived
-	// AFTER the detached child was already running, so the first thing the user
-	// could do with the number was read it about a spend already underway. The
-	// order is the whole point of a cost line: a user who did not want this has
-	// to be able to see it and Ctrl-C, and to be told the one flag that turns it
-	// off.
 	queued := report.Facts.Pending()
 	if budget > 0 && queued > budget {
 		queued = budget
 	}
-	progress.Skip(fmt.Sprintf("fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)",
-		setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending())))
+
+	// THE GATE. Distilling is the only part of setup that spends money, and
+	// until this it was opt-OUT: a first run distilled unless the operator
+	// happened to know about --no-backfill. Default no, never a prompt without
+	// a terminal, and the reader is told what it would cost before answering.
+	ui.Suspend()
+	outcome := setupui.Consent(setupui.ConsentRequest{
+		Sessions:      queued,
+		Agent:         agent,
+		Model:         strings.TrimSpace(setupOpts.model),
+		Effort:        strings.TrimSpace(setupOpts.effort),
+		Override:      setupConsentOverride(setupOpts),
+		TTY:           ui.tty,
+		ResumeCommand: resume,
+	}, in, promptOut, rend)
+	if !outcome.Spend {
+		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
+	}
+
+	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
+	if plan.Binary == "" {
+		return setupBackfillSkippedBecause(phase, "executable path unavailable",
+			"not distilled: could not resolve this executable's path"+counter,
+			setupui.ConsentReasonNoExecutable)
+	}
+	// A human who answered the prompt has already read the cost. A run that
+	// was answered by --yes has not, and the cost still has to be on screen
+	// BEFORE the detached child starts rather than after: the whole point of a
+	// cost line is that someone who did not want this can see it and Ctrl-C.
+	if !outcome.Prompted {
+		// Written to promptOut, NOT through the phase sink. The phase rows are
+		// discarded in the default short form, and a cost line a reader cannot
+		// see defeats its own purpose: someone who did not want this has to be
+		// able to read it and Ctrl-C. promptOut is the real stream in every
+		// mode except --json, which does not spend without --yes anyway.
+		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
+			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
+	}
 
 	pid, err := steps.spawnBackfill(ctx, plan)
 	if err != nil {
-		progress.Skip("fact backfill: " + err.Error())
+		phase.Fail("fact backfill did not start", err)
 		report.Warnings = append(report.Warnings, "backfill did not start: "+err.Error())
 		return setupPhase{State: "failed", Detail: err.Error()}
 	}
@@ -1163,23 +1446,72 @@ func runSetupBackfill(ctx context.Context, progress *refreshProgress, opts Optio
 		if stopErr := steps.stopBackfill(pid); stopErr != nil {
 			detail += "; stopping untracked backfill: " + stopErr.Error()
 		}
-		progress.Skip("fact backfill: " + detail)
+		phase.Fail("fact backfill stopped", fmt.Errorf("%s", detail))
 		report.Warnings = append(report.Warnings, detail)
 		return setupPhase{State: "failed", Detail: detail}
 	}
-	task := progress.Begin("fact backfill")
-	task.Update(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, agent %s (pid %d)",
-		queued, agent, pid))
-	task.Finish(nil)
 	// Say what the cap did and how to lift it. A silent cap is as surprising as
 	// a silent uncapped spend: the user is left believing the whole corpus was
 	// distilled when only the newest slice was.
+	var details []string
 	if budget > 0 && state.Sessions > budget {
-		progress.Skip(fmt.Sprintf(
-			"fact backfill capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `%s setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
+		details = append(details, fmt.Sprintf(
+			"capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `%s setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
 			budget, state.Sessions, setupBrainCommand(brainCmd)))
 	}
-	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
+	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)%s",
+		queued, setupBackfillSpendLabel(agent, setupOpts), pid, counter), details...)
+	return setupPhase{
+		State:      "ok",
+		Detail:     fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions),
+		consentWhy: outcome.Why,
+	}
+}
+
+// setupBackfillSkipped settles the Facts phase with the ONE reason that
+// applies. There are nine of them and none deserves a row of its own: the
+// phase line IS the reason.
+// setupProgressWriter picks the writer the progress reporter paints to.
+//
+// ONLY --json silences it. This looks like a trivial choice and is not: the
+// reporter's writer is where terminal capabilities are detected, and the sink
+// derives tty from it. Silencing the default short form by passing io.Discard
+// here once made io.Discard the capability source -- not an *os.File, so
+// PlainCaps, so tty=false, so setupui.Consent answered "no terminal to ask"
+// and NEVER PROMPTED before spending. The short form suppresses rows at the
+// sink instead, which is the thing that should be quiet.
+func setupProgressWriter(out io.Writer, jsonMode bool) io.Writer {
+	if jsonMode {
+		return io.Discard
+	}
+	return out
+}
+
+// setupBackfillSkippedBecause records a skip and WHY, as a value.
+//
+// There is no untyped variant any more. The one that existed defaulted to
+// ConsentReasonUnset, and every caller took it, so the short form fell
+// through to a counts-based guess and reported a running backfill and a
+// paused brain as "Distillation skipped -- run setup again anytime". Both
+// are wrong, and the second is advice that cannot work.
+func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, why setupui.ConsentReason) setupPhase {
+	phase.Skip(line)
+	return setupPhase{State: "skipped", Detail: detail, consentWhy: why}
+}
+
+// setupFactsCounter is the "3/12 sessions distilled" the old summary block
+// carried on its own row.
+//
+// The block was deleted because it re-listed the phases; this number was the
+// one thing in it that no phase line said, and dropping it with the rest
+// would have been a collapse that lost something. It rides on the Facts line
+// as a clause rather than coming back as a row, and it is omitted where the
+// line already states the ratio or where there is nothing to count.
+func setupFactsCounter(rend *setupui.Renderer, facts factsBackfillStatus) string {
+	if facts.Sessions <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %s %d/%d sessions distilled", rend.Bullet(), facts.Distilled, facts.Sessions)
 }
 
 // setupBackfillSpendLabel names WHAT will be spent, in the terms the user chose:
@@ -1473,6 +1805,9 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			steps.now = time.Now
 		}
 	}
+	if steps.stepOutput == nil {
+		steps.stepOutput = &setupStepSink{}
+	}
 	if steps.instant == nil {
 		steps.instant = func(ctx context.Context) ([]setupComponent, error) {
 			// The free path `watch` runs — sessions + semantic + seed + docs +
@@ -1481,7 +1816,23 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// failure does not abort the build. History is the one difference from
 			// a tick: onboarding builds the projection now rather than leaving the
 			// first `brief` to answer without it.
-			sub, capturedStderr := newSetupInstantCommand(ctx)
+			sub := &cobra.Command{}
+			sub.SetContext(ctx)
+			// Both streams go to the step sink, never to the terminal. The
+			// nested reporter has no idea it is nested; left pointed at the
+			// real streams it writes one permanent line per stage, on top of
+			// the row setup's own live line owns.
+			// Both streams go to the step sink, never to the terminal, for
+			// the reason above -- and stderr is TEED into a buffer as well,
+			// because a warning on that stream is not progress. A memory
+			// coordinator that could not launch, or a skipped entity index,
+			// reaches nobody if it is only a progress row that scrolls past
+			// (and in the short form is not printed at all). The tee keeps
+			// #401's routing and the re-emit below, which would otherwise
+			// have lost its source.
+			var capturedStderr bytes.Buffer
+			sub.SetOut(steps.stepOutput)
+			sub.SetErr(io.MultiWriter(steps.stepOutput, &capturedStderr))
 			var components []setupComponent
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
@@ -1493,7 +1844,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// launch, an entity index that was skipped -- and it reaches nobody
 			// unless it is re-emitted on the command the user is reading.
 			if cmd != nil && !setupOpts.json {
-				for _, warning := range setupWarningsFrom(capturedStderr) {
+				for _, warning := range setupWarningsFrom(&capturedStderr) {
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 				}
 			}
@@ -1938,60 +2289,6 @@ func roundedSeconds(seconds float64) string {
 	return time.Duration(seconds * float64(time.Second)).Round(100 * time.Millisecond).String()
 }
 
-// reportSetupAgents says, in one line, whether any agent can now find this
-// brain. A failure is recorded as a warning on the report so it survives into
-// `--json` and the closing summary: silently skipping the one step that makes
-// the brain discoverable is the defect this phase exists to fix, and a silent
-// failure here would reintroduce it.
-func reportSetupAgents(progress *refreshProgress, agents setupAgentsState, report *setupReport, declinedHooks bool, brainCmd string) {
-	dash := progress.dash()
-	if !agents.Installed {
-		warning := "agent instructions not written: " + agents.Detail
-		report.Warnings = append(report.Warnings, warning)
-		progress.Skip(fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`", warning, dash, setupBrainCommand(brainCmd)))
-		return
-	}
-	task := progress.Begin("agent instructions")
-	what := strings.Join(agents.Files, ", ")
-	switch {
-	case len(agents.Changed) == 0 && !agents.HookChanged:
-		task.Update("agent instructions already current (" + what + ")")
-	default:
-		task.Update("agent instructions written (" + what + ") " + dash + " agents are told this brain exists")
-	}
-	task.Finish(nil)
-	switch {
-	case declinedHooks:
-		progress.Skip("pre-edit hook (--no-agent-hooks)")
-	case agents.Hook != "" && agents.HookChanged:
-		// Wiring the hook IS work, so it reports as done. progress.Skip appends
-		// "skipped", which would render "pre-edit hook wired (...) skipped" --
-		// a line that both claims and denies the same action.
-		hookTask := progress.Begin("pre-edit hook")
-		hookTask.Update(fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited", agents.Hook, dash))
-		hookTask.Finish(nil)
-	case agents.Hook != "":
-		progress.Skip(fmt.Sprintf("pre-edit hook already wired (%s)", agents.Hook))
-	case agents.Detail != "":
-		report.Warnings = append(report.Warnings, agents.Detail)
-		progress.Skip(agents.Detail)
-	}
-}
-
-func reportSetupHook(progress *refreshProgress, hook setupHookState) {
-	dash := progress.dash()
-	switch {
-	case hook.Installed && !hook.EntireCLI:
-		progress.Skip(fmt.Sprintf("session-end hook wired (%s) but `%s` is not on PATH %s sessions will NOT distill until the Entire CLI is installed", hook.Source, entireBinaryName, dash))
-	case hook.Installed:
-		progress.Skip(fmt.Sprintf("session-end hook already wired (%s)", hook.Source))
-	case !hook.EntireCLI:
-		progress.Skip(fmt.Sprintf("session-end hook not wired and `%s` is not on PATH %s install the Entire CLI, then run `entire enable` in this repo", entireBinaryName, dash))
-	default:
-		progress.Skip("session-end hook not wired " + dash + " run `entire enable` in this repo so each session distills as it ends (SPENDS TOKENS per session)")
-	}
-}
-
 func describeDaemonState(state daemonState, brainCmd string) string {
 	if state.Detail != "" && state.Installed {
 		detail := state.Detail
@@ -2021,4 +2318,60 @@ func describeDaemonState(state daemonState, brainCmd string) string {
 	default:
 		return "not installed"
 	}
+}
+
+// refreshSetupPushHook refreshes an ALREADY-INSTALLED pre-push hook and
+// returns the detail line describing what happened.
+//
+// Setup owns the upgrade beat because the baked plugin path goes stale when
+// the binary moves and the hook's [ -x ] guard turns that into a silent
+// no-op. Fresh installs stay with `connect`: a bare setup after a disconnect
+// must not resurrect the hook, and setup on a never-connected repo must not
+// rearrange another tool's hooks for a feature that is switched off.
+//
+// Every branch returns a line, including the ones that did nothing, because
+// these are phase DETAILS -- `--verbose` only -- and the reader who asked for
+// them is the one who wants to know why their push is not uploading.
+func refreshSetupPushHook(ctx context.Context, opts Options, repoDir, brainCmd string) []string {
+	state, path, err := refreshPushHook(ctx, opts, repoDir)
+	if err != nil {
+		return []string{"push hook not refreshed (uploads ride the daemon tick): " + setupui.FlattenText(err.Error())}
+	}
+	switch state {
+	case pushHookSharedDir:
+		return []string{"push hook: core.hooksPath is shared across repos (" + path + "); not managed - uploads ride the daemon tick"}
+	case pushHookAbsent:
+		return []string{"push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
+	case pushHookUnchanged:
+		return []string{"push hook already current (" + path + ")"}
+	case pushHookChainedIn:
+		return []string{"push hook runs via the host CLI's chain (" + path + ")"}
+	default:
+		return []string{"push hook refreshed (" + path + ")"}
+	}
+}
+
+// setupAgentsPhaseDetails reports whether any agent can now find this brain.
+//
+// It replaces reportSetupAgents, which wrote its own progress rows -- those
+// are the phase's job now. What is NOT the phase's job, and is why this had
+// to survive #401's deletion of that function, is the WARNING: a failure to
+// write the instructions must reach report.Warnings so it survives into
+// `--json` and the closing block.
+func setupAgentsPhaseDetails(agents setupAgentsState, declinedHooks bool, dash, brainCmd string) (details []string, warning string) {
+	if !agents.Installed {
+		warning = "agent instructions not written: " + agents.Detail
+		return []string{fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`",
+			warning, dash, setupBrainCommand(brainCmd))}, warning
+	}
+	what := strings.Join(agents.Files, ", ")
+	if len(agents.Changed) == 0 && !agents.HookChanged {
+		details = append(details, "agent instructions already current ("+what+")")
+	} else {
+		details = append(details, "agent instructions written ("+what+") "+dash+" agents are told this brain exists")
+	}
+	if declinedHooks {
+		details = append(details, "pre-edit hook (--no-agent-hooks)")
+	}
+	return details, ""
 }

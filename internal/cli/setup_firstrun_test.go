@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/providerdetail"
-	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -387,26 +386,10 @@ func TestSetupUninstallDaemonStillWorksOutsideARepository(t *testing.T) {
 // said a persistent service had just been installed on the machine, let alone
 // how to take it off.
 func TestSetupSummaryNamesTheWatcherAndHowToRemoveIt(t *testing.T) {
-	t.Parallel()
-	out := &bytes.Buffer{}
-	report := setupReport{
-		Repo:      "/repo",
-		RepoKey:   "local/repo-1",
-		BrainPath: "/brain",
-		Instant:   setupPhase{State: "ok"},
-		Workspace: setupWorkspaceState{Name: "default", Registered: true},
-		Daemon: daemonState{
-			Manager:   daemonManagerLaunchd,
-			Label:     "io.entire.brain-watch.1a2b3c4d",
-			UnitPath:  "/home/u/Library/LaunchAgents/io.entire.brain-watch.1a2b3c4d.plist",
-			Installed: true,
-			Current:   true,
-			Running:   true,
-		},
-	}
-	renderSetupSummary(out, tui.NewRenderer(out), report, &setupTimings{}, setupWatchPlan{}, setupBrainBinaryName)
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	printed := runSetupForTest(t, f, defaultSetupOptions(), rec)
 
-	printed := out.String()
 	if !strings.Contains(printed, "--uninstall-daemon") {
 		t.Fatalf("setup must name the command that removes what it just installed:\n%s", printed)
 	}

@@ -5,7 +5,15 @@ templates/** text eol=lf
 
 # Golden byte fixtures are compared exactly in tests and must remain stable on
 # Windows checkouts too.
-internal/cli/testdata/*.golden* text eol=lf
+#
+# Globbed across every package, not pinned per directory. The per-directory
+# form was internal/cli only, so the first golden added outside it
+# (internal/setupui/testdata/pipe.golden) came back CRLF on Windows and failed
+# a byte comparison on content nobody had touched -- and the diff printed two
+# blocks that looked identical, because a terminal does not show a carriage
+# return. A rule that has to be extended by hand for each new directory is a
+# rule that will be forgotten again.
+**/testdata/*.golden* text eol=lf
 
 # render_json_contract_test.go round-trips these through json.Marshal (always LF)
 # and compares bytes; a Windows checkout without this pin gets CRLF and fails the

@@ -41,8 +41,20 @@ type setupSink struct {
 	progress *refreshProgress
 	rend     *setupui.Renderer
 	tty      bool
-	mu       sync.Mutex
-	task     *refreshProgressTask
+	// quiet suppresses the permanent PHASE ROWS only. It exists because the
+	// short form replaced them, and the rows must stop WITHOUT the sink
+	// pretending there is no terminal.
+	//
+	// The first attempt suppressed them by handing newProgress io.Discard.
+	// That is not a writer swap, it is a capability lie: io.Discard is not an
+	// *os.File, so caps collapse to PlainCaps, tty becomes false, and
+	// setupui.Consent takes its `case !req.TTY` branch and returns "no
+	// terminal to ask" WITHOUT PROMPTING. The consent gate -- the whole reason
+	// setup asks before it spends -- silently stopped existing, and the terse
+	// block rendered with no colour at width 500 on a real terminal.
+	quiet bool
+	mu    sync.Mutex
+	task  *refreshProgressTask
 }
 
 // newSetupSink builds the sink and the renderer that composes its rows. The
@@ -50,7 +62,7 @@ type setupSink struct {
 // detected again from the writer: asking the environment a second time is how
 // the glyph set a row is composed with drifts from the one the spinner beside
 // it is painted with.
-func newSetupSink(progress *refreshProgress) *setupSink {
+func newSetupSink(progress *refreshProgress, quiet bool) *setupSink {
 	var base *tui.Renderer
 	if progress != nil {
 		base = progress.render
@@ -63,6 +75,7 @@ func newSetupSink(progress *refreshProgress) *setupSink {
 		progress: progress,
 		rend:     setupui.NewRendererWidth(base, setupRenderWidth(caps, os.LookupEnv)),
 		tty:      progress.TTY(),
+		quiet:    quiet,
 	}
 }
 
@@ -126,7 +139,12 @@ func (s *setupSink) Settle(line setupui.Line) {
 	if s == nil {
 		return
 	}
+	// Suspend happens either way: the transient line must close even when its
+	// row is not kept, or the spinner is left owning a row nothing finishes.
 	s.Suspend()
+	if s.quiet {
+		return
+	}
 	s.progress.EmitLine(s.rend.Line(line))
 }
 
@@ -135,7 +153,7 @@ func (s *setupSink) Settle(line setupui.Line) {
 // it is warning about starts, and routing it through the run's Emit would
 // abandon the live line it is standing in front of.
 func (s *setupSink) Interject(lines ...setupui.Line) {
-	if s == nil {
+	if s == nil || s.quiet {
 		return
 	}
 	for _, line := range lines {

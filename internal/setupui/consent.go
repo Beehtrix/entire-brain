@@ -54,6 +54,34 @@ type ConsentRequest struct {
 	ResumeCommand string
 }
 
+// ConsentReason is WHY consent landed where it did, as a value.
+//
+// Reason below is a sentence for a human. Anything that needs to branch on the
+// outcome must branch on this instead: the short form has to tell "no agent on
+// PATH" apart from "the human said no", and deriving that by matching English
+// against Reason breaks the moment the sentence is reworded.
+type ConsentReason int
+
+const (
+	// ConsentReasonUnset is the zero value; treat it as "not decided here".
+	ConsentReasonUnset ConsentReason = iota
+	// ConsentReasonNoBackfill is --no-backfill.
+	ConsentReasonNoBackfill
+	// ConsentReasonNoSessions is a repo with nothing recorded yet.
+	ConsentReasonNoSessions
+	// ConsentReasonNoAgent is sessions present and no CLI able to read them.
+	ConsentReasonNoAgent
+	// ConsentReasonFlagYes is --yes.
+	ConsentReasonFlagYes
+	// ConsentReasonNoTTY is a non-interactive stdin, where silence is not
+	// consent.
+	ConsentReasonNoTTY
+	// ConsentReasonAccepted is a human who answered yes.
+	ConsentReasonAccepted
+	// ConsentReasonDeclined is a human who answered no.
+	ConsentReasonDeclined
+)
+
 // ConsentOutcome is the decision and why it was reached.
 type ConsentOutcome struct {
 	// Spend is the answer.
@@ -61,6 +89,8 @@ type ConsentOutcome struct {
 	// Reason is always set, including when Spend is true. It is what the
 	// settled phase line says.
 	Reason string
+	// Why is the same decision as a value, for callers that must branch.
+	Why ConsentReason
 	// Prompted reports whether a human was actually asked. A test asserting
 	// "CI does not block" asserts on this, not on the answer.
 	Prompted bool
@@ -83,24 +113,24 @@ func Consent(req ConsentRequest, in io.Reader, out io.Writer, r *Renderer) Conse
 
 	switch {
 	case req.Override == OverrideNo:
-		return ConsentOutcome{Reason: "not distilled (--no-backfill); start later: " + resume}
+		return ConsentOutcome{Reason: "not distilled (--no-backfill); start later: " + resume, Why: ConsentReasonNoBackfill}
 	case req.Sessions <= 0:
-		return ConsentOutcome{Reason: "no sessions to distill; the brain is queryable now"}
+		return ConsentOutcome{Reason: "no sessions to distill; the brain is queryable now", Why: ConsentReasonNoSessions}
 	case req.Agent == "":
-		return ConsentOutcome{Reason: "no agent CLI on PATH, nothing can distill; " + RemedyAgent}
+		return ConsentOutcome{Reason: "no agent CLI on PATH, nothing can distill; " + RemedyAgent, Why: ConsentReasonNoAgent}
 	case req.Override == OverrideYes:
-		return ConsentOutcome{Spend: true, Reason: "distilling " + plural(req.Sessions, "session") + " (--yes)"}
+		return ConsentOutcome{Spend: true, Reason: "distilling " + plural(req.Sessions, "session") + " (--yes)", Why: ConsentReasonFlagYes}
 	case !req.TTY:
 		// Not a prompt, not a read, not a wait: one line and a default.
-		return ConsentOutcome{Reason: "not distilled: no terminal to ask, and silence is not consent; run " + resume + " or pass --yes"}
+		return ConsentOutcome{Reason: "not distilled: no terminal to ask, and silence is not consent; run " + resume + " or pass --yes", Why: ConsentReasonNoTTY}
 	}
 
 	writePrompt(out, r, req)
 	answer, prompted := askTwice(in, out, r)
 	if answer {
-		return ConsentOutcome{Spend: true, Reason: "distilling " + plural(req.Sessions, "session") + ", newest first", Prompted: prompted}
+		return ConsentOutcome{Spend: true, Reason: "distilling " + plural(req.Sessions, "session") + ", newest first", Why: ConsentReasonAccepted, Prompted: prompted}
 	}
-	return ConsentOutcome{Reason: "not distilled; the brain is queryable now, start later: " + resume, Prompted: prompted}
+	return ConsentOutcome{Reason: "not distilled; the brain is queryable now, start later: " + resume, Why: ConsentReasonDeclined, Prompted: prompted}
 }
 
 // writePrompt paints the block the operator is answering. It uses the same

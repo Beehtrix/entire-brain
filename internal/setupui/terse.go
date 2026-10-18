@@ -80,7 +80,6 @@ type TerseReport struct {
 
 	Sessions  int
 	Distilled int
-	Agent     string
 	Distill   DistillOutcome
 	// DistillReason explains a DistillFailed outcome in one clause.
 	DistillReason string

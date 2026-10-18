@@ -434,6 +434,11 @@ type setupPhase struct {
 	State   string  `json:"state"` // ok | degraded | skipped | failed
 	Detail  string  `json:"detail,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
+	// consentWhy is the typed reason the facts phase landed where it did.
+	// Unexported on purpose: encoding/json never sees it, so the report's
+	// shape is unchanged, and the short form gets to branch on a value
+	// instead of matching English against Detail.
+	consentWhy setupui.ConsentReason
 	// Components is the instant phase's per-component outcome. "degraded" means
 	// the brain is queryable but at least one of these failed.
 	Components []setupComponent `json:"components,omitempty"`
@@ -612,27 +617,25 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// --json must keep stdout parseable, so the friendly per-step lines are
 	// dropped rather than interleaved with the report.
 	progressOut := cmd.OutOrStdout()
-	// The CONSENT PROMPT is not a progress row and must never follow
-	// progressOut into io.Discard. It is the question that decides whether
-	// this run spends the reader's money, and a prompt written to a discarded
-	// writer asks for consent nobody can see. Bound to the real stream before
-	// the suppression below, and suppressed only for --json, which does not
-	// prompt at all.
+	// The CONSENT PROMPT is not a progress row. It is the question that
+	// decides whether this run spends the reader's money, so it is bound to
+	// the real stream and silenced only by --json, which does not prompt.
 	promptOut := cmd.OutOrStdout()
 	if setupOpts.json {
 		promptOut = io.Discard
 	}
-	// The phase rows ARE a progress report, and they are suppressed for both
-	// --json and the default short form: they describe what the machine did,
-	// while the short form answers the three questions a person has.
-	// --verbose brings them back.
-	if setupOpts.json || !setupOpts.verbose {
-		progressOut = io.Discard
-	}
+	// progressOut keeps the REAL writer unless --json, even though the default
+	// short form drops the phase rows. Handing newProgress io.Discard to
+	// silence them also destroys terminal detection -- io.Discard is not an
+	// *os.File, so caps collapse to PlainCaps, the sink reports tty=false, and
+	// setupui.Consent answers "no terminal to ask" instead of prompting. The
+	// rows are suppressed at the SINK instead, which is the thing that should
+	// be quiet.
+	progressOut = setupProgressWriter(progressOut, setupOpts.json)
 	progress := newProgress(progressOut, "setup")
 	// The seven-phase UI. One live line per phase, one permanent row when it
 	// settles, and sub-steps that structurally cannot reach a row of their own.
-	ui := newSetupSink(progress)
+	ui := newSetupSink(progress, !setupOpts.verbose && !setupOpts.json)
 	rend := ui.Renderer()
 	run := setupui.NewRun(ui, rend)
 	timings := &setupTimings{}
@@ -1213,7 +1216,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		ResumeCommand: resume,
 	}, in, promptOut, rend)
 	if !outcome.Spend {
-		return setupBackfillSkipped(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter)
+		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
 	}
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
@@ -1272,15 +1275,40 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	}
 	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)%s",
 		queued, setupBackfillSpendLabel(agent, setupOpts), pid, counter), details...)
-	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
+	return setupPhase{
+		State:      "ok",
+		Detail:     fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions),
+		consentWhy: outcome.Why,
+	}
 }
 
 // setupBackfillSkipped settles the Facts phase with the ONE reason that
 // applies. There are nine of them and none deserves a row of its own: the
 // phase line IS the reason.
+// setupProgressWriter picks the writer the progress reporter paints to.
+//
+// ONLY --json silences it. This looks like a trivial choice and is not: the
+// reporter's writer is where terminal capabilities are detected, and the sink
+// derives tty from it. Silencing the default short form by passing io.Discard
+// here once made io.Discard the capability source -- not an *os.File, so
+// PlainCaps, so tty=false, so setupui.Consent answered "no terminal to ask"
+// and NEVER PROMPTED before spending. The short form suppresses rows at the
+// sink instead, which is the thing that should be quiet.
+func setupProgressWriter(out io.Writer, jsonMode bool) io.Writer {
+	if jsonMode {
+		return io.Discard
+	}
+	return out
+}
+
 func setupBackfillSkipped(phase *setupui.PhaseRun, detail, line string) setupPhase {
+	return setupBackfillSkippedBecause(phase, detail, line, setupui.ConsentReasonUnset)
+}
+
+// setupBackfillSkippedBecause is the same skip, carrying the typed reason.
+func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, why setupui.ConsentReason) setupPhase {
 	phase.Skip(line)
-	return setupPhase{State: "skipped", Detail: detail}
+	return setupPhase{State: "skipped", Detail: detail, consentWhy: why}
 }
 
 // setupFactsCounter is the "3/12 sessions distilled" the old summary block

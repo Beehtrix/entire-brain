@@ -410,7 +410,7 @@ func TestSetupStepSinkDoesNotDeadlockInsideTheLiveTerminal(t *testing.T) {
 	render := tui.NewRendererWith(theme, tui.Caps{TTY: true, Color: false, Unicode: false, Width: 80})
 	live := newLiveTerminal()
 	progress := newProgressWithRenderer(io.Discard, "setup", render, live)
-	ui := newSetupSink(progress)
+	ui := newSetupSink(progress, false)
 	if !ui.tty {
 		t.Fatal("the fixture must model a terminal; there is no deadlock to reproduce without one")
 	}

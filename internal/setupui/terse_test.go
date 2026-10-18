@@ -45,7 +45,7 @@ func TestTerseShapes(t *testing.T) {
 			name: "accepted the prompt",
 			rep: func() TerseReport {
 				r := base
-				r.Sessions, r.Agent, r.Distill, r.Watcher = 274, "claude-code", DistillStarted, WatcherInstalled
+				r.Sessions, r.Distill, r.Watcher = 274, DistillStarted, WatcherInstalled
 				return r
 			}(),
 			lines: []string{

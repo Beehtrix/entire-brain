@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattn/go-isatty"
+
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -64,6 +66,40 @@ func newSetupSink(progress *refreshProgress) *setupSink {
 		rend:     setupui.NewRendererWidth(base, setupRenderWidth(caps, os.LookupEnv)),
 		tty:      progress.TTY(),
 	}
+}
+
+// setupCanAskAHuman reports whether a question typed here would actually
+// reach a person and get an answer back.
+//
+// The consent gate used ui.tty, which is detected from the OUTPUT writer
+// alone, and then read from stdin whenever it was true. Those are different
+// questions. A pty-wrapping log tool (`script`, several CI runners) gives a
+// terminal-looking stdout while stdin is an open stream that never EOFs, and
+// askTwice's ReadString('\n') then blocks forever -- the wedged pipeline this
+// gate was built to prevent, reached through the gate itself.
+//
+// Both ends must be terminals. Being wrong in this direction costs a skipped
+// backfill and a printed resume command; being wrong in the other direction
+// hangs the install with no output and no way to know why.
+//
+// It takes two booleans rather than the reader, so the rule itself is
+// testable where no terminal exists -- which is every CI machine this runs
+// on, and is why the first version of this could not be held: a test for
+// "output alone is not enough" cannot be written without an input that IS a
+// terminal.
+func setupCanAskAHuman(outputIsTTY, inputIsTTY bool) bool {
+	return outputIsTTY && inputIsTTY
+}
+
+// readerIsTerminal reports whether this reader is a terminal a person is
+// sitting at. Anything that is not an *os.File -- a buffer, a pipe wrapper, a
+// test reader -- is not.
+func readerIsTerminal(in io.Reader) bool {
+	f, ok := in.(*os.File)
+	if !ok {
+		return false
+	}
+	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
 }
 
 // setupPipeWidth is the budget for a destination that has no physical row.

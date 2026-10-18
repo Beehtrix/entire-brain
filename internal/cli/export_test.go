@@ -2139,3 +2139,16 @@ func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
 		}
 	}
 }
+
+// usefulExportWarnings is the reader-facing list alone.
+//
+// It lives here because nothing in the product wants it: every production
+// caller needs the suppressed slice and the raw total as well, and takes all
+// three from usefulExportWarningsDetailed. Keeping a one-line wrapper in
+// export.go for the convenience of three assertions put a symbol with no
+// production caller into production code, and gave it a doc comment
+// describing a disclosure line it has never appended.
+func usefulExportWarnings(warnings []string, debug bool) []string {
+	useful, _, _ := usefulExportWarningsDetailed(warnings, debug)
+	return useful
+}

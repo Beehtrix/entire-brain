@@ -816,7 +816,7 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	f.runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "headsha\n"}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	f.runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	f.runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	f.runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	// More than ten active facts catches accidental sampling; retired anchors
 	// must not turn doctor's active-fact overview into a warning.
@@ -843,7 +843,7 @@ func TestFactVerificationBelongsToDoctorNotStatus(t *testing.T) {
 	})
 
 	cmd := NewRootCommand(f.opts)
-	out, err := execute(t, cmd, "status", "--json")
+	out, err := execute(t, cmd, "status", "--json", "--details")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}

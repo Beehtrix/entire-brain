@@ -212,7 +212,11 @@ func TestADirtyWorktreeIndexIsNotStampedWithHEADsTree(t *testing.T) {
 	src := readGoSourceForTest(t, "semantic.go")
 	withdraw := "if indexOpts.worktree && dirty {"
 	assign := "indexOpts.localCommit = head"
-	dirtyCheck := "dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)"
+	// #346 replaced worktreeDirtyWithIgnore here with the gate-specific
+	// worktreeDirtyDetail, so the anchor moves with it. What this guard is
+	// about is the ORDER -- assign, learn dirtiness, withdraw -- not which
+	// helper reports dirtiness.
+	dirtyCheck := "dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)"
 
 	wi := indexOfForTest(src, withdraw)
 	ai := indexOfForTest(src, assign)

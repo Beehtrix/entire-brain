@@ -3517,13 +3517,6 @@ func warningLines(prefix string, data []byte) []string {
 	return warnings
 }
 
-// usefulExportWarnings returns the reader-facing warning list for the manifest. It ends with a
-// disclosure line whenever anything was dropped; see usefulExportWarningsDetailed.
-func usefulExportWarnings(warnings []string, debug bool) []string {
-	useful, _, _ := usefulExportWarningsDetailed(warnings, debug)
-	return useful
-}
-
 // usefulExportWarningsDetailed filters the raw export warnings into the reader-facing list and
 // returns, separately, the raw text of every warning that list does NOT represent.
 //
@@ -3531,12 +3524,15 @@ func usefulExportWarnings(warnings []string, debug bool) []string {
 // among them. That one means a checkpoint's transcript could not be read, so the export is
 // genuinely incomplete — and the run still printed "exported N sessions" with a warning count
 // taken from the FILTERED list, i.e. a count that could not reveal its own omissions. Dropped
-// warnings now travel two ways that need no flag: a disclosure line appended to the reader-facing
-// list that states the real total, and the raw texts, which the caller persists to the manifest as
-// suppressed_warnings.
+// warnings now travel two ways that need no flag: the raw texts, which the caller persists to the
+// manifest as suppressed_warnings, and a disclosure in the printed summary.
+//
+// This function appends NOTHING to the list it returns. The disclosure is two lines built by
+// exportWarningSummaryLines out of the total and the suppressed slice returned here, and it belongs
+// there: the manifest's reader-facing list must hold warnings, not a sentence about warnings.
 //
 // Exact duplicates of a kept warning are still collapsed and are NOT counted as suppressed: their
-// content survives in the list. The disclosure quotes the raw total so that collapsing is visible
+// content survives in the list. The summary quotes the raw total so that collapsing is visible
 // too.
 // total is the number of raw non-empty warnings seen, which is what "warnings: N" must report.
 func usefulExportWarningsDetailed(warnings []string, debug bool) (useful []string, suppressed []string, total int) {

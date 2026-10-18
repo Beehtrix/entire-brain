@@ -1232,12 +1232,21 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 		} else if f.Facts > 0 {
-			// Verification moved behind --details because it walks git history
-			// per anchor commit and made status unusable in a hook (24s to 2.4s
-			// on a 961-fact brain). Say where it went: a line that silently
-			// stops appearing is the same class of defect this change set exists
-			// to remove.
-			fmt.Fprintln(out, "  verification: not run (use --details; it walks git history)")
+			// Verification left status because it walks git history per anchor
+			// commit and made status unusable in a hook (24s to 2.4s on a
+			// 961-fact brain). Say where it went: a line that silently stops
+			// appearing tells the reader verification PASSED, which is the
+			// silent-degradation class this change set exists to remove.
+			//
+			// It went to `verify` and `doctor`, NOT behind --details. This line
+			// said --details, and main then settled the question the other way
+			// -- see TestBrainStatusDetailsDoesNotVerifyFacts, which pins that
+			// --details runs no walk. So the remedy named here sent every
+			// reader to a flag that does nothing, which is worse than the
+			// missing line it replaced: a wrong instruction costs a run to
+			// disprove, and then there is still no answer.
+			fmt.Fprintf(out, "  verification: not run (`%s verify`, or `%s doctor`; it walks git history)\n",
+				brainCmd, brainCmd)
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)

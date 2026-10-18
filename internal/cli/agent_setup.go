@@ -17,6 +17,7 @@ func newInitAgentsCommand(opts Options) *cobra.Command {
 func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 	var repo string
 	var jsonOut bool
+	var noHooks bool
 	var strict, normal bool
 	cmd := &cobra.Command{Use: "agent-guide", Aliases: []string{"guide"}, Short: "Preview repository-specific agent instructions", Args: cobra.NoArgs}
 	cmd.Long = "Preview repository-specific agent instructions without writing files. Inherits the saved guidance mode; --strict and --normal override this preview only. Save a mode with init-agents. Outside a repository, prints standalone Brain guidance (normal unless --strict is supplied)."
@@ -24,9 +25,11 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 		cmd.Use = "init-agents [path]"
 		cmd.Aliases = nil
 		cmd.Short = "Install coordinated agent instructions"
-		cmd.Long = "Install coordinated agent instructions, preserving enabled products and the saved guidance mode. --strict saves mandatory tool-use rules for all enabled products; --normal resets to normal guidance. New repositories default to normal."
+		cmd.Long = "Install coordinated agent instructions, preserving enabled products and the saved guidance mode. --strict saves mandatory tool-use rules for all enabled products; --normal resets to normal guidance. New repositories default to normal.\n\nIt also merges a Claude Code PreToolUse entry into .claude/settings.json so `hook pre-edit` delivers file-anchored facts at the moment an agent edits — the verb was unwired, and the docs admitted it had no effect until a harness called it. Pass --no-agent-hooks to skip that, or --no-agent-hooks=false to re-add it."
 		cmd.Args = cobra.MaximumNArgs(1)
 		cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit changed file paths as JSON")
+		cmd.Flags().BoolVar(&noHooks, "no-agent-hooks", false, "Write the instructions but do not merge the Claude Code PreToolUse entry")
+		cmd.Flags().BoolVar(&noHooks, "no-agent-hooks", false, "Write the instructions but do not merge the Claude Code PreToolUse entry")
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		mode, err := agentsetup.SelectMode(strict, normal)
@@ -77,7 +80,16 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 			// brain hook pre-edit` is a command that does not exist on that
 			// user's PATH. It would fail on every edit, silently, which is the
 			// same inert-hook failure the comment above is about.
-			hookChanged, hookErr := agentsetup.MergePreEditHook(root, setupCommandPrefix(os.LookupEnv))
+			// --no-agent-hooks is kept from #342. The merge writes
+			// .claude/settings.json, which is not ours and which a user may
+			// manage themselves, so there has to be a way to decline it
+			// while still getting the instruction files. Nothing else in
+			// this command touches a file the user did not ask for.
+			hookChanged := false
+			var hookErr error
+			if !noHooks {
+				hookChanged, hookErr = agentsetup.MergePreEditHook(root, setupCommandPrefix(os.LookupEnv))
+			}
 			if jsonOut {
 				changed, err := agentsetup.InstallChanged(root, render)
 				if err != nil {

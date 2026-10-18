@@ -11,13 +11,13 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/httpx"
-	"github.com/entireio/entire-brain/internal/repoid"
 )
 
 // This file is the per-fact wire (COR-2126): brainstore's idempotent batch
-// upsert and repo-wide delta feed. Unlike the branch-head endpoints above,
-// these routes are published BARE on the cell gateway — /repos/{id}/brain/*,
-// no /api/v1 prefix (entire-api gateway topology, PathPrefix "").
+// upsert and repo-wide delta feed, published by the cell gateway under the
+// same /api/v1/repos/{id}/brain/* namespace as the branch-head endpoints
+// (verified live: the bare path 404s, /api/v1/brain/v1/health answers with
+// brainstore's health body).
 
 // ErrInvalidPageToken is returned when the feed rejects the stored cursor
 // (400 with a token sent) — the server's keyset epoch moved. The caller
@@ -49,14 +49,14 @@ type FeedPage struct {
 	NextPageToken *string    `json:"nextPageToken"`
 }
 
-// brainPath builds the bare per-fact route base. Same raw-segment rule as
-// repoBasePath (see its comment): repoid.Validate guarantees the id is one
-// safe path segment, so concatenation cannot re-address the request.
+// brainPath builds the per-fact route base on repoBasePath, the package's
+// single point where a repo id becomes part of a request target.
 func brainPath(repoID string) (string, error) {
-	if err := repoid.Validate(repoID); err != nil {
-		return "", fmt.Errorf("factsync: %w", err)
+	base, err := repoBasePath(repoID)
+	if err != nil {
+		return "", err
 	}
-	return "/repos/" + repoID + "/brain", nil
+	return base + "/brain", nil
 }
 
 // UpsertFacts posts one NDJSON batch to the idempotent per-fact upsert. The

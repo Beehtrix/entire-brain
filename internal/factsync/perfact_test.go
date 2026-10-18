@@ -30,8 +30,8 @@ func TestUpsertFactsWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertFacts: %v", err)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/repos/r1/brain/facts:upsert" {
-		t.Fatalf("request target = %s %s, want POST /repos/r1/brain/facts:upsert", gotMethod, gotPath)
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/repos/r1/brain/facts:upsert" {
+		t.Fatalf("request target = %s %s, want POST /api/v1/repos/r1/brain/facts:upsert", gotMethod, gotPath)
 	}
 	if gotAuth != "Bearer tok" {
 		t.Fatalf("Authorization = %q", gotAuth)
@@ -105,7 +105,7 @@ func TestFactsFeedPageWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FactsFeedPage: %v", err)
 	}
-	if gotPath != "/repos/r1/brain/facts" || gotToken != "abc" || gotPageSize != "100" {
+	if gotPath != "/api/v1/repos/r1/brain/facts" || gotToken != "abc" || gotPageSize != "100" {
 		t.Fatalf("request = %s pageToken=%q pageSize=%q", gotPath, gotToken, gotPageSize)
 	}
 	if len(page.Items) != 1 {

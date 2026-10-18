@@ -437,8 +437,12 @@ func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
 
 	// Fault 2, status's half: read the verdict the same surface builds.
 	report := brainStatusReport{
-		Semantic:   &brainStatusSemantic{},
-		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+		Semantic: &brainStatusSemantic{},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)),
+			// #399 gave this a third argument: the per-component rebuild times
+			// that age a stale recorded failure out. These tests are about a
+			// repo with no captured sessions, so there is nothing to age out.
+			componentRunTimes(f.storage.BrainDir))},
 	}
 	health := buildStatusHealth(report)
 	if !health.NoCapturedSessions {
@@ -474,8 +478,12 @@ func TestEgressAllowedCompleteEmptyInventoryIsNotAFailure(t *testing.T) {
 		t.Fatalf("a complete, empty inventory is not a failed sessions component:\n%s", out)
 	}
 	health := buildStatusHealth(brainStatusReport{
-		Semantic:   &brainStatusSemantic{},
-		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+		Semantic: &brainStatusSemantic{},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)),
+			// #399 gave this a third argument: the per-component rebuild times
+			// that age a stale recorded failure out. These tests are about a
+			// repo with no captured sessions, so there is nothing to age out.
+			componentRunTimes(f.storage.BrainDir))},
 	})
 	for _, failed := range health.Failed {
 		if failed == brainComponentSessions {

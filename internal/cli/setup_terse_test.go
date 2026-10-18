@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -361,5 +363,197 @@ func TestSetupStillRefreshesThePushHook(t *testing.T) {
 	// --verbose is for.
 	if terse := runSetupTerseForTest(t, newSetupTestFixture(t), opts, &recordedSetup{}); strings.Contains(terse, "push hook") {
 		t.Fatalf("the short form must not carry hook plumbing:\n%s", terse)
+	}
+}
+
+// --- the three review findings on this PR ---
+
+// Finding 1. An empty repository is not a broken one.
+//
+// Setup returns early before the daemon is inspected or any source is built,
+// so the normal short form rendered two statements nobody measured -- "Brain
+// could not be built" and "Watcher unavailable" -- and sent the reader to
+// `doctor` for a condition one commit fixes.
+func TestAnEmptyRepositoryIsNotReportedAsBroken(t *testing.T) {
+	t.Parallel()
+	out := renderTerseFor(t, setupui.TerseReport{
+		BrainCmd:     "entire brain",
+		NoCommitsYet: true,
+		// Exactly the half-filled shape the early return produces.
+		Queryable: false,
+		Watcher:   setupui.WatcherUnavailable,
+	})
+
+	if !strings.Contains(out, "no commits") {
+		t.Errorf("the one true reason must be stated:\n%s", out)
+	}
+	if !strings.Contains(out, "Make a commit") {
+		t.Errorf("the one action must be stated:\n%s", out)
+	}
+	for _, lie := range []string{"could not be built", "Watcher", "doctor"} {
+		if strings.Contains(out, lie) {
+			t.Errorf("nothing measured the %q claim on this path:\n%s", lie, out)
+		}
+	}
+}
+
+// Finding 2. A component with no reader-facing label is still a failure.
+//
+// UpToDate was computed from len(Unavailable), and an unlabelled component
+// (`entities`, say) contributes nothing to it -- so a build that lost one
+// collapsed to the single line "Brain up to date" and reported a degraded
+// brain as a clean one.
+func TestAnUnlabelledComponentFailureIsStillAFailure(t *testing.T) {
+	t.Parallel()
+	report := setupReport{
+		Instant: setupPhase{Components: []setupComponent{
+			{Name: "semantic", State: "ok"},
+			{Name: "entities", State: "failed", Detail: "provider exited 1"},
+		}},
+	}
+	terse := terseReportFor(report, nil, true, defaultSetupOptions(), "entire brain")
+
+	if terse.UnnamedFailures != 1 {
+		t.Fatalf("an unlabelled failure must be counted, got %d", terse.UnnamedFailures)
+	}
+	// Every OTHER up-to-date condition deliberately satisfied, so the only
+	// thing that can keep this false is the unnamed failure. Without that,
+	// the assertion passes through Sessions==0 and proves nothing.
+	clean := setupReport{
+		Instant: setupPhase{Components: []setupComponent{
+			{Name: "semantic", State: "ok"},
+			{Name: "entities", State: "failed", Detail: "provider exited 1"},
+		}},
+		Facts:  factsBackfillStatus{Sessions: 4, Distilled: 4},
+		Daemon: daemonState{Installed: true, Running: true},
+	}
+	upToDate := terseReportFor(clean, nil, true, defaultSetupOptions(), "entire brain")
+	if upToDate.Watcher != setupui.WatcherAlreadyRunning || clean.Facts.Pending() != 0 {
+		t.Fatalf("fixture no longer satisfies the other conditions (watcher=%v pending=%d), so this proves nothing",
+			upToDate.Watcher, clean.Facts.Pending())
+	}
+	if upToDate.UpToDate {
+		t.Fatal("a build that lost a component is not up to date, however healthy the rest is")
+	}
+	if terse.UpToDate {
+		t.Fatal("a build that lost a component is not up to date")
+	}
+	out := renderTerseFor(t, setupui.TerseReport{
+		BrainCmd: "entire brain", Queryable: true, UnnamedFailures: 1,
+	})
+	if !strings.Contains(out, "did not build") {
+		t.Errorf("the short form must say something did not build:\n%s", out)
+	}
+	if !strings.Contains(out, "doctor") {
+		t.Errorf("and point at the command that names it:\n%s", out)
+	}
+	// Not by its internal id: that is the reason it has no label.
+	if strings.Contains(out, "entities") {
+		t.Errorf("an internal component id is not something a reader can act on:\n%s", out)
+	}
+}
+
+// Finding 3. The skips that happen BEFORE consent are not declines.
+//
+// They all fell through one default and were reported as "Distillation
+// skipped — run `setup` again anytime". For a running backfill that
+// contradicts the machine; for a paused brain it is advice that cannot work,
+// because the next setup skips for the same reason.
+func TestPreConsentSkipsAreNotReportedAsDeclines(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		why     setupui.ConsentReason
+		outcome setupui.DistillOutcome
+		mustSay []string
+		mustNot []string
+	}{
+		{setupui.ConsentReasonPaused, setupui.DistillPaused,
+			[]string{"paused", "entire brain start"}, []string{"skipped — run"}},
+		{setupui.ConsentReasonAlreadyRunning, setupui.DistillInFlight,
+			[]string{"already running"}, []string{"skipped"}},
+		{setupui.ConsentReasonAlreadyDistilled, setupui.DistillAlreadyDone,
+			[]string{"already distilled"}, []string{"skipped"}},
+		{setupui.ConsentReasonNoExecutable, setupui.DistillNoExecutable,
+			[]string{"would not resolve"}, []string{"skipped"}},
+	} {
+		report := setupReport{Backfill: setupPhase{State: "skipped", consentWhy: tc.why}}
+		// Pending sessions present: this is the shape that used to take the
+		// counts-based default straight to DistillDeclined.
+		report.Facts = factsBackfillStatus{Sessions: 9, Distilled: 1}
+
+		if got := terseDistillOutcome(report); got != tc.outcome {
+			t.Errorf("reason %v: got outcome %v, want %v", tc.why, got, tc.outcome)
+			continue
+		}
+		out := renderTerseFor(t, setupui.TerseReport{
+			BrainCmd: "entire brain", Queryable: true, Distill: tc.outcome,
+			Sessions: 9, Distilled: 1,
+		})
+		for _, want := range tc.mustSay {
+			if !strings.Contains(out, want) {
+				t.Errorf("reason %v: line must contain %q:\n%s", tc.why, want, out)
+			}
+		}
+		for _, unwanted := range tc.mustNot {
+			if strings.Contains(out, unwanted) {
+				t.Errorf("reason %v: line must not contain %q:\n%s", tc.why, unwanted, out)
+			}
+		}
+	}
+}
+
+// And the wiring: the product's own skip sites must set those reasons, or
+// the three cases above are unreachable and the test suite above is theatre.
+func TestEverySkipSiteRecordsWhy(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("setup.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(src)
+	// An untyped skip helper is how all four lost their reason the first
+	// time. There must not be one to call.
+	if strings.Contains(text, "func setupBackfillSkipped(") {
+		t.Error("the untyped skip helper is back; every caller took it and defaulted to Unset")
+	}
+	for _, reason := range []string{
+		"ConsentReasonPaused", "ConsentReasonAlreadyRunning",
+		"ConsentReasonAlreadyDistilled", "ConsentReasonNoExecutable",
+	} {
+		if !strings.Contains(text, reason) {
+			t.Errorf("no skip site records %s, so its short-form line is unreachable", reason)
+		}
+	}
+}
+
+// And the wiring for the empty repo: a short form that renders the right
+// thing only when someone remembers to set the flag is one refactor from
+// regressing. This drives `setup` in a real repository with no commits.
+func TestSetupItselfFlagsTheEmptyRepository(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	repoDir := t.TempDir()
+	gitAt(t, repoDir, "init", "-q")
+	home := t.TempDir()
+	isolateDaemonEnv(t, home)
+	env := semanticTestEnv(t, repoDir)
+	env.RepoRoot = repoDir
+	opts := Options{Version: "test", Env: env, Runner: ExecRunner{}}
+
+	out, err := execute(t, NewRootCommand(opts), "setup", "--no-daemon", "--no-backfill")
+	if err == nil {
+		t.Fatalf("setup in a repository with no commits must still fail:\n%s", out)
+	}
+	if !strings.Contains(out, "no commits") {
+		t.Errorf("the short form must name the condition:\n%s", out)
+	}
+	if !strings.Contains(out, "Make a commit") {
+		t.Errorf("the short form must name the action:\n%s", out)
+	}
+	for _, lie := range []string{"could not be built", "Watcher unavailable"} {
+		if strings.Contains(out, lie) {
+			t.Errorf("nothing on this path measured %q:\n%s", lie, out)
+		}
 	}
 }

@@ -46,6 +46,15 @@ const (
 	// carries a reason, because "no sessions" and "it broke" look identical
 	// from the outside and need opposite reactions.
 	DistillFailed
+	// DistillPaused is `brain stop`. Telling this reader to "run setup again"
+	// is advice that cannot work: the next setup skips for the same reason.
+	DistillPaused
+	// DistillInFlight is a backfill already running from an earlier setup.
+	// Calling that "skipped" contradicts what the machine is doing right now.
+	DistillInFlight
+	// DistillNoExecutable means this binary's own path would not resolve, so
+	// there was nothing to spawn. Neither a decline nor a missing agent.
+	DistillNoExecutable
 )
 
 // WatcherOutcome is what happened to the background watcher.
@@ -77,6 +86,12 @@ type TerseReport struct {
 	Unavailable []string
 	// Remedy is the single command that fixes Unavailable, when one exists.
 	Remedy string
+	// UnnamedFailures counts components that failed and have no plain-words
+	// label. They are deliberately not NAMED here -- an internal id tells a
+	// reader nothing they can act on, and `doctor` lists every one by name --
+	// but they must still be COUNTED, or a degraded build with only
+	// unlabelled failures reads as a clean one.
+	UnnamedFailures int
 
 	Sessions  int
 	Distilled int
@@ -86,6 +101,16 @@ type TerseReport struct {
 
 	Watcher       WatcherOutcome
 	WatcherReason string
+
+	// NoCommitsYet is a repository git has nothing in yet.
+	//
+	// Setup returns early on that path, so the later phases never ran: the
+	// daemon was not inspected and no source was built. Rendering the normal
+	// report from that half-filled value produced "Brain could not be built"
+	// and "Watcher unavailable" -- two statements that are not measurements,
+	// and neither of them the actual reason. The reason is one commit away
+	// from being fixed and nothing is wrong with the machine.
+	NoCommitsYet bool
 
 	// UpToDate collapses the whole report to one line: a re-run that found
 	// nothing to do. Repeating the full report teaches the reader to stop
@@ -122,6 +147,15 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 		return
 	}
 
+	// An empty repository is not a broken one, and the phases that would
+	// have measured the rest never ran. Say the one true thing and the one
+	// action, and claim nothing else.
+	if rep.NoCommitsYet {
+		fmt.Fprintf(w, "  %s %s\n\n", skip, "Nothing to index yet — this repository has no commits")
+		fmt.Fprintf(w, "Make a commit, then: %s setup\n", brainCmd)
+		return
+	}
+
 	// The opening sentence is for the person who has just installed this and
 	// does not yet know what it is for. It says what they GET, not what the
 	// program is about to do.
@@ -145,6 +179,11 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 			line += " — " + rep.Remedy
 		}
 		fmt.Fprintf(w, "  %s %s\n", skip, line)
+	}
+	if rep.UnnamedFailures > 0 {
+		// Counted, not named, and pointed at the command that names them.
+		fmt.Fprintf(w, "  %s %s did not build — `%s doctor` names them\n",
+			skip, plural(rep.UnnamedFailures, "other component"), brainCmd)
 	}
 
 	if line, mark := rep.distillLine(brainCmd); line != "" {
@@ -204,6 +243,17 @@ func (rep TerseReport) distillLine(brainCmd string) (string, tui.Mark) {
 		line := "Distillation did not start"
 		if reason := strings.TrimSpace(rep.DistillReason); reason != "" {
 			line += " — " + reason
+		}
+		return line, tui.MarkFailed
+	case DistillPaused:
+		// The remedy is `start`, not `setup`. A re-run skips identically.
+		return fmt.Sprintf("Background work is paused — run `%s start`, then `%s setup`", brainCmd, brainCmd), tui.MarkSkipped
+	case DistillInFlight:
+		return fmt.Sprintf("Distillation already running from an earlier run (watch: %s status)", brainCmd), tui.MarkDone
+	case DistillNoExecutable:
+		line := "Distillation could not start — this binary's own path would not resolve"
+		if reason := strings.TrimSpace(rep.DistillReason); reason != "" {
+			line += " (" + reason + ")"
 		}
 		return line, tui.MarkFailed
 	}

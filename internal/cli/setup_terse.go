@@ -45,6 +45,15 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 			}
 		}
 	}
+	// A component with no reader-facing label is still a component that did
+	// not build. Leaving Unavailable empty for it was not just a missing
+	// line: UpToDate is computed from len(Unavailable), so a build that lost
+	// `entities` collapsed to the one-line "Brain up to date" and said
+	// nothing at all. The count is kept separately so the degraded build is
+	// never mistaken for a clean one, and the names stay out of the short
+	// form -- an id like "entities" is not something a reader can act on,
+	// which is why it has no label in the first place.
+	out.UnnamedFailures = len(failed) - len(out.Unavailable)
 
 	// Same read as the verbose Next block, same rule: not already bound, not
 	// explicitly opted out. The short form is the DEFAULT, so this is where
@@ -62,6 +71,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 	// owes the reader an explanation.
 	out.UpToDate = queryable &&
 		len(out.Unavailable) == 0 &&
+		out.UnnamedFailures == 0 &&
 		report.Facts.Sessions > 0 &&
 		report.Facts.Pending() == 0 &&
 		out.Watcher == setupui.WatcherAlreadyRunning
@@ -98,11 +108,25 @@ func terseDistillOutcome(report setupReport) setupui.DistillOutcome {
 		return setupui.DistillSkippedFlag
 	case setupui.ConsentReasonDeclined, setupui.ConsentReasonNoTTY:
 		return setupui.DistillDeclined
+
+	// Skipped BEFORE consent was asked. These are not decisions and must not
+	// be reported as one. The default below used to swallow all four and say
+	// "Distillation skipped -- run `setup` again anytime", which contradicts
+	// a backfill that is running and is unfollowable advice when the brain
+	// is paused: the next setup skips for exactly the same reason.
+	case setupui.ConsentReasonPaused:
+		return setupui.DistillPaused
+	case setupui.ConsentReasonAlreadyRunning:
+		return setupui.DistillInFlight
+	case setupui.ConsentReasonAlreadyDistilled:
+		return setupui.DistillAlreadyDone
+	case setupui.ConsentReasonNoExecutable:
+		return setupui.DistillNoExecutable
 	}
 
-	// Skipped before consent ran at all: paused, already distilled, a
-	// backfill already in flight, or an unresolvable executable. Counts
-	// decide, because no consent decision exists to read.
+	// No reason recorded at all. Every skip in runSetupBackfill now carries
+	// one, so this is reachable only from a report that never ran the phase
+	// -- the empty-repo path, for one. Counts are the honest fallback there.
 	switch {
 	case report.Facts.Sessions == 0:
 		return setupui.DistillNoSessions

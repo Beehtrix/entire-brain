@@ -810,8 +810,14 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		})
 		renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 		if !setupOpts.json && !setupOpts.verbose {
-			setupui.RenderTerse(cmd.OutOrStdout(), rend,
-				terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+			// The report stops here: the daemon was never inspected and no
+			// source was built, so every field the normal short form reads
+			// is unset rather than measured. Flagged, not rendered from, or
+			// the output claims "Brain could not be built" and "Watcher
+			// unavailable" about things nobody looked at.
+			terse := terseReportFor(report, timings, queryable, setupOpts, brainCmd)
+			terse.NoCommitsYet = true
+			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
 		}
 		if setupOpts.json {
 			if err := writeJSON(cmd, report); err != nil {
@@ -1182,12 +1188,14 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
 	if backgroundPaused(opts.Env) {
-		return setupBackfillSkipped(phase, "background work paused",
-			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter)
+		return setupBackfillSkippedBecause(phase, "background work paused",
+			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
+			setupui.ConsentReasonPaused)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
-		return setupBackfillSkipped(phase, "all sessions already distilled",
-			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions))
+		return setupBackfillSkippedBecause(phase, "all sessions already distilled",
+			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions),
+			setupui.ConsentReasonAlreadyDistilled)
 	}
 	// Re-entrancy: `setup` is the command people re-run when they are impatient,
 	// and the backfill is the phase that takes hours. Without this check a second
@@ -1203,7 +1211,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		if previous.LogPath != "" {
 			line += "; log: " + previous.LogPath
 		}
-		return setupBackfillSkipped(phase, detail, line)
+		return setupBackfillSkippedBecause(phase, detail, line, setupui.ConsentReasonAlreadyRunning)
 	}
 	agent := strings.TrimSpace(setupOpts.agent)
 	if agent == "" || agent == "auto" {
@@ -1238,8 +1246,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
-		return setupBackfillSkipped(phase, "executable path unavailable",
-			"not distilled: could not resolve this executable's path"+counter)
+		return setupBackfillSkippedBecause(phase, "executable path unavailable",
+			"not distilled: could not resolve this executable's path"+counter,
+			setupui.ConsentReasonNoExecutable)
 	}
 	// A human who answered the prompt has already read the cost. A run that
 	// was answered by --yes has not, and the cost still has to be on screen
@@ -1318,11 +1327,13 @@ func setupProgressWriter(out io.Writer, jsonMode bool) io.Writer {
 	return out
 }
 
-func setupBackfillSkipped(phase *setupui.PhaseRun, detail, line string) setupPhase {
-	return setupBackfillSkippedBecause(phase, detail, line, setupui.ConsentReasonUnset)
-}
-
-// setupBackfillSkippedBecause is the same skip, carrying the typed reason.
+// setupBackfillSkippedBecause records a skip and WHY, as a value.
+//
+// There is no untyped variant any more. The one that existed defaulted to
+// ConsentReasonUnset, and every caller took it, so the short form fell
+// through to a counts-based guess and reported a running backfill and a
+// paused brain as "Distillation skipped -- run setup again anytime". Both
+// are wrong, and the second is advice that cannot work.
 func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, why setupui.ConsentReason) setupPhase {
 	phase.Skip(line)
 	return setupPhase{State: "skipped", Detail: detail, consentWhy: why}

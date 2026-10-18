@@ -80,6 +80,24 @@ const (
 	ConsentReasonAccepted
 	// ConsentReasonDeclined is a human who answered no.
 	ConsentReasonDeclined
+
+	// The four below are reached BEFORE consent is asked, so they are not
+	// consent decisions at all -- they are the reasons the question never
+	// came up. They live in this enum because the short form needs one typed
+	// answer to "why was nothing distilled", and inventing a second enum for
+	// half of it would just move the matching problem.
+
+	// ConsentReasonPaused is `brain stop`: background work is paused, and
+	// re-running setup will skip again. The remedy is `start`.
+	ConsentReasonPaused
+	// ConsentReasonAlreadyDistilled is a re-run with nothing pending.
+	ConsentReasonAlreadyDistilled
+	// ConsentReasonAlreadyRunning is a backfill already in flight. Reporting
+	// this as "skipped" contradicts the machine's actual state.
+	ConsentReasonAlreadyRunning
+	// ConsentReasonNoExecutable is an unresolvable path to this binary, so
+	// nothing could be spawned.
+	ConsentReasonNoExecutable
 )
 
 // ConsentOutcome is the decision and why it was reached.

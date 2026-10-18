@@ -124,11 +124,29 @@ func pushHostedFacts(ctx context.Context, errW io.Writer, storage repoStorage, s
 	}
 	// Redact local-only provenance coordinates before these facts leave, and
 	// verify this member's own facts BEFORE publishing them — the server
-	// rejects a whole batch for one malformed record, and a failure the member
-	// produced should be taken here, not exported.
+	// rejects a whole batch for one malformed record, so the check runs here,
+	// per record: one corrupted line must not hold the rest of the store
+	// hostage. Unverifiable records stay home with a note; everything else
+	// uploads.
 	egress := factsync.SanitizeForEgress(facts)
-	if err := factmerge.VerifyIdentities(egress); err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): local fact set is not publishable: %v; pull-only\n", branch, err)
+	publishable := egress[:0]
+	skipped := 0
+	for _, rec := range egress {
+		if err := factmerge.VerifyIdentity(rec); err != nil {
+			skipped++
+			continue
+		}
+		publishable = append(publishable, rec)
+	}
+	egress = publishable
+	if skipped > 0 {
+		fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
+	}
+	if len(egress) == 0 {
+		// Everything was unpublishable: nothing was shared, so this is a
+		// failed publish, not a vacuous success — the branch must not be
+		// marked as synced.
+		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): no publishable records; pull-only\n", branch)
 		return false, factsync.UpsertCounts{}
 	}
 	var total factsync.UpsertCounts

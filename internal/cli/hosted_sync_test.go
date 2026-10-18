@@ -1049,3 +1049,59 @@ func TestHostedSyncMarkerRequiresSuccessfulPull(t *testing.T) {
 		t.Fatalf("expected a pull failure note, got %q", errOut.String())
 	}
 }
+
+func TestPushSkipsUnverifiableRecordsAndUploadsTheRest(t *testing.T) {
+	// One bad record must not hold the rest of the store hostage: records
+	// whose content id does not re-derive are skipped with a note, everything
+	// else uploads, and the sync still counts as completed.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	good := hostedSyncTestFact("healthy local fact", now)
+	corrupt := hostedSyncTestFact("corrupted local fact", now)
+	corrupt.ID = "fact:id-that-does-not-match-content"
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.has(good.ID) {
+		t.Fatal("the verifiable record must be uploaded")
+	}
+	if fake.has(corrupt.ID) {
+		t.Fatal("an unverifiable record must never leave the machine")
+	}
+	if !strings.Contains(errOut.String(), "skipped 1 unpublishable") {
+		t.Fatalf("the skip must be reported, got %q", errOut.String())
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err != nil {
+		t.Fatalf("a salvage push that uploaded everything publishable still completes the sync: %v", err)
+	}
+}
+
+func TestPushWithNothingPublishableIsPullOnly(t *testing.T) {
+	// Every record unverifiable → nothing was shared; the branch must not be
+	// marked as synced.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	corrupt := hostedSyncTestFact("corrupted local fact", now)
+	corrupt.ID = "fact:id-that-does-not-match-content"
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.upsertCount() != 0 {
+		t.Fatalf("nothing publishable must mean no upsert, got %d calls", fake.upsertCount())
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
+		t.Fatal("a store that shared nothing must not be marked synced")
+	}
+}

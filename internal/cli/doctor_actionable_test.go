@@ -57,7 +57,7 @@ func TestHealthyDoctorSaysSoInTwoLines(t *testing.T) {
 	if !strings.Contains(out.String(), "6 check(s) passed") {
 		t.Fatalf("the short report dropped the number of checks that ran:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "`"+doctorVerboseInvocation+"`") {
+	if !strings.Contains(out.String(), "`"+brainInvocation(os.LookupEnv, doctorVerboseVerb)+"`") {
 		t.Fatalf("the short report must name the flag that restores the long one:\n%s", out)
 	}
 }
@@ -161,9 +161,31 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	root := NewRootCommand(Options{Version: "test"})
 	checked := 0
 	for name, remedy := range doctorRemedies {
-		rest, ok := strings.CutPrefix(remedy, "entire brain ")
-		if !ok {
-			continue // a host-CLI or shell remedy; not ours to resolve
+		// The table holds VERBS now, not whole commands: #348 requires every
+		// printed remedy to carry the reader's own dispatch spelling, so the
+		// prefix is added by brainInvocation at the print site. Cutting
+		// "entire brain " here matched nothing and the guard silently checked
+		// zero remedies -- which its own floor below caught.
+		rest := remedy
+		if cut, ok := strings.CutPrefix(remedy, "entire brain "); ok {
+			rest = cut
+		}
+		// Not every value is one of our verbs: the table also carries a
+		// host-CLI command and a shell installer line, neither of which
+		// resolves against this command tree. A verb is a bare word; anything
+		// starting with a flag, a URL or another binary is not ours.
+		first := strings.Fields(rest)
+		if len(first) == 0 || strings.ContainsAny(first[0], "/:|-") {
+			continue
+		}
+		// A verb resolves against THIS command tree. "curl", "cd" and
+		// "entire" (the host CLI) do not, and are legitimate remedies that
+		// simply are not ours to verify.
+		if _, _, err := root.Find(first[:1]); err != nil || root.Name() == first[0] {
+			continue
+		}
+		if probe, _, _ := root.Find(first[:1]); probe == nil || probe.Name() != first[0] {
+			continue
 		}
 		var path []string
 		for _, field := range strings.Fields(rest) {
@@ -198,7 +220,7 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	// The flag the short report advertises has to exist too.
 	doctor, _, err := root.Find([]string{"doctor"})
 	if err != nil || doctor.Flags().Lookup("verbose") == nil {
-		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", doctorVerboseInvocation)
+		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", brainInvocation(os.LookupEnv, doctorVerboseVerb))
 	}
 }
 

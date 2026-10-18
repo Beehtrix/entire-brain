@@ -463,10 +463,11 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 	return doctorGateResult(report, failOn)
 }
 
-// doctorVerboseInvocation is the one command that turns the short report back
+// brainInvocation(os.LookupEnv, doctorVerboseVerb) is the one command that turns the short report back
 // into the long one. It is named on every short report, so the detail a reader
 // does not see is always one documented command away.
-const doctorVerboseInvocation = "entire brain doctor --verbose"
+// doctorVerboseVerb is a verb for the same reason the table holds verbs.
+const doctorVerboseVerb = "doctor --verbose"
 
 // doctorActionableDetailBudget caps one short line's detail. The blind-spot
 // groups carry every skipped path -- 3.5KB on this repository alone -- which is
@@ -563,13 +564,13 @@ func renderDoctorActionable(out io.Writer, report doctorReport) {
 		lines = append(lines, doctorActionableLine{finding: check, remedy: doctorRemedy(check)})
 	}
 	if len(lines) == 0 {
-		fmt.Fprintf(out, "healthy: %d check(s) passed, nothing to fix; run `%s` for the full report\n", okCount, doctorVerboseInvocation)
+		fmt.Fprintf(out, "healthy: %d check(s) passed, nothing to fix; run `%s` for the full report\n", okCount, brainInvocation(os.LookupEnv, doctorVerboseVerb))
 		return
 	}
 	for _, line := range lines {
 		fmt.Fprintf(out, "%s: %s (%s)\n", line.finding.Name, line.finding.State, line.detail())
 	}
-	fmt.Fprintf(out, "%d ok, %d warn, %d error; run `%s` for the full report\n", okCount, warnCount, errorCount, doctorVerboseInvocation)
+	fmt.Fprintf(out, "%d ok, %d warn, %d error; run `%s` for the full report\n", okCount, warnCount, errorCount, brainInvocation(os.LookupEnv, doctorVerboseVerb))
 }
 
 // doctorActionableLine is one short-report line: the finding, and the command
@@ -649,7 +650,7 @@ func doctorDirectoryRemedy(health memoryInstallDirectoryHealth) string {
 	// its own words for the two warn states or verbatim for the error state.
 	path := strings.TrimSpace(health.Path)
 	if path == "" {
-		return doctorVerboseInvocation
+		return brainInvocation(os.LookupEnv, doctorVerboseVerb)
 	}
 	if strings.Contains(health.State, "unsafe") {
 		// A symlink, a non-directory, or a relative path. No mode change fixes
@@ -704,32 +705,37 @@ const (
 	doctorBrainUpgradeRemedy = "curl -fsSL https://raw.githubusercontent.com/entireio/entire-brain/main/scripts/get-brain.sh | bash"
 )
 
+// Values are VERBS, not whole commands: #348 requires every printed remedy to
+// use the reader's own dispatch spelling, and a table of "entire brain ..."
+// literals is 26 printed remedies that cannot. The verb is rendered through
+// brainInvocation at the lookup below, so a standalone install is told
+// `entire-brain refresh` and a plugin install `entire brain refresh`.
 var doctorRemedies = map[string]string{
-	"brain":                  "entire brain setup",
-	"manifest":               "entire brain refresh",
-	"capture":                "entire brain refresh sessions",
-	"docs_index":             "entire brain refresh",
-	"facts":                  "entire brain refresh",
-	"history_index":          "entire brain refresh history",
-	"history_integrity":      "entire brain refresh history",
-	"history_freshness":      "entire brain refresh",
-	"short_term_memory":      "entire brain refresh delta",
-	"conversation":           "entire brain refresh",
-	"history_fts":            "entire brain refresh history",
-	"semantic":               "entire brain refresh index",
-	"semantic blind spots":   "entire brain refresh index",
-	"memory_coordinator":     "entire brain memory status",
-	"write_lock":             "entire brain memory status",
-	"memory_provider_egress": "entire brain config show",
-	"memory_schemas":         "entire brain memory migrate",
-	"memory_overlay":         "entire brain memory rebuild",
-	"memory_fts":             "entire brain memory rebuild",
-	"memory_jobs":            "entire brain memory jobs",
-	"memory_vectors":         "entire brain memory rebuild",
-	"memory_migrations":      "entire brain memory migrate --dry-run",
-	"memory_worker_log":      "entire brain memory status",
-	"memory_sessions":        "entire brain refresh sessions",
-	"memory_reconciliation":  "entire brain memory reconcile",
+	"brain":                  "setup",
+	"manifest":               "refresh",
+	"capture":                "refresh sessions",
+	"docs_index":             "refresh",
+	"facts":                  "refresh",
+	"history_index":          "refresh history",
+	"history_integrity":      "refresh history",
+	"history_freshness":      "refresh",
+	"short_term_memory":      "refresh delta",
+	"conversation":           "refresh",
+	"history_fts":            "refresh history",
+	"semantic":               "refresh index",
+	"semantic blind spots":   "refresh index",
+	"memory_coordinator":     "memory status",
+	"write_lock":             "memory status",
+	"memory_provider_egress": "config show",
+	"memory_schemas":         "memory migrate",
+	"memory_overlay":         "memory rebuild",
+	"memory_fts":             "memory rebuild",
+	"memory_jobs":            "memory jobs",
+	"memory_vectors":         "memory rebuild",
+	"memory_migrations":      "memory migrate --dry-run",
+	"memory_worker_log":      "memory status",
+	"memory_sessions":        "refresh sessions",
+	"memory_reconciliation":  "memory reconcile",
 	// Host-environment findings. entire-brain neither installs nor repairs the
 	// Entire CLI or the Graph provider, so the command is the one the README
 	// gives for installing them -- not an entire-brain verb that would quietly
@@ -741,7 +747,7 @@ var doctorRemedies = map[string]string{
 	// Quoted: unquoted, `<your` is an input redirection and the line fails with
 	// a redirection error instead of saying anything. A placeholder still has
 	// to survive being pasted.
-	"repo": "cd '<your repository>' && entire brain doctor",
+	"repo": "cd '<your repository>' && " + brainInvocation(os.LookupEnv, "doctor"),
 }
 
 func doctorRemedy(check doctorCheckResult) string {
@@ -749,17 +755,17 @@ func doctorRemedy(check doctorCheckResult) string {
 	// on the truncated text, which only doctorActionableLine.detail sees.
 	// `setup <component>` findings are one per failed setup component.
 	if strings.HasPrefix(check.Name, "setup ") {
-		return "entire brain setup"
+		return brainInvocation(os.LookupEnv, "setup")
 	}
 	if check.Name == doctorSemanticProviderFinding {
 		return doctorSemanticProviderRemedy(check.Detail)
 	}
-	if remedy, ok := doctorRemedies[check.Name]; ok {
-		return remedy
+	if verb, ok := doctorRemedies[check.Name]; ok {
+		return brainInvocation(os.LookupEnv, verb)
 	}
 	// A check added later without a table entry still gets a command, because
 	// "no remedy" is the one answer a diagnostic must never give.
-	return doctorVerboseInvocation
+	return brainInvocation(os.LookupEnv, doctorVerboseVerb)
 }
 
 // doctorSemanticProviderRemedy picks the remedy for the ONE finding whose fix

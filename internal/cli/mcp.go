@@ -971,7 +971,7 @@ func mcpAllToolDefinitions() []map[string]any {
 			// question the agent guide marks ALWAYS before proposing to
 			// replace an existing approach. Without it on this surface an
 			// MCP-driven agent can write a fact and never read one back.
-			"description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this before replacing an existing approach or explaining why code is the way it is; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch.",
+			"description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this INSTEAD OF grep or re-reading the file when the question is WHY code is the way it is -- rationale is not in the source, and a decision that was considered and rejected leaves no trace there at all. Use it before replacing an existing approach; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch. Not for what the code currently DOES -- read the file for that, or use brain_code to locate it.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{
 				"query":  stringArg("query", "What you want to know about prior decisions, rationale, or gotchas"),
 				"limit":  integerArg("limit", "Maximum facts to return (1-128)"),

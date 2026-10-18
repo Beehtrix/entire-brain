@@ -4238,7 +4238,7 @@ func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	}
 	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, "refresh --semantic")+"`")
 		return
 	}
 	shown := strings.Join(kinds, ", ")
@@ -8707,8 +8707,16 @@ func bundleEntryPathAllowed(clean, cleanSlash string) bool {
 // a real receiver is never in: `setup` always writes seed and docs, so by the
 // time anyone has a brain to import into, the empty-brain path is gone. What
 // was missing is the part that matters -- what accepting costs.
+//
+// Kept to one clause because errors in this file are rendered as a freshness
+// AXIS DETAIL, which #345 caps at statusCauseWidth. The long form -- that
+// --overwrite replaces each named layer with the bundle's copy, that locally
+// remembered facts are among what stops being retrievable, and that there is
+// no empty-brain path once setup has run -- is this comment's job, not the
+// error string's. 402 characters in a 140-cell column is not a disclosure,
+// it is a truncation.
 func bundleImportConflictError(conflicts []string) error {
-	return fmt.Errorf("bundle import would replace brain layers this brain already has (%s); re-run with --overwrite to accept that. --overwrite replaces each named layer with the bundle's copy, so anything recorded here and absent from the bundle -- facts remembered locally, for instance -- stops being retrievable. A brain that has been set up always holds seed and docs, so there is no empty-brain path once setup has run", strings.Join(conflicts, ", "))
+	return fmt.Errorf("bundle import replaces layers this brain has (%s); with --overwrite, what is here and not in the bundle will no longer be retrievable", strings.Join(conflicts, ", "))
 }
 
 // lastBundleImportAt reports when a bundle last replaced layers in this brain.

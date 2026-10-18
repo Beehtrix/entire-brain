@@ -59,8 +59,15 @@ func TestAutoNeverResolvesToOllama(t *testing.T) {
 	}
 
 	// It still chooses a working agent rather than giving up.
-	if got := defaultRefreshAgent(ctx, all, t.TempDir()); got != "codex" {
-		t.Errorf("auto should fall through to the next usable agent, got %q", got)
+	//
+	// WHICH one is not this test's business. It used to assert "codex",
+	// which was the ordering of the day; #346 reorders auto to prefer the
+	// agent harness the process is running under, and pinning a vendor here
+	// would fail that change for being correct. The rule this test exists
+	// for -- never ollama, because auto has no --model to give it -- is
+	// untouched by the ordering.
+	if got := defaultRefreshAgent(ctx, all, t.TempDir()); got == "ollama" || got == "none" {
+		t.Errorf("auto should fall through to a usable agent, got %q", got)
 	}
 	onlyClaude := fakeWhichRunner{present: map[string]bool{"ollama": true, "claude": true}}
 	if got := defaultRefreshAgent(ctx, onlyClaude, t.TempDir()); got != "claude-code" {

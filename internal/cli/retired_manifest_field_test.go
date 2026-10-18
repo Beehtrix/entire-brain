@@ -19,14 +19,31 @@ import (
 // it on a 1m..30m chain for two hours per repository, logging only
 // "prepass_failed".
 
-// The exact field and shape taken from a manifest on disk.
+// The shape is taken from a manifest on disk. The FIELD NAME is not, any more.
+//
+// It used to be "suppressed_warnings", which was the real retired field when
+// these tests were written. #329 brings that field BACK -- exportManifest
+// declares SuppressedWarnings again, to carry the warnings its filter holds
+// out of the reader-facing list -- so in a tree containing both PRs the
+// decoder accepts it, no error is produced, and all five of these guards pass
+// on anything. Neither PR is wrong; the fixture just has to name a field that
+// is actually unknown here.
+//
+// "retired_generation_marker" is that field: nothing in exportManifest
+// declares it. If it ever becomes real, these tests fail loudly rather than
+// quietly stopping to mean anything, which is the failure mode being avoided.
+// retiredFixtureField is the one name these guards key on: the fixture writes
+// it and the assertions look for it, so they cannot disagree about which field
+// is supposed to be unknown.
+const retiredFixtureField = "retired_generation_marker"
+
 func writeManifestWithRetiredField(t *testing.T, dir string) {
 	t.Helper()
 	body := map[string]any{
 		"schema_version": brainManifestSchemaVersion,
 		"repo_key":       "local/demo-1234",
 		"generated_at":   "2026-10-11T22:00:00Z",
-		"suppressed_warnings": []string{
+		retiredFixtureField: []string{
 			"checkpoint ref refs/remotes/origin/entire/checkpoints/v1 unreadable for 0a2fd94192c1",
 		},
 	}
@@ -115,7 +132,7 @@ func TestTheRemedyMessageKeepsTheOriginalCause(t *testing.T) {
 	_, err := loadBrainManifestForReplace(dir)
 
 	msg := retiredManifestFieldMessage(err)
-	if !strings.Contains(msg, "suppressed_warnings") {
+	if !strings.Contains(msg, retiredFixtureField) {
 		t.Fatalf("the remedy replaced the cause instead of adding to it: %s", msg)
 	}
 	if !strings.Contains(msg, "refresh --force") {

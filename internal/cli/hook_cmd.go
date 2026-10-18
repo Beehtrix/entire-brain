@@ -244,6 +244,17 @@ wires it.`,
 				if sawPayload {
 					return nil // a harness called us with something we cannot read: silence
 				}
+				// Name the terminal case, because it is the one a person hits.
+				// Hand-running this verb -- the documented way to check it --
+				// reaches here with stdin a tty, and "--file is required" does
+				// not explain why the event on stdin was ignored: it was never
+				// read, deliberately, since reading it would block for ever.
+				// #342 made this point about its own --claude-hook flag; the
+				// flag is gone (the bare verb reads a piped event already) and
+				// the point is not.
+				if hookStdinWouldBlock(cmd.InOrStdin()) {
+					return fmt.Errorf("stdin is a terminal, so no hook payload was read; pipe a PreToolUse event in, or pass --file <path> to check one file by hand")
+				}
 				return fmt.Errorf("--file is required, or a hook payload naming tool_input.file_path on stdin")
 			}
 			facts, target, ok := hookLoadFacts(cmd, opts, branch)
@@ -589,7 +600,16 @@ type agentHookPayload struct {
 // A harness always redirects stdin, so this is false for every real hook
 // invocation and true only for someone running the verb by hand.
 func hookStdinWouldBlock(in io.Reader) bool {
-	return in == os.Stdin && stdinIsTerminal()
+	// The check is on the READER, which is what the comment above always
+	// claimed and what the code did not do: `in == os.Stdin` is a check on
+	// the PROCESS, so any other *os.File that is a character device -- a pty
+	// handed in by a caller, /dev/null, a terminal passed through SetIn --
+	// was read anyway, which is the hang. stdinIsPipe asks the file itself.
+	//
+	// Found by #342's terminal test running against this implementation in
+	// the integration: its fixture opens os.DevNull rather than reassigning
+	// os.Stdin, precisely so a stub cannot stand in for a terminal.
+	return !stdinIsPipe(in)
 }
 
 // hookFileFromStdin reads a harness hook payload and returns the path of the

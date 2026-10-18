@@ -35,6 +35,12 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
 	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
 	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
+	// Same category as add.go above: cobra Long text is assembled when the
+	// command tree is built, before any environment lookup exists, so it
+	// cannot carry the reader's dispatch spelling. The RUNTIME remedies in
+	// these files were converted; only the static help text is exempt.
+	{"disconnect_cmd.go", "'entire brain connect'", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {

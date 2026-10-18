@@ -259,7 +259,7 @@ func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
 	path := filepath.Join(dir, "manifest.json")
 	// schema_version must be in range, or the version guards answer first and
 	// this test would pass without ever reaching the unknown-field path.
-	body := fmt.Sprintf(`{"schema_version":%d,"suppressed_warnings":["x"]}`, brainManifestSchemaVersion)
+	body := fmt.Sprintf(`{"schema_version":%d,%q:["x"]}`, brainManifestSchemaVersion, retiredFixtureField)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +285,7 @@ func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
 		t.Fatal("a writer must refuse rather than silently erase the unknown field")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "suppressed_warnings") {
+	if !strings.Contains(msg, retiredFixtureField) {
 		t.Errorf("refusal must name the field the reader has to act on: %v", err)
 	}
 	if !strings.Contains(msg, "NOT damaged") {

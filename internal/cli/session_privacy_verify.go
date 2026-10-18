@@ -546,7 +546,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		if inventory != nil {
 			defer inventory.Close()
 			for _, file := range inventory.files {
-				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run entire brain refresh sessions"})
+				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run " + brainInvocation(os.LookupEnv, "refresh sessions")})
 			}
 		}
 		store := newTranscriptStore(ExecRunner{}, brainDir)

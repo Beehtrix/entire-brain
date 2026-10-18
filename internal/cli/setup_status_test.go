@@ -426,3 +426,45 @@ func TestRecordedFailureAgesOutOnceTheComponentRebuilds(t *testing.T) {
 		t.Fatalf("a run at the same instant must count as a rebuild, got %q", got)
 	}
 }
+
+// TestStatusAndDoctorAgreeOnAStaleFailure pins the bug the staleness rule was
+// written to end, at the pair of surfaces where it was reproduced.
+//
+// The first version of that fix taught `status` to clear a failure its
+// component had since rebuilt, and left doctor reading the same record raw.
+// So status printed "built" while doctor printed State:"error" with the same
+// stale detail — the identical two-surfaces-disagree bug, moved rather than
+// fixed.
+func TestStatusAndDoctorAgreeOnAStaleFailure(t *testing.T) {
+	t.Parallel()
+	recordedAt := time.Date(2026, 10, 11, 22, 58, 0, 0, time.UTC)
+	record := setupInstantRecord{
+		UpdatedAt: recordedAt,
+		Components: []setupComponent{
+			{Name: brainComponentPatterns, State: "failed", Detail: "memory_state_corrupt: unknown field", Hint: "re-run setup"},
+		},
+	}
+	rebuilt := map[string]time.Time{brainComponentPatterns: recordedAt.Add(time.Hour)}
+
+	// status: cleared.
+	if got := statusComponentState(instantPhaseComponents(nil, record, rebuilt), brainComponentPatterns); got != "built" {
+		t.Fatalf("status still reports %q after a rebuild", got)
+	}
+
+	// doctor: must reach the same verdict from the same inputs. This mirrors
+	// the filter in failedSetupComponents; if that filter is removed, the two
+	// surfaces disagree again and this fails.
+	_, failed := partitionSetupComponents(record.Components)
+	kept := pruneRebuiltFailures(failed, rebuilt, record.UpdatedAt)
+	if len(kept) != 0 {
+		t.Fatalf("doctor would still report %d stale failure(s) that status cleared: %+v", len(kept), kept)
+	}
+
+	// And with no rebuild, BOTH must still report it.
+	if got := statusComponentState(instantPhaseComponents(nil, record, nil), brainComponentPatterns); got != "failed" {
+		t.Fatalf("without a rebuild status must still report failed, got %q", got)
+	}
+	if componentRebuiltSince(nil, brainComponentPatterns, record.UpdatedAt) {
+		t.Fatal("without a rebuild doctor must still report the failure")
+	}
+}

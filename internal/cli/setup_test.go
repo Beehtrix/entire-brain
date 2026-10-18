@@ -386,7 +386,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 	// The reason survives the terminal: status says failed, doctor has the why.
 	stateDir := filepath.Dir(f.storage.HeadPath)
-	failed := failedSetupComponents(stateDir)
+	failed := failedSetupComponents(stateDir, f.storage.BrainDir)
 	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
 		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
 	}

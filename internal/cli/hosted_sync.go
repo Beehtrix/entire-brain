@@ -84,19 +84,20 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
 
 	pushed, counts := pushHostedFacts(ctx, errW, storage, srv, binding.RepoID, branch)
-	if pushed {
-		// The per-branch marker records that this branch has published against
-		// this target; the blind-spot note keys off its absence. A pull-only
-		// run deliberately leaves it unwritten.
-		if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
-			fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
-		}
-	}
-
 	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
 	if pullErr != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
 		return true, nil
+	}
+	if pushed {
+		// The per-branch marker records that this branch completed a sync
+		// against this target; the blind-spot note keys off its absence. It
+		// needs BOTH halves: a pull-only run leaves it unwritten, and so does
+		// a failed pull — the empty-store push "succeeds" without contacting
+		// the server, so the pull is what proves the exchange happened.
+		if err := writeHostedFactsBinding(storage.BrainDir, branch, binding.RepoID, baseURL); err != nil {
+			fmt.Fprintf(errW, "hosted sync: record hosted target: %v\n", err)
+		}
 	}
 	if manifestErr != nil {
 		fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
@@ -255,17 +256,22 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 		// the feed has not seen (unsynced or push-denied). A record the feed
 		// knows but the filter rejected is another branch's — or a recycled
 		// name's — fact: drop it. This is what replaces rename/recycle
-		// detection (lineage.json is cancelled). Two stand-downs guard against
-		// evicting this machine's own knowledge: a transcript anchor is proof
-		// the fact was distilled HERE (SanitizeForEgress strips it on push, so
-		// a pulled copy can never carry one) and exempts the record even when
-		// the feed's copy — first-writer attribution can belong to a teammate
-		// who pushed the same statement first — fails the filter; and with no
-		// member identity the filter cannot recognize this member's facts at
-		// all, so removal is disabled rather than evicting them wholesale.
+		// detection (lineage.json is cancelled). Three stand-downs guard
+		// against evicting this machine's own knowledge when the feed's copy
+		// fails the filter (first-writer attribution can belong to a teammate
+		// who pushed the same statement first, carrying only THEIR anchors):
+		// a transcript anchor is proof the fact was distilled here
+		// (SanitizeForEgress strips it on push, so a pulled copy never
+		// carries one); the local copy's OWN anchors get the same keep filter
+		// (judged memberless — being in this store is not proof of
+		// authorship), so a locally reachable commit or an anchor-less pool
+		// fact survives; and with no member identity the filter cannot
+		// recognize this member's facts at all, so removal is disabled
+		// rather than evicting them wholesale.
 		rebuilt := existing[:0]
 		for _, rec := range existing {
-			if _, inFeed := items[rec.ID]; member != "" && inFeed && !keptIDs[rec.ID] && !hasLocalProvenance(rec) {
+			if _, inFeed := items[rec.ID]; member != "" && inFeed && !keptIDs[rec.ID] &&
+				!hasLocalProvenance(rec) && !keepHostedFact(factsync.FeedItem{Record: rec}, "", reachable) {
 				continue
 			}
 			rebuilt = append(rebuilt, rec)

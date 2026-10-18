@@ -80,3 +80,30 @@ func TestHostedFeedDirForKeyRejectsReservedSegment(t *testing.T) {
 		t.Fatalf("want reserved-segment error, got %v", err)
 	}
 }
+
+func TestHostedFeedCacheMissingRecordsResetsCursor(t *testing.T) {
+	// Bugbot PR#403: state.json surviving without records.ndjson would resume
+	// the cursor over an empty cache and permanently skip earlier feed pages.
+	// writeHostedFeedCache always writes both files, so a missing half means
+	// the cache is broken: load it as empty, cursor included.
+	env := EntireEnv{PluginCacheDir: t.TempDir()}
+	dir, err := hostedFeedDirForKey(env, "gh/acme/widgets")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedFeedCache(dir, hostedFeedState{RepoID: "r1", Cursor: "tok-7"}, map[string]factsync.FeedItem{
+		"f1": {Record: factmerge.Record{ID: "f1", Text: "one"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "records.ndjson")); err != nil {
+		t.Fatal(err)
+	}
+	state, items, err := loadHostedFeedCache(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state != (hostedFeedState{}) || len(items) != 0 {
+		t.Fatalf("a cache missing its records must load as empty, got state=%+v items=%d", state, len(items))
+	}
+}

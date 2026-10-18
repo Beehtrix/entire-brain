@@ -32,6 +32,7 @@ type hostedFake struct {
 	upsertCalls  int
 	feedTokens   []string
 	denyPush     bool // upsert → 403, the push-grant-denied shape
+	denyFeed     bool // feed GET → 500, the pull-outage shape
 	rejectTokens int  // while >0, any request with a pageToken → 400 once each
 	callerBy     string
 	callerHandle string
@@ -129,6 +130,10 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]int{"added": added, "changed": changed, "unchanged": 0})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/brain/facts"):
+			if fake.denyFeed {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			token := r.URL.Query().Get("pageToken")
 			fake.feedTokens = append(fake.feedTokens, token)
 			if token != "" && fake.rejectTokens > 0 {
@@ -976,5 +981,71 @@ func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("with no member identity the removal pass must stand down, not evict the machine's facts")
+	}
+}
+
+func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
+	// Bugbot PR#403: an authored fact has session/commit anchors but no
+	// transcript, so the distill stand-down does not cover it. When a teammate
+	// independently filed the same text+paths first, the feed copy carries
+	// THEIR anchors and fails the filter — but the local copy's own commit
+	// anchor is reachable from HEAD and must keep the record alive.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	mine := hostedSyncAnchoredFact("independently authored fact", now,
+		factmerge.Anchor{SessionID: "local-session", Commit: "c-local"})
+	theirs := hostedSyncAnchoredFact("independently authored fact", now,
+		factmerge.Anchor{SessionID: "their-session"})
+	fake := &hostedFake{denyPush: true} // keep the local copy's anchors out of the feed
+	fake.seed(theirs, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+		t.Fatal(err)
+	}
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		if name == "git" && len(args) == 4 && args[0] == "merge-base" && args[1] == "--is-ancestor" && args[2] == "c-local" {
+			return nil, nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == mine.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a local record whose own anchors pass the filter must survive the removal pass")
+	}
+}
+
+func TestHostedSyncMarkerRequiresSuccessfulPull(t *testing.T) {
+	// Bugbot PR#403: the marker means "this branch synced against this
+	// target". An empty-store push succeeds without contacting the server, so
+	// a failed pull must leave the marker unwritten or the blind-spot note is
+	// silenced on a checkout that never exchanged anything.
+	fake := &hostedFake{denyFeed: true}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("pull failure must be non-fatal, got %v", err)
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
+		t.Fatal("a failed pull must not mark the branch as synced")
+	}
+	if !strings.Contains(errOut.String(), "pull failed") {
+		t.Fatalf("expected a pull failure note, got %q", errOut.String())
 	}
 }

@@ -67,7 +67,11 @@ func loadHostedFeedCache(dir string) (hostedFeedState, map[string]factsync.FeedI
 	f, err := os.Open(filepath.Join(dir, hostedFeedRecordsFile))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return state, items, nil
+			// writeHostedFeedCache always writes both files, so a surviving
+			// state.json without its records is a broken cache. Keeping its
+			// cursor would resume past feed pages whose facts are now in
+			// neither the cache nor the store — reset everything instead.
+			return hostedFeedState{}, items, nil
 		}
 		return hostedFeedState{}, nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -107,7 +108,58 @@ func TestEveryEphemeralRootIsActuallyMatched(t *testing.T) {
 		checked++
 	}
 	if checked == 0 {
-		t.Fatal("no ephemeral root was writable, so this test proved nothing")
+		// Not a skip. A platform where no root in the list is even present is
+		// a platform where this check cannot fire, and that was true of
+		// Windows until the list learned about %TMP% and %TEMP%: the whole
+		// feature was dead there and every test passed. If this fires again,
+		// the list has stopped covering the platform it is running on.
+		t.Fatalf("no ephemeral root on this %s machine was writable, so the durability check cannot fire here at all; roots=%v",
+			runtime.GOOS, ephemeralPathRoots())
+	}
+}
+
+// The roots must cover the directory Go itself hands out, on every platform.
+// This is the one a careless installer actually lands in, and it is the
+// assertion that would have caught Windows having no usable root at all.
+func TestTheSystemTempDirectoryIsAlwaysAnEphemeralRoot(t *testing.T) {
+	t.Parallel()
+	probe, err := os.CreateTemp("", "ephemeral-tempdir-probe-")
+	if err != nil {
+		t.Fatalf("cannot create a file in the system temp dir: %v", err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	t.Cleanup(func() { _ = os.Remove(name) })
+
+	if ephemeral, resolved := pathIsEphemeral(name); !ephemeral {
+		t.Fatalf("a file in os.TempDir() (%s) must be ephemeral; resolved=%s, roots=%v",
+			os.TempDir(), resolved, ephemeralPathRoots())
+	}
+}
+
+// Case must not decide the verdict on a filesystem that ignores it. A root
+// that misses because of a capital letter reports an install as durable while
+// it sits in a directory the OS is about to empty.
+func TestCaseDoesNotDecideTheVerdictWhereTheFilesystemIgnoresIt(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("case-sensitive filesystem; comparing case is correct here")
+	}
+	probe, err := os.CreateTemp("", "ephemeral-case-probe-")
+	if err != nil {
+		t.Fatalf("cannot create a temp file: %v", err)
+	}
+	name := probe.Name()
+	_ = probe.Close()
+	t.Cleanup(func() { _ = os.Remove(name) })
+
+	upper := strings.ToUpper(os.TempDir())
+	if upper == os.TempDir() {
+		t.Skip("temp dir has no case to flip")
+	}
+	if !pathsEqualHere(filepath.Clean(upper), filepath.Clean(os.TempDir())) {
+		t.Fatalf("%s treats paths case-insensitively, but %q and %q did not compare equal",
+			runtime.GOOS, upper, os.TempDir())
 	}
 }
 
@@ -217,5 +269,62 @@ func TestUnresolvableInstallWarnsRatherThanReportingOK(t *testing.T) {
 	}
 	if !strings.Contains(detail, gone) {
 		t.Fatalf("the warning must name the path it could not resolve: %s", detail)
+	}
+}
+
+// TestWindowsRootsComeFromTheVariablesWindowsActuallyUses is the test that
+// would have caught this from a Mac.
+//
+// The root list was POSIX-only and read TMPDIR, which Windows does not set.
+// Every path in it is one Windows cannot have, so the durability check was
+// dead there -- it reported a plugin living in %TEMP%, which Disk Cleanup and
+// Storage Sense both empty, as durable. CI found it only because an unrelated
+// assertion happened to fail on the platform; nothing in the suite asked.
+func TestWindowsRootsComeFromTheVariablesWindowsActuallyUses(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{
+		"TMP":    `C:\Users\someone\AppData\Local\Temp`,
+		"TEMP":   `C:\Users\someone\AppData\Local\Temp`,
+		"TMPDIR": "/this/is/not/read/on/windows",
+	}
+	roots := ephemeralPathRootsFor("windows", func(k string) string { return env[k] }, `C:\Windows\Temp`)
+
+	for _, want := range []string{`C:\Users\someone\AppData\Local\Temp`, `C:\Windows\Temp`} {
+		if !slices.Contains(roots, want) {
+			t.Errorf("windows roots must include %q; got %v", want, roots)
+		}
+	}
+	// And no POSIX root, which can only be noise there.
+	for _, unwanted := range []string{"/tmp", "/var/folders", "/this/is/not/read/on/windows"} {
+		if slices.Contains(roots, unwanted) {
+			t.Errorf("windows roots must not include the POSIX path %q; got %v", unwanted, roots)
+		}
+	}
+}
+
+// The inverse, for the same reason: a POSIX machine must not start trusting
+// %TMP%, and must keep reading TMPDIR.
+func TestPosixRootsStillReadTMPDIRAndNotTheWindowsVariables(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{
+		"TMPDIR": "/custom/tmpdir",
+		"TEMP":   "/windows/only",
+	}
+	roots := ephemeralPathRootsFor("linux", func(k string) string { return env[k] }, "/tmp")
+
+	for _, want := range []string{"/custom/tmpdir", "/tmp", "/var/tmp", "/dev/shm"} {
+		if !slices.Contains(roots, want) {
+			t.Errorf("posix roots must include %q; got %v", want, roots)
+		}
+	}
+	if slices.Contains(roots, "/windows/only") {
+		t.Errorf("posix roots must not read TEMP; got %v", roots)
+	}
+	// /var/folders is macOS-specific and would be a wrong claim on linux.
+	if slices.Contains(roots, "/var/folders") {
+		t.Errorf("/var/folders is a macOS path and must not be claimed on linux; got %v", roots)
+	}
+	if !slices.Contains(ephemeralPathRootsFor("darwin", func(string) string { return "" }, "/tmp"), "/var/folders") {
+		t.Error("darwin must still claim /var/folders")
 	}
 }

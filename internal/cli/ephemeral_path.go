@@ -24,24 +24,81 @@ import (
 // warning. Matching is on the RESOLVED path, because the hazard is where the
 // bytes live, not where the link sits.
 func ephemeralPathRoots() []string {
-	roots := []string{"/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp", "/dev/shm"}
-	if runtime.GOOS == "darwin" {
-		// macOS per-user temp lives under /var/folders and is reaped on a
-		// schedule most people never see.
-		roots = append(roots, "/var/folders", "/private/var/folders")
-	}
-	if tmp := strings.TrimSpace(os.Getenv("TMPDIR")); tmp != "" {
-		// Resolved, not just cleaned: matching below compares against an
-		// EvalSymlinks'd path, so a TMPDIR that is itself a symlink (the
-		// macOS default /var/folders/... reached via /tmp, for one) could
-		// never match and the root silently did nothing. Today that is masked
-		// only because /private/var/folders is also hardcoded.
-		if resolved, err := filepath.EvalSymlinks(tmp); err == nil {
+	return ephemeralPathRootsFor(runtime.GOOS, os.Getenv, os.TempDir())
+}
+
+// ephemeralPathRootsFor is ephemeralPathRoots with the platform and the
+// environment passed in.
+//
+// Taking them as arguments is the whole point: the Windows branch is the one
+// that was missing, and a test that can only run ON Windows is a test that
+// found the gap three CI hours after the commit that caused it. Every branch
+// below is now reachable from any machine.
+func ephemeralPathRootsFor(goos string, getenv func(string) string, systemTemp string) []string {
+	roots := make([]string, 0, 12)
+	// add records a candidate in both its resolved and its literal form.
+	// Resolved, because the matcher compares against an EvalSymlinks'd path,
+	// so a root that is itself a symlink -- the macOS default /var/folders/...
+	// reached via /tmp, for one -- could never match and the entry would
+	// silently do nothing. Literal too, because a root that does not exist on
+	// this machine cannot be resolved and is still worth carrying.
+	add := func(dir string) {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			return
+		}
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 			roots = append(roots, filepath.Clean(resolved))
 		}
-		roots = append(roots, filepath.Clean(tmp))
+		roots = append(roots, filepath.Clean(dir))
 	}
+
+	if goos == "windows" {
+		// Windows has no /tmp and does not read TMPDIR, so every root this
+		// list used to hold was a POSIX path that cannot exist there: the
+		// check could not fire at all, and happily reported a plugin living
+		// in %TEMP% as durable. Both Disk Cleanup and Storage Sense empty
+		// that directory on a schedule, which is the same disaster this file
+		// exists to pre-empt, on the platform where nobody was looking.
+		add(getenv("TMP"))
+		add(getenv("TEMP"))
+	} else {
+		for _, dir := range []string{"/tmp", "/var/tmp", "/private/tmp", "/private/var/tmp", "/dev/shm"} {
+			add(dir)
+		}
+		if goos == "darwin" {
+			// macOS per-user temp lives under /var/folders and is reaped on a
+			// schedule most people never see.
+			add("/var/folders")
+			add("/private/var/folders")
+		}
+		add(getenv("TMPDIR"))
+	}
+	// Whatever Go itself would call the temp directory, on every platform.
+	// On a stock machine this repeats one of the entries above; on a
+	// configured one it is the only entry that is right.
+	add(systemTemp)
 	return roots
+}
+
+// pathsEqualHere compares two cleaned paths the way this filesystem would.
+// Windows and macOS are case-insensitive in practice, and a root that fails
+// to match because of a capital letter is a check that reports "durable" for
+// a binary in a directory the OS is about to empty.
+func pathsEqualHere(a, b string) bool {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// pathHasPrefixHere is pathsEqualHere for the "inside this directory" test.
+func pathHasPrefixHere(path, root string) bool {
+	prefix := root + string(filepath.Separator)
+	if len(path) < len(prefix) {
+		return false
+	}
+	return pathsEqualHere(path[:len(prefix)], prefix)
 }
 
 // pathIsEphemeral reports whether path resolves inside a directory the system
@@ -67,7 +124,7 @@ func pathIsEphemeral(path string) (bool, string) {
 		if root == "" || root == string(filepath.Separator) {
 			continue
 		}
-		if resolved == root || strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		if pathsEqualHere(resolved, root) || pathHasPrefixHere(resolved, root) {
 			return true, resolved
 		}
 	}

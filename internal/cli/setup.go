@@ -1257,12 +1257,13 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// a terminal, and the reader is told what it would cost before answering.
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
-		Sessions:      queued,
-		Agent:         agent,
-		Model:         strings.TrimSpace(setupOpts.model),
-		Effort:        strings.TrimSpace(setupOpts.effort),
-		Override:      setupConsentOverride(setupOpts),
-		TTY:           ui.tty,
+		Sessions: queued,
+		Agent:    agent,
+		Model:    strings.TrimSpace(setupOpts.model),
+		Effort:   strings.TrimSpace(setupOpts.effort),
+		Override: setupConsentOverride(setupOpts),
+		// Both ends, not just the painted one: see setupCanAskAHuman.
+		TTY:           setupCanAskAHuman(ui.tty, readerIsTerminal(in)),
 		ResumeCommand: resume,
 	}, in, promptOut, rend)
 	if !outcome.Spend {

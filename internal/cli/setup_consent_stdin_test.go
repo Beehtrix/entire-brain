@@ -87,7 +87,9 @@ func TestTheBackfillGateDoesNotBlockOnAPipeWithATerminalStdout(t *testing.T) {
 	theme, _ := tui.ThemeByName("default")
 	render := tui.NewRendererWith(theme, tui.Caps{TTY: true, Color: false, Unicode: false, Width: 80})
 	progress := newProgressWithRenderer(io.Discard, "setup", render, newLiveTerminal())
-	ui := newSetupSink(progress)
+	// quiet=false so the gate runs the full prompt path; a quiet sink could
+	// suppress the prompt and quietly stop exercising the read this test is about.
+	ui := newSetupSink(progress, false)
 	if !ui.tty {
 		t.Fatal("the fixture must model a terminal stdout; without one there is no hang to reproduce")
 	}

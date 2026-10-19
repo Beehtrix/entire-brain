@@ -289,8 +289,15 @@ func setupComponentCountSummary(built, failed []setupComponent) string {
 	if len(failed) == 0 {
 		return fmt.Sprintf("%d %s", total, setupComponentNoun(total))
 	}
+	// Labels, not raw ids: every other line setup prints calls a component
+	// by setupComponentLabel, and "sessions" here beside "session export"
+	// below is one component answering to two names in one run.
+	labels := make([]string, 0, len(failed))
+	for _, component := range failed {
+		labels = append(labels, setupComponentLabel(component.Name))
+	}
 	return fmt.Sprintf("%d of %d %s built, FAILED %s",
-		len(built), total, setupComponentNoun(total), strings.Join(setupComponentNames(failed), ", "))
+		len(built), total, setupComponentNoun(total), strings.Join(labels, ", "))
 }
 
 func setupComponentNoun(n int) string {
@@ -311,6 +318,10 @@ func setupComponentNoun(n int) string {
 // top-level line either.
 func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string) []string {
 	details := make([]string, 0, 2*len(failed))
+	// One remedy, one appearance: a dirty worktree stops both the seed
+	// baseline and the semantic index, and the identical hint under each is
+	// the repetition the short form exists to remove.
+	seenHints := make(map[string]bool, len(failed))
 	for _, component := range failed {
 		// Flatten the DETAIL, not the composed line. A component's Detail is
 		// another process's stderr: it can be three lines of git refusal, and
@@ -321,7 +332,8 @@ func setupComponentFailureDetails(failed []setupComponent, dash, brainCmd string
 		// that need it.
 		component.Detail = setupui.FlattenText(component.Detail)
 		details = append(details, setupComponentFailureLine(component, dash, brainCmd))
-		if hint := strings.TrimSpace(component.Hint); hint != "" {
+		if hint := strings.TrimSpace(component.Hint); hint != "" && !seenHints[hint] {
+			seenHints[hint] = true
 			details = append(details, setupui.FlattenText("hint: "+hint))
 		}
 	}
@@ -349,9 +361,13 @@ func setupInstantFailureReasons(fatal error, failed []setupComponent) string {
 }
 
 type setupCommandOptions struct {
-	workspace       string
-	daemonName      string
-	noDaemon        bool
+	workspace  string
+	daemonName string
+	noDaemon   bool
+	// verbose selects the per-phase report. The default is the short form:
+	// the phase view names every component, path and provider error, which is
+	// what you want when something is wrong and noise the rest of the time.
+	verbose         bool
 	uninstallDaemon bool
 	noBackfill      bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
@@ -430,6 +446,11 @@ type setupPhase struct {
 	State   string  `json:"state"` // ok | degraded | skipped | failed
 	Detail  string  `json:"detail,omitempty"`
 	Seconds float64 `json:"seconds,omitempty"`
+	// consentWhy is the typed reason the facts phase landed where it did.
+	// Unexported on purpose: encoding/json never sees it, so the report's
+	// shape is unchanged, and the short form gets to branch on a value
+	// instead of matching English against Detail.
+	consentWhy setupui.ConsentReason
 	// Components is the instant phase's per-component outcome. "degraded" means
 	// the brain is queryable but at least one of these failed.
 	Components []setupComponent `json:"components,omitempty"`
@@ -530,6 +551,7 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	}
 	cmd.Flags().StringVar(&setupOpts.workspace, "workspace", setupOpts.workspace, "Workspace the repo joins (created when absent)")
 	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher")
+	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
 	cmd.Flags().BoolVar(&setupOpts.uninstallDaemon, "uninstall-daemon", false, "Stop and remove the background watcher, then exit")
 	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill (no token spend at all)")
 	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
@@ -607,13 +629,25 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// --json must keep stdout parseable, so the friendly per-step lines are
 	// dropped rather than interleaved with the report.
 	progressOut := cmd.OutOrStdout()
+	// The CONSENT PROMPT is not a progress row. It is the question that
+	// decides whether this run spends the reader's money, so it is bound to
+	// the real stream and silenced only by --json, which does not prompt.
+	promptOut := cmd.OutOrStdout()
 	if setupOpts.json {
-		progressOut = io.Discard
+		promptOut = io.Discard
 	}
+	// progressOut keeps the REAL writer unless --json, even though the default
+	// short form drops the phase rows. Handing newProgress io.Discard to
+	// silence them also destroys terminal detection -- io.Discard is not an
+	// *os.File, so caps collapse to PlainCaps, the sink reports tty=false, and
+	// setupui.Consent answers "no terminal to ask" instead of prompting. The
+	// rows are suppressed at the SINK instead, which is the thing that should
+	// be quiet.
+	progressOut = setupProgressWriter(progressOut, setupOpts.json)
 	progress := newProgress(progressOut, "setup")
 	// The seven-phase UI. One live line per phase, one permanent row when it
 	// settles, and sub-steps that structurally cannot reach a row of their own.
-	ui := newSetupSink(progress)
+	ui := newSetupSink(progress, !setupOpts.verbose && !setupOpts.json)
 	rend := ui.Renderer()
 	run := setupui.NewRun(ui, rend)
 	timings := &setupTimings{}
@@ -787,6 +821,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			Action:    "make one commit, then: " + setupBrainCommand(brainCmd) + " setup",
 		})
 		renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+		if !setupOpts.json && !setupOpts.verbose {
+			// The report stops here: the daemon was never inspected and no
+			// source was built, so every field the normal short form reads
+			// is unset rather than measured. Flagged, not rendered from, or
+			// the output claims "Brain could not be built" and "Watcher
+			// unavailable" about things nobody looked at.
+			terse := terseReportFor(report, timings, queryable, setupOpts, brainCmd)
+			terse.NoCommitsYet = true
+			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
+		}
 		if setupOpts.json {
 			if err := writeJSON(cmd, report); err != nil {
 				return err
@@ -805,17 +849,27 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	agentsPhase := run.Begin(setupui.PhaseAgents)
 	agentsPhase.Step("session-end hook")
 	report.Hook = inspectSessionEndHook(repoDir)
-	if line, ok := setupHookSummary(report.Hook, rend.Dash()); ok {
-		agentsPhase.OK(line)
+	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
+
+	// The push hook rides this phase for the reason the phase exists: both
+	// hooks are wiring that makes later work reach the brain without anyone
+	// remembering to run anything. It arrived on main as a flat block after
+	// the watcher; it depends on nothing the watcher does, so it belongs
+	// beside the hook it is a sibling of rather than in a row of its own.
+	agentsPhase.Step("push hook")
+	pushDetails := refreshSetupPushHook(ctx, opts, repoDir, brainCmd)
+
+	if hookWired {
+		agentsPhase.OK(hookLine, pushDetails...)
 	} else {
-		agentsPhase.Skip(line)
+		agentsPhase.Skip(hookLine, pushDetails...)
 	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
-	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(progressOut),
+	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
 
@@ -887,36 +941,6 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	timings.record("daemon", time.Since(daemonStarted))
 
-	// Push-hook refresh arrives from main. The two lines that came with it --
-	// report.Hook = inspectSessionEndHook(...) and reportSetupHook(progress, ...)
-	// -- are deliberately NOT carried over: this branch already inspects and
-	// reports the session-end hook in Phase 3 (AGENTS), and reportSetupHook is
-	// the old renderer, which this branch removed. Re-adding either would
-	// inspect twice and print the hook in two different styles.
-	//
-	// Setup owns the UPGRADE beat only: the baked plugin path goes stale when
-	// the binary moves. Fresh installs belong to `connect`, so a bare setup
-	// after a disconnect must not resurrect the hook, and setup on a
-	// never-connected repo must not rearrange another tool's hooks for a
-	// feature that is switched off.
-	if hookState, hookPath, hookErr := refreshPushHook(ctx, opts, repoDir); hookErr != nil {
-		progress.Skip("push hook: not refreshed (uploads ride the daemon tick): " + hookErr.Error())
-	} else {
-		switch hookState {
-		case pushHookSharedDir:
-			progress.Skip("push hook: core.hooksPath is shared across repos (" + hookPath + "); not managed — uploads ride the daemon tick")
-		case pushHookAbsent:
-			progress.Skip("push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)")
-		case pushHookUnchanged:
-			progress.Skip("push hook already current (" + hookPath + ")")
-		case pushHookChainedIn:
-			progress.Skip("push hook runs via the host CLI's chain (" + hookPath + ")")
-		default:
-			task := progress.Begin("push hook: refreshed (" + hookPath + ")")
-			task.Finish(nil)
-		}
-	}
-
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
@@ -945,6 +969,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// failure's one line, and what to run next. It does NOT re-list the
 	// phases: they are on the screen directly above it.
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
+
+	if !setupOpts.json && !setupOpts.verbose {
+		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	if setupOpts.json {
 		if err := writeJSON(cmd, report); err != nil {
@@ -992,7 +1021,7 @@ func renderSetupReady(run *setupui.Run, rend *setupui.Renderer, report setupRepo
 		Failures:  run.Failures(),
 	}
 	if queryable {
-		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending())
+		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending(), setupOffersConnect(report.BrainPath))
 	}
 	verdict := summary.Verdict(rend)
 	if total := timings.total(); total > 0 {
@@ -1127,13 +1156,16 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 		// to date so the inherited PATH is refreshed at the next natural restart
 		// instead of being frozen at whatever the first install saw.
 		_ = refreshDaemonUnitBytes(plan)
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher already running (%s)", plan.Label)}
+		// No hashed label. The daemon id is machine noise, a guard
+		// elsewhere in the suite forbids it outside the unit path, and it
+		// answers nothing a reader of `setup` came to ask.
+		return setupDaemonOutcome{state: before, skipped: true, summary: "background watcher already running"}
 	}
 	// A no-register run can never observe "running", so byte-identical is the
 	// whole of idempotence there; without this a second setup would report
 	// "updated" forever and a harness could not demonstrate re-run safety.
 	if plan.NoRegister && before.Installed && before.Current {
-		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s, %s)", plan.Label, envDaemonNoRegister)}
+		return setupDaemonOutcome{state: before, skipped: true, summary: fmt.Sprintf("background watcher unit current, not registered (%s)", envDaemonNoRegister)}
 	}
 	phase.Step("installing the service")
 	if err := steps.install(ctx, plan); err != nil {
@@ -1147,12 +1179,22 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 	if before.Installed {
 		verb = "updated"
 	}
-	outcome := setupDaemonOutcome{state: after, summary: fmt.Sprintf("background watcher %s (%s)", verb, plan.Label)}
+	outcome := setupDaemonOutcome{state: after, summary: "background watcher " + verb}
 	// Say plainly, at the moment of install, that this is a persistent service
 	// and where its unit lives. "installed (io.entire.brain-watch.1a2b3c4d)"
 	// does not tell a first-time reader that something now survives reboots.
+	// Names the kind of thing and where it lives, WITHOUT repeating "starts
+	// again at every login" -- that clause belongs to the pre-flight line,
+	// which says it BEFORE the install, the half a reader can still act on.
+	// Saying it again underneath is the UX-24 duplicate: a warning about
+	// something that has already happened.
+	//
+	// Two guards meet here and both are right: one requires the output to
+	// name a persistent service and its unit, the other requires the consent
+	// clause to appear exactly once. "persistent service, unit: <path>"
+	// satisfies both.
 	if plan.UnitPath != "" {
-		outcome.details = append(outcome.details, "persistent service, starts again at every login: "+plan.UnitPath)
+		outcome.details = append(outcome.details, "persistent service, unit: "+plan.UnitPath)
 	}
 	return outcome
 }
@@ -1171,12 +1213,14 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
 	if backgroundPaused(opts.Env) {
-		return setupBackfillSkipped(phase, "background work paused",
-			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter)
+		return setupBackfillSkippedBecause(phase, "background work paused",
+			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
+			setupui.ConsentReasonPaused)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
-		return setupBackfillSkipped(phase, "all sessions already distilled",
-			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions))
+		return setupBackfillSkippedBecause(phase, "all sessions already distilled",
+			fmt.Sprintf("already complete (%d/%d sessions distilled)", report.Facts.Distilled, report.Facts.Sessions),
+			setupui.ConsentReasonAlreadyDistilled)
 	}
 	// Re-entrancy: `setup` is the command people re-run when they are impatient,
 	// and the backfill is the phase that takes hours. Without this check a second
@@ -1192,7 +1236,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		if previous.LogPath != "" {
 			line += "; log: " + previous.LogPath
 		}
-		return setupBackfillSkipped(phase, detail, line)
+		return setupBackfillSkippedBecause(phase, detail, line, setupui.ConsentReasonAlreadyRunning)
 	}
 	agent := strings.TrimSpace(setupOpts.agent)
 	if agent == "" || agent == "auto" {
@@ -1223,25 +1267,27 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 		ResumeCommand: resume,
 	}, in, promptOut, rend)
 	if !outcome.Spend {
-		return setupBackfillSkipped(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter)
+		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
 	}
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
-		return setupBackfillSkipped(phase, "executable path unavailable",
-			"not distilled: could not resolve this executable's path"+counter)
+		return setupBackfillSkippedBecause(phase, "executable path unavailable",
+			"not distilled: could not resolve this executable's path"+counter,
+			setupui.ConsentReasonNoExecutable)
 	}
 	// A human who answered the prompt has already read the cost. A run that
 	// was answered by --yes has not, and the cost still has to be on screen
 	// BEFORE the detached child starts rather than after: the whole point of a
 	// cost line is that someone who did not want this can see it and Ctrl-C.
 	if !outcome.Prompted {
-		ui.Interject(setupui.Line{
-			Title:  setupui.PhaseFacts.Title(),
-			Accent: setupui.PhaseFacts.Accent(),
-			Text: fmt.Sprintf("fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)",
-				setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending())),
-		})
+		// Written to promptOut, NOT through the phase sink. The phase rows are
+		// discarded in the default short form, and a cost line a reader cannot
+		// see defeats its own purpose: someone who did not want this has to be
+		// able to read it and Ctrl-C. promptOut is the real stream in every
+		// mode except --json, which does not spend without --yes anyway.
+		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
+			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}
 
 	pid, err := steps.spawnBackfill(ctx, plan)
@@ -1281,15 +1327,42 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	}
 	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)%s",
 		queued, setupBackfillSpendLabel(agent, setupOpts), pid, counter), details...)
-	return setupPhase{State: "ok", Detail: fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions)}
+	return setupPhase{
+		State:      "ok",
+		Detail:     fmt.Sprintf("pid %d, %d of %d pending session(s) queued", pid, queued, state.Sessions),
+		consentWhy: outcome.Why,
+	}
 }
 
 // setupBackfillSkipped settles the Facts phase with the ONE reason that
 // applies. There are nine of them and none deserves a row of its own: the
 // phase line IS the reason.
-func setupBackfillSkipped(phase *setupui.PhaseRun, detail, line string) setupPhase {
+// setupProgressWriter picks the writer the progress reporter paints to.
+//
+// ONLY --json silences it. This looks like a trivial choice and is not: the
+// reporter's writer is where terminal capabilities are detected, and the sink
+// derives tty from it. Silencing the default short form by passing io.Discard
+// here once made io.Discard the capability source -- not an *os.File, so
+// PlainCaps, so tty=false, so setupui.Consent answered "no terminal to ask"
+// and NEVER PROMPTED before spending. The short form suppresses rows at the
+// sink instead, which is the thing that should be quiet.
+func setupProgressWriter(out io.Writer, jsonMode bool) io.Writer {
+	if jsonMode {
+		return io.Discard
+	}
+	return out
+}
+
+// setupBackfillSkippedBecause records a skip and WHY, as a value.
+//
+// There is no untyped variant any more. The one that existed defaulted to
+// ConsentReasonUnset, and every caller took it, so the short form fell
+// through to a counts-based guess and reported a running backfill and a
+// paused brain as "Distillation skipped -- run setup again anytime". Both
+// are wrong, and the second is advice that cannot work.
+func setupBackfillSkippedBecause(phase *setupui.PhaseRun, detail, line string, why setupui.ConsentReason) setupPhase {
 	phase.Skip(line)
-	return setupPhase{State: "skipped", Detail: detail}
+	return setupPhase{State: "skipped", Detail: detail, consentWhy: why}
 }
 
 // setupFactsCounter is the "3/12 sessions distilled" the old summary block
@@ -1876,5 +1949,36 @@ func describeDaemonState(state daemonState, brainCmd string) string {
 		return fmt.Sprintf("installed but not running (%s)", state.Label)
 	default:
 		return "not installed"
+	}
+}
+
+// refreshSetupPushHook refreshes an ALREADY-INSTALLED pre-push hook and
+// returns the detail line describing what happened.
+//
+// Setup owns the upgrade beat because the baked plugin path goes stale when
+// the binary moves and the hook's [ -x ] guard turns that into a silent
+// no-op. Fresh installs stay with `connect`: a bare setup after a disconnect
+// must not resurrect the hook, and setup on a never-connected repo must not
+// rearrange another tool's hooks for a feature that is switched off.
+//
+// Every branch returns a line, including the ones that did nothing, because
+// these are phase DETAILS -- `--verbose` only -- and the reader who asked for
+// them is the one who wants to know why their push is not uploading.
+func refreshSetupPushHook(ctx context.Context, opts Options, repoDir, brainCmd string) []string {
+	state, path, err := refreshPushHook(ctx, opts, repoDir)
+	if err != nil {
+		return []string{"push hook not refreshed (uploads ride the daemon tick): " + setupui.FlattenText(err.Error())}
+	}
+	switch state {
+	case pushHookSharedDir:
+		return []string{"push hook: core.hooksPath is shared across repos (" + path + "); not managed - uploads ride the daemon tick"}
+	case pushHookAbsent:
+		return []string{"push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
+	case pushHookUnchanged:
+		return []string{"push hook already current (" + path + ")"}
+	case pushHookChainedIn:
+		return []string{"push hook runs via the host CLI's chain (" + path + ")"}
+	default:
+		return []string{"push hook refreshed (" + path + ")"}
 	}
 }

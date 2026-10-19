@@ -43,8 +43,20 @@ type setupSink struct {
 	progress *refreshProgress
 	rend     *setupui.Renderer
 	tty      bool
-	mu       sync.Mutex
-	task     *refreshProgressTask
+	// quiet suppresses the permanent PHASE ROWS only. It exists because the
+	// short form replaced them, and the rows must stop WITHOUT the sink
+	// pretending there is no terminal.
+	//
+	// The first attempt suppressed them by handing newProgress io.Discard.
+	// That is not a writer swap, it is a capability lie: io.Discard is not an
+	// *os.File, so caps collapse to PlainCaps, tty becomes false, and
+	// setupui.Consent takes its `case !req.TTY` branch and returns "no
+	// terminal to ask" WITHOUT PROMPTING. The consent gate -- the whole reason
+	// setup asks before it spends -- silently stopped existing, and the terse
+	// block rendered with no colour at width 500 on a real terminal.
+	quiet bool
+	mu    sync.Mutex
+	task  *refreshProgressTask
 }
 
 // newSetupSink builds the sink and the renderer that composes its rows. The
@@ -52,7 +64,7 @@ type setupSink struct {
 // detected again from the writer: asking the environment a second time is how
 // the glyph set a row is composed with drifts from the one the spinner beside
 // it is painted with.
-func newSetupSink(progress *refreshProgress) *setupSink {
+func newSetupSink(progress *refreshProgress, quiet bool) *setupSink {
 	var base *tui.Renderer
 	if progress != nil {
 		base = progress.render
@@ -65,6 +77,7 @@ func newSetupSink(progress *refreshProgress) *setupSink {
 		progress: progress,
 		rend:     setupui.NewRendererWidth(base, setupRenderWidth(caps, os.LookupEnv)),
 		tty:      progress.TTY(),
+		quiet:    quiet,
 	}
 }
 
@@ -162,7 +175,12 @@ func (s *setupSink) Settle(line setupui.Line) {
 	if s == nil {
 		return
 	}
+	// Suspend happens either way: the transient line must close even when its
+	// row is not kept, or the spinner is left owning a row nothing finishes.
 	s.Suspend()
+	if s.quiet {
+		return
+	}
 	s.progress.EmitLine(s.rend.Line(line))
 }
 
@@ -171,7 +189,7 @@ func (s *setupSink) Settle(line setupui.Line) {
 // it is warning about starts, and routing it through the run's Emit would
 // abandon the live line it is standing in front of.
 func (s *setupSink) Interject(lines ...setupui.Line) {
-	if s == nil {
+	if s == nil || s.quiet {
 		return
 	}
 	for _, line := range lines {
@@ -563,7 +581,21 @@ func setupWarningRows(warnings []string) []setupui.Line {
 
 // setupNextSteps are the runnable follow-ups the Ready block prints. Every one
 // of them is spelled the way the reader reached this binary.
-func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int) []setupui.NextStep {
+// setupOffersConnect reports whether onboarding should name `connect`.
+//
+// Hosted sync is off by default and `connect` is the only opt-in, so setup is
+// the one moment a person learns it exists. A repo that is already bound, or
+// that explicitly opted out, is not nagged -- both of those are recorded in
+// the same binding, so one read answers both. The read is render-only, like
+// the coverage line: `setup --json` is a published contract and this must not
+// reach it. An unreadable binding offers the step: being told about a command
+// that turns out to be unnecessary is the cheaper of the two mistakes.
+func setupOffersConnect(brainPath string) bool {
+	_, present, err := readHostedRepoBinding(brainPath)
+	return err != nil || !present
+}
+
+func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect bool) []setupui.NextStep {
 	cmd := setupBrainCommand(brainCmd)
 	next := []setupui.NextStep{
 		{Command: cmd + " overview", Why: "what this project is"},
@@ -574,6 +606,12 @@ func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int) 
 		next = append(next, setupui.NextStep{
 			Command: cmd + " distill",
 			Why:     "turn " + strconv.Itoa(pendingSessions) + " pending session(s) into facts (spends tokens)",
+		})
+	}
+	if offerConnect {
+		next = append(next, setupui.NextStep{
+			Command: cmd + " connect",
+			Why:     "sync memories with your team (off by default)",
 		})
 	}
 	if daemonInstalled {

@@ -64,6 +64,35 @@ memory or install the watcher.
 
 See [installation options](docs/operations.md#full-install) for choosing a Graph checkout, installing offline, or building Brain alone.
 
+### Transcript storage and version compatibility
+
+The storage change introduced in [#392](https://github.com/entireio/entire-brain/pull/392)
+makes persistent brains read transcripts from local Git checkpoint refs instead
+of keeping exported transcript files. Existing file-based brains and standalone
+bundles remain readable. On the next persistent session refresh, Brain verifies
+that legacy cached transcripts can be recovered from local checkpoints before
+removing them. If recovery cannot be proven, refresh fails and retains the cache.
+
+| Scenario | Compatibility |
+| --- | --- |
+| Upgrade an existing file-based brain | Supported; migration checks recovery before deleting cached transcripts. |
+| Read a materialized bundle with an older binary | Supported when the older binary supports the bundle's schema. |
+| Run an older binary against a migrated persistent brain | Not supported. Cached search results may still work, while distillation and history rebuild fail because transcript files are absent. |
+
+Upgrade and restart all CLI, MCP, and watcher processes that share a brain before
+migrating it. Installing or upgrading Graph does not upgrade Brain.
+
+For rollback, use the upgraded binary to export a bundle containing transcripts,
+then import it into a separate brain store with a compatible older binary:
+
+```sh
+entire brain bundle export --include-sessions --output ./brain-backup.tar
+```
+
+Bundle export requires a semantic index, built with `entire brain refresh index`.
+Excluded sessions are omitted, and local privacy policy is not included; review
+the destination's privacy settings before refreshing sessions there.
+
 ### How Brain compares
 
 [`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five

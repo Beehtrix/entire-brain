@@ -98,7 +98,7 @@ func TestDisconnectWhenNeverConnectedRecordsOptOut(t *testing.T) {
 		t.Fatalf("never-connected opt-out must be bare, got %+v", binding)
 	}
 	for _, want := range []string{
-		"Disconnected: this repository will not auto-connect to a hosted brain",
+		"Disconnected: this repository does not sync with a hosted brain",
 		"keeps working exactly as before",
 		"to join",
 	} {

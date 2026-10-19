@@ -865,7 +865,12 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 			out[checkpoint] = append(out[checkpoint], id)
 		}
 	}
-	if snapshot, _, err := loadLocalCheckpointSnapshotForVerify(ctx, opts.Runner, repoDir); err == nil && snapshot != nil {
+	// Read through the export-maintained metadata cache, like the transcript
+	// store does: without it this join reads every checkpoint's metadata blob
+	// with its own git cat-file, which dominated distill wall time (COR-2182).
+	// Loaded read-only; export remains the only writer.
+	metadataCache := loadCheckpointMetadataCache(filepath.Join(brainDir, filepath.FromSlash(checkpointMetadataCachePath)))
+	if snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, true, checkpointBranchDestinations{}, metadataCache); err == nil && snapshot != nil {
 		for _, member := range snapshot.SessionCheckpoints {
 			add(member.CheckpointID, member.SessionID)
 		}

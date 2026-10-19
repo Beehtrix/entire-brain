@@ -103,7 +103,7 @@ type watchSteps struct {
 	// factsSync publishes-and-pulls hosted facts (hostedFactsSyncAndPull) for
 	// the current + default branch. Nil when the surface has no hosted step;
 	// non-fatal and cursor-throttled (hostedSyncMinInterval).
-	factsSync func(context.Context) error
+	factsSync func(context.Context) (bool, error)
 	paused    func() bool
 }
 
@@ -117,9 +117,15 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:         5 * time.Minute,
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
-		distillAgent:     "codex",
-		distillJobs:      1,
-		seedAgent:        "none",
+		// "auto", not "codex". A hardcoded vendor here was a THIRD codex default
+		// that never reached defaultRefreshAgent at all, so reordering that
+		// function alone would have left the watcher — the one unattended path
+		// that spends tokens on its own — routing repository content to codex
+		// forever. runDistill resolves "auto" on this path (distill_cmd.go), and
+		// `setup` still overrides it per workspace through the watch plan.
+		distillAgent: "auto",
+		distillJobs:  1,
+		seedAgent:    "none",
 	}
 }
 
@@ -307,9 +313,11 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
 			return
 		}
-		if err := steps.factsSync(ctx); err != nil {
+		attempted, err := steps.factsSync(ctx)
+		switch {
+		case err != nil:
 			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
-		} else {
+		case attempted:
 			fmt.Fprintln(out, "[watch] hosted fact sync ran")
 		}
 		markFactsSyncAttempt(cursorPath, now)
@@ -474,19 +482,21 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
 		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
-		factsSync: func(c context.Context) error {
+		factsSync: func(c context.Context) (bool, error) {
 			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
 			if err != nil {
-				return err
+				return false, err
 			}
 			branch := hostedSyncBranch(c, opts.Runner, repoDir)
-			if err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch); err != nil {
-				return err
+			attempted, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch)
+			if err != nil {
+				return attempted, err
 			}
 			if branch != distillDefaultBranch {
-				return hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
+				also, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
+				return attempted || also, err
 			}
-			return nil
+			return attempted, nil
 		},
 		paused: func() bool { return backgroundPaused(opts.Env) },
 	}

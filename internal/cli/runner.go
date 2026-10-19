@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,32 @@ type EnvironmentCommandRunner interface {
 // interface fall back to the buffered Run path.
 type CommandStreamer interface {
 	Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error)
+}
+
+// GitCatFileBatcher is an optional capability: a runner whose git spawn policy
+// matches ExecRunner's may have repeated local object reads served by a shared
+// long-lived `git cat-file --batch` child (see git_catfile_batch.go). It is a
+// deliberate opt-in, not an inherited seam: batching bypasses Run entirely, so
+// a wrapper runner that intercepts per-call behavior must not claim it by
+// accident.
+type GitCatFileBatcher interface {
+	CatFileBatchAllowed() bool
+}
+
+func (ExecRunner) CatFileBatchAllowed() bool { return true }
+
+// hardenedGitInvocation is the one assembly point for how this binary spawns
+// git: hardened args plus the repository filter-driver overrides merged into
+// the environment. The buffered runner, the streaming runner, and the cat-file
+// batch child all consume it, so a new hardening bit cannot cover one spawn
+// path and miss another (see git_harden.go).
+func hardenedGitInvocation(ctx context.Context, dir string, env map[string]string, args ...string) (hardenedArgs, mergedEnv []string, err error) {
+	hardenedArgs = hardenedGitArgs(args...)
+	overrides, err := repoFilterDriverOverrides(ctx, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hardenedArgs, gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), overrides), nil
 }
 
 // CommandStream is a started command whose stdout is consumed incrementally.
@@ -83,24 +110,25 @@ func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]str
 }
 
 func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
-	var gitOverrides []gitConfigOverride
+	var mergedEnv []string
 	if name == "git" {
-		args = hardenedGitArgs(args...)
 		// The filter neutralizers travel in the environment, not in argv; see
 		// git_harden_filters.go for why `-c` cannot express them safely.
 		var err error
-		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		args, mergedEnv, err = hardenedGitInvocation(ctx, dir, env, args...)
 		if err != nil {
 			return nil, nil, err
 		}
+	} else if len(env) > 0 {
+		mergedEnv = mergeCommandEnv(os.Environ(), env)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = commandWaitDelay
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(env) > 0 || len(gitOverrides) > 0 {
-		cmd.Env = gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), gitOverrides)
+	if mergedEnv != nil {
+		cmd.Env = mergedEnv
 	}
 
 	var stdout bytes.Buffer
@@ -145,11 +173,10 @@ func mergeCommandEnv(base []string, overrides map[string]string) []string {
 // captured into a bounded buffer by exec's own copy goroutine, so reading
 // stdout never blocks on stderr.
 func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
-	var gitOverrides []gitConfigOverride
+	var mergedEnv []string
 	if name == "git" {
-		args = hardenedGitArgs(args...)
 		var err error
-		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		args, mergedEnv, err = hardenedGitInvocation(ctx, dir, nil, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -159,8 +186,8 @@ func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) 
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(gitOverrides) > 0 {
-		cmd.Env = gitConfigOverrideEnv(os.Environ(), gitOverrides)
+	if mergedEnv != nil {
+		cmd.Env = mergedEnv
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -195,12 +222,19 @@ func (s *execStream) Close() error {
 
 // cappedBuffer is an io.Writer that retains at most limit bytes. Writes past the
 // cap are counted but discarded, so diagnostics keep the head of the output.
+//
+// The mutex exists because exec's copy goroutine writes while a reader can
+// call Bytes after Wait returned early: with WaitDelay set, Wait may return
+// on a forced pipe close while the copier is still draining its final read.
 type cappedBuffer struct {
+	mu    sync.Mutex
 	buf   bytes.Buffer
 	limit int
 }
 
 func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if room := c.limit - c.buf.Len(); room > 0 {
 		if room < len(p) {
 			c.buf.Write(p[:room])
@@ -211,4 +245,10 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (c *cappedBuffer) Bytes() []byte { return c.buf.Bytes() }
+func (c *cappedBuffer) Bytes() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Copy: the caller must not observe later writes through a shared backing
+	// array.
+	return bytes.Clone(c.buf.Bytes())
+}

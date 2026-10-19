@@ -34,7 +34,7 @@ func newMemoryCommand(opts Options) *cobra.Command {
 		Long:  "Inspect and drive the durable conversation-projection work record (hints, jobs, receipts)",
 	}
 	cmd.AddCommand(newMemoryNotifyCommand(opts))
-	cmd.AddCommand(newMemoryCheckpointWorkCommand(opts))
+	cmd.AddCommand(newMemoryPushWorkCommand(opts))
 	cmd.AddCommand(newMemoryStatusCommand(opts))
 	cmd.AddCommand(newMemoryReconcileCommand(opts))
 	cmd.AddCommand(newMemoryJobsCommand(opts))
@@ -110,16 +110,22 @@ var memoryWorkerLaunch = func(repoDir string) error {
 }
 
 var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration, prepassFailures int) error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
 	args := []string{"memory", "worker", "--once"}
 	if delay > 0 {
 		args = append(args, "--delay", delay.String())
 	}
 	if prepassFailures > 0 {
 		args = append(args, "--prepass-failures", strconv.Itoa(prepassFailures))
+	}
+	return launchDetachedSelf(repoDir, args...)
+}
+
+// launchDetachedSelf re-execs this plugin binary detached with the
+// worker-origin environment, the one spawn shape every detached verb shares.
+func launchDetachedSelf(repoDir string, args ...string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
 	}
 	command := exec.Command(exe, args...)
 	command.Dir = repoDir
@@ -259,7 +265,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "notify",
-		Short: "Record a content-free host lifecycle hint (session_start | checkpoint | session_end) and nudge the worker",
+		Short: "Record a content-free host lifecycle hint (session_start | checkpoint | session_end | push) and nudge the worker",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if memoryWorkerOrigin() {
@@ -287,19 +293,24 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			if suppliedRepoKey != "" && suppliedRepoKey != storage.Key {
 				return fmt.Errorf("repo-key %q does not match the resolved repository %q", repoKey, storage.Key)
 			}
+			// A push hint means the platform is about to learn this branch's
+			// commits: dispatch the fact-store upload in a detached child and
+			// return. A push carries no single session, so there is no
+			// per-session lifecycle record to write and no worker to nudge.
+			// Best-effort; the daemon tick reconciles a failed spawn.
+			if event == "push" {
+				if err := memoryPushWorkLaunch(repoDir, strings.TrimSpace(branch)); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (daemon tick will reconcile): %v\n", err)
+				}
+				if jsonOut {
+					return writeJSON(cmd, map[string]any{"dispatched": "push"})
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "dispatched push upload")
+				return nil
+			}
 			hint, warning, err := recordMemoryLifecycleAndLaunch(storage.BrainDir, repoDir, storage.Key, session, branch, event, opts.Now().UTC())
 			if err != nil {
 				return err
-			}
-			// A checkpoint hint means a commit just landed. The work (export,
-			// distill, hosted sync) runs in a detached child — notify is a fast
-			// content-free hint and a host adapter may invoke it synchronously,
-			// so nothing heavy may run inline here. Best-effort like the worker
-			// launch above; the daemon tick reconciles a failed spawn.
-			if event == "checkpoint" {
-				if err := memoryCheckpointWorkLaunch(repoDir, strings.TrimSpace(branch)); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "checkpoint work launch failed (daemon tick will reconcile): %v\n", err)
-				}
 			}
 			if jsonOut {
 				payload := map[string]any{"recorded": hint.LastEvent, "session_id": hint.SessionID, "generation": hint.Generation}
@@ -315,8 +326,8 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&event, "event", "", "Lifecycle event: session_start | checkpoint | session_end")
-	cmd.Flags().StringVar(&session, "session", "", "Canonical session id (required)")
+	cmd.Flags().StringVar(&event, "event", "", "Lifecycle event: session_start | checkpoint | session_end | push")
+	cmd.Flags().StringVar(&session, "session", "", "Canonical session id (required for session/checkpoint events)")
 	cmd.Flags().StringVar(&branch, "branch", "", "Captured branch when the host knows it")
 	cmd.Flags().StringVar(&repoKey, "repo-key", "", "Optional canonical repository key; when supplied, must match the resolved repository")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
@@ -779,6 +790,10 @@ type memoryWorkerStats struct {
 	AlreadyActive bool `json:"already_active,omitempty"`
 	Paused        bool `json:"paused,omitempty"`
 	PrepassFailed bool `json:"prepass_failed,omitempty"`
+	// PrepassError is why the pass failed. The bool alone told a reader that
+	// something was wrong without telling them what, which is the state the
+	// 1285-failure incident was invisible in.
+	PrepassError string `json:"prepass_error,omitempty"`
 	// PrepassGaveUp reports that the relaunch chain this failure belongs to has
 	// exhausted memoryWorkerPrepassRetryAttempts and will not reschedule
 	// itself. The condition is durable, so the honest answer is to stop rather
@@ -1725,9 +1740,24 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// let 1285 consecutive failures accumulate with every health
 				// surface showing a healthy last outcome.
 				outcome = memoryWorkerOutcomeDegraded
-				_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token)
+				// Record WHY. Without it the log says a pass failed and the
+				// backoff relaunches for two hours, leaving a reader a retry
+				// storm with no cause attached to any of it.
+				// `entire memory worker --json` is pasted into issues, so the
+				// same redaction the durable log applies is applied here.
+				stats.PrepassError = redactText(err.Error())
+				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
-				if retry, ok := memoryWorkerPrepassRetry(failures); ok {
+				// Some failures are durable: no retry changes the bytes on
+				// disk. A retired manifest field is the one measured here --
+				// it burned a full 1m..30m chain per repository, every chain
+				// ending exactly where it started, each pending retry a live
+				// sleeping process rather than a timer.
+				if durable := errDurablePrepassFailure(err); durable {
+					stats.PrepassGaveUp = true
+					stats.PrepassError = durablePrepassMessage(err)
+					_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token, stats.PrepassError)
+				} else if retry, ok := memoryWorkerPrepassRetry(failures); ok {
 					prepassRetry = &retry
 					relaunchPrepassFailures = failures
 				} else {

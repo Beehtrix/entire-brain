@@ -189,3 +189,150 @@ func TestLiveHeaderRepoKeyCheckCannotFail(t *testing.T) {
 		t.Fatalf("provider repo_key = %q, want the provider's original spelling preserved for the real check", res.providerRepoKey)
 	}
 }
+
+// TestIdentitylessSnapshotRefusalCarriesTheProviderReason pins COR-2146.
+//
+// A snapshot with no commit is almost never a provider malfunction: it is the
+// provider declining to run git and saying why. The canonical case is a
+// promisor remote -- Entire's own `filtered_fetches: true` writes one -- which
+// makes entire-graph refuse git subprocesses to hold its no-egress guarantee.
+//
+// The detail strings below are copied verbatim from a real reproduction
+// against entire-graph v0.4.1-nightly: a repo with remote.ckpt.promisor=true
+// and remote.ckpt.partialclonefilter=blob:none emits an empty header commit
+// plus these two warnings on the trailing summary record.
+func TestIdentitylessSnapshotRefusalCarriesTheProviderReason(t *testing.T) {
+	t.Parallel()
+	const promisorDetail = `refuse Git subprocesses for unsafe or unreadable repository metadata under "/tmp/repo": its Git config declares a promisor remote (a partial clone), so Git commands here can fetch objects over the network; indexing falls back to a filesystem walk to stay offline`
+	header := semanticHeader{
+		RepoKey: "local/repo",
+		Warnings: []semanticWarning{
+			{Code: "W_GIT_WORKTREE_FALLBACK", Severity: "warning", Detail: "Git worktree enumeration was unavailable: ..."},
+			{Code: "E_NO_GIT_HEAD", Severity: "warning", Detail: promisorDetail},
+		},
+	}
+
+	err := validateLiveSemanticHeader(header, "", "", "", false)
+	if err == nil {
+		t.Fatal("an identity-less header must still be refused")
+	}
+	if !strings.Contains(err.Error(), "missing commit") {
+		t.Fatalf("refusal must still say what is missing: %v", err)
+	}
+	// The whole point: the reader learns the cause and the remedy.
+	if !strings.Contains(err.Error(), "E_NO_GIT_HEAD") {
+		t.Fatalf("refusal dropped the provider's explanation: %v", err)
+	}
+	if !strings.Contains(err.Error(), "promisor remote") {
+		t.Fatalf("refusal does not name the actual cause: %v", err)
+	}
+	// E_NO_GIT_HEAD explains; the worktree-fallback warning only restates the
+	// symptom. Preferring the wrong one would be a regression in usefulness.
+	if strings.Contains(err.Error(), "W_GIT_WORKTREE_FALLBACK") {
+		t.Fatalf("refusal preferred the symptom warning over the cause: %v", err)
+	}
+
+	// A provider that said nothing must not grow an empty trailer.
+	bare := validateLiveSemanticHeader(semanticHeader{RepoKey: "local/repo"}, "", "", "", false)
+	if bare == nil || strings.Contains(bare.Error(), "the provider reported") {
+		t.Fatalf("a header with no warnings must stay bare, got: %v", bare)
+	}
+
+	// A healthy header is still accepted.
+	ok := semanticHeader{Commit: "c1", Tree: "t1", RepoKey: "local/repo"}
+	if err := validateLiveSemanticHeader(ok, "c1", "t1", "", false); err != nil {
+		t.Fatalf("a complete header must pass: %v", err)
+	}
+}
+
+// TestRefusalReasonLosesThePathAndKeepsTheSentence is the leak this change
+// nearly shipped.
+//
+// semanticProviderRefusalContext runs INSIDE validation, which is upstream of
+// sanitizeSemanticWarnings -- so the provider's text arrived verbatim, host
+// paths included, into an error that is printed and recorded. Routing it
+// through the existing all-or-nothing sanitizer would have fixed the leak by
+// deleting the feature: that one returns "<redacted>" for the whole string
+// the moment it sees a path, and the string is the explanation.
+func TestRefusalReasonLosesThePathAndKeepsTheSentence(t *testing.T) {
+	t.Parallel()
+	const repoDir = "/Users/someone/work/secret-project"
+	detail := `refuse Git subprocesses for unsafe or unreadable repository metadata under "` + repoDir +
+		`": its Git config declares a promisor remote (a partial clone), so Git commands here can fetch ` +
+		`objects over the network; see /Users/someone/.config/entire/graph.toml; indexing falls back to a ` +
+		`filesystem walk to stay offline`
+
+	header := semanticHeader{
+		RepoKey:  "local/repo",
+		Warnings: []semanticWarning{{Code: "E_NO_GIT_HEAD", Severity: "warning", Detail: detail}},
+	}
+	err := validateLiveSemanticHeader(header, "", "", repoDir, false)
+	if err == nil {
+		t.Fatal("an identity-less header must still be refused")
+	}
+	got := err.Error()
+
+	// Nothing a host path can be reconstructed from.
+	for _, leaked := range []string{repoDir, "/Users/someone", "secret-project", ".config/entire"} {
+		if strings.Contains(got, leaked) {
+			t.Errorf("refusal leaked %q into a printed, recorded, bundle-travelling string:\n%s", leaked, got)
+		}
+	}
+	// The repo's own directory is named as such; any other path is just gone.
+	if !strings.Contains(got, "<repo>") {
+		t.Errorf("the repo path should be recognisable as the repo, not erased:\n%s", got)
+	}
+	if !strings.Contains(got, "<path>") {
+		t.Errorf("an unrelated absolute path should be marked, not silently dropped:\n%s", got)
+	}
+	// And the sentence still does its job.
+	for _, kept := range []string{"E_NO_GIT_HEAD", "promisor remote", "partial clone", "filesystem walk", "stay offline"} {
+		if !strings.Contains(got, kept) {
+			t.Errorf("redaction ate the explanation; %q is gone:\n%s", kept, got)
+		}
+	}
+	// The all-or-nothing sanitizer is what we must NOT have used here.
+	if sanitizeSemanticWarningText(detail, repoDir) != "<redacted>" {
+		t.Fatal("fixture no longer trips the all-or-nothing sanitizer, so this test proves nothing")
+	}
+}
+
+// TestSchemaOnePointThreeLanguageIsClampedBeforeItReachesTheManifest closes
+// the other half: Language arrived with schema 1.3 and was the one
+// provider-supplied warning field with no sanitizer at all, while travelling
+// to the same manifest -- and from there into a shared bundle -- as the three
+// that have one.
+func TestSchemaOnePointThreeLanguageIsClampedBeforeItReachesTheManifest(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"a real tag survives", "go", "go"},
+		{"so do the awkward real ones", "c++", "c++"},
+		{"and the hyphenated ones", "objective-c", "objective-c"},
+		{"a path is not a language", "/Users/someone/src/pkg", ""},
+		{"nor is a windows path", `C:\Users\someone`, ""},
+		{"nor is a sentence", "failed while parsing go", ""},
+		{"nor is a novel", strings.Repeat("go", 40), ""},
+		{"empty stays empty", "", ""},
+	} {
+		if got := sanitizeSemanticWarningLanguage(tc.in); got != tc.want {
+			t.Errorf("%s: sanitizeSemanticWarningLanguage(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+
+	// Through the function that actually feeds the manifest, not just the
+	// helper: an unused clamp is not a clamp.
+	out := sanitizeSemanticWarnings([]semanticWarning{
+		{Code: "E_PARSE", Language: "/Users/someone/src/pkg"},
+		{Code: "E_PARSE", Language: "rust"},
+	}, "/Users/someone/src")
+	if out[0].Language != "" {
+		t.Errorf("a path reached the manifest as a language: %q", out[0].Language)
+	}
+	if out[1].Language != "rust" {
+		t.Errorf("a real language was dropped: %q", out[1].Language)
+	}
+}

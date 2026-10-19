@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
 
@@ -117,8 +117,15 @@ func TestSemanticIndexNamesTheMissingGraphPlugin(t *testing.T) {
 	if !strings.Contains(message, `unknown command "graph"`) {
 		t.Fatalf("the real cause must reach the user, got: %s", message)
 	}
-	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, "scripts/install.sh") {
+	// The install step must be RUNNABLE for this reader: `graph` is in the
+	// official plugin index, whereas the `scripts/install.sh` form this
+	// replaced presupposes an entire-brain source checkout a plugin user does
+	// not have.
+	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, providerdetail.InstallGraphCommand) {
 		t.Fatalf("a missing plugin must name the install step, got: %s", message)
+	}
+	if strings.Contains(message, "scripts/install.sh") {
+		t.Fatalf("remedy still points at a source checkout: %s", message)
 	}
 }
 
@@ -135,7 +142,7 @@ func TestSemanticProviderErrorKeepsTheDetailForOtherFailures(t *testing.T) {
 	if !strings.Contains(message, "provider_doctor_timeout") || !strings.Contains(message, "timed out after 10s") {
 		t.Fatalf("the detail must survive for every doctor failure, got: %s", message)
 	}
-	if strings.Contains(message, "scripts/install.sh") {
+	if strings.Contains(message, providerdetail.InstallGraphCommand) {
 		t.Fatalf("a timeout is not a missing plugin: %s", message)
 	}
 }
@@ -374,30 +381,14 @@ func TestSetupUninstallDaemonStillWorksOutsideARepository(t *testing.T) {
 // said a persistent service had just been installed on the machine, let alone
 // how to take it off.
 func TestSetupSummaryNamesTheWatcherAndHowToRemoveIt(t *testing.T) {
-	t.Parallel()
-	out := &bytes.Buffer{}
-	report := setupReport{
-		Repo:      "/repo",
-		RepoKey:   "local/repo-1",
-		BrainPath: "/brain",
-		Instant:   setupPhase{State: "ok"},
-		Workspace: setupWorkspaceState{Name: "default", Registered: true},
-		Daemon: daemonState{
-			Manager:   daemonManagerLaunchd,
-			Label:     "io.entire.brain-watch.1a2b3c4d",
-			UnitPath:  "/home/u/Library/LaunchAgents/io.entire.brain-watch.1a2b3c4d.plist",
-			Installed: true,
-			Current:   true,
-			Running:   true,
-		},
-	}
-	renderSetupSummary(out, tui.NewRenderer(out), report, &setupTimings{}, setupWatchPlan{}, setupBrainBinaryName)
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	printed := runSetupForTest(t, f, defaultSetupOptions(), rec)
 
-	printed := out.String()
 	if !strings.Contains(printed, "--uninstall-daemon") {
 		t.Fatalf("setup must name the command that removes what it just installed:\n%s", printed)
 	}
-	if !strings.Contains(printed, "persistent service") || !strings.Contains(printed, report.Daemon.UnitPath) {
+	if !strings.Contains(printed, "persistent service") || !strings.Contains(printed, rec.state.UnitPath) {
 		t.Fatalf("setup must say a persistent service was installed, and where:\n%s", printed)
 	}
 }
@@ -538,7 +529,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 			{Name: brainComponentEntities, State: "failed", Detail: "entityindex: resolve HEAD"},
 			{Name: brainComponentMemory, State: "ok"},
 		},
-	})
+	}, nil)
 	states := map[string]string{}
 	for _, component := range components {
 		states[component.Name] = component.State

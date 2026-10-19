@@ -411,7 +411,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 		// component failure and points here for the reason, so the reason has to
 		// actually be here.
 		if storage, serr := repoStoragePaths(cmd.Context(), opts.Runner, env, repoRoot); serr == nil {
-			for _, component := range failedSetupComponents(filepath.Dir(storage.HeadPath)) {
+			for _, component := range failedSetupComponents(filepath.Dir(storage.HeadPath), storage.BrainDir) {
 				detail := component.Detail
 				if hint := component.Hint; hint != "" {
 					detail += "; " + hint

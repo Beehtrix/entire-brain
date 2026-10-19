@@ -595,13 +595,23 @@ func setupOffersConnect(brainPath string) bool {
 	return err != nil || !present
 }
 
-func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect bool) []setupui.NextStep {
+func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect, agentsWired bool) []setupui.NextStep {
 	cmd := setupBrainCommand(brainCmd)
-	next := []setupui.NextStep{
+	next := []setupui.NextStep{}
+	// FIRST when the wiring did not land. Every other step below assumes an
+	// agent can find this brain; until init-agents runs, nothing will, so
+	// naming it third would bury the only step that matters.
+	if !agentsWired {
+		next = append(next, setupui.NextStep{
+			Command: cmd + " init-agents",
+			Why:     "write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this runs)",
+		})
+	}
+	next = append(next, []setupui.NextStep{
 		{Command: cmd + " overview", Why: "what this project is"},
 		{Command: cmd + ` brief "<task>"`, Why: "task-shaped context"},
 		{Command: cmd + " status", Why: "backfill progress and daemon health"},
-	}
+	}...)
 	if pendingSessions > 0 {
 		next = append(next, setupui.NextStep{
 			Command: cmd + " distill",
@@ -630,7 +640,11 @@ func setupConsentOverride(setupOpts setupCommandOptions) setupui.Override {
 	switch {
 	case setupOpts.noBackfill:
 		return setupui.OverrideNo
-	case setupOpts.yes:
+	// --backfill is the AFFIRMATIVE override, and it answers the consent gate
+	// the same way --yes does. Without this, a user who once declined and then
+	// typed the documented way back in gets silence: the decline is remembered,
+	// the flag is read nowhere, and nothing spends.
+	case setupOpts.yes, setupOpts.backfill:
 		return setupui.OverrideYes
 	default:
 		return setupui.OverrideNone

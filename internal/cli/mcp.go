@@ -699,7 +699,44 @@ func mcpInitializeProtocolVersion(raw json.RawMessage) string {
 	return params.ProtocolVersion
 }
 
+// mcpHiddenAliases are routed for compatibility but deliberately NOT declared.
+//
+// Each is a pure alias: its own description opens with "Alias for" or
+// "Compatibility alias for", and everything it does is reachable through the
+// tool it maps to, in two cases by passing a documented flag. Six of the
+// thirty-seven declared tools were duplicates, and an agent picks worse from a
+// longer list of things that do the same job.
+//
+// Hidden, not deleted. The dispatch cases stay, so anything that already
+// learned the old name keeps working; it simply stops being advertised to new
+// callers. Un-hiding is deleting a line from this map.
+var mcpHiddenAliases = map[string]string{
+	"brain_search":           "brain_query with keyword=true",
+	"brain_vsearch":          "brain_query with semantic=true",
+	"brain_search_code":      "brain_code",
+	"brain_detect_changes":   "brain_changes",
+	"brain_get_architecture": "brain_get_graph_schema",
+	"brain_index_status":     "brain_status",
+}
+
+// mcpToolDefinitions is the ADVERTISED surface: every tool minus the hidden
+// aliases. Callers that enumerate tools get one way to do each thing.
 func mcpToolDefinitions() []map[string]any {
+	all := mcpAllToolDefinitions()
+	out := make([]map[string]any, 0, len(all))
+	for _, tool := range all {
+		if name, _ := tool["name"].(string); mcpHiddenAliases[name] != "" {
+			continue
+		}
+		out = append(out, tool)
+	}
+	return out
+}
+
+// mcpAllToolDefinitions is every tool, hidden aliases included. It exists so
+// the alias schemas stay written down and reviewable in one place rather than
+// being deleted to hide them.
+func mcpAllToolDefinitions() []map[string]any {
 	// maxLength is declared because it is enforced: a tool echoes its own string
 	// arguments back inside its result, so an oversize scalar blows the response
 	// budget in a way no row-dropping can repair. See mcpStringArgMaxBytes.
@@ -923,6 +960,22 @@ func mcpToolDefinitions() []map[string]any {
 				"branch":  branchArg(),
 				"global":  boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
 				"session": stringArg("session", "Session id the fact was authored in, so it carries session provenance (default: $"+rememberSessionEnv+")"),
+			}),
+		},
+		{
+			"name": "brain_recall",
+			// The read that pairs with brain_remember. brain_query is not a
+			// substitute: it searches history and docs as well, ranks them
+			// together, and answers "what does this repository contain".
+			// Recall answers "what did we already decide, and why" -- the
+			// question the agent guide marks ALWAYS before proposing to
+			// replace an existing approach. Without it on this surface an
+			// MCP-driven agent can write a fact and never read one back.
+			"description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this before replacing an existing approach or explaining why code is the way it is; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{
+				"query":  stringArg("query", "What you want to know about prior decisions, rationale, or gotchas"),
+				"limit":  integerArg("limit", "Maximum facts to return (1-128)"),
+				"branch": branchArg(),
 			}),
 		},
 		{
@@ -1216,6 +1269,38 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			json:    true,
 			global:  factGlobal,
 		}, factText)
+	case "brain_recall":
+		err = requireMCPQuery(query)
+		if err == nil {
+			// The recall command owns fact loading, filtering and ranking in a
+			// long RunE. Driving the real command keeps this surface honest:
+			// MCP and the CLI cannot drift into answering differently.
+			recallCmd := newRecallCommand(opts)
+			recallCmd.SetOut(&out)
+			recallCmd.SetErr(io.Discard)
+			recallCmd.SetContext(ctx)
+			// --k, NOT --limit: that is the flag newRecallCommand declares.
+			// Getting this wrong does not degrade the tool, it breaks it
+			// outright -- cobra rejects the call with "unknown flag" before
+			// any fact is read.
+			//
+			// Clamped to recall's own documented 1-128. The MCP schema cannot
+			// advertise a ceiling the command will refuse.
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > recallMaxK {
+				limit = recallMaxK
+			}
+			// read-only: brain_recall is documented as a read, and recall
+			// otherwise persists and prunes semantic vectors on every call.
+			recallArgs := []string{query, "--json", "--k", strconv.Itoa(limit), "--read-only-semantic-cache"}
+			if strings.TrimSpace(branch) != "" {
+				recallArgs = append(recallArgs, "--branch", strings.TrimSpace(branch))
+			}
+			recallCmd.SetArgs(recallArgs)
+			err = recallCmd.Execute()
+		}
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")
 		if stringErr != nil {
@@ -2452,11 +2537,14 @@ func mcpResolveTracePath(root string, tool, path string) (string, error) {
 }
 
 // mcpToolAllowedArgs derives, per tool, the set of accepted argument names from
-// the single source of truth — each tool's declared inputSchema in
-// mcpToolDefinitions. This keeps argument validation from drifting away from the
-// advertised tool schema.
+// the single source of truth — each tool's declared inputSchema.
+//
+// It reads mcpAllToolDefinitions, NOT the advertised subset: validation applies
+// to everything that ROUTES. validateMCPToolArguments returns nil for a tool it
+// does not know, so deriving this from the advertised list would leave every
+// hidden alias accepting arbitrary arguments unchecked while still answering.
 func mcpToolAllowedArgs() map[string]map[string]bool {
-	defs := mcpToolDefinitions()
+	defs := mcpAllToolDefinitions()
 	out := make(map[string]map[string]bool, len(defs))
 	for _, def := range defs {
 		name, _ := def["name"].(string)

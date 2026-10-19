@@ -143,7 +143,7 @@ func TestStatusInstantLineReportsDeletedIndexes(t *testing.T) {
 	t.Parallel()
 	brainDir, manifest := declaredIndexBrain(t)
 	state := func() map[string]string {
-		onboarding := brainStatusOnboarding{Components: instantPhaseComponents(manifest, setupInstantRecord{})}
+		onboarding := brainStatusOnboarding{Components: instantPhaseComponents(manifest, setupInstantRecord{}, nil)}
 		markMissingDeclaredIndexes(&onboarding, brainDir, manifest)
 		out := map[string]string{}
 		for _, component := range onboarding.Components {
@@ -175,7 +175,7 @@ func TestStatusInstantLineReportsDeletedIndexes(t *testing.T) {
 		t.Fatalf("an untouched source must not be dragged down with its neighbours: %q", after[brainComponentSeed])
 	}
 	// A brain that declares nothing keeps the "missing" marks a new brain has.
-	fresh := brainStatusOnboarding{Components: instantPhaseComponents(nil, setupInstantRecord{})}
+	fresh := brainStatusOnboarding{Components: instantPhaseComponents(nil, setupInstantRecord{}, nil)}
 	markMissingDeclaredIndexes(&fresh, t.TempDir(), nil)
 	for _, component := range fresh.Components {
 		if component.State != "missing" {

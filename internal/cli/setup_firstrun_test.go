@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
 
@@ -116,15 +117,15 @@ func TestSemanticIndexNamesTheMissingGraphPlugin(t *testing.T) {
 	if !strings.Contains(message, `unknown command "graph"`) {
 		t.Fatalf("the real cause must reach the user, got: %s", message)
 	}
-	// The intent of this assertion is unchanged -- a missing plugin must name
-	// the install step. The step itself changed: `scripts/install.sh` from the
-	// entire-brain checkout is not something a reader who installed the plugin
-	// can run, and most readers who reach this message are exactly those.
-	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, "entire plugin install graph") {
-		t.Fatalf("a missing plugin must name an install step the reader can run, got: %s", message)
+	// The install step must be RUNNABLE for this reader: `graph` is in the
+	// official plugin index, whereas the `scripts/install.sh` form this
+	// replaced presupposes an entire-brain source checkout a plugin user does
+	// not have.
+	if !strings.Contains(message, "entire-graph") || !strings.Contains(message, providerdetail.InstallGraphCommand) {
+		t.Fatalf("a missing plugin must name the install step, got: %s", message)
 	}
 	if strings.Contains(message, "scripts/install.sh") {
-		t.Fatalf("the message sends the reader to a source checkout they may not have, got: %s", message)
+		t.Fatalf("remedy still points at a source checkout: %s", message)
 	}
 }
 
@@ -141,7 +142,7 @@ func TestSemanticProviderErrorKeepsTheDetailForOtherFailures(t *testing.T) {
 	if !strings.Contains(message, "provider_doctor_timeout") || !strings.Contains(message, "timed out after 10s") {
 		t.Fatalf("the detail must survive for every doctor failure, got: %s", message)
 	}
-	if strings.Contains(message, "scripts/install.sh") {
+	if strings.Contains(message, providerdetail.InstallGraphCommand) {
 		t.Fatalf("a timeout is not a missing plugin: %s", message)
 	}
 }
@@ -513,7 +514,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 			{Name: brainComponentEntities, State: "failed", Detail: "entityindex: resolve HEAD"},
 			{Name: brainComponentMemory, State: "ok"},
 		},
-	})
+	}, nil)
 	states := map[string]string{}
 	for _, component := range components {
 		states[component.Name] = component.State

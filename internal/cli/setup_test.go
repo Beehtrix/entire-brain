@@ -278,6 +278,29 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 	if opts.effort != defaults.effort {
 		typed[setupFlagEffort] = opts.effort
 	}
+	// The declines are REMEMBERED now, so "the user set this field" and "the
+	// user typed this flag" stopped being interchangeable: a test that sets
+	// opts.noDaemon without marking the flag typed would have its decline
+	// overwritten by the (absent) record's default. Marking them keeps every
+	// existing test meaning exactly what it meant — `setup --no-daemon`.
+	if opts.noDaemon != defaults.noDaemon {
+		typed[setupFlagNoDaemon] = fmt.Sprint(opts.noDaemon)
+	}
+	if opts.noBackfill != defaults.noBackfill {
+		typed[setupFlagNoBackfill] = fmt.Sprint(opts.noBackfill)
+	}
+	if opts.noAgentHooks != defaults.noAgentHooks {
+		typed[setupFlagNoAgentHooks] = fmt.Sprint(opts.noAgentHooks)
+	}
+	if opts.daemon != defaults.daemon {
+		typed[setupFlagDaemon] = fmt.Sprint(opts.daemon)
+	}
+	if opts.backfill != defaults.backfill {
+		typed[setupFlagBackfill] = fmt.Sprint(opts.backfill)
+	}
+	if opts.agentHooks != defaults.agentHooks {
+		typed[setupFlagAgentHooks] = fmt.Sprint(opts.agentHooks)
+	}
 	for name, value := range typed {
 		if err := cmd.Flags().Set(name, value); err != nil {
 			t.Fatalf("set --%s=%q: %v", name, value, err)
@@ -401,12 +424,12 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 	// The reason survives the terminal: status says failed, doctor has the why.
 	stateDir := filepath.Dir(f.storage.HeadPath)
-	failed := failedSetupComponents(stateDir)
+	failed := failedSetupComponents(stateDir, f.storage.BrainDir)
 	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
 		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
 	}
 	brainManifest, _ := loadBrainManifest(f.storage.BrainDir)
-	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir))
+	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir), nil)
 	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
 		t.Fatalf("status must show semantic=failed, got %q: %+v", state, components)
 	}
@@ -844,8 +867,19 @@ func TestSetupUninstallUsesTheMachineDaemonName(t *testing.T) {
 	opts := defaultSetupOptions()
 	opts.uninstallDaemon = true
 	runSetupForTest(t, f, opts, rec)
-	if rec.uninstallCalls != 1 || rec.uninstalled.Label != launchdLabel(machineName) {
+	// What this guards is WHICH daemon uninstall targets -- the machine one
+	// from the watch plan, not a stale per-repo daemon. It no longer compares
+	// the label verbatim, because an overridden unit directory now contributes
+	// a scope suffix so a throwaway install cannot bootstrap over the real
+	// registration. Install and uninstall share one plan (setup.go builds it
+	// once, deliberately), so the suffix cannot make them disagree.
+	if rec.uninstallCalls != 1 || !strings.HasPrefix(rec.uninstalled.Label, launchdLabel(machineName)) {
 		t.Fatalf("uninstall targeted stale repo daemon instead of machine daemon: calls=%d plan=%+v", rec.uninstallCalls, rec.uninstalled)
+	}
+	// ...and it must still be a machine-daemon label, not merely any label
+	// that happens to share the prefix.
+	if !strings.Contains(rec.uninstalled.Label, "brain-watch-shared") {
+		t.Fatalf("uninstall did not target the machine daemon: %q", rec.uninstalled.Label)
 	}
 }
 

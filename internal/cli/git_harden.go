@@ -187,11 +187,13 @@ var (
 )
 
 // hardenedGitArgs rewrites a git argument list so repo-local configuration
-// cannot turn a read into an execution. It is applied at the single point where
-// this binary actually spawns git (see runner.go), which is what keeps it
-// unbypassable: every call site in every package — including
-// internal/entityindex, which receives ExecRunner straight through — is covered
-// without each one having to remember.
+// cannot turn a read into an execution. It is applied through
+// hardenedGitInvocation (runner.go), the single assembly point behind every
+// git spawn in this binary — the buffered runner, the streaming runner, and
+// the cat-file batch child — which is what keeps it unbypassable: every call
+// site in every package — including internal/entityindex, which receives
+// ExecRunner straight through — is covered without each one having to
+// remember.
 //
 // Flags are inserted immediately after the subcommand so they land before any
 // `--` pathspec separator, and are skipped when the caller already passed them.

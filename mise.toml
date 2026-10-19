@@ -15,6 +15,31 @@ run = "go test ./..."
 description = "Run tests with race detection"
 run = "go test -race ./..."
 
+# The pre-push gate CONTRIBUTING.md points at. Deliberately NOT `test`:
+# `test` is cached, which is right for the inner loop and wrong as the last
+# thing you do before pushing -- a cached pass says a previous tree was green,
+# not this one. Deliberately NOT `test:ci` either: that is -race, and
+# internal/cli alone runs 17-20 minutes under -race on a developer machine
+# while saturating it. CI owns -race; this owns "is the tree I am about to
+# push actually green".
+[tasks."test:prepush"]
+description = "Uncached full suite + fmt + vet, the gate before you push"
+run = """
+set -e
+go test ./... -count=1
+# gofmt -l PRINTS the offending files and still exits 0, so running it bare
+# under `set -e` is a check that can never fail. CI gets this right; a
+# pre-push gate that does not is worse than none, because it sends people to
+# push work CI will reject for exactly the thing the gate claimed to cover.
+unformatted=$(gofmt -l -s .)
+if [ -n "$unformatted" ]; then
+  echo "unformatted files:"
+  echo "$unformatted"
+  exit 1
+fi
+go vet ./...
+"""
+
 [tasks."test:phase1"]
 description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"

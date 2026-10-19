@@ -604,7 +604,7 @@ func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, 
 	if !agentsWired {
 		next = append(next, setupui.NextStep{
 			Command: cmd + " init-agents",
-			Why:     "tell agents this brain exists (nothing will use it until this runs)",
+			Why:     "write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this runs)",
 		})
 	}
 	next = append(next, []setupui.NextStep{

@@ -590,4 +590,10 @@ func TestNextStepsLeadWithInitAgentsWhenWiringDidNotLand(t *testing.T) {
 	if len(unwired) != len(wired)+1 {
 		t.Fatalf("init-agents must be added, not substituted: wired=%d unwired=%d", len(wired), len(unwired))
 	}
+	// And it must say WHAT it writes, or it reads as one more optional command.
+	// The reported case was a user who ran setup, found no agent files, and
+	// concluded they had run it from the wrong directory. They had not.
+	if !strings.Contains(unwired[0].Why, "AGENTS.md") {
+		t.Fatalf("the init-agents row does not say what it writes: %q", unwired[0].Why)
+	}
 }

@@ -331,10 +331,10 @@ func TestVerboseNextBlockStillNamesConnect(t *testing.T) {
 		}
 		return false
 	}
-	if !named(setupNextSteps("entire brain", false, 0, true)) {
+	if !named(setupNextSteps("entire brain", false, 0, true, true)) {
 		t.Fatal("an unconnected repo must be offered `connect` in the Next block")
 	}
-	if named(setupNextSteps("entire brain", false, 0, false)) {
+	if named(setupNextSteps("entire brain", false, 0, false, true)) {
 		t.Fatal("a connected or opted-out repo must not be offered it")
 	}
 }
@@ -568,5 +568,32 @@ func TestSetupItselfFlagsTheEmptyRepository(t *testing.T) {
 		if strings.Contains(out, lie) {
 			t.Errorf("nothing on this path measured %q:\n%s", lie, out)
 		}
+	}
+}
+
+// TestNextStepsLeadWithInitAgentsWhenWiringDidNotLand pins the one ordering
+// that matters in the closing block. Every other next step assumes an agent
+// can find this brain; until init-agents runs, none can, so a run whose
+// wiring failed has to name it FIRST rather than third.
+func TestNextStepsLeadWithInitAgentsWhenWiringDidNotLand(t *testing.T) {
+	t.Parallel()
+	wired := setupNextSteps("entire brain", false, 0, false, true)
+	for _, step := range wired {
+		if strings.Contains(step.Command, "init-agents") {
+			t.Fatalf("wiring landed; init-agents must not be offered: %+v", wired)
+		}
+	}
+	unwired := setupNextSteps("entire brain", false, 0, false, false)
+	if len(unwired) == 0 || !strings.Contains(unwired[0].Command, "init-agents") {
+		t.Fatalf("wiring did not land; init-agents must come first, got: %+v", unwired)
+	}
+	if len(unwired) != len(wired)+1 {
+		t.Fatalf("init-agents must be added, not substituted: wired=%d unwired=%d", len(wired), len(unwired))
+	}
+	// And it must say WHAT it writes, or it reads as one more optional command.
+	// The reported case was a user who ran setup, found no agent files, and
+	// concluded they had run it from the wrong directory. They had not.
+	if !strings.Contains(unwired[0].Why, "AGENTS.md") {
+		t.Fatalf("the init-agents row does not say what it writes: %q", unwired[0].Why)
 	}
 }

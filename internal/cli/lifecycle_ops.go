@@ -341,6 +341,10 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	add := func(name, state, detail string) {
 		checks = append(checks, doctorCheckResult{Name: name, State: state, Detail: detail})
 	}
+	// Durability of the install itself, before anything about this repo: a
+	// plugin living in a temp directory is about to break every command here,
+	// and that is true whether or not the target is a repository.
+	checkEphemeralInstall(add)
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")

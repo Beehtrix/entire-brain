@@ -54,7 +54,7 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Connected: repo 01M2Q9WATHXVM46CD8Y4D3AX8W is now syncing memories",
-		"sync periodically and at session end",
+		"sync periodically, at session end, and on git push",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
@@ -155,8 +155,8 @@ func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 func TestConnectRunsInitialPull(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()
@@ -210,8 +210,8 @@ func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 	// so the blind-spot note's remedy ("run entire brain connect") always pulls.
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact via reconnect", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()

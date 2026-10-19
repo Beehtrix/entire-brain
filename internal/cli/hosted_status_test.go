@@ -40,7 +40,7 @@ func hostedStatusFixture(t *testing.T) (Options, string, string) {
 	return opts, repoDir, storage.BrainDir
 }
 
-func TestStatusHostedLocalOnlyWithoutBinding(t *testing.T) {
+func TestStatusHostedDisconnectedWithoutBinding(t *testing.T) {
 	opts, repoDir, _ := hostedStatusFixture(t)
 	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
 	if err != nil {
@@ -49,18 +49,18 @@ func TestStatusHostedLocalOnlyWithoutBinding(t *testing.T) {
 	if report.Hosted == nil {
 		t.Fatal("status must always report hosted state")
 	}
-	if report.Hosted.State != "local_only" {
-		t.Fatalf("state = %q, want local_only: %+v", report.Hosted.State, report.Hosted)
+	if report.Hosted.State != "disconnected" || report.Hosted.RepoState != "disconnected" {
+		t.Fatalf("state = %q/%q, want disconnected: %+v", report.Hosted.State, report.Hosted.RepoState, report.Hosted)
 	}
 	if report.Hosted.RepoID != "" || report.Hosted.BaseURL != "" {
-		t.Fatalf("local_only must not carry a target: %+v", report.Hosted)
+		t.Fatalf("never-connected must not carry a target: %+v", report.Hosted)
 	}
 
 	out, err := execute(t, NewRootCommand(opts), "status")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Brainstore: local-only") {
+	if !strings.Contains(out, "Brainstore: disconnected") {
 		t.Fatalf("short status does not show hosted state:\n%s", out)
 	}
 }
@@ -117,7 +117,7 @@ func TestStatusHostedConnectedListsSyncedBranches(t *testing.T) {
 	}
 }
 
-func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
+func TestStatusHostedLocalOnlyByKillSwitch(t *testing.T) {
 	opts, repoDir, brainDir := hostedStatusFixture(t)
 	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com"}); err != nil {
 		t.Fatal(err)
@@ -129,27 +129,28 @@ func TestStatusHostedDisconnectedByKillSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := report.Hosted
-	if h == nil || h.State != "disconnected" {
-		t.Fatalf("state = %+v, want disconnected", h)
+	if h == nil || h.State != "local_only" || !h.NoEgress {
+		t.Fatalf("state = %+v, want local_only with no_egress", h)
 	}
-	// The binding stays visible so the reader sees what the switch suppresses.
-	if h.RepoID == "" || h.BaseURL == "" {
-		t.Fatalf("disconnected must keep the suppressed target visible: %+v", h)
+	// The repo state and binding stay visible so the reader sees what the
+	// switch suppresses and what unsetting it restores.
+	if h.RepoState != "connected" || h.RepoID == "" || h.BaseURL == "" {
+		t.Fatalf("local-only must keep the suppressed repo state and target visible: %+v", h)
 	}
 
 	out, err := execute(t, NewRootCommand(opts), "status")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "Brainstore: disconnected") {
-		t.Fatalf("short status does not show the disconnect:\n%s", out)
+	if !strings.Contains(out, "Brainstore: local-only") {
+		t.Fatalf("short status does not show local-only:\n%s", out)
 	}
 	verbose, err := execute(t, NewRootCommand(opts), "status", "--verbose")
 	if err != nil {
 		t.Fatalf("status --verbose: %v\n%s", err, verbose)
 	}
-	if !strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS set") {
-		t.Fatalf("verbose status does not name the kill switch:\n%s", verbose)
+	if !strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS set") || !strings.Contains(verbose, "repo is connected") {
+		t.Fatalf("verbose status must name the kill switch and the underlying repo state:\n%s", verbose)
 	}
 }
 
@@ -225,7 +226,7 @@ func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status --verbose: %v\n%s", err, verbose)
 	}
-	if !strings.Contains(verbose, "run 'entire brain connect' to rejoin") {
+	if !strings.Contains(verbose, "run 'entire brain connect' to join") {
 		t.Fatalf("verbose status must name the rejoin remedy:\n%s", verbose)
 	}
 	if strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS") {
@@ -242,8 +243,8 @@ func TestStatusHostedCorruptBindingFallsBackWithWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.Hosted == nil || report.Hosted.State != "local_only" {
-		t.Fatalf("corrupt binding must fall back to local_only: %+v", report.Hosted)
+	if report.Hosted == nil || report.Hosted.State != "disconnected" {
+		t.Fatalf("corrupt binding must fall back to disconnected: %+v", report.Hosted)
 	}
 	found := false
 	for _, w := range report.Warnings {

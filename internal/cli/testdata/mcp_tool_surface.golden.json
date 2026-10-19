@@ -758,6 +758,12 @@
           "maxLength": 8192,
           "title": "path",
           "type": "string"
+        },
+        "session": {
+          "description": "Session id the fact was authored in, so it carries session provenance (default: $ENTIRE_BRAIN_SESSION_ID)",
+          "maxLength": 8192,
+          "title": "session",
+          "type": "string"
         }
       },
       "required": [

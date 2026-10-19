@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
@@ -30,6 +31,18 @@ import (
 // disables in-dashboard search.
 type SearchFunc func(query string) ([]SearchResult, error)
 
+// SourceReader resolves virtual source addresses on demand. handled is false
+// for ordinary files, which continue to use the OS opener.
+type SourceReader func(target string) (content string, handled bool, err error)
+
+type sourceResultMsg struct {
+	tab     Tab
+	target  string
+	line    int
+	content string
+	err     error
+}
+
 // searchResultMsg carries the outcome of an async in-dashboard search back into
 // Update.
 type searchResultMsg struct {
@@ -41,9 +54,12 @@ type searchResultMsg struct {
 
 // Model is the dashboard model over a brain Snapshot.
 type Model struct {
-	snap     Snapshot
-	theme    Theme
-	searchFn SearchFunc
+	snap          Snapshot
+	theme         Theme
+	searchFn      SearchFunc
+	sourceReader  SourceReader
+	sourceTarget  string
+	sourceContent string
 
 	keys   keyMap
 	help   help.Model
@@ -97,10 +113,15 @@ func NewModel(snap Snapshot, theme Theme) Model {
 }
 
 // Run builds and runs the dashboard program against out (a real terminal),
-// opening on startTab. search may be nil to disable in-dashboard search. It
-// blocks until the user quits.
-func Run(snap Snapshot, theme Theme, search SearchFunc, startTab Tab, out io.Writer) error {
-	p := tea.NewProgram(newRunModel(snap, theme, search, startTab),
+// opening on startTab. search may be nil to disable in-dashboard search. An
+// optional SourceReader opens virtual sources in the detail pane. Run blocks
+// until the user quits.
+func Run(snap Snapshot, theme Theme, search SearchFunc, startTab Tab, out io.Writer, sources ...SourceReader) error {
+	model := newRunModel(snap, theme, search, startTab)
+	if len(sources) > 0 {
+		model.sourceReader = sources[0]
+	}
+	p := tea.NewProgram(model,
 		tea.WithAltScreen(), tea.WithMouseCellMotion(), tea.WithOutput(out))
 	_, err := p.Run()
 	return err
@@ -134,6 +155,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.MouseMsg:
 		return m.updateMouse(msg)
+	case sourceResultMsg:
+		target, _ := m.snap.openTarget(m.tab, m.selectedIndex())
+		if m.tab != msg.tab || target != msg.target {
+			return m, nil
+		}
+		m.sourceTarget = target
+		m.sourceContent = msg.content
+		if msg.err != nil {
+			m.sourceContent = "Unable to open source: " + msg.err.Error()
+		}
+		m.focusDetail = true
+		line := msg.line
+		if msg.err != nil {
+			line = 1
+		}
+		content, offset := renderSourceContent(m.sourceContent, m.detailWidth, line)
+		m.vp.SetContent(content)
+		m.vp.SetYOffset(offset)
+		return m, nil
 	case searchResultMsg:
 		// Drop a stale result superseded by a newer search.
 		if msg.requestID != m.searchRequest {
@@ -192,6 +232,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.focusDetail {
 			if key.Matches(msg, m.keys.Back) {
 				m.focusDetail = false
+				m.sourceTarget, m.sourceContent = "", ""
+				m.refreshDetail()
 				return m, nil
 			}
 			var cmd tea.Cmd
@@ -235,6 +277,7 @@ func (m *Model) switchTab(delta int) {
 // directions, whatever the old and new tab are.
 func (m *Model) setTab(tab Tab) {
 	m.tab = tab
+	m.sourceTarget, m.sourceContent = "", ""
 	m.focusDetail = false
 	m.filter.SetValue("")
 	m.table.SetRows(nil)
@@ -383,18 +426,26 @@ func (m Model) selectedIndex() int {
 	return m.visible[cur]
 }
 
-// openSelected opens the selected entry's underlying source (a code file or a
-// transcript) via the OS opener, without blocking the UI.
+// openSelected reads virtual sources into the detail pane and sends ordinary
+// files to the OS opener, without blocking the UI.
 func (m Model) openSelected() tea.Cmd {
 	idx := m.selectedIndex()
 	if idx < 0 {
 		return nil
 	}
-	target, _ := m.snap.openTarget(m.tab, idx)
+	target, line := m.snap.openTarget(m.tab, idx)
 	if target == "" {
 		return nil
 	}
-	return openCmd(target)
+	return func() tea.Msg {
+		if m.sourceReader != nil {
+			content, handled, err := m.sourceReader(target)
+			if handled || err != nil {
+				return sourceResultMsg{tab: m.tab, target: target, line: line, content: content, err: err}
+			}
+		}
+		return openCmd(target)()
+	}
 }
 
 // openCmd returns a command that opens target (a file path or URL) in the OS
@@ -450,6 +501,13 @@ func (m *Model) rebuildVisible() {
 
 func (m *Model) refreshDetail() {
 	idx := m.selectedIndex()
+	target, _ := m.snap.openTarget(m.tab, idx)
+	if m.sourceTarget != "" && target == m.sourceTarget {
+		content, _ := renderSourceContent(m.sourceContent, m.detailWidth, 0)
+		m.vp.SetContent(content)
+		return
+	}
+	m.sourceTarget, m.sourceContent = "", ""
 	// Home and Search render a page even with no row selected (the status page /
 	// the search prompt); other tabs show a placeholder when empty.
 	if idx < 0 && m.tab != TabHome && m.tab != TabSearch {
@@ -525,6 +583,9 @@ func clampToScreen(s string, width, height int) string {
 // the top of the dashboard scrolled away.
 func (m Model) footerView() string {
 	h := m.help.View(m.keys)
+	if m.sourceTarget != "" {
+		h = "Source · esc to return   " + h
+	}
 	if m.focusDetail && !m.vp.AtBottom() {
 		h += m.theme.dimStyle().Render("   ↓ more")
 	}
@@ -558,4 +619,28 @@ func truncate(value string, max int) string {
 		return ""
 	}
 	return runewidth.Truncate(value, max, "…")
+}
+
+// renderSourceContent wraps long JSONL lines and maps source line numbers to
+// viewport offsets. Strip control bytes before terminal rendering.
+func renderSourceContent(content string, width, sourceLine int) (string, int) {
+	content = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return -1
+		}
+		return r
+	}, content)
+	lines := strings.Split(content, "\n")
+	if width < 1 {
+		width = 60
+	}
+	wrap := lipgloss.NewStyle().Width(width)
+	offset := 0
+	for i, line := range lines {
+		lines[i] = wrap.Render(line)
+		if i < sourceLine-1 {
+			offset += strings.Count(lines[i], "\n") + 1
+		}
+	}
+	return strings.Join(lines, "\n"), offset
 }

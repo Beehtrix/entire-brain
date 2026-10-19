@@ -26,7 +26,7 @@
   "implementation": {
     "builder": {
       "artifact_file": "negative_control_cache_bundle_v2.py",
-      "artifact_sha256": "1236f3244be5d25cb72b7937aab159903a20cb97c2ce057023e4c4694f248bfc"
+      "artifact_sha256": "03b33e53be6becd061d72a2edf7a3d0dbcb5781bc317f8801e41d95a683b67c7"
     },
     "draft202012_validator": {
       "artifact_file": "draft202012.py",
@@ -51,11 +51,11 @@
     },
     "v1_raw_verifier_source": {
       "artifact_file": "negative_control_cache_archive_v1.py",
-      "artifact_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94"
+      "artifact_sha256": "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70"
     },
     "verifier_contract_schema": {
       "artifact_file": "negative-control-cache-bundle-verifier-contract-v2.schema.json",
-      "artifact_sha256": "eca24ad3f0a50f4a9dcbd9e106715db8fee449d4735eaeee87912a95e7c564bd"
+      "artifact_sha256": "f2664ff6898aa6a4d433e82635db4ca3e891e1ec9762284fd58efdf236a53016"
     }
   },
   "manifest_binding": {
@@ -72,22 +72,22 @@
   "raw_identity_binding": {
     "v1_material": {
       "artifact_file": "negative-control-cache-archive-material-v1.json",
-      "artifact_sha256": "7527cec7b2f1b47498845ae38710369997b7c82d2d0150761b23d2b594f68d93",
-      "material_declaration_sha256": "f03ae113a29585a9aba0c8ce57a41ab61eb0b2cd682474f1df2d214e299a4852",
+      "artifact_sha256": "18a0e9dc2f5ad68cef079c1e7fb6bab28145c1786b7afab80dfd73fb7ad41d1f",
+      "material_declaration_sha256": "4ea54ccdca1516dcc793dc30b30fa41974bfa24041b9c1acae5fdd03c2c90e7d",
       "profile": "agent_brain_negative_control_cache_archive_material_v1",
       "status": "pending_source_review"
     },
-    "v1_material_schema_sha256": "1424cd22b5eb057b5794347403780435f95c0428d4f81ff42441e71abc39d5d5",
-    "v1_raw_verifier_source_sha256": "2f21da09c28cf2de62f808a6362f74fbc7aead07a04cfef96c15c93584540b94",
+    "v1_material_schema_sha256": "54fb49675508e1ef84c5990da8d2b96e9f544ae950d54879f2b3b27410a49f58",
+    "v1_raw_verifier_source_sha256": "4f59b14fa21acbe299819ca14a25a0ab2d760120398f3f841c54fafbd6b36e70",
     "v1_report_schema_sha256": "5827c78df73b024df32bf2853d412df428e7362e869d5d202b33dac15bbe4e5d",
     "v1_verifier_contract": {
       "artifact_file": "negative-control-cache-archive-verifier-contract-v1.json",
-      "artifact_sha256": "2138adb640dee8ab3537afc1ccb69e846a6af5d360c02da9cfed30c33dded33c",
+      "artifact_sha256": "042e01bc1338ae5a23996b76eb76ae77c00a79d86c7667adbf863fa65a648c1f",
       "profile": "agent_brain_negative_control_cache_archive_verifier_contract_v1",
       "status": "verifier_compiled_material_source_review_pending_execution_forbidden",
-      "verifier_contract_sha256": "56b5e019f65ef1afc0e4f265a705cdc1523585aad899d5c18ff7a5230463bb47"
+      "verifier_contract_sha256": "532f618d8247652d59edb65adce31483431eb478b7947cda1fa5a5830c8454ff"
     },
-    "v1_verifier_contract_schema_sha256": "c35c0de98dbdcec6744a3fe33ee363261507eb894bbddbb3af5af3642be7f914"
+    "v1_verifier_contract_schema_sha256": "9a628fb6447948ac251d8f967b2df2773ad70758f2c0ba940b45fb2adb7779b3"
   },
   "residual_gates": [
     "successful_v2_bundle_content_verification_report",
@@ -137,5 +137,5 @@
     "successful_claim": "raw_identity_structure_manifest_bijection_and_every_regular_file_payload_sha256_only_not_staging_or_execution",
     "unpacked_byte_count_max": 2147483648
   },
-  "verifier_contract_sha256": "98de7291aceb5a84ff03d1862e66550fb4d67a55796634eacc4e610856829bdd"
+  "verifier_contract_sha256": "7b548a9d89739306b263eba36cb42b06f75c5ba7a3323739fccf02175a43b9a0"
 }

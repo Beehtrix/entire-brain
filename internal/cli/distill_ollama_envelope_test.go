@@ -194,7 +194,10 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	// than on the behaviour under test.
 	var served atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Stream past the ceiling; a correct client stops reading at it.
+		// Stream well past the ceiling; a correct client stops reading at it.
+		// The overshoot must dwarf the stop-detection slack below, or a
+		// stream-following client would be indistinguishable from a correct
+		// one.
 		chunk := strings.Repeat("a", 1<<20)
 		w.Header().Set("Content-Type", "application/json")
 		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+ollamaEnvelopeStreamHeadroom {

@@ -8,7 +8,7 @@ import (
 )
 
 // hostedShellOutTimeout bounds every shell-out to the host CLI on the hosted
-// sync path (auth token, whereami). The callers are the watch tick and the
+// sync path (auth token, repo view). The callers are the watch tick and the
 // session-end hook — a tick must stay a tick, so a stalled host CLI fails
 // fast instead of hanging the caller; the ambient ctx carries only signal
 // cancellation, no deadline.

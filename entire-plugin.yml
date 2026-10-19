@@ -2,4 +2,3 @@ name: brain
 description: Build a local, inspectable repository brain from Entire session history
 requires:
   - name: graph
-    repo_url: https://github.com/entireio/entire-graph

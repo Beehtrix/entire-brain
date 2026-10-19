@@ -31,22 +31,19 @@ import (
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
 // the plugin allowed to egress brain data, and only behind an explicit opt-in.
 //
-// Two-gate opt-in (ADR-P1-A, no implicit egress): a network call happens only
-// when BOTH gates are satisfied — (1) the user explicitly runs
-// `entire brain publish`, and (2) ENTIRE_BRAIN_ALLOW_HOSTED is truthy. Either
-// gate unsatisfied refuses BEFORE any resolution, disk read, or HTTP request, so
-// the default (no gate) stays strictly local-only. The master local-only switch
-// (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY) always wins over the hosted
-// opt-in.
+// No implicit egress (ADR-P1-A, amended by COR-2111): a network call happens
+// only when the user explicitly runs `entire brain publish` AND supplies the
+// full target (repo id, API URL, token) — there are no target defaults, so a
+// bare invocation refuses BEFORE any resolution, disk read, or HTTP request.
+// The ENTIRE_BRAIN_ALLOW_HOSTED env gate this command originally required was
+// retired once `entire brain connect` made hosted consent an explicit, durable
+// state. The master kill switch (ENTIRE_BRAIN_NO_EGRESS) always wins.
 //
 // Where the bundle may go is gated too: the resolved base URL must clear the shared
 // scheme floor (internal/apiurl) — https, or http only to a loopback host — checked
 // on the same egress-free side of the disk read as the two gates above, so an
 // unsafe or malformed target never gets the brain built for it.
 const (
-	// envBrainAllowHosted is the explicit opt-in gate for hosted publishing.
-	envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
-
 	// The hosted target is resolved from these env vars (each overridable by a
 	// flag). There is no pre-existing entire-api client in this plugin, so these
 	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
@@ -140,11 +137,13 @@ artifacts (manifest, semantic snapshots, branch overlays, and durable facts) and
 uploads them to hosted Entire.
 
 Hosted publishing is opt-in and off by default: the brain stays entirely local
-unless you BOTH run this command AND set ENTIRE_BRAIN_ALLOW_HOSTED=1. No brain
-data ever leaves your machine implicitly.
+unless you run this command with a target — the connected binding by default
+(see 'entire brain connect'), or an explicit one. No brain data ever leaves
+your machine implicitly, and ENTIRE_BRAIN_NO_EGRESS always wins.
 
-The target repo, API base URL, and bearer token are resolved from --repo-id /
-ENTIRE_REPO_ID, --api-url / ENTIRE_API_URL, and --token / ENTIRE_API_TOKEN. The
+The target repo, API base URL, and bearer token resolve flag > env > connected
+binding: --repo-id / ENTIRE_REPO_ID, --api-url / ENTIRE_API_URL, --token /
+ENTIRE_API_TOKEN. On a connected repo the token is minted via the host CLI. The
 base URL must be https:// — brain content and the API token are refused over
 plaintext http:// unless the host is loopback (or
 ENTIRE_BRAIN_ALLOW_INSECURE_API_URL is explicitly set).
@@ -164,51 +163,16 @@ coordinate, so identical bytes produce an identical result.`,
 }
 
 func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOpts publishCommandOptions) error {
-	// --- Two-gate opt-in (ADR-P1-A). Both gates are checked BEFORE resolving any
-	// target, reading the brain, or making a network call, so a refusal is
-	// guaranteed egress-free. Gate 1 (explicit invocation) is implicit here.
+	// Every gate is checked BEFORE resolving any target, reading the brain, or
+	// making a network call, so a refusal is guaranteed egress-free.
 
-	// The master local-only switch always wins over the hosted opt-in.
+	// The master kill switch always wins over the hosted opt-in.
 	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: hosted brain publish is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it to publish")
-	}
-	// Gate 2: the explicit hosted opt-in must be truthy. Unset/empty/false refuses
-	// with no network call — the client-side no-implicit-egress guarantee. This is
-	// deliberately NOT securityToggleEnabled (which fails a garbage value ON): a
-	// publish opt-in must fail CLOSED, so anything not clearly truthy stays local.
-	if !envBool(envBrainAllowHosted) {
-		return fmt.Errorf("hosted_publish_disabled: hosted brain publishing is opt-in and off by default; nothing was sent. Set %s=1 and re-run '"+brainInvocation(os.LookupEnv, "publish")+"' to enable it", envBrainAllowHosted)
+		return fmt.Errorf("no_egress: hosted brain publish is disabled while %s is set; unset it to publish", noEgressToggleName())
 	}
 
-	// Resolve the target (flag overrides env). Fail clearly before touching git or
-	// disk so a misconfiguration never produces a partial request.
-	repoID := publishFlagOrEnv(publishOpts.repoID, envRepoID)
-	if repoID == "" {
-		return fmt.Errorf("publish: target repo id is required; set --repo-id or %s", envRepoID)
-	}
-	// The id is concatenated into the publish target, so it must be exactly one safe
-	// path segment. Checked here, alongside the URL floor and before any git/disk
-	// work, so a malformed target refuses with the whole brain still on disk.
-	if err := repoid.Validate(repoID); err != nil {
-		return fmt.Errorf("publish: %w", err)
-	}
-	baseURL := publishFlagOrEnv(publishOpts.apiURL, envAPIBaseURL)
-	if baseURL == "" {
-		return fmt.Errorf("publish: API base URL is required; set --api-url or %s", envAPIBaseURL)
-	}
-	// Gate 3: the target must be a well-formed, non-plaintext origin. Checked here,
-	// before any git/disk work, so an unsafe or malformed target refuses with the
-	// whole brain still on disk — the same egress-free guarantee as the gates above.
-	baseURL, urlErr := apiurl.Validate(baseURL)
-	if urlErr != nil {
-		return fmt.Errorf("publish: %w", urlErr)
-	}
-	token := publishFlagOrEnv(publishOpts.token, envAPIToken)
-	if token == "" {
-		return fmt.Errorf("publish: API token is required; set --token or %s", envAPIToken)
-	}
-
-	// Locate the on-disk brain for this repo.
+	// Locate the on-disk brain for this repo; the connected binding under it is
+	// the default target.
 	repoDir := opts.Env.RepoRoot
 	if repoDir == "" {
 		repoDir = "."
@@ -217,6 +181,16 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	if err != nil {
 		return fmt.Errorf("publish: resolve brain: %w", err)
 	}
+
+	// Resolve the target: flag > env > connected binding. Validation (repo-id
+	// path segment, URL scheme floor) happens inside, before any brain read or
+	// network call, so a malformed or missing target refuses with the whole
+	// brain still on disk — the same egress-free guarantee as the gate above.
+	target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "publish", publishOpts.repoID, publishOpts.apiURL, publishOpts.token)
+	if err != nil {
+		return err
+	}
+	repoID, baseURL, token := target.repoID, target.baseURL, target.token
 	if !brainExportExists(storage.BrainDir) {
 		return errors.New("publish: no brain found for this repo; run '" + brainInvocation(os.LookupEnv, "refresh") + "' first")
 	}

@@ -71,13 +71,16 @@ type brainShowOptions struct {
 // blind spots — the former `stale` and `semantic-audit` commands), and live
 // workspace state.
 type brainStatusReport struct {
-	GeneratedAt time.Time             `json:"generated_at"`
-	Repo        brainStatusRepo       `json:"repo"`
-	Brain       brainStatusBrain      `json:"brain"`
-	Sources     brainStatusSources    `json:"sources"`
-	Facts       *brainStatusFacts     `json:"facts,omitempty"`
-	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
-	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
+	GeneratedAt time.Time `json:"generated_at"`
+	// Integrity distinguishes a freshness overview from a deep store audit.
+	Integrity string                `json:"integrity,omitempty"`
+	Repo      brainStatusRepo       `json:"repo"`
+	Brain     brainStatusBrain      `json:"brain"`
+	Sources   brainStatusSources    `json:"sources"`
+	Facts     *brainStatusFacts     `json:"facts,omitempty"`
+	Hosted    *brainStatusHosted    `json:"hosted,omitempty"`
+	Semantic  *brainStatusSemantic  `json:"semantic,omitempty"`
+	Retrieval *brainStatusRetrieval `json:"retrieval,omitempty"`
 	// Onboarding is the `setup` progress projection: fact-backfill counters,
 	// background watcher health, and instant-phase component freshness. It
 	// answers "is the thing setup started still working?" on the surface people
@@ -403,7 +406,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status [path]",
 		Short: "Show brain coverage, freshness, and workspace state",
-		Long:  "Summarize the brain: sources, facts, semantic coverage/freshness/blind spots, and live workspace state",
+		Long:  "Summarize recorded sources, freshness, background activity, and live workspace state without scanning index contents. Use doctor for deep integrity checks.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := agentSurfaceTarget(opts, args)
@@ -411,7 +414,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include staged, unstaged, and untracked file classifications (does not audit index contents)")
 	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
@@ -1069,15 +1072,9 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	populateBrainStatusVerification(ctx, opts, &report)
+	populateBrainStatusSemanticSummary(ctx, opts, &report)
 	if statusOpts.compact && !statusOpts.details {
-		// MCP owns the explicitly compact transport. The CLI remains backward
-		// compatible and emits the established detailed JSON by default.
-		populateBrainStatusSemanticSummary(ctx, opts, &report)
 		report = brainStatusCompactReport(report)
-	} else {
-		populateBrainStatusSemanticDetail(ctx, opts, &report)
-		populateBrainStatusLiveDetail(&report)
 	}
 	if statusOpts.json {
 		if err := writeJSON(cmd, report); err != nil {
@@ -1092,9 +1089,8 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	return nil
 }
 
-// populateBrainStatusSemanticSummary fills trust-critical status data without
-// scanning the semantic store: manifest counts/warnings and current blind spots.
-// It is the default CLI/MCP preflight payload.
+// populateBrainStatusSemanticSummary reports recorded counts, warnings and blind
+// spots without scanning the semantic store.
 func populateBrainStatusSemanticSummary(ctx context.Context, opts Options, report *brainStatusReport) {
 	if report.Semantic == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil {
 		return
@@ -1114,41 +1110,6 @@ func populateBrainStatusSemanticSummary(ctx context.Context, opts Options, repor
 	} else {
 		report.Semantic.BlindSpots = spots
 	}
-}
-
-// populateBrainStatusSemanticDetail adds the store-backed coverage histograms
-// requested by --details / MCP details=true. Summary counts and blind spots are
-// populated first so the detailed response is a strict superset of the default.
-func populateBrainStatusSemanticDetail(ctx context.Context, opts Options, report *brainStatusReport) {
-	populateBrainStatusSemanticSummary(ctx, opts, report)
-	if report.Semantic == nil || report.Semantic.Coverage == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil {
-		return
-	}
-	source := report.Manifest.Sources.Semantic
-	var freshness staleReport
-	if report.Semantic.Freshness != nil {
-		freshness = *report.Semantic.Freshness
-	}
-	if coverage, err := semanticAuditStoreCoverage(report.Brain.Path, source, freshness); err != nil {
-		report.Warnings = append(report.Warnings, "semantic coverage unavailable: "+err.Error())
-	} else {
-		report.Semantic.Coverage.FileLanguages = coverage.FileLanguages
-		report.Semantic.Coverage.Languages = coverage.Languages
-		report.Semantic.Coverage.SymbolKinds = coverage.SymbolKinds
-		report.Semantic.Coverage.RelationTypes = coverage.RelationTypes
-	}
-}
-
-func populateBrainStatusLiveDetail(report *brainStatusReport) {
-	if report == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil || len(report.Live.ChangedFiles) == 0 {
-		return
-	}
-	symbols, err := semanticSymbolsForFiles(report.Brain.Path, report.Manifest.Sources.Semantic, report.Live.ChangedFiles, 20)
-	if err != nil {
-		report.Live.Warnings = append(report.Live.Warnings, "changed symbol hints unavailable: "+err.Error())
-		return
-	}
-	report.Live.ChangedSymbolHints = symbols
 }
 
 func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
@@ -1206,6 +1167,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	brainCmd := setupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
+	if report.Integrity == "not_checked" {
+		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
+	}
 	if !verbose {
 		renderBrainStatusShort(out, render, report, brainCmd)
 		return
@@ -1224,6 +1188,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
 		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
+	if h := report.Hosted; h != nil {
+		fmt.Fprintf(out, "\n%s\n", hostedStatusLine(h))
+	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
@@ -4495,14 +4462,13 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	return buildBrainStatusReportWithAvailability(ctx, opts, target, false)
 }
 
-// buildAvailableBrainStatusReport is the health-only variant used by status
-// and brain_status. Other read surfaces retain the strict loader so a damaged
-// or forward-version manifest cannot be mistaken for an empty Brain.
+// buildAvailableBrainStatusReport is the lightweight overview used by status
+// and brain_status. Other read surfaces retain strict artifact validation.
 func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
 	return buildBrainStatusReportWithAvailability(ctx, opts, target, true)
 }
 
-func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, partialHealth bool) (brainStatusReport, error) {
+func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, lightweight bool) (brainStatusReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
@@ -4518,15 +4484,16 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	manifestState := "current"
 	manifestSchema := brainManifestSchemaVersion
 	var manifest *exportManifest
-	var memoryHealth map[string]any
 	var healthIssues []memoryHealthIssue
-	if partialHealth {
-		snapshot := memoryReadOnlyHealth(storage.BrainDir, generatedAt)
-		manifest = snapshot.Manifest
-		manifestState = snapshot.ManifestHealth.State
-		manifestSchema = snapshot.ManifestHealth.SchemaVersion
-		memoryHealth = snapshot.Payload
-		healthIssues = snapshot.Issues
+	if lightweight {
+		var health memoryManifestHealth
+		var issue *memoryHealthIssue
+		manifest, health, issue = inspectBrainManifestHealth(storage.BrainDir)
+		manifestState = health.State
+		manifestSchema = health.SchemaVersion
+		if issue != nil {
+			healthIssues = append(healthIssues, *issue)
+		}
 	} else {
 		manifest, err = loadBrainManifest(storage.BrainDir)
 		if err != nil {
@@ -4544,8 +4511,10 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			ManifestState:   manifestState,
 		},
 		Manifest: manifest,
-		Memory:   memoryHealth,
 		Issues:   healthIssues,
+	}
+	if lightweight {
+		report.Integrity = "not_checked"
 	}
 	if manifest != nil && !manifest.GeneratedAt.IsZero() {
 		report.Brain.GeneratedAt = manifest.GeneratedAt.Format(time.RFC3339)
@@ -4566,18 +4535,26 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
 			}
-			// The counts above come from the manifest, not from disk. The
-			// manifest is a claim, and a store that can no longer produce what
-			// it claims — a branch whose facts.ndjson is gone, a line that will
-			// not parse, or a file that simply yields fewer facts than declared
-			// — still reported the declared number on every surface while
-			// recall returned less. Cross-check it, and say so when it fails,
-			// instead of letting the counts imply a store that can be read.
-			integrity := inspectFactStore(storage.BrainDir, f)
-			report.Facts.MissingBranches = integrity.Missing
-			if !integrity.OK() {
-				report.Facts.Integrity = &integrity
-				report.Warnings = append(report.Warnings, integrity.Warning())
+			if lightweight {
+				report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
+				if len(report.Facts.MissingBranches) > 0 {
+					report.Warnings = append(report.Warnings, missingFactStoreWarning(report.Facts.MissingBranches))
+				}
+				for _, branch := range f.Branches {
+					if branch == "" {
+						continue
+					}
+					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
+						report.Warnings = append(report.Warnings, fmt.Sprintf("fact store for %s unavailable: %v", branch, err))
+					}
+				}
+			} else {
+				integrity := inspectFactStore(storage.BrainDir, f)
+				report.Facts.MissingBranches = integrity.Missing
+				if !integrity.OK() {
+					report.Facts.Integrity = &integrity
+					report.Warnings = append(report.Warnings, integrity.Warning())
+				}
 			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {
@@ -4594,6 +4571,15 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		report.Sources.Docs = manifest.Sources.Docs != nil
 	}
+	var factBranches []string
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		factBranches = manifest.Sources.Facts.Branches
+	}
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches)
+	report.Hosted = hosted
+	if hostedWarning != "" {
+		report.Warnings = append(report.Warnings, hostedWarning)
+	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {
 		report.Warnings = append(report.Warnings, "live state unavailable: "+liveErr.Error())
@@ -4601,13 +4587,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live, !lightweight)
 		if report.Retrieval != nil {
-			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
+			if lightweight && manifest.Sources.History != nil {
+				h := manifest.Sources.History
+				report.Retrieval.Conversation = &brainStatusConversation{Exchanges: h.Exchanges, IncompleteExchanges: h.IncompleteExchanges, VectorState: "not_checked"}
+			} else {
+				report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
+			}
 		}
 	}
 	if report.Semantic != nil {
-		freshness, freshnessErr := semanticStaleReport(ctx, opts, repoDir)
+		freshness, freshnessErr := semanticFreshnessReport(ctx, opts, repoDir, !lightweight)
 		if freshnessErr != nil {
 			report.Warnings = append(report.Warnings, "freshness unavailable: "+freshnessErr.Error())
 		} else {
@@ -4627,7 +4618,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState, audit bool) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
@@ -4649,6 +4640,8 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
 			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+		case !audit:
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {

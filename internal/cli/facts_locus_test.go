@@ -256,3 +256,76 @@ func TestReclassifyFactsFillsLocus(t *testing.T) {
 		t.Fatalf("reclassify should be idempotent, changed=%d", changed)
 	}
 }
+
+// TestFactLocusKeepsHyphenatedPaths pins the bug ashtom reported: the
+// extractor used to cut a hyphenated path into fragments, so a fact about
+// `website/scripts/pre-build.ts` was anchored to "website/scripts/pre" and
+// "build.ts" — two tokens that name nothing in the repo — while the real path
+// never appeared at all. Quoting the path in backticks did not help: the
+// backtick span added the correct token, but the regex sweep still produced
+// the fragments beside it, which is exactly what he saw.
+func TestFactLocusKeepsHyphenatedPaths(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"bare", "the website/scripts/pre-build.ts hook runs first", "website/scripts/pre-build.ts"},
+		{"backticked", "see `website/scripts/pre-build.ts` for the hook", "website/scripts/pre-build.ts"},
+		{"no directory", "pre-build.ts runs before the bundle step", "pre-build.ts"},
+		{"hyphenated directory", "entire-brain/internal/cli/facts_locus.go owns this", "entire-brain/internal/cli/facts_locus.go"},
+		{"leading dot", "edit .github/workflows/ci-windows.yml to add the shard", ".github/workflows/ci-windows.yml"},
+		{"dotted repo config", "the flag lives in .entire/settings.json", ".entire/settings.json"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := factLocus(c.text)
+			loc := map[string]bool{}
+			for _, l := range got {
+				loc[l] = true
+			}
+			if !loc[c.want] {
+				t.Errorf("expected locus token %q in %v", c.want, got)
+			}
+			// The fragments are the defect, not merely a missing token: a
+			// fragment is a plausible-looking path that resolves to nothing,
+			// which is worse than no anchor at all.
+			for _, frag := range []string{"website/scripts/pre", "build.ts", "brain/internal/cli/facts_locus.go", "github/workflows/ci", "windows.yml", "entire/settings.json"} {
+				if frag == c.want {
+					continue
+				}
+				if loc[frag] {
+					t.Errorf("fragment %q leaked into locus %v", frag, got)
+				}
+			}
+		})
+	}
+}
+
+// TestFactLocusHyphenWideningStaysOffProse guards the other side of the fix:
+// admitting "-" must not turn ordinary hyphenated English into code anchors.
+// A segment separator (. or /) is still required, so prose stays empty.
+func TestFactLocusHyphenWideningStaysOffProse(t *testing.T) {
+	for _, text := range []string{
+		"a state-of-the-art approach with no code named in it",
+		"we did a before-and-after comparison last week",
+		"This sentence has only ordinary words in it.",
+	} {
+		if got := factLocus(text); len(got) != 0 {
+			t.Errorf("prose %q should yield no locus, got %v", text, got)
+		}
+	}
+}
+
+// TestLocusTokenIsFilePathSeesHyphenatedPaths closes the loop on drift: the
+// fragments were invisible to factLocusDrift ("website/scripts/pre" has no
+// extension, "build.ts" has no slash), so a hyphenated file could never be
+// reported as drifted no matter how long ago it was deleted.
+func TestLocusTokenIsFilePathSeesHyphenatedPaths(t *testing.T) {
+	if !locusTokenIsFilePath("website/scripts/pre-build.ts") {
+		t.Error("a hyphenated path with a real extension must count as a file path")
+	}
+	if locusTokenIsFilePath("website/scripts/pre") {
+		t.Error("an extensionless fragment must not count as a file path")
+	}
+}

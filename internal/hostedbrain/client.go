@@ -5,7 +5,8 @@
 // can run the curated read tools (brain_search, brain_get, brain_multi_get,
 // brain_status) against the shared brain over the wire.
 //
-// It respects the egress gate (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY):
+// It respects the egress gate (ENTIRE_BRAIN_NO_EGRESS, with the deprecated
+// ENTIRE_BRAIN_LOCAL_ONLY alias still honored):
 // every remote call is refused with ErrNoEgress when the gate is set, so a
 // local-only workspace never reaches out. On initialize it negotiates the brain wire
 // schema via brainwire.CheckCompatibility — a hosted major the local reader cannot
@@ -35,7 +36,7 @@ const mcpProtocolVersion = "2024-11-05"
 
 // ErrNoEgress is returned by every remote call when the egress gate is set — the
 // hosted brain must not be contacted from a local-only/no-egress workspace.
-var ErrNoEgress = errors.New("hostedbrain: remote brain access disabled by ENTIRE_BRAIN_NO_EGRESS/LOCAL_ONLY")
+var ErrNoEgress = errors.New("hostedbrain: remote brain access disabled by ENTIRE_BRAIN_NO_EGRESS")
 
 // Typed transport errors so callers can react to the distinct HTTP outcomes without
 // string-matching: an unauthenticated token, a repo the caller cannot pull, and a
@@ -389,7 +390,8 @@ func (c *Client) callInto(ctx context.Context, repoID, name string, args map[str
 }
 
 // noEgress reports whether the egress gate is set, matching the CLI's fail-closed
-// securityToggleEnabled semantics for ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY:
+// securityToggleEnabled semantics for ENTIRE_BRAIN_NO_EGRESS (and its deprecated
+// ENTIRE_BRAIN_LOCAL_ONLY alias):
 // an empty/false-ish value is off; anything else (including an unrecognized value) is
 // on, so a misconfigured gate fails closed (no egress).
 func noEgress() bool {

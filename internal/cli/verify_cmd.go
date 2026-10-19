@@ -44,9 +44,8 @@ type verifyCommandOptions struct {
 	failOnUnverifiable bool
 	strict             bool // alias flag for failOnUnverifiable; OR'd in at run time
 	// sample verifies only the `limit` most recently updated facts in
-	// no-target mode. Set by hot-path callers (brain status): full
-	// verification shells two git subprocesses per distinct commit anchor,
-	// which is `verify`'s job, not a status check's.
+	// no-target mode. Full verification can shell out per distinct commit
+	// anchor, so status never invokes it; doctor and verify own that work.
 	sample bool
 }
 
@@ -713,7 +712,7 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotForVerify(v.ctx, v.opts.Runner, v.repoDir)
+	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, true, checkpointBranchDestinations{}, nil)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)
@@ -782,7 +781,11 @@ func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapsho
 	return "", ""
 }
 
-func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir string) (*checkpointSnapshot, []string, error) {
+// loadLocalCheckpointSnapshotLocalOnly resolves the local checkpoint union
+// for READERS: backend selection follows the configured primary, and the
+// snapshot never touches the network. Discovery completeness is the caller's
+// problem — a reader resolves checkpoints it already knows by id.
+func loadLocalCheckpointSnapshotLocalOnly(ctx context.Context, runner CommandRunner, repoDir string, raw bool, branchDestinations checkpointBranchDestinations, cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
 	if primaryErr != nil {
@@ -794,7 +797,7 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
 		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
 	}
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, true, 0, checkpointBranchDestinations{}, nil, nil, true)
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, 0, branchDestinations, nil, cache, true)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -906,30 +909,12 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	if err != nil {
 		return verifySummary{}, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, sample: true}, "")
+	// Verify every active fact: sampling and inclusion of retired facts are separate options.
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{}, "")
 	if err != nil {
 		return verifySummary{}, err
 	}
 	return report.Summary, nil
-}
-
-func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport) {
-	if report == nil || !report.Sources.Facts {
-		return
-	}
-	branch := report.Live.Branch
-	if branch == "" {
-		branch = distillDefaultBranch
-	}
-	summary, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
-	if err != nil {
-		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
-		return
-	}
-	if report.Facts == nil {
-		report.Facts = &brainStatusFacts{}
-	}
-	report.Facts.Verification = &summary
 }
 
 func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {

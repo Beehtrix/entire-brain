@@ -865,7 +865,7 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 			out[checkpoint] = append(out[checkpoint], id)
 		}
 	}
-	if snapshot, _, err := loadLocalCheckpointSnapshotForVerify(ctx, opts.Runner, repoDir); err == nil && snapshot != nil {
+	if snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, true, checkpointBranchDestinations{}, nil); err == nil && snapshot != nil {
 		for _, member := range snapshot.SessionCheckpoints {
 			add(member.CheckpointID, member.SessionID)
 		}

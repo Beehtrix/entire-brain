@@ -50,8 +50,12 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(status.Warnings) == 0 {
-				t.Fatalf("%s reported healthy", mode)
+			if mode == "symlink" || mode == "directory" {
+				if len(status.Warnings) == 0 {
+					t.Fatalf("status missed unsafe fact-store path: %s", mode)
+				}
+			} else if status.Integrity != "not_checked" || status.Facts.Integrity != nil {
+				t.Fatalf("status must defer content validation to doctor: %+v", status)
 			}
 			manifest, err := loadBrainManifest(brain)
 			if err != nil {

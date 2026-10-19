@@ -94,7 +94,8 @@ memory and filesystem performance.
 
 ## Egress threat model
 
-- No-egress mode (`ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY`) is
+- No-egress mode (`ENTIRE_BRAIN_NO_EGRESS`, deprecated alias
+  `ENTIRE_BRAIN_LOCAL_ONLY`) is
   **fail-closed**: any unrecognized toggle value is treated as enabled (with a
   warning), and only `--agent ollama`/`none` are permitted — any other or
   unknown agent name is denied (`agent_policy.go`).

@@ -35,6 +35,8 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
 	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
 	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
+	{"publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"disconnect_cmd.go", "'entire brain connect'", "cobra Long help text built at command-construction time, before any lookup exists"},
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {

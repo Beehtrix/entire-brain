@@ -52,7 +52,7 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		return fmt.Errorf("invalid_repo_url: %q must not start with '-'", repoURL)
 	}
 	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY to allow it")
+		return fmt.Errorf("no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS to allow it")
 	}
 	dest := filepath.Join(flags.dir, name)
 

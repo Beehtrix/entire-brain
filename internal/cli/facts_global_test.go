@@ -75,6 +75,26 @@ func TestGlobalFactIsWrittenOutsideEveryRepository(t *testing.T) {
 	}
 }
 
+// A session id is repo-scoped, so a global fact must not carry one even when
+// the caller's environment supplies it — otherwise one repository's session
+// leaks into the store every repository reads.
+func TestGlobalFactCarriesNoSessionID(t *testing.T) {
+	opts, _ := globalTestOptions(t)
+	t.Setenv(rememberSessionEnv, "env-session-id")
+	rememberGlobal(t, opts, "Global facts stay free of session provenance.")
+
+	facts, err := loadGlobalFacts(opts.Env)
+	if err != nil {
+		t.Fatalf("loadGlobalFacts: %v", err)
+	}
+	if len(facts) != 1 || len(facts[0].Provenance) != 1 {
+		t.Fatalf("the global store holds %+v", facts)
+	}
+	if got := facts[0].Provenance[0].SessionID; got != "" {
+		t.Fatalf("global fact session id = %q, want blank", got)
+	}
+}
+
 func TestGlobalFactIsRecalledFromARepository(t *testing.T) {
 	// The whole point: recorded once, available from a repository that has
 	// never seen it.

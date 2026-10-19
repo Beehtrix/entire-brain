@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -26,35 +27,39 @@ import (
 // text, its own component names, its own daemon identity.
 //
 // Pointing either writer back at a real stream still compiles, and fails here.
-func TestSetupInstantSubcommandAlwaysDiscardsItsOutput(t *testing.T) {
+func TestSetupInstantSubcommandNeverWritesToARealStream(t *testing.T) {
 	t.Parallel()
-	sub, captured := newSetupInstantCommand(context.Background())
-	// Writer IDENTITY for stdout: a buffer this test owns is not wired to
-	// anything the sub-command could reach, so it would pass whatever the
-	// writer was. io.Discard is the contract, and pointing it at a real stream
-	// still compiles.
-	if got := sub.OutOrStdout(); got != io.Discard {
-		t.Fatalf("the nested refresh must write stdout to io.Discard, got %T", got)
+	sink := &bytes.Buffer{}
+	sub, captured := newSetupInstantCommand(context.Background(), sink)
+
+	// stdout goes to the PHASE SINK, not io.Discard as it once did: the nested
+	// reporter has no idea it is nested, and its progress belongs inside the
+	// phase rather than thrown away. The contract that survived the change is
+	// that it never reaches a real stream.
+	if got := sub.OutOrStdout(); got != io.Writer(sink) {
+		t.Fatalf("the nested refresh must write stdout to the phase sink, got %T", got)
 	}
-	// stderr is CAPTURED, not discarded: the same stream carries real warnings
-	// (a coordinator that could not launch, a skipped entity index), and
-	// discarding it lost them silently. It must reach the buffer the caller
-	// reads, and must NOT reach a real stream.
 	if captured == nil {
 		t.Fatal("the nested refresh's stderr must be captured so its warnings can be re-emitted")
 	}
-	if got := sub.ErrOrStderr(); got != io.Writer(captured) {
-		t.Fatalf("the nested refresh's stderr must be the captured buffer, got %T", got)
+
+	// stderr is TEED, so identity cannot be asserted -- and a type check on
+	// io.MultiWriter would pass on a tee to the wrong pair of writers. Assert
+	// the behaviour instead: one write has to land in BOTH places, because
+	// sending it to only one is how either the rendering or the warnings go
+	// missing.
+	const line = "warning: coordinator did not launch\n"
+	if _, err := sub.ErrOrStderr().Write([]byte(line)); err != nil {
+		t.Fatalf("write to the nested stderr: %v", err)
 	}
-	sub.ErrOrStderr().Write([]byte("warning: memory coordinator: worker launch failed\n"))
-	if got := setupWarningsFrom(captured); len(got) != 1 || got[0] != "memory coordinator: worker launch failed" {
-		t.Fatalf("a warning on the nested stderr must be recoverable, got %q", got)
+	if !strings.Contains(sink.String(), line) {
+		t.Fatalf("the nested refresh's stderr must reach the phase sink, got %q", sink.String())
 	}
-	if got := setupWarningsFrom(captured); len(got) == 0 {
-		t.Fatal("non-vacuity: the extractor matched nothing")
+	if !strings.Contains(captured.String(), line) {
+		t.Fatalf("the nested refresh's stderr must reach the capture, got %q", captured.String())
 	}
-	if sub.Context() == nil {
-		t.Fatal("the sub-command must carry the setup context")
+	if sub.ErrOrStderr() == io.Writer(os.Stderr) {
+		t.Fatal("the nested refresh must never write to the real stderr")
 	}
 }
 
@@ -91,32 +96,31 @@ func TestSetupAndStatusNeverPrintTheHashedDaemonID(t *testing.T) {
 // names, in a single run.
 func TestSetupSummaryCallsEachComponentByOneName(t *testing.T) {
 	t.Parallel()
+	// The tick row this used to inspect is gone: the terse block counts
+	// components and defers the names to `doctor`, so there is no second
+	// spelling in the rendered summary left to disagree with the first.
+	//
+	// The guarantee moved into setupComponentCountSummary, which is where it
+	// is asserted now. Testing it through the rendered block would be a
+	// substring search over prose -- "sessions" appears in the standing intro
+	// sentence, so that search passes on output that names nothing at all.
 	report := setupRenderFixtureReport()
-	got := renderSetupSummaryPlain(t, report, nil)
+	built, failed := partitionSetupComponents(report.Instant.Components)
+	summary := setupComponentCountSummary(built, failed)
 
-	var row string
-	for _, line := range strings.Split(got, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instant ") {
-			row = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "instant"))
-			break
+	named := false
+	for _, component := range failed {
+		label := setupComponentLabel(component.Name)
+		if !strings.Contains(summary, label) {
+			t.Fatalf("the count summary does not name %q by its label %q: %q", component.Name, label, summary)
+		}
+		named = true
+		if label != component.Name && strings.Contains(summary, component.Name) {
+			t.Fatalf("the count summary uses the raw id %q beside the label %q: %q", component.Name, label, summary)
 		}
 	}
-	if row == "" {
-		t.Fatalf("no instant tick row in the summary:\n%s", got)
-	}
-	entries := strings.Split(row, "  ")
-	if len(entries) != len(report.Instant.Components) {
-		t.Fatalf("tick row has %d entries for %d components: %q", len(entries), len(report.Instant.Components), row)
-	}
-	for i, component := range report.Instant.Components {
-		name := strings.TrimSpace(entries[i][1:])
-		want := setupComponentLabel(component.Name)
-		if name != want {
-			// The failure lines under this row, and the live phase line above
-			// it, both use setupComponentLabel. Anything else here is the same
-			// component answering to two names in one run.
-			t.Fatalf("tick row calls %q %q; every other line calls it %q", component.Name, name, want)
-		}
+	if !named {
+		t.Fatalf("the fixture reported no failed component, so this guard checked nothing: %q", summary)
 	}
 }
 
@@ -138,17 +142,19 @@ func unqueryableReport() setupReport {
 func TestSetupSummaryDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
 	t.Parallel()
 	got := renderSetupSummaryPlain(t, unqueryableReport(), nil)
-	headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-	if strings.Contains(headline, "Brain ready") {
-		t.Fatalf("no code index and no baseline is not a ready brain: %q", headline)
+	// Readiness has its own row in the terse block; the first line is the
+	// standing intro sentence, so asserting on it tested the wrong string.
+	if strings.Contains(got, "queryable now") {
+		t.Fatalf("no code index and no baseline is not a queryable brain:\n%s", got)
 	}
-	if !strings.Contains(headline, "not queryable") {
-		t.Fatalf("the headline must say the brain cannot be queried: %q", headline)
+	// The terse block names the lost CAPABILITY, not the component id -- that
+	// is the vocabulary a reader of this block has. `--verbose` and `doctor`
+	// carry the component names.
+	if !strings.Contains(got, "semantic search unavailable") {
+		t.Fatalf("the summary must name what is unavailable:\n%s", got)
 	}
-	for _, want := range []string{"semantic index", "seed baseline"} {
-		if !strings.Contains(got, "no "+want) {
-			t.Fatalf("the summary must name what is unavailable (%q):\n%s", want, got)
-		}
+	if !strings.Contains(got, "could not be built") {
+		t.Fatalf("the summary must say the brain did not build:\n%s", got)
 	}
 }
 
@@ -165,11 +171,10 @@ func TestSetupSummaryStillSaysReadyWhenOnlyOneCoreComponentFailed(t *testing.T) 
 			}
 		}
 		got := renderSetupSummaryPlain(t, report, nil)
-		headline := strings.SplitN(strings.TrimLeft(got, "\n"), "\n", 2)[0]
-		if !strings.Contains(headline, "Brain ready (degraded)") {
-			t.Fatalf("with %s built the brain still answers: %q", survivor, headline)
+		if !strings.Contains(got, "queryable now") {
+			t.Fatalf("with %s built the brain still answers:\n%s", survivor, got)
 		}
-		if strings.Contains(got, "not queryable") {
+		if strings.Contains(got, "queries have nothing to read") {
 			t.Fatalf("with %s built the brain must not be called unqueryable:\n%s", survivor, got)
 		}
 	}
@@ -182,15 +187,22 @@ func TestSetupSummaryUnchangedWhenNoComponentsWereReported(t *testing.T) {
 	report := setupRenderFixtureReport()
 	report.Instant = setupPhase{State: "ok"}
 	got := renderSetupSummaryPlain(t, report, nil)
-	if strings.Contains(got, "not queryable") {
+	if strings.Contains(got, "queries have nothing to read") {
 		t.Fatalf("no components reported is not evidence of failure:\n%s", got)
 	}
 }
 
-// TestSetupExitsZeroButSaysWhatIsUnavailable is the whole-run property: the
-// exit code is deliberately unchanged (one component built, so the brain is
-// worth keeping) and the words are not.
-func TestSetupExitsZeroButSaysWhatIsUnavailable(t *testing.T) {
+// TestSetupSaysWhatIsUnavailableWhenNothingCanAnswer is the whole-run
+// property. It used to assert exit 0 ("one component built, so the brain is
+// worth keeping"), which main has since superseded: `setup --help` now states
+// the contract outright -- setup exits 0 whenever the brain is QUERYABLE, and
+// queryable means at least one of the semantic index, the seed baseline or the
+// history index built. Session export is none of those.
+//
+// The half of this PR that stands is the other one, and it is what is asserted
+// here: whatever the exit code, setup must not claim queryability it does not
+// have, and must name what is missing.
+func TestSetupSaysWhatIsUnavailableWhenNothingCanAnswer(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
 	rec := &recordedSetup{instantComponents: []setupComponent{
 		{Name: brainComponentSessions, State: "ok"},
@@ -202,15 +214,19 @@ func TestSetupExitsZeroButSaysWhatIsUnavailable(t *testing.T) {
 	opts.noBackfill = true
 
 	out := &bytes.Buffer{}
-	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
-		t.Fatalf("one surviving component still exits 0: %v", err)
+	err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f))
+	if err == nil {
+		t.Fatalf("no index and no baseline is not a queryable brain, so setup must not exit 0:\n%s", out.String())
 	}
-	printed := out.String()
-	if strings.Contains(printed, "the brain is queryable now") {
-		t.Fatalf("setup claimed queryability with no index and no baseline:\n%s", printed)
+	// The failure has to NAME both missing sources. "setup failed" alone sends
+	// the reader back to the output they already could not act on.
+	for _, want := range []string{"seed baseline", "semantic index"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("setup must name what is unavailable (%q): %v", want, err)
+		}
 	}
-	if !strings.Contains(printed, "no semantic index and no seed baseline") {
-		t.Fatalf("setup must name what is unavailable:\n%s", printed)
+	if strings.Contains(out.String(), "queryable now") {
+		t.Fatalf("setup claimed queryability with no index and no baseline:\n%s", out.String())
 	}
 }
 
@@ -426,7 +442,12 @@ func TestTheSetupSummaryStatesOneRemedyOnce(t *testing.T) {
 			{Name: "semantic", State: "failed", Detail: "dirty_worktree: refusing to index", Hint: hint},
 		}},
 	}
-	out := renderSetupSummaryPlain(t, report, &setupTimings{})
+	// Hints are PHASE DETAILS, not terse-block rows: the terse block counts
+	// failures and sends the reader to doctor. setupComponentFailureDetails is
+	// where the dedup lives, so it is asserted there rather than through a
+	// renderer that never prints a hint at all.
+	_, failed := partitionSetupComponents(report.Instant.Components)
+	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
 
 	if !strings.Contains(out, "refusing to seed") || !strings.Contains(out, "refusing to index") {
 		t.Fatalf("both failures must still be named, so this guard is not vacuous:\n%s", out)
@@ -445,7 +466,8 @@ func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
 			{Name: "semantic", State: "failed", Detail: "b", Hint: "second remedy"},
 		}},
 	}
-	out := renderSetupSummaryPlain(t, report, &setupTimings{})
+	_, failed := partitionSetupComponents(report.Instant.Components)
+	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
 	if n := strings.Count(out, "hint: "); n != 2 {
 		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)
 	}
@@ -565,4 +587,77 @@ func readGoSourceForTest(t *testing.T, name string) string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	return string(data)
+}
+
+// setupRenderFixtureReport and renderSetupSummaryPlain used to live in
+// setup_render_test.go, beside the long closing block this PR extended. That
+// renderer is gone (#401 replaced it with the phase + terse output), so they
+// are rebuilt here against the CURRENT renderer.
+//
+// The point of rebuilding rather than deleting: these tests assert substance,
+// not layout -- that an unqueryable brain is never called ready, that a
+// component is called by one name, that a remedy is stated once. Every one of
+// those claims is still about what a reader sees, and the reader now sees the
+// terse block. Retargeting keeps the claims; deleting would have dropped them
+// with the renderer that happened to carry them.
+func setupRenderFixtureReport() setupReport {
+	return setupReport{
+		SchemaVersion: 1,
+		GeneratedAt:   setupTestNow,
+		Repo:          "/repo",
+		RepoKey:       "gh/demo-org/brain-demo",
+		BrainPath:     "/brain",
+		Instant: setupPhase{
+			State:   "degraded",
+			Seconds: 0.7,
+			Components: []setupComponent{
+				{Name: brainComponentSessions, State: "failed", Detail: "checkpoint_scope_incomplete", Hint: "add a git remote"},
+				{Name: brainComponentSeed, State: "ok"},
+				{Name: brainComponentDocs, State: "ok"},
+				{Name: brainComponentSemantic, State: "ok"},
+			},
+		},
+		Backfill:  setupPhase{State: "skipped", Detail: "--no-backfill"},
+		Workspace: setupWorkspaceState{Name: "default", Registered: true},
+		Daemon:    daemonState{Manager: daemonManagerUnsupported, Detail: "skipped: --no-daemon"},
+		Facts:     factsBackfillStatus{Sessions: 618, Distilled: 300},
+	}
+}
+
+// renderSetupSummaryPlain renders the closing block a reader actually gets, in
+// plain mode. Queryability is derived from the report rather than passed, so a
+// test cannot assert "not ready" while handing the renderer a ready flag.
+func renderSetupSummaryPlain(t *testing.T, report setupReport, timings *setupTimings) string {
+	t.Helper()
+	out := &bytes.Buffer{}
+	theme, _ := tui.ThemeByName("default")
+	queryable := len(setupUnqueryableCore(report.Instant.Components)) == 0
+	terse := terseReportFor(report, timings, queryable, defaultSetupOptions(), setupBrainBinaryName)
+	setupui.RenderTerse(out, setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200), terse)
+	return out.String()
+}
+
+// TestQueryabilityClauseNeverOverclaims covers the --verbose phase line, which
+// no other test in this file reaches: renderSetupSummaryPlain derives
+// queryability itself, and the whole-run test asserts on the error. Removing
+// the guard left both green, so it is asserted directly here.
+func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
+	t.Parallel()
+	ok := []setupComponent{{Name: brainComponentSeed, State: "ok"}, {Name: brainComponentSemantic, State: "ok"}}
+	if got := setupQueryabilityClause(ok); !strings.Contains(got, "queryable now") {
+		t.Fatalf("a built core is queryable: %q", got)
+	}
+	none := []setupComponent{
+		{Name: brainComponentSeed, State: "failed", Detail: "dirty_worktree"},
+		{Name: brainComponentSemantic, State: "failed", Detail: "dirty_worktree"},
+	}
+	got := setupQueryabilityClause(none)
+	if strings.Contains(got, "queryable now") {
+		t.Fatalf("no index and no baseline is not queryable: %q", got)
+	}
+	for _, want := range []string{"semantic index", "seed baseline"} {
+		if !strings.Contains(got, "no "+want) {
+			t.Fatalf("the clause must name what is unavailable (%q): %q", want, got)
+		}
+	}
 }

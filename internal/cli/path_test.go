@@ -415,77 +415,32 @@ func TestPathPrintsStoredBrainWhenWorktreeLostItsGitDir(t *testing.T) {
 }
 
 func TestPathEnsureBuildsMissingBrain(t *testing.T) {
-	repoDir := t.TempDir()
-	dataDir := filepath.Join(t.TempDir(), "data")
-	stateDir := filepath.Join(t.TempDir(), "state")
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
-
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {
-			stdout: repoDir + "\n",
-		},
-		fakeCommandKey("git", "remote", "get-url", "origin"): {
-			stdout: "https://github.com/entireio/cli.git\n",
-		},
-		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
-			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
-			stdout: `{
-  "checkpoint_id": "aaa111aaa111",
-  "checkpoints_count": 1,
-  "session_count": 1,
-  "sessions": [
-    {
-      "index": 0,
-      "session_id": "session-one",
-      "agent": "Codex",
-      "created_at": "2026-01-01T00:00:00Z"
-    }
-  ]
-}`,
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--transcript", "--session-index", "0", "aaa111aaa111"): {
-			stdout: "{\"type\":\"message\",\"text\":\"session one\"}\n",
-		},
-	}}
-	cmd := NewRootCommand(Options{
-		Version: "test-version",
-		Env: EntireEnv{
-			PluginConfigDir: filepath.Join(t.TempDir(), "config"),
-			PluginDataDir:   dataDir,
-			PluginStateDir:  stateDir,
-			PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
-		},
-		Runner: runner,
-		Now: func() time.Time {
-			return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-		},
-	})
-
-	out, err := execute(t, cmd, "path", "--ensure", "--entire-binary", "entire-test", repoDir)
+	opts, brainDir, repoDir := filelessCheckpointFixture(t)
+	out, err := execute(t, NewRootCommand(opts), "path", "--ensure", "--raw", repoDir)
 	if err != nil {
 		t.Fatalf("path --ensure: %v\n%s", err, out)
 	}
 	if out != brainDir+"\n" {
-		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
+		t.Fatalf("path = %q, want %q", out, brainDir)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
-		t.Fatalf("path --ensure did not export manifest: %v", err)
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName)); err != nil {
-		t.Fatalf("path --ensure did not write cursor: %v", err)
+	if _, err := os.Stat(storage.HeadPath); err != nil {
+		t.Fatalf("missing cursor: %v", err)
 	}
-
-	var exportedTranscript bool
-	for _, call := range runner.calls {
-		if call.name == "entire-test" && len(call.args) > 2 && call.args[0] == "checkpoint" && call.args[1] == "explain" && call.args[2] == "--transcript" {
-			exportedTranscript = true
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil || !checkpointBackedSessions(manifest) {
+		t.Fatalf("manifest: %+v %v", manifest, err)
+	}
+	for _, session := range manifest.Sources.Sessions.Sessions {
+		if _, err := os.Stat(filepath.Join(brainDir, session.TranscriptPath)); !os.IsNotExist(err) {
+			t.Fatalf("persistent transcript exists: %v", err)
 		}
-	}
-	if !exportedTranscript {
-		t.Fatalf("path --ensure did not build the missing brain, calls: %+v", runner.calls)
+		if _, err := readCanonicalHistoryTranscript(context.Background(), brainDir, session.TranscriptPath); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

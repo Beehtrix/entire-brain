@@ -5,14 +5,20 @@ import (
 	"strings"
 )
 
-// brainStatusHosted is the status report's hosted-brain connection section.
-// States: "connected" (repo binding present), "local_only" (no binding; only
-// `entire brain connect` creates one), "disconnected" (the egress kill switch is set;
-// COR-2109 adds the explicit opt-out as a second cause of this state).
+// brainStatusHosted is the status report's hosted-brain connection section,
+// reporting the unified state model (COR-2143). State is the EFFECTIVE state:
+// "local_only" when the machine-level kill switch is set, else the repo state.
+// RepoState is the durable per-repo half ("connected": binding present and not
+// opted out; "disconnected": opted out, never connected, or unreadable), kept
+// visible under the kill switch so unsetting the variable has a predictable
+// outcome. Enablement only flows from repo state; the environment can only
+// subtract.
 type brainStatusHosted struct {
-	State   string `json:"state"`
-	RepoID  string `json:"repo_id,omitempty"`
-	BaseURL string `json:"base_url,omitempty"`
+	State     string `json:"state"`
+	RepoState string `json:"repo_state"`
+	NoEgress  bool   `json:"no_egress"`
+	RepoID    string `json:"repo_id,omitempty"`
+	BaseURL   string `json:"base_url,omitempty"`
 	// SyncedBranches are the declared fact branches whose per-branch marker
 	// matches the current binding; a marker left by an older target does not
 	// count.
@@ -28,11 +34,11 @@ const (
 // buildHostedStatus reports this repo's hosted connection state with the same
 // gate order as hostedFactsSyncAndPull: the kill switch wins, then the binding
 // decides. The binding stays visible under the kill switch so the reader sees
-// what it suppresses. A corrupt binding degrades to local_only with a warning
+// what it suppresses. A corrupt binding degrades to disconnected with a warning
 // rather than failing status over a sync-state file.
 func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, string) {
 	var warning string
-	hosted := &brainStatusHosted{State: hostedStateLocalOnly}
+	hosted := &brainStatusHosted{RepoState: hostedStateDisconnected}
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
@@ -40,11 +46,10 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	case present && binding.OptedOut:
 		// Coordinates survive an opt-out (reconnect needs no placement
 		// resolution), so the target stays visible here too.
-		hosted.State = hostedStateDisconnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
 	case present:
-		hosted.State = hostedStateConnected
+		hosted.RepoState = hostedStateConnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
 		// A broken marker is corruption, not "never synced" — report it like
@@ -69,8 +74,10 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 			warning = fmt.Sprintf("hosted sync marker unreadable for branch(es) %s: %v", strings.Join(broken, ", "), brokenErr)
 		}
 	}
-	if brainNoEgressMode() {
-		hosted.State = hostedStateDisconnected
+	hosted.NoEgress = brainNoEgressMode()
+	hosted.State = hosted.RepoState
+	if hosted.NoEgress {
+		hosted.State = hostedStateLocalOnly
 	}
 	return hosted, warning
 }
@@ -102,17 +109,11 @@ func hostedStatusLine(h *brainStatusHosted) string {
 		}
 		return "Connected to Brainstore (no branches synced yet)"
 	case hostedStateDisconnected:
-		// Two causes share the state and the kill switch wins the gate order,
-		// so it also wins the blame line. Name the variable actually set.
-		switch {
-		case securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS"):
-			return "Disconnected from Brainstore (ENTIRE_BRAIN_NO_EGRESS set)"
-		case securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY"):
-			return "Disconnected from Brainstore (ENTIRE_BRAIN_LOCAL_ONLY set)"
-		default:
-			return "Disconnected from Brainstore (run 'entire brain connect' to rejoin)"
-		}
+		return "Disconnected from Brainstore (run 'entire brain connect' to join)"
 	default:
-		return "Local-only (run 'entire brain connect' to join Brainstore)"
+		// Local-only: name the variable actually set, and keep the underlying
+		// repo state visible so unsetting the variable is predictable.
+		return fmt.Sprintf("Local-only (%s set — unset it to resume; repo is %s)",
+			noEgressToggleName(), hostedStateLabel(h.RepoState))
 	}
 }

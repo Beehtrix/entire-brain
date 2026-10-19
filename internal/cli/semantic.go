@@ -6039,11 +6039,46 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// Decide the contents BEFORE opening the output, so a layer that cannot be
 	// read fails the export instead of producing a short bundle.
 	bundleSources := &brainSources{Semantic: sanitizeSemanticSourceForExport(manifest.Sources.Semantic, repoDir)}
+	bundleBranches := append([]exportBranch(nil), manifest.Branches...)
 	included := []string{bundleLayerSemantic}
 	var omitted, sessionFamily []string
 	layerFiles := map[string][]string{}
 	var layerOrder []string
 	for _, layer := range brainBundleLayers {
+		if layer.name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+			if !includeSessions {
+				sessionFamily = append(sessionFamily, layer.name)
+				continue
+			}
+			guard, err := loadSessionReadGuard(storage.BrainDir, manifest)
+			if err != nil {
+				return err
+			}
+			source := *manifest.Sources.Sessions
+			source.TranscriptStorage = ""
+			// Excluded sessions remain in the local catalog for later inclusion,
+			// but neither their catalog entries nor their bytes belong in a bundle.
+			// The transcript store rechecks privacy when reading each kept entry.
+			source.Sessions = guardExportSessions(guard, source.Sessions)
+			source.OldestSessionAt = oldestSessionAt(source.Sessions)
+			source.LatestCheckpointID = latestCheckpointID(source.Sessions)
+			branchDirs := make(map[string]string)
+			for _, branch := range manifest.Branches {
+				branchDirs[branch.Branch] = branch.Directory
+			}
+			for _, branch := range source.Branches {
+				branchDirs[branch.Branch] = branch.Directory
+			}
+			source.Branches = summarizeBranchExports(source.Sessions, branchDirs, source.DefaultBranch)
+			bundleBranches = source.Branches
+			bundleSources.Sessions = &source
+			for _, session := range source.Sessions {
+				layerFiles[layer.name] = append(layerFiles[layer.name], session.TranscriptPath)
+			}
+			layerOrder = append(layerOrder, layer.name)
+			included = append(included, layer.name)
+			continue
+		}
 		paths, err := collectBrainBundleLayerPaths(storage.BrainDir, layer)
 		if err != nil {
 			return err
@@ -6098,7 +6133,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		// sanitizeSemanticSourceForExport redacting exactly such paths out of
 		// warnings. Putting the host path back in the header would undo that.
 		// repo_key, which is already exported, is the portable identity.
-		Branches: append([]exportBranch(nil), manifest.Branches...),
+		Branches: bundleBranches,
 		Sources:  bundleSources,
 	}); err != nil {
 		_ = f.Close()
@@ -6122,8 +6157,16 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
+	transcriptStore := newTranscriptStore(opts.Runner, storage.BrainDir)
 	for _, name := range layerOrder {
 		for _, rel := range layerFiles[name] {
+			if name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+				if err := addTranscriptBundlePath(ctx, tw, transcriptStore, rel, opts.Now()); err != nil {
+					_ = f.Close()
+					return err
+				}
+				continue
+			}
 			if err := addBundlePath(tw, storage.BrainDir, rel); err != nil {
 				_ = f.Close()
 				return err
@@ -6903,7 +6946,15 @@ func brainBundleLayerConflicts(brainDir, bundleRoot string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(existing) > 0 {
+		occupied := len(existing) > 0
+		if layer.name == bundleLayerSessions && !occupied {
+			manifest, err := loadBrainManifest(brainDir)
+			if err != nil {
+				return nil, err
+			}
+			occupied = manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0
+		}
+		if occupied {
 			conflicts = append(conflicts, layer.name)
 		}
 	}

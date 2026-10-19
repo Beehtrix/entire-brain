@@ -84,11 +84,14 @@ func (e *historySessionInventoryError) Is(target error) bool {
 }
 
 type historySessionInventory struct {
-	brainDir string
-	root     *os.Root
-	files    []historySessionFile
-	entries  []historySessionTreeEntry
-	rootInfo os.FileInfo
+	manifestIdentity string
+	manifestStamp    transcriptManifestStamp
+	store            *transcriptStore
+	brainDir         string
+	root             *os.Root
+	files            []historySessionFile
+	entries          []historySessionTreeEntry
+	rootInfo         os.FileInfo
 }
 
 type historySessionTreeEntry struct {
@@ -113,6 +116,12 @@ func (i *historySessionInventory) Close() error {
 // files are rejected rather than ignored, because a partial inventory must
 // never be published as a complete projection.
 func collectHistorySessionInventory(ctx context.Context, brainDir string) (*historySessionInventory, error) {
+	return collectHistorySessionInventoryMode(ctx, brainDir, false)
+}
+
+// physical is used only to inspect/sweep obsolete materializations. Projection
+// callers always use the manifest for checkpoint-backed brains.
+func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, physical bool) (*historySessionInventory, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -139,6 +148,37 @@ func collectHistorySessionInventory(ctx context.Context, brainDir string) (*hist
 	}()
 	if err := inventory.validateBrainRoot(before); err != nil {
 		return nil, err
+	}
+	manifest, manifestErr := loadBrainManifest(brainDir)
+	if manifestErr != nil && !errors.Is(manifestErr, fs.ErrNotExist) {
+		return nil, manifestErr
+	}
+	if !physical && checkpointBackedSessions(manifest) {
+		source := manifest.Sources.Sessions
+		if len(source.Sessions) > historySessionInventoryMaxEntries {
+			return nil, &historySessionInventoryError{Reason: "session manifest exceeds inventory limit", Limit: historySessionInventoryMaxEntries}
+		}
+		inventory.manifestIdentity = sessionSourceFingerprint(source)
+		inventory.store = newTranscriptStore(ExecRunner{}, brainDir)
+		inventory.manifestStamp = inventory.store.currentManifestStamp()
+		seen := make(map[string]bool, len(source.Sessions))
+		for _, session := range source.Sessions {
+			rel := session.TranscriptPath
+			clean, err := cleanBrainRelativePath(rel)
+			if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, "sessions/") || seen[rel] {
+				return nil, &historySessionInventoryError{Path: rel, Reason: "invalid or duplicate manifest transcript address", Err: err}
+			}
+			seen[rel] = true
+			inventory.files = append(inventory.files, historySessionFile{Rel: rel, Path: filepath.Join(brainDir, filepath.FromSlash(rel)), SortTime: session.CreatedAt})
+		}
+		sort.Slice(inventory.files, func(a, b int) bool {
+			if !inventory.files[a].SortTime.Equal(inventory.files[b].SortTime) {
+				return inventory.files[a].SortTime.After(inventory.files[b].SortTime)
+			}
+			return inventory.files[a].Rel < inventory.files[b].Rel
+		})
+		keep = true
+		return inventory, nil
 	}
 	// An absent sessions/ ROOT is an empty Brain, not a degraded inventory.
 	// Probe it separately so that case gets a plain not-exist error; a
@@ -357,6 +397,9 @@ func (i *historySessionInventory) validateAfterRead(file historySessionFile, f *
 }
 
 func (i *historySessionInventory) validateAll(ctx context.Context) error {
+	if i.manifestIdentity != "" {
+		return i.validateFileMembership(ctx, historySessionFile{})
+	}
 	for _, file := range i.files {
 		if err := i.validateFileMembership(ctx, file); err != nil {
 			return err
@@ -366,6 +409,25 @@ func (i *historySessionInventory) validateAll(ctx context.Context) error {
 }
 
 func (i *historySessionInventory) validateFileMembership(ctx context.Context, file historySessionFile) error {
+	if i.manifestIdentity != "" {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := i.validateBrainRoot(i.rootInfo); err != nil {
+			return err
+		}
+		if i.store.currentManifestStamp() == i.manifestStamp {
+			return nil
+		}
+		manifest, err := loadBrainManifest(i.brainDir)
+		if err != nil {
+			return err
+		}
+		if !checkpointBackedSessions(manifest) || sessionSourceFingerprint(manifest.Sources.Sessions) != i.manifestIdentity {
+			return fmt.Errorf("%s: session manifest changed during read", memoryErrSourceStale)
+		}
+		return nil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -397,7 +459,7 @@ func sameHistoryTreeEntryMetadata(a, b os.FileInfo) bool {
 }
 
 func (i *historySessionInventory) sameMembership(other *historySessionInventory) bool {
-	if i == nil || other == nil {
+	if i == nil || other == nil || i.manifestIdentity != other.manifestIdentity {
 		return false
 	}
 	return sameHistorySessionMembership(i.rootInfo, i.entries, other.rootInfo, other.entries)
@@ -528,25 +590,13 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 }
 
 // readCanonicalHistoryTranscript is the complete direct-transcript read
-// contract. It binds the read to the canonical Brain descriptor tree, caps the
-// bytes retained in memory, checks cancellation while reading, and withholds
-// all bytes unless the mandatory finish revalidation succeeds.
+// contract: tombstone-gated, size-capped, cancellation-checked. It reads a
+// materialized file when one exists (exported bundles; brains written before
+// COR-2128), and otherwise reads the session's checkpoint blob from git via
+// the per-brain transcript store.
 func readCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) ([]byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, rel)
-	if err != nil {
-		return nil, err
-	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+filepath.ToSlash(rel))
-	finishErr := finish()
-	if readErr != nil || finishErr != nil {
-		combined := errors.Join(readErr, finishErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
-		}
-		return nil, combined
-	}
-	return data, nil
+	return transcriptStoreFor(brainDir).Read(ctx, rel)
 }

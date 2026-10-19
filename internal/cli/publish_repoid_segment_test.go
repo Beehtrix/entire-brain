@@ -136,7 +136,6 @@ func TestPublishCannotReachAnotherRoute(t *testing.T) {
 // the id is validated next to the URL floor, before any git or disk work, so a
 // malformed target fails with the whole brain still local.
 func TestRunPublishRefusesBadRepoIDBeforeTouchingDisk(t *testing.T) {
-	t.Setenv(envBrainAllowHosted, "1")
 
 	err := runPublish(context.Background(), nil, Options{}, publishCommandOptions{
 		repoID: "../../admin",

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,8 +88,45 @@ var (
 )
 
 func runnerAllowsCatFileBatch(runner CommandRunner) bool {
+	// ponytail: batching is disabled on Windows. A lingering child holds its
+	// CWD and mmap'd pack handles, and Windows refuses to delete directories
+	// and files a live process holds — observed as TempDir cleanup failures in
+	// CI, and a real hazard for any caller that removes a repo after reading
+	// it. The per-exec path stays correct, just slower. Upgrade path: an idle
+	// reaper plus a spawn that keeps the child's CWD outside the repository.
+	if runtime.GOOS == "windows" {
+		return false
+	}
 	b, ok := runner.(GitCatFileBatcher)
 	return ok && b.CatFileBatchAllowed()
+}
+
+// closeCatFileBatches synchronously kills and reaps every batch child and
+// clears the registry. Tests call it before temp-dir cleanup; a long-lived
+// caller may use it to release repository handles.
+func closeCatFileBatches() {
+	catFileBatchMu.Lock()
+	entries := make([]*catFileBatchEntry, 0, len(catFileBatchEntries))
+	for key, e := range catFileBatchEntries {
+		entries = append(entries, e)
+		delete(catFileBatchEntries, key)
+	}
+	catFileBatchMu.Unlock()
+	for _, e := range entries {
+		e.once.Do(func() {})
+		p := e.proc
+		if p == nil {
+			continue
+		}
+		p.mu.Lock()
+		p.broken = true
+		_ = p.in.Close()
+		if p.cmd.Process != nil {
+			_ = p.cmd.Process.Kill()
+		}
+		_ = p.cmd.Wait()
+		p.mu.Unlock()
+	}
 }
 
 // catFileBatchEntryFor returns the live entry for key, replacing an expired
@@ -175,8 +213,10 @@ func (p *catFileBatchProc) fail(cause error) {
 	if p.cmd.Process != nil {
 		_ = p.cmd.Process.Kill()
 	}
-	// Reap the child so a failed proc never lingers as a zombie.
-	go func() { _ = p.cmd.Wait() }()
+	// Reap synchronously: the child is already killed, so Wait is bounded by
+	// WaitDelay, and on Windows the repo directory stays undeletable until the
+	// child's handles are released.
+	_ = p.cmd.Wait()
 	tombstone := &catFileBatchEntry{
 		err:        fmt.Errorf("git cat-file batch: cooling down after: %w (stderr: %s)", cause, strings.TrimSpace(string(p.stderr.Bytes()))),
 		retryAfter: time.Now().Add(catFileBatchRetryInterval),
@@ -188,9 +228,6 @@ func (p *catFileBatchProc) fail(cause error) {
 }
 
 // request writes one spec and reads one record. body is nil in check mode.
-// ponytail: no mid-read context cancellation — local object reads are pipe
-// round-trips and the child dies with the parent; a child that stalls is
-// killed by the next error path and the key cools down.
 func (p *catFileBatchProc) request(ctx context.Context, spec string, withBody bool) ([]byte, string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, "", err
@@ -206,7 +243,22 @@ func (p *catFileBatchProc) request(ctx context.Context, spec string, withBody bo
 	if p.broken {
 		return nil, "", errors.New("git cat-file batch: process is broken")
 	}
+	// A read blocked on a stalled child — a lazy fetch on the non-local-only
+	// key in a partial clone, or a wedged git — must not outlive its caller:
+	// everyone else on this key queues behind p.mu. Killing the child
+	// unblocks the read with an error, and the normal fail path tombstones
+	// the key so later callers go per-exec. The rare benign race (ctx ending
+	// just as a request completes) kills a healthy child; the key respawns.
+	stopWatcher := context.AfterFunc(ctx, func() {
+		if p.cmd.Process != nil {
+			_ = p.cmd.Process.Kill()
+		}
+	})
+	defer stopWatcher()
 	fail := func(err error) ([]byte, string, error) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = errors.Join(ctxErr, err)
+		}
 		p.fail(err)
 		return nil, "", err
 	}

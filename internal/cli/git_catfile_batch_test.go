@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +18,9 @@ const batchTestSpec = "HEAD:blob.txt"
 
 func newBatchTestRepo(t *testing.T, content string) string {
 	t.Helper()
+	// Children must be reaped before t.TempDir cleanup: on Windows a live
+	// child's CWD inside the repo makes directory removal fail.
+	t.Cleanup(closeCatFileBatches)
 	dir := t.TempDir()
 	liveGit(t, dir, "init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(dir, "blob.txt"), []byte(content), 0o600); err != nil {
@@ -108,7 +114,11 @@ func TestLocalObjectTypeBatchAndFallbackAgree(t *testing.T) {
 	if batched != "blob" || perExec != "blob" {
 		t.Fatalf("want blob/blob, got %q/%q", batched, perExec)
 	}
-	if _, err := localObjectType(ctx, ExecRunner{}, dir, "HEAD:absent.txt"); !errors.Is(err, errCatFileBatchMissing) {
+	// On platforms where the gate disables batching, the missing object still
+	// errors — just not with the batch sentinel.
+	if _, err := localObjectType(ctx, ExecRunner{}, dir, "HEAD:absent.txt"); err == nil {
+		t.Fatal("want an error for a missing object")
+	} else if runnerAllowsCatFileBatch(ExecRunner{}) && !errors.Is(err, errCatFileBatchMissing) {
 		t.Fatalf("want errCatFileBatchMissing, got %v", err)
 	}
 	if _, err := localObjectType(ctx, perExecOnlyRunner{}, dir, "HEAD:absent.txt"); err == nil {
@@ -150,6 +160,52 @@ func TestCatFileBatchCancelledFirstCallerDoesNotPoisonTheKey(t *testing.T) {
 	if err != nil || string(got) != "unpoisoned\n" {
 		t.Fatalf("read after cancelled first caller: %q %v", got, err)
 	}
+}
+
+func TestCatFileBatchStalledChildIsKilledAtDeadline(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs sh; batching is disabled on Windows anyway")
+	}
+	// A child that swallows requests and never answers simulates a stalled
+	// lazy fetch; the caller's deadline must kill it rather than hang.
+	cmd := exec.Command("sh", "-c", "cat > /dev/null")
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	p := &catFileBatchProc{
+		key:    catFileBatchKey{gitDir: t.TempDir(), localOnly: true},
+		cmd:    cmd,
+		in:     in,
+		out:    bufio.NewReader(out),
+		stderr: &cappedBuffer{limit: 1024},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_, _, err = p.request(ctx, "deadbeef", true)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("want context.DeadlineExceeded, got %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("request hung %v past its 100ms deadline", elapsed)
+	}
+	if !p.isBrokenForTest() {
+		t.Fatal("a killed child must be marked broken")
+	}
+}
+
+func (p *catFileBatchProc) isBrokenForTest() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.broken
 }
 
 func TestCatFileBatchRejectsWhitespaceSpecs(t *testing.T) {

@@ -754,6 +754,26 @@ full buffer), so partial short-term coverage always consolidates promptly. You
 can run `entire brain refresh delta` by hand any time you want immediate
 recall of just-captured work.
 
+Persistent session refresh stores metadata in the manifest and reads transcript
+bytes from local Git checkpoint refs when needed. It does not maintain a second
+transcript cache. The first refresh after upgrading removes old cached files
+only after proving that active transcripts can be recovered byte-for-byte from
+local checkpoints; unavailable or different checkpoint content leaves the cache
+intact and reports an error. Sync missing checkpoint refs before retrying.
+`refresh sessions --output <directory>` and `bundle export --include-sessions`
+still materialize transcripts into standalone artifacts. Manifest transcript
+paths in a persistent brain are evidence addresses, not files on disk. Refresh
+records the shared Git directory so removing the exporting linked worktree
+does not break reads. Routed and branch-scoped refreshes require the selected
+session checkpoints to be available locally. Bundle import treats a nonempty
+session catalog as occupied even without transcript files; replacing it requires
+`--overwrite`.
+
+Distillation caches checkpoint identity, transcript mode, and extraction settings,
+including a preprocessing version. Unchanged sessions need no transcript reads.
+Older content-based cache entries are checked once and upgraded without another
+agent call when their input and settings still match.
+
 If you also want generated seed summaries, run refresh with an agent instead of
 the deterministic seed path (`entire brain refresh --agent auto --seed-model
 gpt-5.4-mini --seed-effort low`). Seed synthesis orients an agent on the
@@ -926,7 +946,10 @@ entrypoints, commands, key documents, and recent decisions.
 For interactive human exploration instead of scripted queries, `entire brain
 dash` opens a terminal dashboard over facts, sessions, history, and semantic
 records, and `entire brain viz` opens a local, no-egress browser view of the
-semantic call graph. Both are read-only and make no agent calls.
+semantic call graph. Both are read-only and make no agent calls. In the dashboard,
+`o` opens transcript sources in the detail pane on demand, including sources
+linked from facts, history, and search results. `esc` returns to the entry.
+Transcript reads honor current exclusions and create no temporary files.
 
 ### Keep the brain fresh
 
@@ -1057,7 +1080,7 @@ calls.
 ### Navigate code by meaning
 
 When a task depends on structure rather than text, use the semantic tools:
-`brain_code`/`brain_search_code` to find candidate symbols, then `brain_context`,
+`brain_code` to find candidate symbols, then `brain_context`,
 `brain_impact`, and `brain_tests`. This is where `entire-graph` matters — it is the
 local parser/provider that gives the brain the graph the agent queries. Semantic
 depth is language-dependent: parser-backed extraction covers the semantic
@@ -1495,8 +1518,8 @@ over an empty key — which would verify for anyone who guessed the key was empt
   still recorded and a warning goes to stderr. There is no retry queue: this is
   a notification channel, not a delivery guarantee. Treat a missed event as
   possible and re-read state through `/v1/facts` or the CLI when it matters.
-- **`ENTIRE_BRAIN_NO_EGRESS` and `ENTIRE_BRAIN_LOCAL_ONLY` win.** Either one
-  silences webhooks whatever else is configured.
+- **`ENTIRE_BRAIN_NO_EGRESS` wins.** It silences webhooks whatever else is
+  configured (as does its deprecated alias `ENTIRE_BRAIN_LOCAL_ONLY`).
 
 ## Privacy And Egress
 
@@ -1518,7 +1541,8 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+  requiring the command plus a target — the connected binding by default, else
+  explicit `--repo-id`/`--api-url`/`--token`
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the
@@ -1528,7 +1552,7 @@ model or by fetching over the network:
   See [Webhooks](#webhooks).
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
-`ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay
+`ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
 strictly local. No-egress mode enforces locality for no-agent, dry-run, and
 loopback-Ollama paths by validating URLs, redirects, and resolved dial targets. A
 custom `--agent command` runner is a trusted local command and is not enforceably
@@ -1539,15 +1563,18 @@ To keep specific sessions out of the brain's projections, use
 `entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
 session so every derived layer (history records, conversation exchanges,
 pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
-while keeping the exported transcript; `purge` additionally deletes the
-exported transcript copy and the derived stores, removes durable facts whose
+and the transcript read path refuses it. Legacy brains and bundles may retain
+a materialized transcript after exclusion; `purge` additionally deletes that
+copy and the derived stores, removes durable facts whose
 only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
 first). Skill-memory (your accept/decline curation) is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
 inspectable projection and from their lifecycle jobs, cancellation markers,
-optional abstracts, and metadata-only egress receipts (exit non-zero with named
+optional abstracts, and metadata-only egress receipts. In a checkpoint-backed
+brain it also checks the transcript read gate and reports stray materialized
+transcript files (exit non-zero with named
 violations otherwise; a re-purge repairs them), and `privacy retention
 --max-age <dur> [--branch b]
 [--purge] [--dry-run]` applies an age-based policy in one command. The full
@@ -1599,7 +1626,7 @@ required for normal use.
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
-| `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
+| `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
 | `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish, facts sync, and the hosted proposal queue otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 | `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |

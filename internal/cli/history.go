@@ -1365,6 +1365,10 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 // second in-memory copy.
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
 	beforeHistoryProjectionContentDigest(file.Rel)
+	if inventory.store != nil {
+		_, digest, err := readHistorySessionInventoryFile(ctx, inventory, file)
+		return digest, err
+	}
 	if file.Size > maxDocumentTranscriptBytes {
 		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
 	}
@@ -1416,6 +1420,17 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 }
 
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
+	if inventory.store != nil {
+		data, err := inventory.store.Read(ctx, file.Rel)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := inventory.validateFileMembership(ctx, file); err != nil {
+			return nil, "", err
+		}
+		sum := sha256.Sum256(data)
+		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
+	}
 	if file.Size > maxDocumentTranscriptBytes {
 		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
 	}
@@ -1740,6 +1755,7 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 		return sessionSourceFingerprintAbsent
 	}
 	type fingerprintSession struct {
+		SessionIndex     int    `json:"session_index,omitempty"`
 		SessionID        string `json:"session_id"`
 		LatestCheckpoint string `json:"latest_checkpoint_id"`
 		Branch           string `json:"branch,omitempty"`
@@ -1760,6 +1776,7 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 	}
 	for _, session := range source.Sessions {
 		payload.Sessions = append(payload.Sessions, fingerprintSession{
+			SessionIndex:     session.SessionIndex,
 			SessionID:        session.SessionID,
 			LatestCheckpoint: session.LatestCheckpoint,
 			Branch:           session.Branch,

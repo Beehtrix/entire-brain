@@ -5,30 +5,37 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/factsync"
 )
 
-// hostedFake is an in-memory fact-set head speaking the brainstore wire:
-// GET …/brain/facts (with the additive authors map), POST …/facts/advance
-// (CAS: stale oldRef → 412), proposal routes → 404 (v1 cuts them).
+// hostedFake is an in-memory brainstore speaking the per-fact wire:
+// POST …/brain/facts:upsert (identity-verified NDJSON batch, counts reply)
+// and GET …/brain/facts (insert-ordered keyset feed, index page tokens,
+// empty page terminal). Upserted records join the feed with the caller's
+// server-stamped attribution, like the real store.
 type hostedFake struct {
-	mu       sync.Mutex
-	ref      string
-	data     []byte
-	authors  map[string]string
-	requests int
-	seq      int
-	denyPush bool // advance → 403, the staging push-grant-denied shape
+	mu           sync.Mutex
+	items        []factsync.FeedItem
+	index        map[string]int
+	requests     int
+	upsertCalls  int
+	feedTokens   []string
+	denyPush     bool // upsert → 403, the push-grant-denied shape
+	denyFeed     bool // feed GET → 500, the pull-outage shape
+	rejectTokens int  // while >0, any request with a pageToken → 400 once each
+	callerBy     string
+	callerHandle string
 }
 
 func (f *hostedFake) requestCount() int {
@@ -37,10 +44,60 @@ func (f *hostedFake) requestCount() int {
 	return f.requests
 }
 
-func (f *hostedFake) head() []byte {
+func (f *hostedFake) upsertCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]byte(nil), f.data...)
+	return f.upsertCalls
+}
+
+func (f *hostedFake) feedTokensSeen() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.feedTokens...)
+}
+
+func (f *hostedFake) has(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.index[id]
+	return ok
+}
+
+// seed plants a feed item as if another member had upserted it.
+func (f *hostedFake) seed(rec factmerge.Record, trailID, createdBy, handle string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.put(factsync.FeedItem{Record: rec, TrailID: trailID, CreatedBy: createdBy, CreatedByHandle: handle, UpdatedAt: "2026-10-07T12:00:00.000Z"})
+}
+
+// setTrail rewrites a seeded item's trail id in place (simulates the merge
+// stamp arriving later); feed position is unchanged.
+func (f *hostedFake) setTrail(id, trailID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if i, ok := f.index[id]; ok {
+		f.items[i].TrailID = trailID
+	}
+}
+
+func (f *hostedFake) put(item factsync.FeedItem) {
+	if f.index == nil {
+		f.index = make(map[string]int)
+	}
+	if i, ok := f.index[item.Record.ID]; ok {
+		// Like the real store: a re-upsert updates the record but keeps the
+		// server-owned envelope — first-writer attribution and the trail id
+		// stamped at merge survive later upserts of the same fact — and status
+		// advances one way (a stale active copy never revives a retirement).
+		if f.items[i].Record.Status != factmerge.StatusActive && item.Record.Status == factmerge.StatusActive {
+			item.Record.Status = f.items[i].Record.Status
+			item.Record.SupersededBy = f.items[i].Record.SupersededBy
+		}
+		f.items[i].Record = item.Record
+		return
+	}
+	f.index[item.Record.ID] = len(f.items)
+	f.items = append(f.items, item)
 }
 
 func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
@@ -51,36 +108,63 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 		fake.requests++
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case strings.Contains(r.URL.Path, "/brain/facts/proposals"):
-			w.WriteHeader(http.StatusNotFound)
-		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/brain/facts"):
-			resp := map[string]any{"found": fake.ref != "", "ref": fake.ref, "version": 1, "data": fake.data}
-			if fake.authors != nil {
-				resp["authors"] = fake.authors
-			}
-			_ = json.NewEncoder(w).Encode(resp)
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts/advance"):
-			var body struct {
-				Branch string `json:"branch"`
-				OldRef string `json:"oldRef"`
-				Data   []byte `json:"data"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Data) == 0 {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts:upsert"):
+			fake.upsertCalls++
 			if fake.denyPush {
 				w.WriteHeader(http.StatusForbidden)
 				return
 			}
-			if body.OldRef != fake.ref {
-				w.WriteHeader(http.StatusPreconditionFailed)
+			records, err := factmerge.ParseNDJSON(r.Body)
+			if err != nil || len(records) == 0 || factmerge.VerifyIdentities(records) != nil {
+				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			fake.seq++
-			fake.ref = fmt.Sprintf("facts-%d", fake.seq)
-			fake.data = body.Data
-			_ = json.NewEncoder(w).Encode(map[string]any{"newRef": fake.ref, "version": fake.seq, "changed": true})
+			added, changed := 0, 0
+			for _, rec := range records {
+				if _, ok := fake.index[rec.ID]; ok {
+					changed++
+				} else {
+					added++
+				}
+				fake.put(factsync.FeedItem{Record: rec, CreatedBy: fake.callerBy, CreatedByHandle: fake.callerHandle, UpdatedAt: "2026-10-07T12:00:00.000Z"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]int{"added": added, "changed": changed, "unchanged": 0})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/brain/facts"):
+			if fake.denyFeed {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			token := r.URL.Query().Get("pageToken")
+			fake.feedTokens = append(fake.feedTokens, token)
+			if token != "" && fake.rejectTokens > 0 {
+				fake.rejectTokens--
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid pageToken"}`))
+				return
+			}
+			start := 0
+			if token != "" {
+				n, err := strconv.Atoi(token)
+				if err != nil {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				start = n
+			}
+			pageSize, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
+			if pageSize < 1 || pageSize > 100 {
+				pageSize = 50
+			}
+			end := min(start+pageSize, len(fake.items))
+			var page []factsync.FeedItem
+			if start < end {
+				page = fake.items[start:end]
+			}
+			resp := map[string]any{"items": page, "nextPageToken": nil}
+			if len(page) > 0 {
+				resp["nextPageToken"] = strconv.Itoa(end)
+			}
+			_ = json.NewEncoder(w).Encode(resp)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -90,6 +174,10 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 }
 
 func hostedSyncTestFact(text string, now time.Time) factRecord {
+	return hostedSyncAnchoredFact(text, now, factmerge.Anchor{SessionID: "s"})
+}
+
+func hostedSyncAnchoredFact(text string, now time.Time, anchors ...factmerge.Anchor) factRecord {
 	paths := normalizeFactPaths([]string{"architecture.sync.wire"})
 	if len(paths) == 0 {
 		panic("fixture taxonomy path must be valid")
@@ -101,29 +189,26 @@ func hostedSyncTestFact(text string, now time.Time) factRecord {
 		Branch:     "main",
 		Origin:     factOriginAuthored,
 		Status:     factStatusActive,
-		Provenance: []factmerge.Anchor{{SessionID: "s"}},
+		Provenance: anchors,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
 }
 
-func encodeFactsNDJSON(t *testing.T, records []factRecord) []byte {
-	t.Helper()
-	var buf bytes.Buffer
-	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
-		t.Fatal(err)
-	}
-	return buf.Bytes()
-}
-
-// hostedSyncHarness wires a temp brain dir, a binding to the fake server, and
-// a runner that mints a fake token and fails git calls. The last return is the
-// fake server's base URL (the bound target).
+// hostedSyncHarness wires a temp brain dir and cache, a binding to the fake
+// server, and a runner that mints a fake token (sub "ulrich") and fails git
+// calls. The last return is the fake server's base URL (the bound target).
 func hostedSyncHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repoStorage, string, string) {
 	t.Helper()
 	repoDir := t.TempDir()
 	brainDir := t.TempDir()
 	storage := repoStorage{Key: "test/repo", BrainDir: brainDir, HeadPath: filepath.Join(t.TempDir(), "HEAD")}
+	if fake.callerBy == "" {
+		fake.callerBy = "acct-caller"
+	}
+	if fake.callerHandle == "" {
+		fake.callerHandle = "caller"
+	}
 	srv := newHostedFakeServer(t, fake)
 	if bind {
 		if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
@@ -137,7 +222,7 @@ func hostedSyncHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 		return nil, nil, errors.New("not available")
 	})
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: EntireEnv{RepoRoot: repoDir}, Runner: runner, Now: func() time.Time { return now }}
+	opts := Options{Version: "test", Env: EntireEnv{RepoRoot: repoDir, PluginCacheDir: t.TempDir()}, Runner: runner, Now: func() time.Time { return now }}
 	return opts, storage, repoDir, srv.URL
 }
 
@@ -192,16 +277,9 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localFact := hostedSyncTestFact("local fact A", now)
 	remoteFact := hostedSyncTestFact("remote fact B", now)
-	fake := &hostedFake{
-		ref:     "facts-remote",
-		data:    nil,
-		authors: map[string]string{remoteFact.ID: "teammate"},
-		seq:     0,
-	}
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
-	fake.mu.Unlock()
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
@@ -211,18 +289,9 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	remote, err := factmerge.ParseNDJSON(bytes.NewReader(fake.head()))
-	if err != nil {
-		t.Fatal(err)
+	if !fake.has(localFact.ID) {
+		t.Fatal("the local fact must be upserted to the hosted store")
 	}
-	remoteIDs := map[string]bool{}
-	for _, rec := range remote {
-		remoteIDs[rec.ID] = true
-	}
-	if !remoteIDs[localFact.ID] || !remoteIDs[remoteFact.ID] {
-		t.Fatalf("remote head must hold A∪B, got %v", remoteIDs)
-	}
-
 	local, err := loadFacts(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
@@ -247,17 +316,216 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	}
 }
 
+func TestHostedSyncEmptyStoreSkipsPush(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	remoteFact := hostedSyncTestFact("remote fact B", now)
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.upsertCount() != 0 {
+		t.Fatalf("an empty store must not post an upsert, got %d calls", fake.upsertCount())
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(local) != 1 || local[0].ID != remoteFact.ID {
+		t.Fatalf("pull must still fill the store, got %+v", local)
+	}
+}
+
+func TestHostedSyncFilterDropsUnreachable(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	dropped := hostedSyncAnchoredFact("foreign unmerged fact", now, factmerge.Anchor{SessionID: "s1", Commit: "deadbeef"})
+	keptViaTrail := hostedSyncAnchoredFact("foreign merged fact", now, factmerge.Anchor{SessionID: "s2", Commit: "deadbeef"})
+	fake := &hostedFake{}
+	fake.seed(dropped, "", "acct-teammate", "teammate")
+	fake.seed(keptViaTrail, "trail-7", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, rec := range local {
+		ids[rec.ID] = true
+	}
+	if ids[dropped.ID] {
+		t.Fatal("a foreign fact with no reachable anchor and no trail must be filtered out")
+	}
+	if !ids[keptViaTrail.ID] {
+		t.Fatal("a merged trail id marks the fact main-visible even with unreachable commits")
+	}
+}
+
+func TestHostedSyncMemberFactsFollowTheAccount(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	// fakeJWT's sub is "ulrich": the member's own fact, pushed from another
+	// machine, carries their account id and an unreachable commit anchor.
+	ownFact := hostedSyncAnchoredFact("my fact from my laptop", now, factmerge.Anchor{SessionID: "s1", Commit: "deadbeef"})
+	fake := &hostedFake{}
+	fake.seed(ownFact, "", "ulrich", "ulrich")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(local) != 1 || local[0].ID != ownFact.ID {
+		t.Fatalf("the member's own facts must follow their account, got %+v", local)
+	}
+}
+
+func TestHostedSyncCursorResumes(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	first := hostedSyncTestFact("first remote fact", now)
+	fake := &hostedFake{}
+	fake.seed(first, "trail-1", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	second := hostedSyncTestFact("second remote fact", now)
+	fake.seed(second, "trail-1", "acct-teammate", "teammate")
+
+	before := len(fake.feedTokensSeen())
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range fake.feedTokensSeen()[before:] {
+		if token == "" {
+			t.Fatal("the second sync must resume from the stored cursor, not replay from the start")
+		}
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, rec := range local {
+		ids[rec.ID] = true
+	}
+	if !ids[first.ID] || !ids[second.ID] {
+		t.Fatalf("both feed facts must be local after the second sync, got %v", ids)
+	}
+}
+
+func TestHostedSyncCursorResetOnRejectedToken(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	first := hostedSyncTestFact("first remote fact", now)
+	fake := &hostedFake{}
+	fake.seed(first, "trail-1", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	second := hostedSyncTestFact("second remote fact", now)
+	fake.seed(second, "trail-1", "acct-teammate", "teammate")
+	fake.mu.Lock()
+	fake.rejectTokens = 1
+	fake.mu.Unlock()
+
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, rec := range local {
+		ids[rec.ID] = true
+	}
+	if !ids[first.ID] || !ids[second.ID] {
+		t.Fatalf("a rejected cursor must trigger a full refetch that converges, got %v", ids)
+	}
+}
+
+func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	localFact := hostedSyncTestFact("this machine's unsynced fact", now)
+	teammate := hostedSyncAnchoredFact("teammate fact on a recycled branch", now, factmerge.Anchor{SessionID: "s1", Commit: "c1"})
+	fake := &hostedFake{denyPush: true} // keep localFact out of the hosted feed
+	fake.seed(teammate, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+		t.Fatal(err)
+	}
+	reachable := true
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		if name == "git" && len(args) == 4 && args[0] == "merge-base" && args[1] == "--is-ancestor" && args[2] == "c1" && reachable {
+			return nil, nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, rec := range local {
+		ids[rec.ID] = true
+	}
+	if !ids[teammate.ID] || !ids[localFact.ID] {
+		t.Fatalf("first sync must hold both facts, got %v", ids)
+	}
+
+	// HEAD moved (recycle/rename): the anchor commit is no longer an ancestor.
+	reachable = false
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err = loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids = map[string]bool{}
+	for _, rec := range local {
+		ids[rec.ID] = true
+	}
+	if ids[teammate.ID] {
+		t.Fatal("a cached fact that no longer passes the filter must leave the branch store")
+	}
+	if !ids[localFact.ID] {
+		t.Fatal("this machine's own unsynced fact must survive the rebuild")
+	}
+}
+
 func TestPullPreservesLocalStatus(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	retracted := hostedSyncTestFact("contested fact", now)
 	retracted.Status = factStatusRetracted
 	remoteActive := hostedSyncTestFact("contested fact", now)
 
-	fake := &hostedFake{ref: "facts-remote"}
+	fake := &hostedFake{}
+	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteActive})
-	fake.mu.Unlock()
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{retracted}); err != nil {
 		t.Fatal(err)
 	}
@@ -277,17 +545,17 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	}
 }
 
-func TestPullMergeFailsWithoutWrite(t *testing.T) {
+func TestPullRefusesForgedFeedWithoutWrite(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localFact := hostedSyncTestFact("local fact A", now)
 	forged := hostedSyncTestFact("remote fact B", now)
 	forged.ID = "fact:forged-id-that-does-not-match-content"
 
-	fake := &hostedFake{ref: "facts-remote"}
-	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake := &hostedFake{}
 	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{forged})
+	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
@@ -305,10 +573,10 @@ func TestPullMergeFailsWithoutWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(before, after) {
-		t.Fatal("a failed sync must leave the local store byte-identical")
+		t.Fatal("a forged feed must leave the local store byte-identical")
 	}
 	if errOut.Len() == 0 {
-		t.Fatal("a failed sync must leave a stderr note")
+		t.Fatal("a refused feed must leave a stderr note")
 	}
 }
 
@@ -316,11 +584,9 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	forgedAuthor := hostedSyncTestFact("remote fact with forged author", now)
 	forgedAuthor.Author = "mallory"
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{forgedAuthor.ID: "teammate"}}
+	fake := &hostedFake{}
+	fake.seed(forgedAuthor, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{forgedAuthor})
-	fake.mu.Unlock()
 
 	var errOut bytes.Buffer
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
@@ -332,7 +598,7 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	}
 	for _, rec := range local {
 		if rec.ID == forgedAuthor.ID && rec.Author != "teammate" {
-			t.Fatalf("the server-stamped authors map must beat a blob-carried author, got %q", rec.Author)
+			t.Fatalf("the server-stamped attribution must beat a blob-carried author, got %q", rec.Author)
 		}
 	}
 }
@@ -515,41 +781,6 @@ func TestHostedSyncNoEgressBlocksAutoConnect(t *testing.T) {
 	}
 }
 
-func TestHostedSyncPersistsRaisedProposals(t *testing.T) {
-	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	// Same taxonomy path, different text: Promote's keep-both raises a
-	// proposal exactly once, on first contact — dropping it here loses the
-	// review signal forever.
-	localFact := hostedSyncTestFact("retries are capped at three", now)
-	remoteFact := hostedSyncTestFact("retries are unlimited", now)
-	fake := &hostedFake{ref: "facts-remote"}
-	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
-	fake.mu.Unlock()
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
-		t.Fatal(err)
-	}
-
-	var errOut bytes.Buffer
-	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
-		t.Fatal(err)
-	}
-	queue, err := loadFactProposals(storage.BrainDir, "main")
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, p := range queue {
-		if p.CandidateID == localFact.ID && p.TargetID == remoteFact.ID {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("a raised cross-member conflict must reach the local review queue, got %d entries (queue=%+v stderr=%q)", len(queue), queue, errOut.String())
-	}
-}
-
 func TestPullAppliesRemoteRetirement(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localActive := hostedSyncTestFact("fact the team retired", now)
@@ -557,11 +788,9 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	remoteRetired.Status = factStatusRetracted
 	remoteRetired.UpdatedAt = now.Add(time.Hour)
 
-	fake := &hostedFake{ref: "facts-remote"}
+	fake := &hostedFake{}
+	fake.seed(remoteRetired, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteRetired})
-	fake.mu.Unlock()
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
 		t.Fatal(err)
 	}
@@ -576,12 +805,12 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	}
 	for _, rec := range local {
 		if rec.ID == localActive.ID && rec.Status != factStatusRetracted {
-			t.Fatalf("a retirement settled in the shared head must reach the local store, got status %q", rec.Status)
+			t.Fatalf("a retirement settled in the hosted store must reach the local store, got status %q", rec.Status)
 		}
 	}
 }
 
-func TestPullNeverRevivesFromAnActiveHead(t *testing.T) {
+func TestPullNeverRevivesFromAnActiveFeed(t *testing.T) {
 	// The inverse of TestPullAppliesRemoteRetirement: lifecycle moves one way.
 	// (TestPullPreservesLocalStatus covers the full sync; this pins the pair.)
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -589,11 +818,9 @@ func TestPullNeverRevivesFromAnActiveHead(t *testing.T) {
 	localRetired.Status = factStatusRetracted
 	remoteActive := hostedSyncTestFact("fact this member retired", now)
 
-	fake := &hostedFake{ref: "facts-remote"}
+	fake := &hostedFake{}
+	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteActive})
-	fake.mu.Unlock()
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
 		t.Fatal(err)
 	}
@@ -617,11 +844,9 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localFact := hostedSyncTestFact("local fact A", now)
 	remoteFact := hostedSyncTestFact("remote fact B", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}, denyPush: true}
+	fake := &hostedFake{denyPush: true}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
-	fake.mu.Unlock()
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
@@ -653,16 +878,16 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	}
 }
 
-func TestPullOnlyRejectsAForgedHead(t *testing.T) {
+func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	localFact := hostedSyncTestFact("local fact A", now)
 	forged := hostedSyncTestFact("remote fact B", now)
 	forged.ID = "fact:forged-id-that-does-not-match-content"
-	fake := &hostedFake{ref: "facts-remote", denyPush: true}
-	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	fake := &hostedFake{denyPush: true}
 	fake.mu.Lock()
-	fake.data = encodeFactsNDJSON(t, []factRecord{forged})
+	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
@@ -680,6 +905,203 @@ func TestPullOnlyRejectsAForgedHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(before, after) {
-		t.Fatal("a forged head must leave the local store byte-identical on the pull-only path too")
+		t.Fatal("a forged feed must leave the local store byte-identical on the pull-only path too")
+	}
+}
+
+func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
+	// Attribution collision: two members distill the same text+paths, the
+	// teammate's push wins first-writer attribution, and this machine's copy —
+	// session-anchored, commit unreachable — fails the filter. The local copy
+	// carries a transcript anchor (local-only provenance SanitizeForEgress
+	// strips on push), which proves it was distilled HERE: it must survive.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	mine := hostedSyncAnchoredFact("independently distilled fact", now,
+		factmerge.Anchor{SessionID: "local-session", Transcript: "export/sessions/local.ndjson", Line: 3})
+	theirs := hostedSyncAnchoredFact("independently distilled fact", now,
+		factmerge.Anchor{SessionID: "their-session"})
+	fake := &hostedFake{denyPush: true}
+	fake.seed(theirs, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == mine.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a locally distilled fact must survive the removal pass even when the feed's copy fails the filter")
+	}
+}
+
+func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
+	// A token whose sub claim cannot be read disables the member rule; with it
+	// the removal pass must stand down too, or every previously pushed
+	// session-anchored fact on this machine would be silently evicted.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	cached := hostedSyncAnchoredFact("fact this machine pushed earlier", now, factmerge.Anchor{SessionID: "s1"})
+	fake := &hostedFake{}
+	fake.seed(cached, "", "ulrich", "ulrich")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{cached}); err != nil {
+		t.Fatal(err)
+	}
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte("aa.bb.cc\n"), nil, nil // passes looksLikeJWT, sub unreadable
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == cached.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("with no member identity the removal pass must stand down, not evict the machine's facts")
+	}
+}
+
+func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
+	// Bugbot PR#403: an authored fact has session/commit anchors but no
+	// transcript, so the distill stand-down does not cover it. When a teammate
+	// independently filed the same text+paths first, the feed copy carries
+	// THEIR anchors and fails the filter — but the local copy's own commit
+	// anchor is reachable from HEAD and must keep the record alive.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	mine := hostedSyncAnchoredFact("independently authored fact", now,
+		factmerge.Anchor{SessionID: "local-session", Commit: "c-local"})
+	theirs := hostedSyncAnchoredFact("independently authored fact", now,
+		factmerge.Anchor{SessionID: "their-session"})
+	fake := &hostedFake{denyPush: true} // keep the local copy's anchors out of the feed
+	fake.seed(theirs, "", "acct-teammate", "teammate")
+	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+		t.Fatal(err)
+	}
+	opts.Runner = commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		if name == "git" && len(args) == 4 && args[0] == "merge-base" && args[1] == "--is-ancestor" && args[2] == "c-local" {
+			return nil, nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	local, err := loadFacts(storage.BrainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rec := range local {
+		if rec.ID == mine.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a local record whose own anchors pass the filter must survive the removal pass")
+	}
+}
+
+func TestHostedSyncMarkerRequiresSuccessfulPull(t *testing.T) {
+	// Bugbot PR#403: the marker means "this branch synced against this
+	// target". An empty-store push succeeds without contacting the server, so
+	// a failed pull must leave the marker unwritten or the blind-spot note is
+	// silenced on a checkout that never exchanged anything.
+	fake := &hostedFake{denyFeed: true}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatalf("pull failure must be non-fatal, got %v", err)
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
+		t.Fatal("a failed pull must not mark the branch as synced")
+	}
+	if !strings.Contains(errOut.String(), "pull failed") {
+		t.Fatalf("expected a pull failure note, got %q", errOut.String())
+	}
+}
+
+func TestPushSkipsUnverifiableRecordsAndUploadsTheRest(t *testing.T) {
+	// One bad record must not hold the rest of the store hostage: records
+	// whose content id does not re-derive are skipped with a note, everything
+	// else uploads, and the sync still counts as completed.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	good := hostedSyncTestFact("healthy local fact", now)
+	corrupt := hostedSyncTestFact("corrupted local fact", now)
+	corrupt.ID = "fact:id-that-does-not-match-content"
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if !fake.has(good.ID) {
+		t.Fatal("the verifiable record must be uploaded")
+	}
+	if fake.has(corrupt.ID) {
+		t.Fatal("an unverifiable record must never leave the machine")
+	}
+	if !strings.Contains(errOut.String(), "skipped 1 unpublishable") {
+		t.Fatalf("the skip must be reported, got %q", errOut.String())
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err != nil {
+		t.Fatalf("a salvage push that uploaded everything publishable still completes the sync: %v", err)
+	}
+}
+
+func TestPushWithNothingPublishableIsPullOnly(t *testing.T) {
+	// Every record unverifiable → nothing was shared; the branch must not be
+	// marked as synced.
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	corrupt := hostedSyncTestFact("corrupted local fact", now)
+	corrupt.ID = "fact:id-that-does-not-match-content"
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	if err := writeFacts(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
+		t.Fatal(err)
+	}
+
+	var errOut bytes.Buffer
+	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.upsertCount() != 0 {
+		t.Fatalf("nothing publishable must mean no upsert, got %d calls", fake.upsertCount())
+	}
+	if err := checkHostedFactsBinding(storage.BrainDir, "main", "repo1", baseURL); err == nil {
+		t.Fatal("a store that shared nothing must not be marked synced")
 	}
 }

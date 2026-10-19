@@ -65,6 +65,10 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 	return repoDir, storage.BrainDir, branch, nil
 }
 
+// recallMaxK bounds recall's -k. The MCP surface clamps to it rather than
+// advertising a ceiling the command would refuse.
+const recallMaxK = 128
+
 func newRecallCommand(opts Options) *cobra.Command {
 	var evidence bool
 	var evidenceBytes int
@@ -304,7 +308,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
 	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
-	cmd.Flags().IntVar(&limit, "k", 10, "Maximum facts to return, or candidate sessions with --evidence (1-128)")
+	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum facts to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
 	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
 	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")

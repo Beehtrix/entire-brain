@@ -244,3 +244,59 @@ func TestBrainManifestLargeUnknownFieldsRemainReadOnly(t *testing.T) {
 		t.Fatalf("checked cleanup: removed=%v err=%v", removed, err)
 	}
 }
+
+// TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt pins COR-2162.
+//
+// A writer refusing an unknown field is correct: re-encoding from a struct
+// that never saw the field would erase what another build recorded. What was
+// wrong is how it read. "brain manifest cannot be parsed: memory_state_corrupt"
+// describes damage, and the manifest is undamaged and fully readable — a
+// reader on the same bytes succeeds. On a real machine that wording left a
+// component failed for four days while nothing was broken.
+func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manifest.json")
+	// schema_version must be in range, or the version guards answer first and
+	// this test would pass without ever reaching the unknown-field path.
+	body := fmt.Sprintf(`{"schema_version":%d,"suppressed_warnings":["x"]}`, brainManifestSchemaVersion)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	open := func() *os.File {
+		f, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		return f
+	}
+
+	// A reader is unaffected: the bytes are readable, which is the whole point.
+	if _, _, dropped, err := decodeBrainManifestFile(open(), true); err != nil {
+		t.Fatalf("a reader must still read this manifest, got: %v", err)
+	} else if !dropped {
+		t.Fatal("the reader should report that it dropped an unknown field")
+	}
+
+	_, _, _, err := decodeBrainManifestFile(open(), false)
+	if err == nil {
+		t.Fatal("a writer must refuse rather than silently erase the unknown field")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "suppressed_warnings") {
+		t.Errorf("refusal must name the field the reader has to act on: %v", err)
+	}
+	if !strings.Contains(msg, "NOT damaged") {
+		t.Errorf("refusal must say the manifest is not damaged: %v", err)
+	}
+	if strings.Contains(msg, "cannot be parsed") {
+		t.Errorf("refusal still claims the manifest cannot be parsed, but a reader just parsed it: %v", err)
+	}
+	// The code is part of the maintenance taxonomy and many consumers match on
+	// it, so improving the sentence must not retype the error.
+	if !strings.Contains(msg, memoryErrStateCorrupt) {
+		t.Errorf("error code changed; that is a contract change, not a wording fix: %v", err)
+	}
+}

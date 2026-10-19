@@ -111,9 +111,9 @@ func newExportCommand(opts Options) *cobra.Command {
 		Short: "Export latest known transcript for each Entire session",
 		Long: `Export writes an agent-reviewable snapshot of Entire session history.
 
-The export contains one transcript file per unique session ID. When a session
-appears in multiple checkpoints, the copy with the newest checkpoint timestamp
-is selected.`,
+The persistent brain records session metadata and reads transcripts from local
+Git checkpoint refs on demand. --output writes a standalone bundle containing
+one transcript file per session. The newest checkpoint for each session wins.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runExport(cmd.Context(), cmd, opts, exportOpts)
@@ -160,6 +160,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	var selected map[string]selectedSession
 	var checkpointsScanned int
 	var snapshot *checkpointSnapshot
+	// catalogProvenEmpty records that the local enumeration completed and found
+	// no checkpoints at all, as opposed to failing to read them.
+	var catalogProvenEmpty bool
 
 	reportExportStatus(exportOpts.progress, "detecting default branch")
 	defaultBranch, defaultBranchWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
@@ -200,11 +203,29 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					return nil
 				})
 			}
+		} else if errors.Is(snapshotErr, errCheckpointCatalogEmpty) {
+			catalogProvenEmpty = true
 		} else if !errors.Is(snapshotErr, errCheckpointSnapshotUnavailable) {
 			warnings = append(warnings, "direct checkpoint export unavailable: "+snapshotErr.Error())
 		}
 	}
 
+	// NO-EGRESS ONLY, and the gate is the whole point. In no-egress mode the
+	// local catalog IS the catalog, so a clean empty enumeration of it proves
+	// the inventory empty and routed discovery has nothing to add. With egress
+	// ALLOWED that inference is false: the routed `--search-all` list is the
+	// only complete inventory, and it sees checkpoints the local refs do not
+	// (remote-only, other stores). Short-circuiting there would turn a
+	// locally-empty clone into a false-empty export -- the exact failure the
+	// refusal below this exists to prevent.
+	if selected == nil && catalogProvenEmpty && brainNoEgressMode() {
+		// A repository between `entire enable` and its first finished agent
+		// session. Exporting zero sessions is the correct answer here. The
+		// empty-export refusal below still protects a brain that already holds
+		// sessions.
+		warnings = append(warnings, errCheckpointCatalogEmpty.Error())
+		selected = map[string]selectedSession{}
+	}
 	if selected == nil {
 		if brainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
@@ -251,7 +272,6 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	branchDirs := buildBranchDirectories(sessions, defaultBranch)
 	outputDir := exportOpts.outputDir
 	persistentBrain := !outputExplicit
-	var cursor *exportCursor
 	var cursorFile string
 	var repoKey string
 	if persistentBrain {
@@ -262,7 +282,6 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		repoKey = storage.Key
 		outputDir = storage.BrainDir
 		cursorFile = storage.HeadPath
-		cursor = loadExportCursor(cursorFile)
 
 		// An export that discovers nothing is ambiguous: the repository may
 		// genuinely have no checkpoints yet, or the source may have become
@@ -281,69 +300,77 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	}
 
 	if persistentBrain {
-		// The exclusive brain lock brackets only the SHARED-ARTIFACT phases:
-		// directory preparation, then manifest/history-index/cursor writes.
-		// The transcript-writing phase between them runs UNLOCKED — it shells
-		// `entire checkpoint explain` per uncached session (minutes on a large
-		// brain), while every other lock user times out at 10s: holding the
-		// lock across it failed a concurrent distill's FINAL flush, killing an
-		// hours-long run at its last step. Transcript files are per-session
-		// and atomically replaced, and concurrent exports of one brain are
-		// already unsupported, so the unlocked window mutates nothing another
-		// writer reads mid-flight (a concurrent distill touches facts/* only).
+		// Discovery controls membership; it does not establish where bytes live.
+		// Routed and branch-scoped catalogs may already be fully available locally.
+		if snapshot == nil && len(sessions) > 0 {
+			local, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, branchDestinations, metadataCache)
+			if err != nil {
+				return fmt.Errorf("persistent transcript storage requires local checkpoint refs; sync checkpoints and retry, or use --output for a standalone bundle: %w", err)
+			}
+			defer local.Cleanup()
+			snapshot = local
+			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
+		}
+		if len(sessions) > 0 {
+			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, sessions, manifest.TranscriptMode); err != nil {
+				return err
+			}
+		}
+		// Store the shared Git directory while this worktree still exists. It
+		// remains usable for local object reads after linked worktree removal.
+		if data, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, true, "rev-parse", "--git-common-dir"); err == nil {
+			common := strings.TrimSpace(string(data))
+			if common != "" {
+				if !filepath.IsAbs(common) {
+					common = filepath.Join(repoDir, common)
+				}
+				manifest.CheckpointGitDir = filepath.Clean(common)
+			}
+		}
+		settings, _ := readEntireSettings(repoDir)
+		manifest.CheckpointPrimary, _, err = configuredCheckpointPrimary(repoDir, settings)
+		if err != nil {
+			return err
+		}
+		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+		if err != nil {
+			return err
+		}
+		if migration != nil {
+			defer migration.Close()
+		}
+		manifest.TranscriptStorage = transcriptStorageCheckpoint
+		for i := range sessions {
+			session := &sessions[i]
+			name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+			// Kept as a virtual evidence address, never a materialized path.
+			session.TranscriptPath = filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
+		}
 		if err := withBrainWriteLock(outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
 			if err != nil {
 				return err
 			}
-			return ensureExportDirectories(outputDir, branchDirs)
-		}); err != nil {
-			return err
-		}
-		var transcriptWarnings []string
-		transcriptsComplete := true
-		if snapshot != nil {
-			sessions, transcriptWarnings, transcriptsComplete, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
-			if err != nil {
-				return err
-			}
-		} else {
-			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
-			if err != nil {
-				return err
-			}
-		}
-		if err := withBrainWriteLock(outputDir, func() error {
-			manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
+			manifest.Warnings = usefulExportWarnings(manifest.Warnings, exportOpts.debug)
 			manifest.Sessions = sessions
 			manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 			if err := writeBrainSessionSourceLocked(outputDir, repoKey, manifest); err != nil {
 				return err
 			}
-			if exportOpts.historyIndex {
-				if _, err := writeBrainHistoryIndexAndSourceLocked(outputDir, opts.Now().UTC(), nil); err != nil {
-					return err
-				}
-			}
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
-			if !transcriptsComplete {
-				// At least one requested transcript was unreadable, so the
-				// session list is a SUBSET of what this export covers. Sweeping
-				// against a subset would delete the copies a previous export
-				// wrote for exactly those sessions, silently destroying
-				// recallable history behind a scope-incomplete warning. Leave
-				// the stale files in place; the next complete export removes
-				// them. Before the skip-and-continue behavior an unreadable
-				// transcript aborted the export outright and left the brain
-				// untouched, so holding the sweep back is no worse than that.
-				return nil
-			}
-			return cleanupStaleSessionFiles(outputDir, sessions)
+			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
+		}
+		// History scans checkpoint payloads before taking its own short publish
+		// lock, then revalidates the session and privacy identities at commit.
+		if exportOpts.historyIndex {
+			if _, err := writeBrainHistoryIndexAndSourceContext(ctx, outputDir, opts.Now().UTC(), nil); err != nil {
+				return err
+			}
 		}
 	} else {
 		outputDir, err = prepareExportDir(outputDir, false)
@@ -355,12 +382,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var transcriptWarnings []string
 		if snapshot != nil {
-			sessions, transcriptWarnings, _, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs, cursor)
+			sessions, transcriptWarnings, _, err = writeSnapshotSessionTranscripts(ctx, opts.Runner, snapshot, outputDir, sessions, branchDirs)
 			if err != nil {
 				return err
 			}
 		} else {
-			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs, cursor)
+			transcriptWarnings, err = writeSessionTranscripts(ctx, opts.Runner, repoDir, outputDir, exportOpts.entireBinary, exportOpts.rawTranscript, sessions, branchDirs)
 			if err != nil {
 				return err
 			}
@@ -688,7 +715,14 @@ func runCheckpointGitLocal(ctx context.Context, runner CommandRunner, repoDir st
 	if !ok {
 		return nil, nil, errors.New("no_egress: command runner cannot enforce GIT_NO_LAZY_FETCH=1")
 	}
-	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{gitNoLazyFetchEnv: "1"}, "git", args...)
+	return envRunner.RunWithEnv(ctx, repoDir, localOnlyGitEnv(), "git", args...)
+}
+
+// localOnlyGitEnv is the environment half of the local-only read policy; the
+// refusal half lives in runCheckpointGitLocal. The cat-file batch child
+// consumes the same value, so a new policy bit cannot cover one path only.
+func localOnlyGitEnv() map[string]string {
+	return map[string]string{gitNoLazyFetchEnv: "1"}
 }
 
 func gitRefExists(ctx context.Context, runner CommandRunner, repoDir, ref string) bool {
@@ -1527,6 +1561,20 @@ func validateGitHubRepoSlug(repo string) error {
 
 var errCheckpointSnapshotUnavailable = errors.New("checkpoint snapshot unavailable")
 
+// errCheckpointCatalogEmpty separates the two states that reaching zero
+// checkpoints collapses into one.
+//
+// "Nothing was ever captured" is where EVERY repository sits between `entire
+// enable` and its first finished agent session; "the catalog could not be
+// read" is a fault. Both used to surface as the same refusal, so a brand-new
+// repo was told its checkpoint catalog could not be established and sent to a
+// command that re-ran the identical export and failed identically.
+//
+// It is only ever returned when both local enumerations SUCCEEDED and found
+// nothing: a ref namespace that could not be listed, or a ref that exists and
+// will not open, stays errCheckpointSnapshotUnavailable on its own.
+var errCheckpointCatalogEmpty = errors.New("no checkpoints have been captured in this repository yet")
+
 func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner, repoDir string, raw bool, limit int, branchDestinations checkpointBranchDestinations, progress func(exportProgress), cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
@@ -1558,6 +1606,13 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		return snapshot, warnings, nil
 	}
 	if brainNoEgressMode() {
+		// In no-egress mode the local catalog IS the catalog, so a clean empty
+		// enumeration proves emptiness — unless a configured checkpoint remote
+		// could hold checkpoints this mode deliberately refuses to fetch, in
+		// which case local-empty is not catalog-empty and must stay a refusal.
+		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
+			return nil, warnings, err
+		}
 		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
@@ -1711,8 +1766,8 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	}
 	reportExportStatus(progress, "reading local checkpoint stores")
 
-	branchSources, branchWarnings := loadAggregateCheckpointSources(ctx, runner, repoDir, localOnly, cache)
-	refSources, refWarnings := loadPerCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	branchSources, branchWarnings, branchEnumerated := loadAggregateCheckpointSources(ctx, runner, repoDir, localOnly, cache)
+	refSources, refWarnings, refEnumerated := loadPerCheckpointSources(ctx, runner, repoDir, localOnly, cache)
 	warnings := append(branchWarnings, refWarnings...)
 
 	ids := make(map[string]struct{}, len(branchSources)+len(refSources))
@@ -1723,6 +1778,11 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 		ids[id] = struct{}{}
 	}
 	if len(ids) == 0 {
+		if branchEnumerated && refEnumerated {
+			// Both namespaces listed and both are empty. Nothing has been
+			// captured here yet; that is a state, not a fault.
+			return nil, warnings, fmt.Errorf("%w: %w", errCheckpointSnapshotUnavailable, errCheckpointCatalogEmpty)
+		}
 		return nil, warnings, fmt.Errorf("%w: no local checkpoint refs readable", errCheckpointSnapshotUnavailable)
 	}
 
@@ -1941,13 +2001,28 @@ func useCompactTranscripts(selected map[string]selectedSession, members []sessio
 // origin-only checkpoint behind a single stale local one, and reported success
 // while doing it — the caller's contract is a complete union of the local
 // stores, and the export manifest says so.
-func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+// loadAggregateCheckpointSources also reports whether the aggregate namespace
+// was ENUMERATED: the ref list resolved and every ref that exists was readable.
+// A repository that simply has no aggregate checkpoint ref enumerates cleanly
+// with no sources, which is the difference between "nothing captured yet" and
+// "the catalog is broken".
+func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string, bool) {
 	sources := make(map[string]checkpointSnapshotSource)
 	var deferredErrors []string
 	var warnings []string
-	for _, ref := range aggregateCheckpointRefs(ctx, runner, repoDir, localOnly) {
+	candidates := aggregateCheckpointRefs(ctx, runner, repoDir, localOnly)
+	present, enumerated := existingAggregateCheckpointRefs(ctx, runner, repoDir, localOnly, candidates)
+	for _, ref := range candidates {
+		if enumerated {
+			if _, ok := present[ref]; !ok {
+				// The ref does not exist. That is the ordinary shape of a repo
+				// with no checkpoints and must not be charged as a read fault.
+				continue
+			}
+		}
 		pathsOut, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
+			enumerated = false
 			deferredErrors = append(deferredErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
 		}
@@ -1982,16 +2057,44 @@ func loadAggregateCheckpointSources(ctx context.Context, runner CommandRunner, r
 		warnings = append(warnings, warningLines("checkpoint ref "+ref, stderr)...)
 	}
 	if len(sources) > 0 {
-		return sources, warnings
+		return sources, warnings, enumerated
 	}
-	return sources, append(warnings, deferredErrors...)
+	return sources, append(warnings, deferredErrors...), enumerated
 }
 
-func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string) {
+// existingAggregateCheckpointRefs resolves which of the candidate aggregate
+// refs actually exist, in one call. It answers the question `ls-tree` cannot:
+// ls-tree fails the same way for "this ref is not here" and "this ref is
+// corrupt", and telling a first-run repository its catalog is unreadable
+// because a ref it never had is missing is the whole defect. The second return
+// is false when existence itself could not be established, which keeps every
+// caller on the conservative path.
+func existingAggregateCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, candidates []string) (map[string]struct{}, bool) {
+	if len(candidates) == 0 {
+		return map[string]struct{}{}, true
+	}
+	args := append([]string{"for-each-ref", "--format=%(refname)"}, candidates...)
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, localOnly, args...)
+	if err != nil {
+		return nil, false
+	}
+	present := make(map[string]struct{}, len(candidates))
+	for _, line := range strings.Split(string(stdout), "\n") {
+		if ref := strings.TrimSpace(line); ref != "" {
+			present[ref] = struct{}{}
+		}
+	}
+	return present, true
+}
+
+// loadPerCheckpointSources also reports whether the per-checkpoint ref
+// namespace was enumerable at all. An empty namespace that listed cleanly is
+// a repository with no checkpoints; a namespace that would not list is a fault.
+func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool, cache *checkpointMetadataCache) (map[string]checkpointSnapshotSource, []string, bool) {
 	sources := make(map[string]checkpointSnapshotSource)
 	refs, warnings, err := probeLocalPerCheckpointRefs(ctx, runner, repoDir, localOnly)
 	if err != nil {
-		return sources, warnings
+		return sources, warnings, false
 	}
 	ids := make([]string, 0, len(refs))
 	for id := range refs {
@@ -2030,7 +2133,7 @@ func loadPerCheckpointSources(ctx context.Context, runner CommandRunner, repoDir
 			LocalOnly:   localOnly,
 		}
 	}
-	return sources, warnings
+	return sources, warnings, true
 }
 
 func probeLocalPerCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string, localOnly bool) (map[string]string, []string, error) {
@@ -2798,6 +2901,18 @@ func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string
 }
 
 func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, filePath string, localOnly bool) ([]byte, error) {
+	// Batch-capable runners read through one shared `cat-file --batch` child
+	// per (gitDir, policy) instead of one exec per blob (COR-2182). "missing"
+	// is git's definitive answer and must not be retried per-exec; any other
+	// batch error falls back so a broken child only costs speed. Runners
+	// without the capability keep the per-exec path: the batch child would
+	// bypass their per-call seam.
+	if runnerAllowsCatFileBatch(runner) {
+		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
+		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+			return data, err
+		}
+	}
 	var stdout []byte
 	var err error
 	if localOnly {
@@ -2991,7 +3106,7 @@ func (i checkpointAuthorIndex) AuthorsFor(checkpointID string) []exportAuthor {
 	return append([]exportAuthor(nil), authors...)
 }
 
-func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]string, error) {
+func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir, outputDir, entireBinary string, raw bool, sessions []exportSession, branchDirs map[string]string) ([]string, error) {
 	transcriptFlag := "--transcript"
 	extension := ".jsonl"
 	if raw {
@@ -3003,10 +3118,6 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 		session := &sessions[i]
 		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, extension)
 		relPath := filepath.Join(branchDirs[session.Branch], name)
-		if reuseTranscriptFromCursor(outputDir, cursor, *session, relPath, transcriptMode(raw)) {
-			session.TranscriptPath = filepath.ToSlash(relPath)
-			continue
-		}
 
 		stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, "checkpoint", "explain", transcriptFlag, "--session-index", strconv.Itoa(session.SessionIndex), session.LatestCheckpoint)
 		if err != nil {
@@ -3024,17 +3135,10 @@ func writeSessionTranscripts(ctx context.Context, runner CommandRunner, repoDir,
 	return warnings, nil
 }
 
-// writeSnapshotSessionTranscripts returns the sessions it actually wrote, any
-// warnings, and whether EVERY requested transcript was readable. A session
-// whose source blob cannot be read (for example a promisor-absent blob in a
-// partial clone under no-egress) is skipped with a scope-incomplete warning
-// rather than failing the whole export, so the returned session list is a
-// subset of the requested one. Callers must not treat that subset as the
-// complete session set for garbage-collection purposes: cleanupStaleSessionFiles
-// deletes every transcript the list does not claim, which would destroy the
-// copies a previous export already wrote for exactly the sessions that just
-// failed to read.
-func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string, cursor *exportCursor) ([]exportSession, []string, bool, error) {
+// writeSnapshotSessionTranscripts materializes standalone bundles. Unreadable
+// blobs are reported as an incomplete export; persistent brains never use this
+// writer and retain every session's metadata without reading transcript bytes.
+func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, outputDir string, sessions []exportSession, branchDirs map[string]string) ([]exportSession, []string, bool, error) {
 	var warnings []string
 	written := make([]exportSession, 0, len(sessions))
 	var firstSourceErr error
@@ -3042,11 +3146,6 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 		session := &sessions[i]
 		name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
 		relPath := filepath.Join(branchDirs[session.Branch], name)
-		if reuseTranscriptFromCursor(outputDir, cursor, *session, relPath, snapshot.TranscriptMode) {
-			session.TranscriptPath = filepath.ToSlash(relPath)
-			written = append(written, *session)
-			continue
-		}
 
 		sourcePath := session.SourceTranscriptPath
 		if sourcePath == "" {
@@ -3076,28 +3175,6 @@ func writeSnapshotSessionTranscripts(ctx context.Context, runner CommandRunner, 
 		return nil, warnings, false, fmt.Errorf("%w: %s: none of the requested checkpoint transcripts were readable: %v", errCheckpointSnapshotUnavailable, checkpointScopeIncompleteCode, firstSourceErr)
 	}
 	return written, warnings, firstSourceErr == nil, nil
-}
-
-func reuseTranscriptFromCursor(outputDir string, cursor *exportCursor, session exportSession, relPath, transcriptMode string) bool {
-	if cursor == nil {
-		return false
-	}
-	entry := cursor.Sessions[selectedSessionKey(session.Branch, session.SessionID)]
-	if entry.LatestCheckpoint != session.LatestCheckpoint || entry.TranscriptPath != filepath.ToSlash(relPath) {
-		return false
-	}
-	if entry.TranscriptMode != transcriptMode {
-		return false
-	}
-	clean := filepath.Clean(filepath.FromSlash(relPath))
-	if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return false
-	}
-	if err := rejectSymlinkPathComponents(outputDir, clean); err != nil {
-		return false
-	}
-	info, err := os.Lstat(filepath.Join(outputDir, clean))
-	return err == nil && !info.IsDir() && info.Mode()&os.ModeSymlink == 0
 }
 
 func writeTranscriptFile(outputDir, relPath string, data []byte) error {
@@ -3193,10 +3270,21 @@ func readCheckpointSourceTranscript(ctx context.Context, runner CommandRunner, s
 // case is byte-identical to a plain read.
 func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error)) ([]byte, error) {
 	parts := make([][]byte, 0, len(chunks))
+	// The size cap is a package invariant, applied during assembly: every
+	// consumer refuses transcripts over maxDocumentTranscriptBytes, so
+	// materializing a larger one in memory — to write a file nothing can read,
+	// or to hand on-demand readers bytes they must refuse — is never useful.
+	// The bound can overshoot by at most one chunk (git materializes each
+	// cat-file fully).
+	var total int64
 	for _, chunk := range chunks {
 		data, err := readOne(chunk)
 		if err != nil {
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
+		}
+		total += int64(len(data))
+		if total > maxDocumentTranscriptBytes {
+			return nil, &readBoundExceededError{source: "stored transcript " + chunks[0], max: maxDocumentTranscriptBytes}
 		}
 		parts = append(parts, data)
 	}
@@ -3335,21 +3423,6 @@ func writeJSONFile(path string, value any) error {
 	return nil
 }
 
-func loadExportCursor(path string) *exportCursor {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var cursor exportCursor
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil
-	}
-	if cursor.Sessions == nil {
-		cursor.Sessions = make(map[string]exportCursorSession)
-	}
-	return &cursor
-}
-
 func writeExportCursor(path string, manifest exportManifest) error {
 	cursor := exportCursor{
 		SchemaVersion: 1,
@@ -3387,38 +3460,6 @@ func emptyExportRefusalMessage(retained int) string {
 		pluralUnit("session", retained),
 		v1MainRef,
 	)
-}
-
-func cleanupStaleSessionFiles(outputDir string, sessions []exportSession) error {
-	active := make(map[string]struct{}, len(sessions))
-	for _, session := range sessions {
-		if session.TranscriptPath != "" {
-			active[filepath.FromSlash(session.TranscriptPath)] = struct{}{}
-		}
-	}
-	sessionsRoot := filepath.Join(outputDir, exportSessionsDirectory)
-	if _, err := os.Stat(sessionsRoot); os.IsNotExist(err) {
-		return nil
-	}
-	return filepath.WalkDir(sessionsRoot, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() || !isTranscriptFile(path) {
-			return nil
-		}
-		rel, err := filepath.Rel(outputDir, path)
-		if err != nil {
-			return err
-		}
-		if _, ok := active[rel]; ok {
-			return nil
-		}
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("remove stale transcript %s: %w", rel, err)
-		}
-		return nil
-	})
 }
 
 func isTranscriptFile(path string) bool {
@@ -3699,6 +3740,10 @@ func renderExportReadme(manifest exportManifest) string {
 		}
 		fmt.Fprintln(&b)
 	}
+	if manifest.TranscriptStorage == transcriptStorageCheckpoint {
+		fmt.Fprintln(&b, "Transcripts are read from local Git checkpoints. The addresses below identify evidence; they are not cached files. Use --output to export standalone transcript files.")
+		fmt.Fprintln(&b)
+	}
 	fmt.Fprintln(&b, "## Sessions")
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Created | Branch | Authors | Agent | Model | Session | Checkpoint | Transcript |")
@@ -3945,8 +3990,9 @@ type selectedSession struct {
 }
 
 type exportManifest struct {
-	SchemaVersion int       `json:"schema_version"`
-	GeneratedAt   time.Time `json:"generated_at"`
+	TranscriptStorage string    `json:"transcript_storage,omitempty"`
+	SchemaVersion     int       `json:"schema_version"`
+	GeneratedAt       time.Time `json:"generated_at"`
 	// BrainVersion is the entire-brain build that PRODUCED the document. It is
 	// set only on exported bundles -- artifacts that leave this machine and so
 	// have to be attributable to a release.
@@ -3962,8 +4008,11 @@ type exportManifest struct {
 	//
 	// omitempty, and never set on the on-disk brain manifest, so no stored
 	// manifest gains a field an older build would then refuse to rewrite.
-	BrainVersion       string          `json:"brain_version,omitempty"`
-	RepoRoot           string          `json:"repo_root,omitempty"`
+	BrainVersion string `json:"brain_version,omitempty"`
+	RepoRoot     string `json:"repo_root,omitempty"`
+	// Stable local checkpoint location, independent of the exporting worktree.
+	CheckpointGitDir   string          `json:"checkpoint_git_dir,omitempty"`
+	CheckpointPrimary  string          `json:"checkpoint_primary,omitempty"`
 	RepoKey            string          `json:"repo_key,omitempty"`
 	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
 	DefaultBranch      string          `json:"default_branch,omitempty"`

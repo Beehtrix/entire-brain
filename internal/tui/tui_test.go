@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -448,5 +449,73 @@ func TestDumpDashboard(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 110, Height: 32})
 	if err := os.WriteFile("/tmp/brain-dashboard.txt", []byte(updated.(Model).View()), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOpenVirtualSourcesInDashboard(t *testing.T) {
+	for _, tab := range []Tab{TabSessions, TabHistory, TabFacts, TabSearch} {
+		t.Run(tab.String(), func(t *testing.T) {
+			snap := sampleSnapshot()
+			snap.History = []HistoryView{{Source: "/brain/sessions/history.jsonl", SourceLine: 2}}
+			snap.Search = []SearchResult{{OpenPath: "/brain/sessions/search.jsonl", OpenLine: 2}}
+			theme, _ := ThemeByName("default")
+			m := newRunModel(snap, theme, nil, tab)
+			target, _ := m.snap.openTarget(tab, m.selectedIndex())
+			if target == "" {
+				t.Fatal("missing target")
+			}
+			calls := 0
+			m.sourceReader = func(path string) (string, bool, error) {
+				calls++
+				if path != target {
+					t.Fatalf("opened %q, want %q", path, target)
+				}
+				return "source line one\nsource line two", true, nil
+			}
+			cmd := m.openSelected()
+			if cmd == nil || calls != 0 {
+				t.Fatal("read must be lazy")
+			}
+			updated, _ := m.Update(cmd())
+			m = updated.(Model)
+			if calls != 1 || !m.focusDetail || !strings.Contains(m.vp.View(), "source line") {
+				t.Fatalf("source not displayed: %s", m.vp.View())
+			}
+			updated, _ = m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+			m = updated.(Model)
+			if m.sourceTarget != target {
+				t.Fatal("resize lost viewer")
+			}
+			updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			m = updated.(Model)
+			if m.sourceTarget != "" || m.sourceContent != "" {
+				t.Fatal("back retained source")
+			}
+		})
+	}
+}
+
+func TestSourceViewerWrapsAndSanitizesContent(t *testing.T) {
+	text, offset := renderSourceContent("1234567890abcdefghij\nnext\x1b[31m", 10, 2)
+	if offset != 2 || strings.Contains(text, "\x1b") || !strings.Contains(text, "abcdefghij") {
+		t.Fatalf("render = %q, offset = %d", text, offset)
+	}
+}
+
+func TestSourceViewerShowsErrorsAndIgnoresStaleResults(t *testing.T) {
+	theme, _ := ThemeByName("default")
+	m := newRunModel(sampleSnapshot(), theme, nil, TabSessions)
+	target, _ := m.snap.openTarget(m.tab, m.selectedIndex())
+	m.sourceReader = func(string) (string, bool, error) { return "", true, errors.New("source unavailable") }
+	updated, _ := m.Update(m.openSelected()())
+	m = updated.(Model)
+	if !strings.Contains(m.vp.View(), "source unavailable") {
+		t.Fatalf("error hidden: %s", m.vp.View())
+	}
+	m.setTab(TabFacts)
+	updated, _ = m.Update(sourceResultMsg{tab: TabSessions, target: target, content: "stale content"})
+	m = updated.(Model)
+	if m.sourceContent != "" {
+		t.Fatal("stale response replaced selected source")
 	}
 }

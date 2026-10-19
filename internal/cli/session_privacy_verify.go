@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -532,8 +534,52 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	manifestForStorage, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return report, err
+	}
+	if checkpointBackedSessions(manifestForStorage) {
+		inventory, err := collectHistorySessionInventoryMode(context.Background(), brainDir, true)
+		if err != nil && !errors.Is(err, errHistorySessionsRootMissing) {
+			return report, err
+		}
+		if inventory != nil {
+			defer inventory.Close()
+			for _, file := range inventory.files {
+				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run entire brain refresh sessions"})
+			}
+		}
+		store := newTranscriptStore(ExecRunner{}, brainDir)
+		guard, err := store.guardNow()
+		if err != nil {
+			return report, err
+		}
+		for id := range stones.Excluded {
+			if !guard.blocksSession(id) {
+				report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: id, Artifact: "transcript_read_gate", Detail: "tombstone is not enforced by transcript store"})
+			}
+		}
+		// Exercise the same gate used by actual reads. A random storage error
+		// is not evidence of privacy enforcement: require the tombstone refusal.
+		for rel, id := range guard.paths {
+			_, finish, err := store.Open(context.Background(), rel)
+			if finish != nil {
+				_ = finish()
+			}
+			if err == nil || !strings.Contains(err.Error(), "is tombstoned") {
+				report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: id, Artifact: "transcript_read_gate", Detail: "transcript read did not attest tombstone: " + rel})
+			}
+		}
+	}
 	if len(stones.Excluded) == 0 {
-		report.Clean = true
+		_, finalState, err := loadSessionTombstonesChecked(brainDir)
+		if err != nil {
+			return report, err
+		}
+		if finalState.Identity != tombstoneState.Identity {
+			return report, fmt.Errorf("%s: session tombstones changed during privacy verification", memoryErrPrivacyDirty)
+		}
+		report.Clean = len(report.Findings) == 0
 		return report, nil
 	}
 	manifest, err := loadBrainManifest(brainDir)

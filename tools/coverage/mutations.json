@@ -13,7 +13,7 @@
     "original": "\tsessions = guardExportSessions(guard, sessions)",
     "replacement": "\t// Deliberate regression: skip retained exclusion filter.",
     "test": "TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry",
-    "diagnostic": "refresh 1 corpus sessions = [clean-sess secret-sess], want [clean-sess]"
+    "diagnostic": "cancelled refresh error = memory_state_unsafe: transcript sessions/main/20260802T000000Z_secret.jsonl is tombstoned"
   },
   {
     "name": "brief must preserve raw-only matches",

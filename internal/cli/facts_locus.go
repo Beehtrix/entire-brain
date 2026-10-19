@@ -208,7 +208,25 @@ func filterFactsByKind(facts []factRecord, kind string) []factRecord {
 // locusIdentifierPattern matches code-identifier-like tokens: backtick spans are
 // handled separately; this catches dotted paths (settings.Load), file paths
 // (internal/cli/facts.go), CamelCase, and snake_case identifiers.
-var locusIdentifierPattern = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:[./][A-Za-z0-9_]+)+|[A-Za-z_]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+`)
+//
+// A path segment is `[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*` — interior hyphens are
+// part of the name. Without that, `website/scripts/pre-build.ts` was cut at the
+// hyphen and emitted as TWO tokens, "website/scripts/pre" and "build.ts",
+// neither of which names anything in the repo. That is worse than emitting
+// nothing: a fragment looks like a path, so it anchors a fact to a file that
+// does not exist, and locusTokenIsFilePath cannot even flag the drift (the
+// first fragment has no extension, the second has no slash). Hyphenated names
+// are not exotic here — .github/workflows/*, pre-build.ts, 20260320-no-raft.md.
+//
+// The hyphen must be INTERIOR (followed by more name), so a trailing dash is
+// left out of the token, and a separator (. or /) is still required for the
+// first alternative to fire at all — which is what keeps ordinary hyphenated
+// English ("state-of-the-art") out of the locus.
+//
+// The leading `\.?` is the same defect for dot-directories: ".github/..." was
+// emitted as "github/...", a path that resolves nowhere and would be reported
+// as drifted on every recall.
+var locusIdentifierPattern = regexp.MustCompile(`\.?[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*(?:[./][A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)+|[A-Za-z_]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+`)
 
 // factLocus extracts the set of code identifiers a fact is about — the symbols,
 // packages, file paths, and refs named in its text (including backtick-quoted
@@ -218,7 +236,11 @@ var locusIdentifierPattern = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:[./][A
 func factLocus(text string) []string {
 	set := map[string]struct{}{}
 	add := func(tok string) {
-		tok = strings.ToLower(strings.Trim(tok, "`.,;:()[]{}'\""))
+		// Trimmed asymmetrically: a LEADING dot is part of the name
+		// (".github/workflows/ci.yml", ".entire/settings.json"), a trailing one
+		// is sentence punctuation. Trimming both ends, as this did, silently
+		// renamed every dot-directory path in the corpus.
+		tok = strings.ToLower(strings.TrimRight(strings.TrimLeft(tok, locusLeadingTrimCutset), locusTrailingTrimCutset))
 		if len(tok) >= 3 {
 			set[tok] = struct{}{}
 		}
@@ -239,6 +261,12 @@ func factLocus(text string) []string {
 	sort.Strings(out)
 	return out
 }
+
+const (
+	// locusLeadingTrimCutset omits "." on purpose; see add in factLocus.
+	locusLeadingTrimCutset  = "`,;:([{'\""
+	locusTrailingTrimCutset = "`.,;:)]}'\""
+)
 
 var backtickSpanPattern = regexp.MustCompile("`([^`]+)`")
 

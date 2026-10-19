@@ -475,16 +475,42 @@ func TestWiringTheHookIsReportedAsDoneNotSkipped(t *testing.T) {
 	if strings.Contains(line, "skipped") {
 		t.Fatalf("setup wrote the hook, then called it skipped: %q", line)
 	}
-	if !strings.Contains(line, "done") {
-		t.Fatalf("wiring the hook is work and must report done: %q", line)
+	// The marker moved. Under the phase renderer a wired hook is a DETAIL row
+	// hanging off the AGENTS phase, and the done/skipped mark lives on the
+	// phase line, not on every row. The invariant is unchanged -- setup must
+	// not call work it did "skipped" -- so it is asserted where the mark now
+	// is. A row-level check here would pass on any renderer that prints no
+	// marks at all, which is the weaker claim.
+	if mark := setupRenderedPhaseMark(t, first, "Agents"); mark == setupSkipMark {
+		t.Fatalf("the agents phase wired the hook, then reported skipped: %q\n%s", mark, first)
 	}
 
-	// The other direction: a second run really does skip, and must still say so.
+	// The other direction, asserted where the mark now lives: a second run
+	// wires nothing, so the row says "already wired" and the phase says
+	// skipped. Both halves still distinguish work done from work not needed;
+	// only the column carrying the mark changed.
 	second := runSetupForTest(t, f, opts, &recordedSetup{})
-	already := setupLineContaining(t, second, "pre-edit hook already wired")
-	if !strings.Contains(already, "skipped") {
-		t.Fatalf("a run that wired nothing must say skipped: %q", already)
+	setupLineContaining(t, second, "pre-edit hook already wired")
+	if mark := setupRenderedPhaseMark(t, second, "Agents"); mark != setupSkipMark {
+		t.Fatalf("a run that wired nothing must say skipped, got mark %q\n%s", mark, second)
 	}
+}
+
+// setupSkipMark is the glyph the phase renderer puts on a skipped phase when
+// the capability block reports no unicode, which is what tests render with.
+const setupSkipMark = "-"
+
+// setupRenderedPhaseMark returns the mark column of a phase line. The done/skipped
+// distinction is a GLYPH in the phase renderer, not the word "skipped", so a
+// Contains check for that word passes on every run and tests nothing.
+func setupRenderedPhaseMark(t *testing.T, out, phase string) string {
+	t.Helper()
+	line := strings.TrimRight(setupLineContaining(t, out, phase), " ")
+	trimmed := strings.TrimLeft(line, " ")
+	if trimmed == "" {
+		t.Fatalf("phase line for %q is blank:\n%s", phase, out)
+	}
+	return string([]rune(trimmed)[0])
 }
 
 // setupLineContaining returns the one output line holding want, failing when it
@@ -651,5 +677,34 @@ func assertPreEditHookCommand(t *testing.T, goos, command string) {
 	}
 	if !strings.Contains(command, "exit 0") {
 		t.Errorf("%s: a missing binary fails the hook instead of exiting clean: %s", goos, command)
+	}
+}
+
+// TestAgentsPhaseCountsAgentWiringAsWork covers the half of the phase mark
+// that TestWiringTheHookIsReportedAsDoneNotSkipped does not reach: in that
+// fixture the session-end hook is wired, so hookWired alone already decides
+// the mark. The case that matters in the wild is the other one -- a repo where
+// the session-end hook is absent but setup just wrote the agent instructions.
+// That run did work, and must not call itself skipped.
+func TestAgentsPhaseCountsAgentWiringAsWork(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		hookWired   bool
+		agents      setupAgentsState
+		wantDidWork bool
+	}{
+		{"session-end hook alone is work", true, setupAgentsState{}, true},
+		{"instructions written is work", false, setupAgentsState{Installed: true, Changed: []string{"AGENTS.md"}}, true},
+		{"pre-edit hook merged is work", false, setupAgentsState{Installed: true, HookChanged: true}, true},
+		{"nothing changed is not work", false, setupAgentsState{Installed: true}, false},
+		{"wiring that failed is not work", false, setupAgentsState{Changed: []string{"AGENTS.md"}}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := setupAgentsPhaseDidWork(c.hookWired, c.agents); got != c.wantDidWork {
+				t.Errorf("setupAgentsPhaseDidWork(%v, %+v) = %v, want %v", c.hookWired, c.agents, got, c.wantDidWork)
+			}
+		})
 	}
 }

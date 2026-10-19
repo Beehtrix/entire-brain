@@ -220,7 +220,11 @@ func TestSetupStopsBackfillWhenItsStateCannotBeRecorded(t *testing.T) {
 
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
+	opts.verbose = true // asserts a phase row
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
 		t.Fatalf("setup should preserve the usable instant phase: %v", err)
@@ -255,6 +259,9 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 	}
 	if opts.workspace != defaults.workspace {
 		typed[setupFlagWorkspace] = opts.workspace
+	}
+	if opts.yes {
+		typed["yes"] = "true"
 	}
 	if opts.daemonName != defaults.daemonName {
 		typed[setupFlagDaemonName] = opts.daemonName
@@ -304,6 +311,11 @@ func setupTestCommand(t *testing.T, out *bytes.Buffer, opts setupCommandOptions)
 
 func runSetupForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
 	t.Helper()
+	// These tests assert the PHASE view: component names, skip reasons, phase
+	// order. That report still exists and is still worth pinning, it just is
+	// not the default any more. Tests for the short form use
+	// runSetupTerseForTest below, so each shape is asserted by name.
+	opts.verbose = true
 	out := &bytes.Buffer{}
 	cmd := setupTestCommand(t, out, opts)
 	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
@@ -325,7 +337,7 @@ func TestSetupInstantPhaseRunsFirstAndReportsQueryable(t *testing.T) {
 	if rec.instantCalls != 1 {
 		t.Fatalf("the instant phase must run exactly once, ran %d", rec.instantCalls)
 	}
-	for _, want := range []string{"instant core", "the brain is queryable now", "Brain ready"} {
+	for _, want := range []string{"instant core", "the brain is queryable now", "the brain is queryable"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in setup output:\n%s", want, out)
 		}
@@ -370,6 +382,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	steps.instant = nil // the real, best-effort instant phase
 	opts := defaultSetupOptions()
 	opts.noBackfill = true
+	opts.verbose = true // asserts phase rows: component failures and FAILED list
 	out := &bytes.Buffer{}
 	cmd := setupTestCommand(t, out, opts)
 
@@ -386,14 +399,16 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		setupRepoKeyMismatchHint(setupBrainBinaryName),
 		"the brain is queryable now",
 		"FAILED semantic",
-		"Brain ready",
+		"Ready",
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("setup output missing %q:\n%s", want, out)
 		}
 	}
-	// The phase summary must say what BUILT as well as what failed.
-	if !strings.Contains(out.String(), "built ") {
+	// The phase summary must say what BUILT as well as what failed. It COUNTS
+	// the ones that built and NAMES the one that did not: nine component names
+	// rendered three times is the output this phase line replaced.
+	if !strings.Contains(out.String(), "components built") {
 		t.Fatalf("the phase summary must name the components that built:\n%s", out)
 	}
 	// Every later phase still ran.
@@ -476,7 +491,7 @@ func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 
 	out := runSetupForTest(t, f, opts, rec)
 
-	if !strings.Contains(out, "built seed; FAILED semantic") {
+	if !strings.Contains(out, "1 of 2 components built, FAILED semantic") {
 		t.Fatalf("the phase line must name both halves:\n%s", out)
 	}
 }
@@ -556,6 +571,9 @@ func TestSetupBackfillIsDetachedNewestFirstAndCheap(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2", "s3")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 	opts.backfillBudget = 2
 	opts.model = "cheap-model"
@@ -612,7 +630,7 @@ func TestSetupSkipsBackfillWithoutSessions(t *testing.T) {
 	if rec.spawnCalls != 0 {
 		t.Fatalf("a repo with no captured sessions has nothing to distill, spawned %d", rec.spawnCalls)
 	}
-	if !strings.Contains(out, "no captured sessions yet") {
+	if !strings.Contains(out, "no sessions to distill") {
 		t.Fatalf("the skip must be one clear line:\n%s", out)
 	}
 }
@@ -755,7 +773,7 @@ func TestSetupSkipsTheDaemonOnAnOSWithNoServiceManager(t *testing.T) {
 	if !strings.Contains(out, "background watcher: not supported on windows yet") {
 		t.Fatalf("the skip must name the platform in one plain line:\n%s", out)
 	}
-	if !strings.Contains(out, "skipped") {
+	if !strings.Contains(out, "- Watcher") {
 		t.Fatalf("the line must read as a skip, not as a step that ran:\n%s", out)
 	}
 	if !strings.Contains(out, "entire-brain workspace watch") {
@@ -887,6 +905,9 @@ func TestSetupJSONReportIsMachineReadable(t *testing.T) {
 	f.markDistilled(t, "s1")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 	opts.json = true
 
@@ -1313,6 +1334,9 @@ func TestSetupSkipsBackfillWhileOneIsStillRunning(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2", "s3")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 
 	runSetupForTest(t, f, opts, rec)
@@ -1362,6 +1386,9 @@ func TestSetupRestartsTheBackfillWhenTheRecordedProcessIsDead(t *testing.T) {
 	f := newSetupTestFixture(t, "s1")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 
 	stateDir := filepath.Dir(f.storage.HeadPath)
@@ -1382,6 +1409,9 @@ func TestSetupCapsTheDefaultBackfillSpend(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2", "s3")
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions() // no --backfill-budget given
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 
 	out := runSetupForTest(t, f, opts, rec)
@@ -1404,6 +1434,9 @@ func TestSetupReportsWhatTheCapDidAndHowToLiftIt(t *testing.T) {
 	f := newSetupTestFixture(t, ids...)
 	rec := &recordedSetup{agent: "codex"}
 	opts := defaultSetupOptions()
+	// The fact phase asks before it spends; a test with no terminal consents
+	// by flag, exactly as a CI run must.
+	opts.yes = true
 	opts.noDaemon = true
 
 	out := runSetupForTest(t, f, opts, rec)
@@ -1542,4 +1575,16 @@ func TestBrainWatchDaemonPlanReadsTheEnvOverride(t *testing.T) {
 	if filepath.Dir(plan.UnitPath) != sandbox {
 		t.Fatalf("%s must redirect the unit into %s, got %s", envDaemonUnitDir, sandbox, plan.UnitPath)
 	}
+}
+
+// runSetupTerseForTest runs setup as a person runs it: the default short form.
+func runSetupTerseForTest(t *testing.T, f *setupTestFixture, opts setupCommandOptions, rec *recordedSetup) string {
+	t.Helper()
+	opts.verbose = false
+	out := &bytes.Buffer{}
+	cmd := setupTestCommand(t, out, opts)
+	if err := runSetup(context.Background(), cmd, f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+		t.Fatalf("runSetup: %v", err)
+	}
+	return out.String()
 }

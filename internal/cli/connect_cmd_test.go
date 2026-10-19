@@ -34,24 +34,33 @@ func runConnectCommand(t *testing.T, opts Options, args ...string) (string, stri
 func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	whereamiCalls := 0
+	placementCalls := 0
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			whereamiCalls++
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			placementCalls++
 		}
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 
-	_, _, err := runConnectCommand(t, opts,
+	out, _, err := runConnectCommand(t, opts,
 		"--repo-id", "01M2Q9WATHXVM46CD8Y4D3AX8W",
 		"--api-url", "https://cell.api.example.com/api/v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if whereamiCalls != 0 {
-		t.Fatalf("explicit flags must bypass whereami entirely, got %d calls", whereamiCalls)
+	if placementCalls != 0 {
+		t.Fatalf("explicit flags must bypass placement resolution entirely, got %d calls", placementCalls)
 	}
+	for _, want := range []string{
+		"Connected: repo 01M2Q9WATHXVM46CD8Y4D3AX8W is now syncing memories",
+		"sync periodically, at session end, and on git push",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output must contain %q, got:\n%s", want, out)
+		}
+	}
+	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
 		t.Fatal(err)
@@ -68,12 +77,12 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	}
 }
 
-func TestConnectResolvesViaWhereami(t *testing.T) {
+func TestConnectResolvesViaRepoView(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			return []byte(`{"repo_id":"01AAAAAAAAAAAAAAAAAAAAAAAA","api_url":"https://eu.api.example.com/api/v1","jurisdiction":"eu"}` + "\nUpdate available! 1 -> 2\n"), nil, nil
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"01AAAAAAAAAAAAAAAAAAAAAAAA","apiUrl":"https://eu.api.example.com/api/v1","name":"test/repo"}` + "\nUpdate available! 1 -> 2\n"), nil, nil
 		}
 		return nil, nil, errors.New("not available")
 	})
@@ -96,7 +105,7 @@ func TestConnectResolvesViaWhereami(t *testing.T) {
 	}
 }
 
-func TestConnectWhereamiUnavailableIsCleanError(t *testing.T) {
+func TestConnectPlacementUnavailableIsCleanError(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -106,7 +115,7 @@ func TestConnectWhereamiUnavailableIsCleanError(t *testing.T) {
 
 	_, _, err := runConnectCommand(t, opts)
 	if err == nil {
-		t.Fatal("whereami failure without flags must error")
+		t.Fatal("placement-resolution failure without flags must error")
 	}
 	if !strings.Contains(err.Error(), "--repo-id") {
 		t.Fatalf("error must point at the explicit flags, got: %v", err)
@@ -146,8 +155,8 @@ func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 func TestConnectRunsInitialPull(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()
@@ -183,26 +192,26 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	}
 }
 
-func TestResolveWhereamiBoundsTheShellOut(t *testing.T) {
+func TestResolveHostedPlacementBoundsTheShellOut(t *testing.T) {
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if _, ok := ctx.Deadline(); !ok {
-			t.Error("the whereami shell-out must carry a deadline")
+			t.Error("the placement shell-out must carry a deadline")
 		}
-		return []byte(`{"repo_id":"r","api_url":"https://cell.api.example.com"}`), nil, nil
+		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
 	})
-	if _, err := resolveWhereami(context.Background(), runner, "/repo"); err != nil {
+	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
+func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 	// A connected repo stays re-connectable without flags even before the host
-	// CLI ships whereami: connect falls back to the stored binding, so the
-	// blind-spot note's remedy ("run entire brain connect") always pulls.
+	// CLI ships repo view placement: connect falls back to the stored binding,
+	// so the blind-spot note's remedy ("run entire brain connect") always pulls.
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact via reconnect", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()
@@ -223,7 +232,7 @@ func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
 	}
 
 	if _, _, err := runConnectCommand(t, opts); err != nil {
-		t.Fatalf("connect on an already-connected repo must not require whereami, got %v", err)
+		t.Fatalf("connect on an already-connected repo must not require placement resolution, got %v", err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
 	if err != nil {
@@ -237,5 +246,42 @@ func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("reconnect must pull, got %d local records", len(local))
+	}
+}
+
+func TestConnectClearsOptOut(t *testing.T) {
+	// Re-joining after a disconnect must clear the opt-out, and the opted-out
+	// binding's kept coordinates must serve as the no-flag fallback.
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := runConnectCommand(t, opts); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present {
+		t.Fatalf("binding must be present: present=%v err=%v", present, err)
+	}
+	if binding.OptedOut {
+		t.Fatal("connect must clear the opt-out")
+	}
+	if binding.RepoID != "repo1" || binding.BaseURL != srv.URL {
+		t.Fatalf("connect must rebind the kept coordinates, got %+v", binding)
 	}
 }

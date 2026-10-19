@@ -19,6 +19,7 @@ import pathlib
 import platform
 import stat
 import sys
+import time
 import unicodedata
 from collections import Counter
 from typing import Any, Mapping, Sequence, cast
@@ -232,7 +233,23 @@ def _read_bounded(
     descriptor: int | None = None
     try:
         descriptor = os.open(path, flags)
+        # File timestamps advance at the kernel coarse-clock granularity (one
+        # jiffy, up to 10ms at HZ=100). A same-size in-place rewrite within
+        # the tick that produced the "before" fstat leaves every identity
+        # field equal, so the before/after comparison cannot see it; on fast
+        # machines create, read, and rewrite all fit inside one tick. Reading
+        # starts only once the timestamps are at least one tick old, which
+        # forces any modification during the read onto a newer timestamp. The
+        # wait is bounded and fails closed on a future-dated file.
         before = os.fstat(descriptor)
+        for _ in range(8):
+            age = time.time_ns() - max(before.st_mtime_ns, before.st_ctime_ns)
+            if age >= 15_000_000:
+                break
+            time.sleep(15_000_000 / 1e9)
+            before = os.fstat(descriptor)
+        else:
+            raise GatePrimitiveError(f"{label} timestamps never settled")
         _require(stat.S_ISREG(before.st_mode), f"{label} is not a regular file")
         _require(before.st_size <= max_raw_bytes, f"{label} exceeds the raw-byte ceiling")
         remaining = max_raw_bytes + 1

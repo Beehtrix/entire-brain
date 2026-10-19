@@ -917,11 +917,12 @@ func mcpToolDefinitions() []map[string]any {
 			// The caller already knows what it learned.
 			"description": "Record a durable fact about this repository so it survives the session. The only tool here that writes memory rather than derived state; read the result back with brain_query source=fact, or brain_get by id. path is a taxonomy path shaped category.subcategory.type, e.g. constraints.retry.policy; a path outside this repository's taxonomy is refused with the valid categories named (by default architecture, constraints, preferences, project, workflow). Facts are stored per branch and anchored to the current commit.",
 			"inputSchema": objectSchema([]string{"fact", "path"}, map[string]any{
-				"fact":   stringArg("fact", "The durable fact, as one self-contained sentence"),
-				"path":   stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
-				"kind":   enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
-				"branch": branchArg(),
-				"global": boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
+				"fact":    stringArg("fact", "The durable fact, as one self-contained sentence"),
+				"path":    stringArg("path", "Taxonomy path: category.subcategory.type, comma-separated for several"),
+				"kind":    enumArg("kind", "Fact kind; inferred when omitted", []string{"decision", "invariant", "gotcha", "preference", "convention"}),
+				"branch":  branchArg(),
+				"global":  boolArg("global", "Record outside every repository so the fact applies everywhere (a preference, a team convention, an environment detail). Cannot be combined with branch."),
+				"session": stringArg("session", "Session id the fact was authored in, so it carries session provenance (default: $"+rememberSessionEnv+")"),
 			}),
 		},
 		{
@@ -1201,13 +1202,19 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = globalErr
 			break
 		}
+		factSession, sessionErr := mcpOptionalString(params.Arguments, "session")
+		if sessionErr != nil {
+			err = sessionErr
+			break
+		}
 		err = runRemember(ctx, cmd, opts, rememberCommandOptions{
-			path:   strings.TrimSpace(taxonomyPath),
-			kind:   strings.TrimSpace(factKind),
-			branch: strings.TrimSpace(factBranch),
-			agent:  "none",
-			json:   true,
-			global: factGlobal,
+			path:    strings.TrimSpace(taxonomyPath),
+			kind:    strings.TrimSpace(factKind),
+			branch:  strings.TrimSpace(factBranch),
+			session: strings.TrimSpace(factSession),
+			agent:   "none",
+			json:    true,
+			global:  factGlobal,
 		}, factText)
 	case "brain_delete_project":
 		repoKey, stringErr := mcpOptionalString(params.Arguments, "repo_key")

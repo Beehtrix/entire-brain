@@ -712,7 +712,7 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotForVerify(v.ctx, v.opts.Runner, v.repoDir)
+	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, true, checkpointBranchDestinations{}, nil)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)
@@ -781,7 +781,11 @@ func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapsho
 	return "", ""
 }
 
-func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir string) (*checkpointSnapshot, []string, error) {
+// loadLocalCheckpointSnapshotLocalOnly resolves the local checkpoint union
+// for READERS: backend selection follows the configured primary, and the
+// snapshot never touches the network. Discovery completeness is the caller's
+// problem — a reader resolves checkpoints it already knows by id.
+func loadLocalCheckpointSnapshotLocalOnly(ctx context.Context, runner CommandRunner, repoDir string, raw bool, branchDestinations checkpointBranchDestinations, cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
 	if primaryErr != nil {
@@ -793,7 +797,7 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
 		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
 	}
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, true, 0, checkpointBranchDestinations{}, nil, nil, true)
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, 0, branchDestinations, nil, cache, true)
 	if err != nil {
 		return nil, warnings, err
 	}

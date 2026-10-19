@@ -346,3 +346,54 @@ func slicesContainsString(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+func TestBundleImportProtectsCheckpointBackedSessionCatalog(t *testing.T) {
+	_, opts, cmd, _, brain := bundleTestIndexedBrain(t)
+	manifest, err := loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.Sources.Sessions.Sessions = []exportSession{{SessionID: "incoming", TranscriptPath: "sessions/main/session.jsonl"}}
+	applySessionSourceAliases(manifest)
+	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(t.TempDir(), "brain.tar")
+	if err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, true); err != nil {
+		t.Fatal(err)
+	}
+	// Only a virtual session catalog remains occupied; no directory can cause
+	// the import to refuse on its behalf.
+	for _, layer := range brainBundleLayers {
+		if err := os.RemoveAll(filepath.Join(brain, layer.dir)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	manifest.Sources = &brainSources{Semantic: manifest.Sources.Semantic, Sessions: &sessionSourceManifest{
+		TranscriptStorage: transcriptStorageCheckpoint,
+		Sessions:          []exportSession{{SessionID: "local", TranscriptPath: "sessions/main/local.jsonl"}},
+	}}
+	applySessionSourceAliases(manifest)
+	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runSemanticBundleImport(cmd.Context(), cmd, opts, output, bundleSHA256(t, output), false)
+	if err == nil || !strings.Contains(err.Error(), "sessions") {
+		t.Fatalf("fileless catalog not protected: %v", err)
+	}
+	after, readErr := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+	if readErr != nil || string(after) != string(before) {
+		t.Fatal("refused import replaced manifest")
+	}
+	if err := runSemanticBundleImport(cmd.Context(), cmd, opts, output, bundleSHA256(t, output), true); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := loadBrainManifest(brain)
+	if err != nil || len(restored.Sessions) != 1 || restored.Sessions[0].SessionID != "incoming" || checkpointBackedSessions(restored) {
+		t.Fatalf("overwrite failed to restore bundle source: %+v %v", restored, err)
+	}
+}

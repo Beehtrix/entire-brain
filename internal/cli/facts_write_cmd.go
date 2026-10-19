@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ type rememberCommandOptions struct {
 	path         string
 	kind         string
 	branch       string
+	session      string
 	agent        string
 	model        string
 	agentCommand []string
@@ -33,12 +35,27 @@ func newRememberCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
 	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Fact kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
 	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
+	cmd.Flags().StringVar(&rememberOpts.session, "session", "", "Session id the fact was authored in (default: $"+rememberSessionEnv+"); agent and hook callers pass it so the fact carries session provenance")
 	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
 	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created fact as JSON")
 	cmd.Flags().BoolVar(&rememberOpts.global, "global", false, "Record the fact globally, so every repository recalls it")
 	return cmd
+}
+
+// rememberSessionEnv lets agent/hook/MCP callers pass the session id through
+// the environment when the --session flag is not plumbable.
+const rememberSessionEnv = "ENTIRE_BRAIN_SESSION_ID"
+
+// rememberSessionID resolves the session an authored fact was created in:
+// --session, then $ENTIRE_BRAIN_SESSION_ID. A human running `remember` in a
+// terminal legitimately has neither; an absent SessionID stays valid.
+func rememberSessionID(rememberOpts rememberCommandOptions) string {
+	if session := strings.TrimSpace(rememberOpts.session); session != "" {
+		return session
+	}
+	return strings.TrimSpace(os.Getenv(rememberSessionEnv))
 }
 
 // rememberAnchorCommit resolves the commit an authored fact should cite.
@@ -140,11 +157,12 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	anchor := factAnchor{}
-	// A global fact has no commit to cite. An anchor pointing at whatever
-	// happened to be checked out would be worse than none: verification would
-	// resolve it and report the fact as evidenced by a commit it has nothing to
-	// do with.
+	// A global fact has no provenance to cite: a commit from whatever happened
+	// to be checked out would be laundered by verification, and a session id is
+	// repo-scoped — stamping it on a record in the cross-repo store leaks one
+	// repository's session into every repository's recall.
 	if !global {
+		anchor.SessionID = rememberSessionID(rememberOpts)
 		if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
 			anchor.Commit = commit
 		}

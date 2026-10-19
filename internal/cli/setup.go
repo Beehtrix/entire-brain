@@ -1636,7 +1636,15 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
+			// setup resolves the agent once and embeds it in the daemon plan,
+			// so this is the single place a user is told which agent their
+			// repository's content will be sent to — announce it. Silent under
+			// --json, as every other human line in setup already is.
+			var announce io.Writer
+			if !setupOpts.json {
+				announce = cmd.ErrOrStderr()
+			}
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
 		}
 	}
 	if steps.spawnBackfill == nil {

@@ -6,7 +6,6 @@ network listener, fetch remote data, or call hosted models.
 Available tools:
 
 - `brain_status`
-- `brain_index_status` (alias for `brain_status`)
 - Project/index management: `brain_refresh`, `brain_index_repository`,
   `brain_list_projects`, `brain_delete_project`
 - `brain_brief`
@@ -23,11 +22,10 @@ Available tools:
   branch, so pass `branch` to read ones recorded on the integration branch.
 - Unified retrieval: `brain_query` (hybrid by default; optional mutually exclusive
   `keyword: true` or `semantic: true`), `brain_get`, `brain_multi_get`.
-  Compatibility tools: `brain_search` (lexical), `brain_vsearch` (vector).
-- Symbol graph: `brain_code`, `brain_search_code`, `brain_context`,
-  `brain_impact`, `brain_changes`, `brain_detect_changes`, `brain_tests`,
+- Symbol graph: `brain_code`, `brain_context`,
+  `brain_impact`, `brain_changes`, `brain_tests`,
   `brain_boundaries`, `brain_search_graph`, `brain_query_graph`,
-  `brain_get_graph_schema`, `brain_get_architecture`, `brain_get_code_snippet`,
+  `brain_get_graph_schema`, `brain_get_code_snippet`,
   `brain_trace_path`, `brain_dead_code`, `brain_ingest_traces`
 - Diff-less review: `brain_regressions`, `brain_review`
 - Cross-repo (workspace): `brain_workspace_graph`,
@@ -353,3 +351,24 @@ human at a terminal keeps every cross-repo verb, gate unset.
 inspection tools. Skill formation is intentionally not exposed as an MCP write
 tool; use the explicit CLI flow `entire brain patterns skills form` when a human
 or authorized automation wants to synthesize a skill.
+
+## Hidden compatibility aliases
+
+Six names still answer but are no longer advertised in `tools/list`. Each was a
+pure alias, and an agent picks worse from a longer list of tools that do the
+same job. They are hidden rather than removed, so anything that already learned
+the name keeps working.
+
+| hidden name | use instead |
+|---|---|
+| `brain_search` | `brain_query` with `keyword: true` |
+| `brain_vsearch` | `brain_query` with `semantic: true` |
+| `brain_search_code` | `brain_code` |
+| `brain_detect_changes` | `brain_changes` |
+| `brain_get_architecture` | `brain_get_graph_schema` |
+| `brain_index_status` | `brain_status` |
+
+The list lives in `mcpHiddenAliases` (`internal/cli/mcp.go`). A test asserts
+every entry still routes, is not also declared, and names a replacement, so the
+list cannot rot into excusing a name nothing answers.
+

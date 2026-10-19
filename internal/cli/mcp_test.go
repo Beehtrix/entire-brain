@@ -161,9 +161,17 @@ func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
 		}
 		names[name] = true
 	}
-	for _, want := range []string{"brain_search", "brain_vsearch", "brain_query", "brain_get", "brain_multi_get"} {
+	for _, want := range []string{"brain_query", "brain_get", "brain_multi_get"} {
 		if !names[want] {
 			t.Fatalf("tools/list missing QMD retrieval tool %q; got %v", want, names)
+		}
+	}
+	// brain_search and brain_vsearch are hidden compatibility aliases: they
+	// still route and keep their schemas, but advertising them put three names
+	// on one capability in front of an agent choosing between tools.
+	for alias := range mcpHiddenAliases {
+		if names[alias] {
+			t.Fatalf("tools/list advertises hidden alias %q; got %v", alias, names)
 		}
 	}
 }
@@ -364,7 +372,9 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 }
 
 func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		schema, ok := tool["inputSchema"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s missing inputSchema", tool["name"])
@@ -378,7 +388,9 @@ func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
 func TestMCPToolSchemasMatchArgumentValidator(t *testing.T) {
 	allPublicKeys := map[string]bool{"__unexpected": true}
 	toolKeys := map[string]map[string]bool{}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -440,7 +452,9 @@ func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
 	var input strings.Builder
 	var wants []string
 	id := 1
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -501,7 +515,9 @@ func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
 
 func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	byName := map[string]map[string]any{}
-	for _, tool := range mcpToolDefinitions() {
+	// Schemas, not the advertised list: brain_search and brain_vsearch are
+	// hidden aliases now, and hiding must not change what they accept.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		byName[name] = tool
 	}
@@ -556,7 +572,9 @@ func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
 		"brain_search_graph":     "offset",
 		"brain_get_code_snippet": "context_lines",
 	}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		key, ok := wantMinZero[name]
 		if !ok {
@@ -580,7 +598,10 @@ func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T
 	for _, name := range []string{"brain_get_graph_schema", "brain_get_architecture"} {
 		t.Run(name, func(t *testing.T) {
 			var description string
-			for _, tool := range mcpToolDefinitions() {
+			// brain_get_architecture is a hidden alias; its description must
+			// still match, so this reads the full set rather than the
+			// advertised one.
+			for _, tool := range mcpAllToolDefinitions() {
 				if tool["name"] == name {
 					description, _ = tool["description"].(string)
 				}
@@ -1802,7 +1823,8 @@ func mcpConversationFixture(t *testing.T, repoDir string, env EntireEnv, runner 
 // contract: brain_query, brain_search, and brain_vsearch all
 // advertise the same enum-valued source argument (including "conversation").
 func TestMCPToolsListSourceEnumOnRetrievalTools(t *testing.T) {
-	defs := mcpToolDefinitions()
+	// Hidden aliases must keep the same source enum as the tool they alias.
+	defs := mcpAllToolDefinitions()
 	sourceEnum := func(name string) ([]string, bool) {
 		for _, def := range defs {
 			if def["name"] != name {
@@ -2198,7 +2220,9 @@ func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 	}
 
 	seen := 0
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		schema, _ := tool["inputSchema"].(map[string]any)
 		props, _ := schema["properties"].(map[string]any)
@@ -2462,8 +2486,43 @@ func TestEveryDeclaredToolIsRouted(t *testing.T) {
 		}
 	}
 	for name := range routed {
-		if !declared[name] {
-			t.Errorf("tool %q is routed but not declared: it works, and no client can discover it (this is exactly how brain_remember was lost)", name)
+		if declared[name] {
+			continue
+		}
+		// Hiding an alias is deliberate, so it is allowed here -- but only if
+		// it is written down in mcpHiddenAliases. An unlisted routed tool is
+		// the accident this test exists for.
+		if _, hidden := mcpHiddenAliases[name]; !hidden {
+			t.Errorf("tool %q is routed but neither declared nor listed in mcpHiddenAliases: it works, and no client can discover it (this is exactly how brain_remember was lost)", name)
+		}
+	}
+
+	// The hidden list must not rot. Every entry has to name a tool that still
+	// routes -- otherwise it is silently excusing a name nothing answers -- and
+	// must not also be declared, which would make "hidden" a lie.
+	for name, replacement := range mcpHiddenAliases {
+		if !routed[name] {
+			t.Errorf("mcpHiddenAliases lists %q, but nothing routes it; drop the entry", name)
+		}
+		if declared[name] {
+			t.Errorf("%q is in mcpHiddenAliases and also declared; it is not hidden", name)
+		}
+		if replacement == "" {
+			t.Errorf("%q is hidden with no replacement named; a caller needs to know what to use instead", name)
+		}
+	}
+
+	// Hiding must not remove capability: every alias still answers, which is
+	// the whole basis for hiding it rather than deleting it.
+	allNames := map[string]bool{}
+	for _, def := range mcpAllToolDefinitions() {
+		if n, _ := def["name"].(string); n != "" {
+			allNames[n] = true
+		}
+	}
+	for name := range mcpHiddenAliases {
+		if !allNames[name] {
+			t.Errorf("hidden alias %q has no definition in mcpAllToolDefinitions; its schema was deleted rather than hidden", name)
 		}
 	}
 

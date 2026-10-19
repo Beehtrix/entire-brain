@@ -20,7 +20,7 @@ jobs:
     runs-on: depot-ubuntu-24.04-4
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # Official current-main v7.0.0 bundle with the repeated-DOCTYPE parser fix.
         with: { go-version: "1.27.2" }
       - run: go vet ./...
       - name: Test browser controller request lifetimes
@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
@@ -68,7 +68,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - name: Prove the selected tests catch their intended regressions
         run: python3 -B tools/coverage/mutation_check.py
@@ -83,7 +83,7 @@ jobs:
           - { goos: windows, goarch: arm64 }
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - env:
           GOOS: ${{ matrix.goos }}
@@ -103,9 +103,13 @@ jobs:
     # "test (<os>)" is a required check on main.
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.runner }}
+    # Backstop only. go test -timeout fires first and prints which tests were
+    # still running, which is the useful artefact; neither job had any cap, so
+    # a genuine hang ran to GitHub's 360-minute default.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - name: Test with coverage and binary contracts
         run: python3 -B tools/coverage/run.py --race --output "${{ runner.temp }}/brain-coverage"
@@ -130,7 +134,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
           cache-dependency-path: go.sum
@@ -189,7 +193,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
           cache-dependency-path: go.sum
@@ -232,7 +236,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
           cache-dependency-path: go.sum
@@ -275,7 +279,7 @@ jobs:
       - uses: actions/checkout@v6.0.2
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
           cache-dependency-path: go.sum
@@ -294,7 +298,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
       - uses: actions/download-artifact@v6
@@ -373,11 +377,13 @@ jobs:
             runner: depot-macos-26
     name: test-cgo (${{ matrix.os }})
     runs-on: ${{ matrix.runner }}
+    # Backstop only; see the note on the `test` job.
+    timeout-minutes: 45
     env:
       CGO_ENABLED: "1"
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - name: Test CGO with coverage and binary contracts
         run: python3 -B tools/coverage/run.py --race --tags "brain_cgo sqlite_fts5" --output "${{ runner.temp }}/brain-coverage"
@@ -411,7 +417,7 @@ jobs:
       GOSUMDB: "off"
     steps:
       - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
       - name: Prime module cache
         env:
@@ -435,7 +441,7 @@ jobs:
         with: { python-version: "3.14" }
       # The task negative-control module drives the pinned Go toolchain. Same
       # story: the job had no Go at all.
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.26.2" }
       # That module discovers its toolchain with GOPROXY=off, deliberately — the
       # receipt it produces is only a negative control if the runtime is fixed
@@ -619,7 +625,7 @@ jobs:
         with: { fetch-depth: 0 }
       - uses: actions/setup-python@v7
         with: { python-version: "3.14" }
-      - uses: actions/setup-go@v7
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version-file: go.mod }
       - name: Check out the fixed Graph integration dependency
         uses: actions/checkout@v6.0.2

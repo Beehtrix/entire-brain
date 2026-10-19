@@ -56,8 +56,8 @@ func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 func TestSessionEndHookSyncsAndPullsWithCleanStdout(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact via hook", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage := sessionEndHarness(t, fake, true)
 
 	stdout, _ := runSessionEndHook(t, opts)

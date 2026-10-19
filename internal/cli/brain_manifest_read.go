@@ -64,6 +64,27 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 		dropped = err == nil
 	}
 	if err != nil {
+		// An unknown field is not damage, and saying "cannot be parsed" sends
+		// the reader looking for corruption that is not there. The manifest is
+		// entirely readable; a WRITER is refusing it, because re-encoding from
+		// a struct that never saw the field would erase what another build
+		// recorded. Readers pass tolerateUnknown and are unaffected.
+		//
+		// Observed cost of the old wording: a component sat failed for four
+		// days reporting memory_state_corrupt, while the manifest was fine and
+		// the condition had already gone away.
+		//
+		// The error CODE stays memory_state_corrupt deliberately. It is part of
+		// the maintenance taxonomy with many consumers, so retyping this case
+		// is a contract change for a human to make, not a side effect of
+		// improving a sentence.
+		if !tolerateUnknown && isUnknownFieldError(err) {
+			return nil, version, false, fmt.Errorf(
+				"parse brain manifest: %s: brain manifest carries a field this build does not know (%w); "+
+					"the file is readable and is NOT damaged, but a writer will not rewrite it and silently drop that field. "+
+					"Use a build that knows the field, or let a read-only command run instead",
+				memoryErrStateCorrupt, err)
+		}
 		return nil, version, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
 	}
 	if version < brainManifestMinSchemaVersion {

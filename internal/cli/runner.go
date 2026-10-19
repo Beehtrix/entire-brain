@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -221,12 +222,19 @@ func (s *execStream) Close() error {
 
 // cappedBuffer is an io.Writer that retains at most limit bytes. Writes past the
 // cap are counted but discarded, so diagnostics keep the head of the output.
+//
+// The mutex exists because exec's copy goroutine writes while a reader can
+// call Bytes after Wait returned early: with WaitDelay set, Wait may return
+// on a forced pipe close while the copier is still draining its final read.
 type cappedBuffer struct {
+	mu    sync.Mutex
 	buf   bytes.Buffer
 	limit int
 }
 
 func (c *cappedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if room := c.limit - c.buf.Len(); room > 0 {
 		if room < len(p) {
 			c.buf.Write(p[:room])
@@ -237,4 +245,10 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (c *cappedBuffer) Bytes() []byte { return c.buf.Bytes() }
+func (c *cappedBuffer) Bytes() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Copy: the caller must not observe later writes through a shared backing
+	// array.
+	return bytes.Clone(c.buf.Bytes())
+}

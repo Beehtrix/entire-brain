@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -245,5 +246,63 @@ func TestBundleImportSilentAtSupportedMinor(t *testing.T) {
 		if warning.Code == "provider_schema_newer_minor" {
 			t.Fatalf("unexpected schema-skew warning at the supported minor: %+v", warning)
 		}
+	}
+}
+
+// TestCurrentProviderSchemaDoesNotWarn pins COR-2007. entire-graph has shipped
+// schema 1.3 since 2026-09-13 while this build advertised 1.1, so EVERY index
+// against a current provider raised provider_schema_newer_minor and told the
+// user additive facts "may not have been ingested". They were ingested: 1.2's
+// identity_revision is consumed by internal/entityindex, and 1.3's
+// completeness.health rides through as the Completeness raw message.
+//
+// The warning is still the right mechanism, so this also pins that a genuinely
+// newer minor keeps firing it. Bumping the constant without teaching the reader
+// the new fields would turn a true warning into a silent drop.
+func TestCurrentProviderSchemaDoesNotWarn(t *testing.T) {
+	t.Parallel()
+	for _, version := range []string{"1.0", "1.1", "1.2", "1.3"} {
+		if w := semanticSchemaMinorSkewWarning(version); w != nil {
+			t.Fatalf("schema %q warned (%s: %s); this build ingests it in full",
+				version, w.Code, w.Effect)
+		}
+	}
+	for _, version := range []string{"1.4", "1.17"} {
+		w := semanticSchemaMinorSkewWarning(version)
+		if w == nil {
+			t.Fatalf("schema %q did not warn; a minor this build has not been taught must warn", version)
+		}
+		if !strings.Contains(w.Detail, semanticSchemaVersion) {
+			t.Fatalf("warning for %q must name what this build reads (%s), got: %s",
+				version, semanticSchemaVersion, w.Detail)
+		}
+	}
+	// A new major is a refusal, not a warning: that boundary is unchanged.
+	if err := validateSemanticSchema("2.0"); err == nil {
+		t.Fatal("schema 2.0 accepted; a new major must still be refused")
+	}
+}
+
+// TestPartialFailureLanguageSurvivesDecoding pins the one field schema 1.3
+// added that this build was dropping. The provider sets language when a source
+// fails BEFORE any file record exists, which is exactly when file_path is
+// empty -- so dropping it left the failure attributable to nothing at all.
+func TestPartialFailureLanguageSurvivesDecoding(t *testing.T) {
+	t.Parallel()
+	var w semanticWarning
+	raw := `{"code":"parse_failed","severity":"warning","language":"rust",` +
+		`"effect_on_semantic_completeness":"rust symbols absent"}`
+	if err := json.Unmarshal([]byte(raw), &w); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if w.Language != "rust" {
+		t.Fatalf("language dropped: got %q, want \"rust\"", w.Language)
+	}
+	// The case that motivates the field: no file_path to fall back on.
+	if w.Path != "" {
+		t.Fatalf("path should be empty for a pre-file-record failure, got %q", w.Path)
+	}
+	if w.Effect != "rust symbols absent" {
+		t.Fatalf("provider effect alias regressed: %q", w.Effect)
 	}
 }

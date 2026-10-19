@@ -424,12 +424,12 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 	// The reason survives the terminal: status says failed, doctor has the why.
 	stateDir := filepath.Dir(f.storage.HeadPath)
-	failed := failedSetupComponents(stateDir)
+	failed := failedSetupComponents(stateDir, f.storage.BrainDir)
 	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
 		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
 	}
 	brainManifest, _ := loadBrainManifest(f.storage.BrainDir)
-	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir))
+	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir), nil)
 	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
 		t.Fatalf("status must show semantic=failed, got %q: %+v", state, components)
 	}
@@ -867,8 +867,19 @@ func TestSetupUninstallUsesTheMachineDaemonName(t *testing.T) {
 	opts := defaultSetupOptions()
 	opts.uninstallDaemon = true
 	runSetupForTest(t, f, opts, rec)
-	if rec.uninstallCalls != 1 || rec.uninstalled.Label != launchdLabel(machineName) {
+	// What this guards is WHICH daemon uninstall targets -- the machine one
+	// from the watch plan, not a stale per-repo daemon. It no longer compares
+	// the label verbatim, because an overridden unit directory now contributes
+	// a scope suffix so a throwaway install cannot bootstrap over the real
+	// registration. Install and uninstall share one plan (setup.go builds it
+	// once, deliberately), so the suffix cannot make them disagree.
+	if rec.uninstallCalls != 1 || !strings.HasPrefix(rec.uninstalled.Label, launchdLabel(machineName)) {
 		t.Fatalf("uninstall targeted stale repo daemon instead of machine daemon: calls=%d plan=%+v", rec.uninstallCalls, rec.uninstalled)
+	}
+	// ...and it must still be a machine-daemon label, not merely any label
+	// that happens to share the prefix.
+	if !strings.Contains(rec.uninstalled.Label, "brain-watch-shared") {
+		t.Fatalf("uninstall did not target the machine daemon: %q", rec.uninstalled.Label)
 	}
 }
 

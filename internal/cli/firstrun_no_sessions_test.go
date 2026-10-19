@@ -438,7 +438,7 @@ func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
 	// Fault 2, status's half: read the verdict the same surface builds.
 	report := brainStatusReport{
 		Semantic:   &brainStatusSemantic{},
-		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)), nil)},
 	}
 	health := buildStatusHealth(report)
 	if !health.NoCapturedSessions {
@@ -475,7 +475,7 @@ func TestEgressAllowedCompleteEmptyInventoryIsNotAFailure(t *testing.T) {
 	}
 	health := buildStatusHealth(brainStatusReport{
 		Semantic:   &brainStatusSemantic{},
-		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)))},
+		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)), nil)},
 	})
 	for _, failed := range health.Failed {
 		if failed == brainComponentSessions {

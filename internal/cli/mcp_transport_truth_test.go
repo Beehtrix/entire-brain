@@ -275,7 +275,9 @@ func TestAnOversizeStringArgumentIsRefusedBeforeItIsEchoed(t *testing.T) {
 		t.Errorf("an argument at the declared maximum was refused: %v", err)
 	}
 	// And the schema declares what the handler enforces.
-	for _, def := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, def := range mcpAllToolDefinitions() {
 		schema, _ := def["inputSchema"].(map[string]any)
 		props, _ := schema["properties"].(map[string]any)
 		for name, raw := range props {
@@ -326,7 +328,9 @@ func TestBrainPatternsRejectsAValueItCannotFilterOn(t *testing.T) {
 		}
 	}
 	// The schema advertises exactly what the handler accepts.
-	for _, def := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, def := range mcpAllToolDefinitions() {
 		if def["name"] != "brain_patterns" {
 			continue
 		}

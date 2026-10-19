@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
 
@@ -188,7 +189,13 @@ func newSetupComponent(name string, err error, brainCmd string) setupComponent {
 	if err == nil {
 		return setupComponent{Name: name, State: "ok"}
 	}
-	component := setupComponent{Name: name, State: "failed", Detail: strings.TrimSpace(err.Error())}
+	// Flatten is the CLASS guard, applied where EVERY component's detail is
+	// born rather than per component: a stage that shells out to another
+	// program hands us that program's whole stderr, and an unsummarised usage
+	// dump printed here buries setup's real report under sixty lines of
+	// someone else's help screen. A producer that already summarised passes
+	// through untouched; see providerdetail.Flatten.
+	component := setupComponent{Name: name, State: "failed", Detail: providerdetail.Flatten(err.Error())}
 	switch {
 	case setupIsRepoKeyMismatch(component.Detail):
 		component.Hint = setupRepoKeyMismatchHint(brainCmd)
@@ -1636,7 +1643,15 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
+			// setup resolves the agent once and embeds it in the daemon plan,
+			// so this is the single place a user is told which agent their
+			// repository's content will be sent to — announce it. Silent under
+			// --json, as every other human line in setup already is.
+			var announce io.Writer
+			if !setupOpts.json {
+				announce = cmd.ErrOrStderr()
+			}
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
 		}
 	}
 	if steps.spawnBackfill == nil {
@@ -1909,9 +1924,36 @@ func readSetupInstantRecord(stateDir string) setupInstantRecord {
 
 // failedSetupComponents is what `doctor` prints: the components the last setup
 // could not build, with the reason and the hint.
-func failedSetupComponents(stateDir string) []setupComponent {
-	_, failed := partitionSetupComponents(readSetupInstantRecord(stateDir).Components)
-	return failed
+// failedSetupComponents returns the components the last setup could not
+// build, with failures that have since been fixed removed.
+//
+// It takes brainDir for the same reason instantPhaseComponents does: a
+// recorded failure is only still a failure if the component's own subsystem
+// has not produced a successful run since. Without that, `brain status`
+// clears a stale failure and `brain doctor` keeps reporting it from the same
+// record -- which is the two-surfaces-disagree bug this rule exists to end,
+// reproduced between a different pair of surfaces.
+func failedSetupComponents(stateDir, brainDir string) []setupComponent {
+	record := readSetupInstantRecord(stateDir)
+	_, failed := partitionSetupComponents(record.Components)
+	return pruneRebuiltFailures(failed, componentRunTimes(brainDir), record.UpdatedAt)
+}
+
+// pruneRebuiltFailures drops failures whose component has produced a
+// successful run since the failure was recorded.
+//
+// One implementation, shared by `status` and `doctor`. They used to each
+// decide for themselves, which is how status came to report a component as
+// built while doctor reported the same record as an error.
+func pruneRebuiltFailures(failed []setupComponent, runs map[string]time.Time, recordedAt time.Time) []setupComponent {
+	kept := make([]setupComponent, 0, len(failed))
+	for _, component := range failed {
+		if componentRebuiltSince(runs, component.Name, recordedAt) {
+			continue
+		}
+		kept = append(kept, component)
+	}
+	return kept
 }
 
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {

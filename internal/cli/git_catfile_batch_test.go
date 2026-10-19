@@ -18,10 +18,11 @@ const batchTestSpec = "HEAD:blob.txt"
 
 func newBatchTestRepo(t *testing.T, content string) string {
 	t.Helper()
-	// Children must be reaped before t.TempDir cleanup: on Windows a live
-	// child's CWD inside the repo makes directory removal fail.
-	t.Cleanup(closeCatFileBatches)
 	dir := t.TempDir()
+	// Registered AFTER t.TempDir so it runs BEFORE TempDir's RemoveAll
+	// (cleanups are LIFO): on Windows a live child's CWD inside the repo makes
+	// directory removal fail.
+	t.Cleanup(closeCatFileBatches)
 	liveGit(t, dir, "init", "-q", "-b", "main")
 	if err := os.WriteFile(filepath.Join(dir, "blob.txt"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)

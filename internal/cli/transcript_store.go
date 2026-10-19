@@ -439,10 +439,10 @@ func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, 
 			if checked[key] {
 				continue
 			}
-			kind, _, err := runCheckpointGitLocal(ctx, runner, source.GitDir, "cat-file", "-t", source.Ref+":"+actualPath)
-			if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+			kind, err := localObjectType(ctx, runner, source.GitDir, source.Ref+":"+actualPath)
+			if err != nil || kind != "blob" {
 				if err == nil {
-					err = fmt.Errorf("expected blob, got %q", strings.TrimSpace(string(kind)))
+					err = fmt.Errorf("expected blob, got %q", kind)
 				}
 				return fmt.Errorf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
 			}

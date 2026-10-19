@@ -1,0 +1,281 @@
+package cli
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// git_catfile_batch.go routes repeated object reads through one long-lived
+// `git cat-file --batch` child per (gitDir, policy) instead of one `git
+// cat-file` exec per blob. A cold export/distill on a ~1,000-checkpoint repo
+// spawned ~5,000 git processes at ~30ms each (COR-2182); the same reads
+// through one child are pipe round-trips.
+//
+// The child is spawned through hardenedGitInvocation — the same preamble the
+// buffered and streaming runners use — and carries localOnlyGitEnv when the
+// caller demanded a local-only read, so policy stays byte-for-byte the
+// per-exec path's. Callers treat any infrastructure error as "fall back to
+// the per-exec path", so a broken or killed child never changes behavior,
+// only speed; a failing key cools down rather than respawning per read.
+//
+// Children exit on stdin EOF, which the OS delivers when this process exits.
+// A long-lived parent (the MCP server) keeps at most one idle child per key,
+// bounded by the handful of repositories it serves.
+
+// catFileBatchMaxBlobBytes bounds one blob read so a corrupt size header
+// cannot drive the process out of memory. The per-exec fallback buffers whole
+// blobs too; this is a guard against a nonsense header, not a content policy.
+const catFileBatchMaxBlobBytes = 1 << 30
+
+// catFileBatchRetryInterval is how long a key that failed to spawn or broke
+// mid-stream answers errors immediately (sending callers to the per-exec
+// path) before a fresh child is attempted. Without it a persistently broken
+// child would respawn per read — a spawn storm costlier than no batching.
+const catFileBatchRetryInterval = time.Minute
+
+// errCatFileBatchMissing is git's definitive "object not found" answer. It is
+// a real result, not an infrastructure failure: callers must NOT retry it on
+// the per-exec path, which would answer the same thing one spawn later.
+var errCatFileBatchMissing = errors.New("object missing")
+
+// catFileBatchKey separates children by policy as well as repository. check
+// children run `--batch-check` because a type probe must not stream the
+// object body: transcript validation asks "is this a blob" about multi-MB
+// transcript chunks, and answering through the content child would pipe the
+// whole corpus through only to discard it.
+type catFileBatchKey struct {
+	gitDir    string
+	localOnly bool
+	check     bool
+}
+
+// catFileBatchEntry is the registry slot for one key. once gates the spawn so
+// concurrent first users wait for one child instead of racing several, and a
+// failed entry keeps err+retryAfter as a cooldown tombstone.
+type catFileBatchEntry struct {
+	once       sync.Once
+	proc       *catFileBatchProc
+	err        error
+	retryAfter time.Time
+}
+
+// catFileBatchProc is one child. Requests are strictly serialized under mu:
+// one spec line written, one full record read, so the stream cannot desync
+// across goroutines. Any read/parse irregularity kills the child and
+// tombstones its registry entry for catFileBatchRetryInterval.
+type catFileBatchProc struct {
+	key    catFileBatchKey
+	mu     sync.Mutex
+	cmd    *exec.Cmd
+	in     io.WriteCloser
+	out    *bufio.Reader
+	stderr *cappedBuffer
+	broken bool
+}
+
+var (
+	catFileBatchMu      sync.Mutex
+	catFileBatchEntries = map[catFileBatchKey]*catFileBatchEntry{}
+)
+
+func runnerAllowsCatFileBatch(runner CommandRunner) bool {
+	b, ok := runner.(GitCatFileBatcher)
+	return ok && b.CatFileBatchAllowed()
+}
+
+// catFileBatchEntryFor returns the live entry for key, replacing an expired
+// tombstone. It holds the registry lock only for map access; spawning happens
+// in the entry's once, outside the lock, so a slow spawn on one key never
+// blocks reads on another.
+func catFileBatchEntryFor(key catFileBatchKey) *catFileBatchEntry {
+	catFileBatchMu.Lock()
+	defer catFileBatchMu.Unlock()
+	if e, ok := catFileBatchEntries[key]; ok {
+		if e.err == nil || time.Now().Before(e.retryAfter) {
+			return e
+		}
+	}
+	e := &catFileBatchEntry{}
+	catFileBatchEntries[key] = e
+	return e
+}
+
+func catFileBatchProcFor(ctx context.Context, key catFileBatchKey) (*catFileBatchProc, error) {
+	e := catFileBatchEntryFor(key)
+	e.once.Do(func() {
+		proc, err := spawnCatFileBatch(ctx, key)
+		// Published under the registry lock: catFileBatchEntryFor reads these
+		// fields under the same lock while this spawn may still be in flight.
+		catFileBatchMu.Lock()
+		e.proc, e.err = proc, err
+		if err != nil {
+			e.retryAfter = time.Now().Add(catFileBatchRetryInterval)
+		}
+		catFileBatchMu.Unlock()
+	})
+	return e.proc, e.err
+}
+
+func spawnCatFileBatch(ctx context.Context, key catFileBatchKey) (*catFileBatchProc, error) {
+	mode := "--batch"
+	if key.check {
+		mode = "--batch-check"
+	}
+	var env map[string]string
+	if key.localOnly {
+		env = localOnlyGitEnv()
+	}
+	args, mergedEnv, err := hardenedGitInvocation(ctx, key.gitDir, env, "cat-file", mode)
+	if err != nil {
+		return nil, err
+	}
+	// Not CommandContext: the child outlives any one caller's context on
+	// purpose. It dies on stdin EOF when this process exits.
+	cmd := exec.Command("git", args...)
+	cmd.WaitDelay = commandWaitDelay
+	cmd.Dir = key.gitDir
+	cmd.Env = mergedEnv
+	stderr := &cappedBuffer{limit: streamStderrCap}
+	cmd.Stderr = stderr
+	in, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &catFileBatchProc{key: key, cmd: cmd, in: in, out: bufio.NewReader(out), stderr: stderr}, nil
+}
+
+// fail kills the child and tombstones its registry entry so the key answers
+// errors for a cooldown instead of respawning per read. Called under p.mu.
+func (p *catFileBatchProc) fail(cause error) {
+	p.broken = true
+	_ = p.in.Close()
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Kill()
+	}
+	// Reap the child so a failed proc never lingers as a zombie.
+	go func() { _ = p.cmd.Wait() }()
+	tombstone := &catFileBatchEntry{
+		err:        fmt.Errorf("git cat-file batch: cooling down after: %w (stderr: %s)", cause, strings.TrimSpace(string(p.stderr.Bytes()))),
+		retryAfter: time.Now().Add(catFileBatchRetryInterval),
+	}
+	tombstone.once.Do(func() {})
+	catFileBatchMu.Lock()
+	catFileBatchEntries[p.key] = tombstone
+	catFileBatchMu.Unlock()
+}
+
+// request writes one spec and reads one record. body is nil in check mode.
+// ponytail: no mid-read context cancellation — local object reads are pipe
+// round-trips and the child dies with the parent; a child that stalls is
+// killed by the next error path and the key cools down.
+func (p *catFileBatchProc) request(ctx context.Context, spec string, withBody bool) ([]byte, string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", err
+	}
+	// A newline would inject a second request; whitespace of any kind would
+	// make git's space-delimited "missing" answer unparseable. Both route the
+	// caller to the per-exec path, which handles any spec.
+	if strings.ContainsAny(spec, " \t\n\r") {
+		return nil, "", fmt.Errorf("git cat-file batch: spec contains whitespace: %q", spec)
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.broken {
+		return nil, "", errors.New("git cat-file batch: process is broken")
+	}
+	fail := func(err error) ([]byte, string, error) {
+		p.fail(err)
+		return nil, "", err
+	}
+	if _, err := io.WriteString(p.in, spec+"\n"); err != nil {
+		return fail(fmt.Errorf("write request: %w", err))
+	}
+	header, err := p.out.ReadString('\n')
+	if err != nil {
+		return fail(fmt.Errorf("read header: %w", err))
+	}
+	fields := strings.Fields(header)
+	if len(fields) == 2 {
+		// "<spec> missing" and friends ("ambiguous") are answers from a
+		// healthy child, not failures.
+		return nil, "", fmt.Errorf("git cat-file batch: %s %s: %w", spec, fields[1], errCatFileBatchMissing)
+	}
+	if len(fields) != 3 {
+		return fail(fmt.Errorf("unexpected header %q for %s", strings.TrimSpace(header), spec))
+	}
+	objType := fields[1]
+	size, err := strconv.ParseInt(fields[2], 10, 64)
+	if err != nil || size < 0 {
+		return fail(fmt.Errorf("unparseable size in header %q", strings.TrimSpace(header)))
+	}
+	if !withBody {
+		return nil, objType, nil
+	}
+	if size > catFileBatchMaxBlobBytes {
+		// Killing the child is the standard recovery; the caller falls back
+		// to the per-exec path, whose consumers apply their own read bounds.
+		return fail(fmt.Errorf("%s is %d bytes, over the %d byte guard", spec, size, catFileBatchMaxBlobBytes))
+	}
+	body := make([]byte, size)
+	if _, err := io.ReadFull(p.out, body); err != nil {
+		return fail(fmt.Errorf("read %d-byte body for %s: %w", size, spec, err))
+	}
+	// Every record ends with one LF after the content.
+	if trailer, err := p.out.ReadByte(); err != nil || trailer != '\n' {
+		return fail(fmt.Errorf("record for %s not terminated by LF", spec))
+	}
+	return body, objType, nil
+}
+
+func catFileBatchRequest(ctx context.Context, gitDir, spec string, localOnly, check bool) ([]byte, string, error) {
+	key := catFileBatchKey{gitDir: gitDir, localOnly: localOnly, check: check}
+	p, err := catFileBatchProcFor(ctx, key)
+	if err != nil {
+		return nil, "", err
+	}
+	return p.request(ctx, spec, !check)
+}
+
+// catFileBatchRead reads one object's content: `git cat-file -p <spec>`, batched.
+func catFileBatchRead(ctx context.Context, gitDir, spec string, localOnly bool) ([]byte, error) {
+	body, _, err := catFileBatchRequest(ctx, gitDir, spec, localOnly, false)
+	return body, err
+}
+
+// catFileBatchType reports one object's type: `git cat-file -t <spec>`, batched.
+func catFileBatchType(ctx context.Context, gitDir, spec string, localOnly bool) (string, error) {
+	_, objType, err := catFileBatchRequest(ctx, gitDir, spec, localOnly, true)
+	return objType, err
+}
+
+// localObjectType answers `git cat-file -t` under the local-only policy,
+// batched for batch-capable runners and per-exec for every other runner.
+// A batch "missing" answer is definitive; other batch errors fall back.
+func localObjectType(ctx context.Context, runner CommandRunner, gitDir, spec string) (string, error) {
+	if runnerAllowsCatFileBatch(runner) {
+		objType, err := catFileBatchType(ctx, gitDir, spec, true)
+		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+			return objType, err
+		}
+	}
+	kind, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "cat-file", "-t", spec)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(kind)), nil
+}

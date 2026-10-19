@@ -37,6 +37,32 @@ type CommandStreamer interface {
 	Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error)
 }
 
+// GitCatFileBatcher is an optional capability: a runner whose git spawn policy
+// matches ExecRunner's may have repeated local object reads served by a shared
+// long-lived `git cat-file --batch` child (see git_catfile_batch.go). It is a
+// deliberate opt-in, not an inherited seam: batching bypasses Run entirely, so
+// a wrapper runner that intercepts per-call behavior must not claim it by
+// accident.
+type GitCatFileBatcher interface {
+	CatFileBatchAllowed() bool
+}
+
+func (ExecRunner) CatFileBatchAllowed() bool { return true }
+
+// hardenedGitInvocation is the one assembly point for how this binary spawns
+// git: hardened args plus the repository filter-driver overrides merged into
+// the environment. The buffered runner, the streaming runner, and the cat-file
+// batch child all consume it, so a new hardening bit cannot cover one spawn
+// path and miss another (see git_harden.go).
+func hardenedGitInvocation(ctx context.Context, dir string, env map[string]string, args ...string) (hardenedArgs, mergedEnv []string, err error) {
+	hardenedArgs = hardenedGitArgs(args...)
+	overrides, err := repoFilterDriverOverrides(ctx, dir)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hardenedArgs, gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), overrides), nil
+}
+
 // CommandStream is a started command whose stdout is consumed incrementally.
 // Callers must read Stdout to completion (or drain it) before calling Wait.
 type CommandStream interface {
@@ -83,24 +109,25 @@ func (ExecRunner) RunWithEnv(ctx context.Context, dir string, env map[string]str
 }
 
 func runExecCommand(ctx context.Context, dir string, env map[string]string, name string, args ...string) ([]byte, []byte, error) {
-	var gitOverrides []gitConfigOverride
+	var mergedEnv []string
 	if name == "git" {
-		args = hardenedGitArgs(args...)
 		// The filter neutralizers travel in the environment, not in argv; see
 		// git_harden_filters.go for why `-c` cannot express them safely.
 		var err error
-		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		args, mergedEnv, err = hardenedGitInvocation(ctx, dir, env, args...)
 		if err != nil {
 			return nil, nil, err
 		}
+	} else if len(env) > 0 {
+		mergedEnv = mergeCommandEnv(os.Environ(), env)
 	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.WaitDelay = commandWaitDelay
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(env) > 0 || len(gitOverrides) > 0 {
-		cmd.Env = gitConfigOverrideEnv(mergeCommandEnv(os.Environ(), env), gitOverrides)
+	if mergedEnv != nil {
+		cmd.Env = mergedEnv
 	}
 
 	var stdout bytes.Buffer
@@ -145,11 +172,10 @@ func mergeCommandEnv(base []string, overrides map[string]string) []string {
 // captured into a bounded buffer by exec's own copy goroutine, so reading
 // stdout never blocks on stderr.
 func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) (CommandStream, error) {
-	var gitOverrides []gitConfigOverride
+	var mergedEnv []string
 	if name == "git" {
-		args = hardenedGitArgs(args...)
 		var err error
-		gitOverrides, err = repoFilterDriverOverrides(ctx, dir)
+		args, mergedEnv, err = hardenedGitInvocation(ctx, dir, nil, args...)
 		if err != nil {
 			return nil, err
 		}
@@ -159,8 +185,8 @@ func (ExecRunner) Stream(ctx context.Context, dir, name string, args ...string) 
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	if len(gitOverrides) > 0 {
-		cmd.Env = gitConfigOverrideEnv(os.Environ(), gitOverrides)
+	if mergedEnv != nil {
+		cmd.Env = mergedEnv
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

@@ -694,7 +694,14 @@ func runCheckpointGitLocal(ctx context.Context, runner CommandRunner, repoDir st
 	if !ok {
 		return nil, nil, errors.New("no_egress: command runner cannot enforce GIT_NO_LAZY_FETCH=1")
 	}
-	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{gitNoLazyFetchEnv: "1"}, "git", args...)
+	return envRunner.RunWithEnv(ctx, repoDir, localOnlyGitEnv(), "git", args...)
+}
+
+// localOnlyGitEnv is the environment half of the local-only read policy; the
+// refusal half lives in runCheckpointGitLocal. The cat-file batch child
+// consumes the same value, so a new policy bit cannot cover one path only.
+func localOnlyGitEnv() map[string]string {
+	return map[string]string{gitNoLazyFetchEnv: "1"}
 }
 
 func gitRefExists(ctx context.Context, runner CommandRunner, repoDir, ref string) bool {
@@ -2804,6 +2811,18 @@ func catFile(ctx context.Context, runner CommandRunner, gitDir, ref, path string
 }
 
 func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, filePath string, localOnly bool) ([]byte, error) {
+	// Batch-capable runners read through one shared `cat-file --batch` child
+	// per (gitDir, policy) instead of one exec per blob (COR-2182). "missing"
+	// is git's definitive answer and must not be retried per-exec; any other
+	// batch error falls back so a broken child only costs speed. Runners
+	// without the capability keep the per-exec path: the batch child would
+	// bypass their per-call seam.
+	if runnerAllowsCatFileBatch(runner) {
+		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
+		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+			return data, err
+		}
+	}
 	var stdout []byte
 	var err error
 	if localOnly {

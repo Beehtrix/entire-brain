@@ -252,13 +252,12 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					f <- ps
 					return
 				}
-				content := string(data)
 				// Strip tool calls/outputs and meta records up front: this is
 				// the actual input the agent distills. Fingerprinting the
 				// preprocessed input (not raw bytes) means churn confined to
 				// stripped tool I/O does not invalidate the cache.
-				distillInput := preprocessTranscriptForDistill(content)
-				ps.rawBytes = len(content)
+				distillInput := preprocessTranscriptForDistillBytes(data)
+				ps.rawBytes = len(data)
 				ps.preBytes = len(distillInput)
 				ps.fingerprint = distillFingerprintForSession(ps.session, ps.branch, distillInput, distillOpts)
 				if !distillOpts.force {
@@ -1654,9 +1653,8 @@ func buildDistillPlanContext(ctx context.Context, brainDir string, manifest *exp
 		if readErr != nil {
 			return distillPlan{}, fmt.Errorf("read canonical transcript %s: %w", filepath.ToSlash(session.TranscriptPath), readErr)
 		}
-		content := string(data)
-		distillInput := preprocessTranscriptForDistill(content)
-		sessionPlan.RawBytes = len(content)
+		distillInput := preprocessTranscriptForDistillBytes(data)
+		sessionPlan.RawBytes = len(data)
 		sessionPlan.PreprocessedBytes = len(distillInput)
 		plan.RawBytes += int64(sessionPlan.RawBytes)
 		plan.PreprocessedBytes += int64(sessionPlan.PreprocessedBytes)
@@ -1744,24 +1742,7 @@ func resolveDistillBranch(manifest *exportManifest, session exportSession) strin
 // example an already-rendered/compact transcript) are passed through unchanged so
 // the preprocessor is safe for any transcript format.
 func preprocessTranscriptForDistill(content string) string {
-	if doc, ok := distillDocumentConversation(content); ok {
-		return doc
-	}
-	lines := strings.Split(content, "\n")
-	for i, line := range lines {
-		if strings.TrimSpace(line) == "" {
-			lines[i] = ""
-			continue
-		}
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			continue // not JSONL; leave the line as-is
-		}
-		// Collapse the kept text onto a single line so one record stays one line
-		// and the line numbering (provenance) is preserved.
-		lines[i] = strings.Join(strings.Fields(distillConversationText(obj)), " ")
-	}
-	return strings.Join(lines, "\n")
+	return preprocessTranscriptForDistillBytes([]byte(content))
 }
 
 // distillDocumentConversation handles transcripts exported as one pretty-printed
@@ -1923,67 +1904,6 @@ func parseDocumentConversation(content string) ([]documentMessage, bool) {
 		return nil, false // no conversation text at all: not our document shape
 	}
 	return nil, false // no top-level "messages" key
-}
-
-// distillConversationText returns the human/assistant text worth distilling from
-// one transcript record, or "" for tool calls, tool outputs, reasoning, and
-// session/meta records. It mirrors the record routing in
-// extractHistoryJSONFragments (codex `event_msg`/`response_item`, Claude
-// `assistant`/`user`, and pi `message` shapes — keep the two switches in sync
-// when adding a format) but deliberately keeps user turns — where standing
-// rules and preferences live — and discards everything tool-related.
-func distillConversationText(obj map[string]any) string {
-	switch jsonString(obj["type"]) {
-	case "agent_message":
-		return jsonString(obj["message"])
-	case "event_msg":
-		payload := jsonMap(obj["payload"])
-		switch jsonString(payload["type"]) {
-		case "agent_message", "user_message":
-			return jsonString(payload["message"])
-		case "task_complete":
-			return jsonString(payload["last_agent_message"])
-		}
-		return "" // task_started, exec_command_end, patch_apply_end, ...
-	case "response_item":
-		payload := jsonMap(obj["payload"])
-		if jsonString(payload["type"]) != "message" {
-			return "" // function_call, custom_tool_call, function_call_output, reasoning
-		}
-		if role := jsonString(payload["role"]); role != "assistant" && role != "user" {
-			return ""
-		}
-		return distillTextBlocks(payload["content"])
-	case "assistant", "user":
-		// Two shapes carry the same record type. The claude-code dialect nests
-		// the turn under "message"; the dialect the CLI writes today
-		// ({"v":1,"agent":"codex",...,"content":[...]}) puts the content blocks
-		// at the RECORD's top level with no wrapper at all. Reading only the
-		// nested one stripped every record of a modern transcript to "" — the
-		// same silent total loss the "message" case below documents for pi, but
-		// on the dialect that is now the default (observed: 1.7 MB of real Codex
-		// sessions preprocessed to 1.6 KB and distilled zero facts).
-		if message, ok := obj["message"]; ok {
-			return distillTextBlocks(jsonMap(message)["content"])
-		}
-		return distillTextBlocks(obj["content"])
-	case "message":
-		// pi sessions wrap every turn as {"type":"message","message":{role,content}}.
-		// Without this case they fell to the default branch, whose
-		// jsonString(obj["message"]) is "" for a map — silently stripping the
-		// ENTIRE session (observed: 13.4 MB pi transcript -> 0 bytes kept, so pi
-		// sessions contributed zero facts). Keep user/assistant text; the
-		// toolResult role and thinking/toolCall blocks are mechanics.
-		payload := jsonMap(obj["message"])
-		if role := jsonString(payload["role"]); role != "assistant" && role != "user" {
-			return "" // toolResult, ...
-		}
-		return distillTextBlocks(payload["content"])
-	case "session_meta", "turn_context", "permission-mode", "progress":
-		return ""
-	default:
-		return jsonString(obj["message"])
-	}
 }
 
 // distillTextBlocks pulls plain text out of a message "content" field, keeping

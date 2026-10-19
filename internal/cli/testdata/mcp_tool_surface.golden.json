@@ -775,6 +775,38 @@
     "name": "brain_remember"
   },
   {
+    "description": "Retrieve durable facts recorded with brain_remember: prior decisions and their rationale, invariants, and gotchas. Use this before replacing an existing approach or explaining why code is the way it is; use brain_query instead to search history and docs. An empty result means no fact was recorded, NOT that no such decision was made. Facts are stored per branch, so pass branch to read ones recorded on the integration branch.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "branch": {
+          "description": "Branch for facts (default: current)",
+          "maxLength": 8192,
+          "title": "branch",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Maximum facts to return (1-128) (removable rows may be trimmed with response_truncated; otherwise errors)",
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "limit",
+          "type": "integer"
+        },
+        "query": {
+          "description": "What you want to know about prior decisions, rationale, or gotchas",
+          "maxLength": 8192,
+          "title": "query",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "brain_recall"
+  },
+  {
     "description": "Alias for brain_code; search indexed source symbols with compact records by default. Set details=true for full provider records.",
     "inputSchema": {
       "additionalProperties": false,

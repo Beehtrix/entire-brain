@@ -138,6 +138,20 @@ func TestCatFileWithPolicyMatchesPerExec(t *testing.T) {
 	}
 }
 
+func TestCatFileBatchCancelledFirstCallerDoesNotPoisonTheKey(t *testing.T) {
+	dir := newBatchTestRepo(t, "unpoisoned\n")
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := catFileBatchRead(cancelled, dir, batchTestSpec, true); !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled for the cancelled caller, got %v", err)
+	}
+	// The key must stay healthy: no cooldown tombstone from the cancelled caller.
+	got, err := catFileBatchRead(context.Background(), dir, batchTestSpec, true)
+	if err != nil || string(got) != "unpoisoned\n" {
+		t.Fatalf("read after cancelled first caller: %q %v", got, err)
+	}
+}
+
 func TestCatFileBatchRejectsWhitespaceSpecs(t *testing.T) {
 	dir := newBatchTestRepo(t, "x\n")
 	for _, spec := range []string{"HEAD:a\nHEAD:b", "HEAD:has space.txt"} {

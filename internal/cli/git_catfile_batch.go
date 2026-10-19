@@ -109,9 +109,17 @@ func catFileBatchEntryFor(key catFileBatchKey) *catFileBatchEntry {
 }
 
 func catFileBatchProcFor(ctx context.Context, key catFileBatchKey) (*catFileBatchProc, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	e := catFileBatchEntryFor(key)
 	e.once.Do(func() {
-		proc, err := spawnCatFileBatch(ctx, key)
+		// The child outlives any one caller, so its spawn must too: a first
+		// caller whose context is already cancelled or near its deadline must
+		// not fail the spawn and tombstone the key for everyone else. The
+		// filter probe inside the spawn carries its own timeout, so a genuine
+		// probe failure still cools the key down.
+		proc, err := spawnCatFileBatch(context.Background(), key)
 		// Published under the registry lock: catFileBatchEntryFor reads these
 		// fields under the same lock while this spawn may still be in flight.
 		catFileBatchMu.Lock()

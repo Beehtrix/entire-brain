@@ -17,12 +17,24 @@ var terseCapabilityLabels = map[string]string{
 	brainComponentSemantic: "semantic search",
 	brainComponentHistory:  "history search",
 	brainComponentDocs:     "docs search",
+	// Session export earns a label for one reason: its commonest failure is
+	// not a failure. A repository where no agent session has finished yet
+	// reports an incomplete scope and no readable IDs, which is exactly what
+	// every repository looks like before its first session. Left unlabelled it
+	// collapsed into "1 other component did not build -- doctor names them",
+	// so the reader ran doctor to be told nothing was wrong. That round trip
+	// is the referral loop this PR removes, and it has to be closed in the
+	// SHORT form, because the short form is what they see.
+	brainComponentSessions: "session history",
 }
 
 // terseCapabilityRemedies maps a missing capability to the one command that
 // restores it, when a single command does.
 var terseCapabilityRemedies = map[string]string{
 	brainComponentSemantic: "run `entire plugin install graph`",
+	// Not a command: there is nothing to run. The honest remedy for "no
+	// captured sessions yet" is to work, which is why this one is a sentence.
+	brainComponentSessions: "no captured sessions yet — they accrue as you work in this repo",
 }
 
 func terseReportFor(report setupReport, timings *setupTimings, queryable bool, opts setupCommandOptions, brainCmd string) setupui.TerseReport {

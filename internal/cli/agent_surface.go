@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -990,7 +991,31 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	hintPositionalSymbol(cmd)
 	return cmd
+}
+
+// hintPositionalSymbol turns cobra's bare "unknown flag: --symbol" into an
+// answer.
+//
+// The published guide documents `inspect impact --symbol ValidateToken`. There
+// is no such flag -- the symbol is positional here and on the sibling commands
+// -- so anyone following the docs gets a flag error with nothing to act on,
+// and no reason to suspect the page rather than their own typing.
+//
+// The flag is deliberately NOT added. `inspect context` and `inspect tests`
+// take their symbol positionally too, so accepting --symbol on one of the
+// three would make this the inconsistent one and bend a working interface
+// around a typo. Naming the right form costs nothing and unblocks the reader
+// in one line; the page is corrected separately.
+func hintPositionalSymbol(cmd *cobra.Command) {
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if err == nil || !strings.Contains(err.Error(), "--symbol") {
+			return err
+		}
+		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
+			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+	})
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {
@@ -1206,6 +1231,22 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		if v := f.Verification; v != nil {
 			fmt.Fprintf(out, "  verification: %d memories, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		} else if f.Facts > 0 {
+			// Verification left status because it walks git history per anchor
+			// commit and made status unusable in a hook (24s to 2.4s on a
+			// 961-fact brain). Say where it went: a line that silently stops
+			// appearing tells the reader verification PASSED, which is the
+			// silent-degradation class this change set exists to remove.
+			//
+			// It went to `verify` and `doctor`, NOT behind --details. This line
+			// said --details, and main then settled the question the other way
+			// -- see TestBrainStatusDetailsDoesNotVerifyFacts, which pins that
+			// --details runs no walk. So the remedy named here sent every
+			// reader to a flag that does nothing, which is worse than the
+			// missing line it replaced: a wrong instruction costs a run to
+			// disprove, and then there is still no answer.
+			fmt.Fprintf(out, "  verification: not run (`%s verify`, or `%s doctor`; it walks git history)\n",
+				brainCmd, brainCmd)
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
@@ -1626,6 +1667,22 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if factsErr != nil {
 			report.Warnings = append(report.Warnings, "memories unavailable: "+factsErr.Error())
 		} else {
+			// An empty fact set on THIS branch while other branches hold facts
+			// is the single most misleading thing the brief can report: it is
+			// step 1 of the shipped guide, so it is the first thing an agent
+			// sees, and silence reads as "this brain knows nothing".
+			hasActiveFacts := false
+			for _, fact := range facts {
+				if fact.Status == factStatusActive {
+					hasActiveFacts = true
+					break
+				}
+			}
+			if !hasActiveFacts {
+				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
+					report.Warnings = append(report.Warnings, note)
+				}
+			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}
@@ -4541,6 +4598,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	// The repo root from the REPORT, not opts.Env: the latter is empty on the
+	// ordinary `status` path, which is why the first version of this check
+	// never fired. report.Repo.Root is the resolved root this status is about.
+	if root := strings.TrimSpace(report.Repo.Root); root != "" {
+		if wired, missing := agentsetup.AgentsWired(root); !wired {
+			onboarding.AgentsUnwired = true
+			onboarding.AgentsMissing = missing
+			// Keep the published JSON shape while exposing the same repair
+			// diagnostic to CLI JSON and MCP consumers through warnings.
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" init-agents so your agent uses this brain")
+		}
+	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
@@ -4565,7 +4634,20 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case seed.Commit != live.Head:
 			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
-			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+			// CAUSE only, no remedy. This axis is rendered as the `Cause`
+			// line directly under the status verdict, which prints the one
+			// remedy a dirty tree has (setupDirtyWorktreeHint). While this
+			// string also carried "refresh with --worktree to include current
+			// changes", the two appeared together on one screen: the verdict
+			// said commit or stash, the next line said index the uncommitted
+			// content instead.
+			axes["seed"] = staleAxis{
+				State:   dirtyUnindexedAxisState,
+				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
+				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Current: live.Head,
+				Indexed: seed.Commit,
+			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
@@ -4636,6 +4718,11 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 	return status
 }
 
+// dirtyUnindexedAxisState is the one spelling of the axis state that means the
+// working tree has uncommitted changes the index does not carry. Named so the
+// producer and the renderer that attaches the remedy cannot drift on a literal.
+const dirtyUnindexedAxisState = "dirty-unindexed"
+
 func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 	keys := make([]string, 0, len(axes))
 	for key := range axes {
@@ -4647,6 +4734,13 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 		line := "    " + key + ": " + axis.State
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
+		}
+		// The remedy comes from the axis now, not from this renderer asking
+		// the same question again. Re-deriving it here meant the JSON report
+		// carried a cause with no next step -- which is what an agent and
+		// every script read -- while only the text surface was whole.
+		if axis.Remedy != "" {
+			line += " — " + axis.Remedy
 		}
 		fmt.Fprintln(out, line)
 	}
@@ -4685,7 +4779,25 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {
+	// `git diff --shortstat HEAD` REFRESHES THE INDEX as a side effect, which
+	// takes `.git/index.lock` and makes a concurrent human or agent git command
+	// fail (issue #326). --no-optional-locks does not suppress that particular
+	// refresh -- measured, see gitHardenConfig -- so the only fix is to stop
+	// calling the porcelain. `diff-index` is the plumbing `git diff <commit>`
+	// is built on and never refreshes.
+	//
+	// -M is load-bearing. `git diff` gets rename detection from diff.renames,
+	// whose default is true; plumbing reads only the basic diff config and so
+	// gets none. Without -M a rename is counted as a whole-file delete plus a
+	// whole-file add, changing BOTH the file count and the insertion/deletion
+	// counts (measured: " 3 files changed, 6 insertions(+), 5 deletions(-)"
+	// against the porcelain's " 2 files changed, 1 insertion(+)" on the same
+	// worktree). With -M the output is byte-identical to the porcelain on git
+	// 2.54.0, including against a stat-dirty-but-identical file -- the
+	// --shortstat path reads content, so such a file is dropped from both.
+	// (The raw `diff-index --name-status` path does NOT read content and would
+	// report it, which is why this swap is safe only for stat output.)
+	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())

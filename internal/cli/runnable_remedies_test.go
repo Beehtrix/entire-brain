@@ -37,6 +37,7 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
 	{"publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
 	{"disconnect_cmd.go", "'entire brain connect'", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"doctor.go", "cd '<your repository>' && entire brain doctor", "a shell TEMPLATE with a cd and a placeholder, not a verb the lookup can render"},
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {

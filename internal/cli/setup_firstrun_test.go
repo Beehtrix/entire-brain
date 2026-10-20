@@ -217,7 +217,11 @@ func TestDoctorInfersTheRepoFromTheWorkingDirectory(t *testing.T) {
 	cmd.SetErr(out)
 	// The component failure is an `error` finding, so the default gate trips;
 	// what this test is about is that the REASON is printed either way.
-	if err := runDoctor(cmd, opts, false, doctorFailOnError); !errors.Is(err, errDoctorGate) {
+	//
+	// DEFAULT verbosity, deliberately: `setup` tells the reader to run doctor
+	// for the reason a component failed, so the short report -- the one they
+	// actually get -- has to carry it. Quieting doctor must never quiet this.
+	if err := runDoctor(cmd, opts, false, false, doctorFailOnError); !errors.Is(err, errDoctorGate) {
 		t.Fatalf("runDoctor must fail the gate on a failed setup component, got: %v", err)
 	}
 
@@ -225,8 +229,19 @@ func TestDoctorInfersTheRepoFromTheWorkingDirectory(t *testing.T) {
 	if !strings.Contains(printed, `unknown command "graph"`) {
 		t.Fatalf("doctor must print WHY the component setup named failed:\n%s", printed)
 	}
-	if !strings.Contains(printed, "repo root: "+repoDir) {
-		t.Fatalf("doctor must say which repository it inferred:\n%s", printed)
+
+	// Which repository doctor inferred is context, not a finding, so it belongs
+	// to the full report.
+	verbose := &bytes.Buffer{}
+	vcmd := &cobra.Command{Use: "doctor"}
+	vcmd.SetContext(context.Background())
+	vcmd.SetOut(verbose)
+	vcmd.SetErr(verbose)
+	if err := runDoctor(vcmd, opts, false, true, doctorFailOnError); !errors.Is(err, errDoctorGate) {
+		t.Fatalf("runDoctor --verbose must fail the gate too, got: %v", err)
+	}
+	if !strings.Contains(verbose.String(), "repo root: "+repoDir) {
+		t.Fatalf("doctor --verbose must say which repository it inferred:\n%s", verbose.String())
 	}
 }
 
@@ -246,7 +261,7 @@ func TestDoctorSaysSoWhenNoRepositoryIsInScope(t *testing.T) {
 	cmd.SetContext(context.Background())
 	cmd.SetOut(out)
 	cmd.SetErr(out)
-	if err := runDoctor(cmd, Options{Version: "test", Env: env, Runner: runner, Now: time.Now}, false, doctorFailOnError); err != nil {
+	if err := runDoctor(cmd, Options{Version: "test", Env: env, Runner: runner, Now: time.Now}, false, false, doctorFailOnError); err != nil {
 		t.Fatalf("runDoctor: %v", err)
 	}
 	if !strings.Contains(out.String(), "no repository in scope") {
@@ -270,7 +285,7 @@ func TestLiveStateIgnoresTheHostsOwnLogFile(t *testing.T) {
 		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
 		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? .entire/logs/entire.log\n"},
-		fakeCommandKey("git", "diff", "--shortstat", "HEAD"):                    {stdout: "\n"},
+		fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD"):        {stdout: "\n"},
 	}}
 
 	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
@@ -294,7 +309,7 @@ func TestLiveStateStillReportsRealChanges(t *testing.T) {
 		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
 		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
 		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? .entire/logs/entire.log\n M src/main.go\n"},
-		fakeCommandKey("git", "diff", "--shortstat", "HEAD"):                    {stdout: " 1 file changed\n"},
+		fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD"):        {stdout: " 1 file changed\n"},
 	}}
 
 	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
@@ -373,8 +388,38 @@ func TestSetupSummaryNamesTheWatcherAndHowToRemoveIt(t *testing.T) {
 	if !strings.Contains(printed, "--uninstall-daemon") {
 		t.Fatalf("setup must name the command that removes what it just installed:\n%s", printed)
 	}
-	if !strings.Contains(printed, "persistent service") || !strings.Contains(printed, rec.state.UnitPath) {
-		t.Fatalf("setup must say a persistent service was installed, and where:\n%s", printed)
+	// "a persistent service, and where" is still setup's promise, but the
+	// summary is no longer where it is kept: it was being said twice in one run,
+	// once before the install and once after, in different words. The pre-flight
+	// line owns it now, and TestSetupStatesTheWatcherConsentExactlyOnce holds
+	// both halves of that -- said, and said once.
+}
+
+// TestSetupStatesTheWatcherConsentExactlyOnce is the UX-24 guard. A first run
+// printed the consent for the background watcher twice: once as the pre-flight
+// warning before any work started, and again as a footnote under the daemon row
+// in the closing summary. Both named the same persistent service and the same
+// unit file in different words, and the second one arrived after the install it
+// was warning about.
+//
+// This asserts the whole run, not a renderer, because the duplicate only exists
+// when both halves print.
+func TestSetupStatesTheWatcherConsentExactlyOnce(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{}
+	printed := runSetupForTest(t, f, defaultSetupOptions(), rec)
+
+	const consent = "starts again at every login"
+	if got := strings.Count(printed, consent); got != 1 {
+		t.Fatalf("the watcher consent must be stated exactly once, found %d:\n%s", got, printed)
+	}
+	if rec.state.UnitPath == "" {
+		t.Fatal("fixture produced no unit path to name")
+	}
+	for _, want := range []string{rec.state.UnitPath, "persistent", "--uninstall-daemon"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("setup must still say a persistent service was installed, and where, naming %q:\n%s", want, printed)
+		}
 	}
 }
 

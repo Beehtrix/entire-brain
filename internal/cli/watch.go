@@ -358,10 +358,19 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	}
 	if changed {
 		if err := steps.refresh(ctx); err != nil {
-			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
-			// The next tick retries the free refresh before attempting pending agent work.
-			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
-			return
+			// A refusal to index an uncommitted worktree is not a failure: it
+			// is the expected answer while someone is working, and it recurs
+			// every tick until they commit. Treating it as a failure aborted
+			// the tick and left the cursor where it was, so the watcher made no
+			// progress at all for the whole time the tree stayed dirty
+			// (issue #327). Everything else still aborts, because an
+			// unrefreshed brain must not have tokens spent against it.
+			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
+				fmt.Fprintf(out, "[watch] semantic index skipped (uncommitted worktree); continuing\n")
+			} else {
+				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+				return
+			}
 		}
 	}
 	runFactsSync()
@@ -823,12 +832,12 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		// there is no cap, so an uncapped `watch --distill` is unchanged.
 		maxSessions: maxSessions,
 		newestFirst: maxSessions > 0,
-		jobs:        jobs,
 		// concurrency is what the distill pipeline (and runDistill's guard)
-		// actually reads; --jobs is only its compatibility alias. Leaving it at
-		// the zero value made every gated distill the watcher ever attempted
-		// fail with "--concurrency must be greater than 0" before making a
-		// single agent call.
+		// actually reads. Leaving it at the zero value made every gated distill
+		// the watcher ever attempted fail with "--concurrency must be greater
+		// than 0" before making a single agent call. There used to be a second
+		// `jobs` field to keep in step with it; `--jobs` is now a spelling of
+		// --concurrency rather than a field, so there is only one value to set.
 		concurrency: jobs,
 	}
 }

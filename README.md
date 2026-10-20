@@ -8,6 +8,30 @@ Entire Brain combines captured agent sessions and checkpoints with durable facts
 
 Through the CLI and MCP, agents can retrieve earlier decisions, revisit past attempts and their outcomes, assemble context for a task, and turn reviewed lessons into reusable skills. Knowledge stays linked to its supporting evidence, so it can be checked, revised, and applied as the project evolves.
 
+## What to ask
+
+Ask your coding agent in plain language.
+
+| Goal | Example prompt |
+| --- | --- |
+| Start a task | What should I know before changing the retry policy? |
+| Recover a past decision | Why did we remove the queue abstraction? |
+| Find what we already know | What do we know about retry limits? |
+| Search past sessions and docs | Where did we discuss backpressure? |
+| Understand the project | Summarize this project's structure and conventions. |
+| Check saved facts | Check whether the sources for our saved facts still match the repository. |
+| Inspect memory health | Which sources are missing or out of date? |
+
+Directly: `entire brain brief "<task>"` to start a task, `recall "<question>"` for
+decisions and saved facts, `query "<text>"` for prose search across sessions, docs
+and history, `overview` for the project, `verify` to re-check fact sources, and
+`status` for memory health.
+
+Facts are stored per branch. `recall` on a branch that has no facts prints
+nothing and adds a note that every captured session is already distilled — which
+reads as "the brain does not know", not "you are on the wrong branch"; pass
+`--branch main` (or the branch the work happened on) before concluding anything.
+
 ## Features
 
 - Give an agent relevant decisions, code locations, and suggested tests before it starts a task.
@@ -114,6 +138,7 @@ By default, `setup` indexes the repository, extracts facts from up to 25 past se
 Now install the agent instructions:
 
 ```sh
+entire graph init-agents   # only if Graph is installed; see the note below
 entire brain init-agents
 ```
 
@@ -122,7 +147,16 @@ The command creates or updates these files:
 - `.entire/agent-guide.md`: the agent instructions. Rerunning the command replaces this file.
 - `AGENTS.md` and `CLAUDE.md`: references to the guide inside managed blocks. Your text outside those blocks is preserved.
 
-Review the generated files and commit them together when the instructions should apply to your team. When Graph is installed, the guide tells agents to use Brain for prior decisions and Graph to locate and inspect code. Restart your agent or reload its repository instructions so it picks up the guide.
+The guide is assembled from whichever products have been **activated**, and each
+product activates itself. `entire brain init-agents` on its own writes a
+Brain-only guide containing no Graph instructions at all — installing Graph does
+not change that, because activation is recorded in the guide rather than probed.
+Run Graph's `init-agents` too if you want both.
+
+Run Brain's **last**. Each product rewrites the shared guide file from its own
+copy of the text, so whichever you run last decides the wording.
+
+Review the generated files and commit them together when the instructions should apply to your team. Restart your agent or reload its repository instructions so it picks up the guide.
 
 For an MCP client, print this repository's configuration:
 
@@ -150,19 +184,6 @@ entire brain setup --no-backfill --no-daemon
 
 Configured remote history sources and publishing also use the network; see [privacy and egress](docs/reference.md#privacy-and-egress) for controls.
 
-## What to ask
-
-Ask your coding agent in plain language, or run the Brain commands directly.
-
-| Goal | Example prompt | Brain command |
-| --- | --- | --- |
-| Start a task | What should I know before changing the retry policy? | `brief` |
-| Understand the project | Summarize this project's structure and conventions. | `overview` |
-| Recover prior decisions | Why did we remove the queue abstraction? | `query` |
-| Find saved facts | What do we know about retry limits? | `recall` |
-| Check saved facts | Check whether the sources for our saved facts still match the repository. | `verify` |
-| Inspect memory health | Which sources are missing or out of date? | `status` |
-
 ## Usage Examples
 
 ### Check what the brain knows
@@ -184,7 +205,7 @@ entire brain overview
 # Author a durable fact about this repository.
 entire brain remember "Retries are capped at 3; the 4th failure must page."
 
-# Retrieve facts for the current branch.
+# Retrieve facts for the current branch (--branch <name> for another).
 entire brain recall "retry policy"
 
 # Re-check every fact's anchors against the current tree.
@@ -352,6 +373,84 @@ Run `entire brain verify` to check whether a fact's source references still matc
 `entire brain path` prints where this repository's memory is stored. See [storage and configuration](docs/reference.md#storage-and-configuration) to change storage locations or search settings.
 
 To stop and remove the watcher, run `entire brain setup --uninstall-daemon`. See [operations](docs/operations.md#after-the-install-onboard-a-repository) for service management.
+
+## Command reference
+
+Every command `entire brain --help` lists, in the groups it lists them in. Run
+any of them with `--help` for its flags; `docs/reference.md` has the long form.
+A command that is visible here but missing from this table fails
+`TestEveryVisibleCommandIsDocumented`, so this list cannot quietly fall behind
+the binary.
+
+**Set up the brain and agents**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain setup` | Build the brain and start background updates |
+| `entire brain add` | Clone a repository, fetch its Entire history, and build its brain |
+| `entire brain init-agents` | Install coordinated agent instructions |
+| `entire brain agent-guide` | Preview repository-specific agent instructions |
+| `entire brain mcp` | Serve local brain tools over MCP |
+| `entire brain webhook` | Notify another service when this brain changes |
+| `entire brain config` | Inspect or initialize plugin configuration |
+| `entire brain connect` | Bind this repository to its hosted brain explicitly |
+| `entire brain disconnect` | Stop syncing this repository with its hosted brain |
+
+**Search and explore**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain overview` | Summarize the project, its structure, and decisions |
+| `entire brain brief` | Gather relevant context for a task |
+| `entire brain query` | Search the brain (hybrid by default) |
+| `entire brain get` | Fetch a brain item by ID |
+| `entire brain multi-get` | Fetch several brain items by ID in one call |
+| `entire brain dash` | Browse the brain in an interactive dashboard |
+| `entire brain show` | Show one semantic brain record |
+| `entire brain inspect` | Explore code, dependencies, and change history |
+| `entire brain entities` | Find checkpoints and sessions that changed a symbol |
+| `entire brain viz` | Explore the brain as a graph in your browser |
+| `entire brain docs` | Inspect how non-code documents are read into the brain |
+
+**Durable facts and patterns**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain remember` | Record a durable fact about this repository |
+| `entire brain recall` | Retrieve durable facts for the current branch |
+| `entire brain distill` | Extract durable facts from sessions (requires an agent) |
+| `entire brain facts` | Review, promote, and garbage-collect durable facts |
+| `entire brain verify` | Verify durable fact anchors against local retained sources |
+| `entire brain patterns` | Inspect and rebuild recurring patterns from sessions |
+
+**State, maintenance and troubleshooting**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain status` | Show brain coverage, freshness, and workspace state |
+| `entire brain stats` | Show brain record counts and breakdowns, by branch, agent and source |
+| `entire brain doctor` | Report what is wrong and the command that fixes it (`--verbose` for the full report) |
+| `entire brain capabilities` | List supported features and retrieval sources |
+| `entire brain version` | Print plugin version |
+| `entire brain path` | Print the persistent brain path for a repo path or URL |
+| `entire brain refresh` | Create or refresh the repository brain |
+| `entire brain watch` | Keep the brain up to date automatically |
+| `entire brain memory` | Manage conversation indexing and background jobs |
+| `entire brain repair` | Rebuild derived semantic indexes |
+| `entire brain stop` | Pause background brain work on this machine |
+| `entire brain start` | Resume background brain work paused by stop |
+| `entire brain gc` | Prune old local semantic overlays and snapshots |
+| `entire brain reset` | Remove local generated brain data |
+| `entire brain repo-identity` | Find and resolve conflicting brain stores |
+| `entire brain privacy` | Control which captured sessions the brain retains |
+
+**Workspaces and sharing**
+
+| Command | What it does |
+| --- | --- |
+| `entire brain workspace` | Manage local multi-repo brain workspaces |
+| `entire brain bundle` | Import or export local brain bundles |
+| `entire brain publish` | Publish the local brain to hosted Entire (opt-in) |
 
 ## Limitations
 

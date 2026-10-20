@@ -96,10 +96,10 @@ func TestShortStatusGolden(t *testing.T) {
 		"Brain  gh/entireio/entire-brain\n" +
 		"  manifest: current\n" +
 		"  semantic: 1179 files, 40781 symbols\n" +
-		"  facts: 375\n" +
+		"  memories: 375\n" +
 		"\n" +
 		"Onboarding\n" +
-		"  facts     #............. 20/185 distilled  (backfill running, pid 4242)\n" +
+		"  memories  #............. 20/185 distilled  (backfill running, pid 4242)\n" +
 		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) (last watcher tick 17m0s ago)\n" +
 		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
 		"\n" +

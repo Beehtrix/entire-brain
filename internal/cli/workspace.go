@@ -392,7 +392,23 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
 		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
 	}
-	return supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass, daemonLogMaintainer(opts.Env))
+	maintain := daemonLogMaintainer(opts.Env)
+	var stale func() bool
+	if maintain != nil {
+		// Only the installed service watches its own binary: a foreground run
+		// is attended, and exiting it over an upgrade would surprise the person
+		// who started it. The maintainer is already the "am I the installed
+		// service" test (stdout is the unit's log file).
+		stale = watchBinaryChanged()
+	}
+	err := supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass, maintain, stale)
+	if errors.Is(err, errWatchBinaryReplaced) {
+		relaunchInstalledDaemon(cmd.OutOrStdout(), opts.Env)
+		// Exit cleanly: KeepAlive/Restart=always makes the service manager
+		// restart on the current binary; a non-zero exit adds nothing but noise.
+		return nil
+	}
+	return err
 }
 
 // supervisedWatchLoop is the supervised loop with the per-workspace pass
@@ -404,7 +420,11 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 // most needs bounding is the one that finds nothing to do and prints a line
 // anyway — an empty or unreadable plan logs once per interval forever. It is
 // nil for any watcher that is not the installed service.
-func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error, maintain func()) error {
+// stale reports that the executable this daemon started from was replaced on
+// disk (nil = never check); the loop then returns errWatchBinaryReplaced so the
+// caller can exit and let the service manager restart on the current binary,
+// instead of running an outdated build forever (COR-2174).
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error, maintain func(), stale func() bool) error {
 	// This counter belongs to the supervised process, not to an individual
 	// workspace pass. --budget is documented as a lifetime cap, so it must
 	// survive both workspace fan-out and every outer-plan tick.
@@ -416,6 +436,10 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 		}
 		if maintain != nil {
 			maintain()
+		}
+		if stale != nil && stale() {
+			fmt.Fprintln(out, "[watch] binary replaced on disk; exiting so the service manager restarts on the current build")
+			return errWatchBinaryReplaced
 		}
 		plan, err := loadSetupWatchPlan(env)
 		if err != nil {

@@ -123,8 +123,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
-	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts from this request")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current); with --source conversation also filters exchanges to that captured branch")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global memories from this request")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to one source: all, fact, history, conversation, or doc (default all; conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
@@ -220,7 +220,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// rather than only on the one command that happened to load them. They go
 	// through the same guard, filters and scoring as repository facts.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		ropts.GlobalFacts = globalFacts
 	}
@@ -620,7 +620,7 @@ exiting, so the result is readable either way.`,
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current)")
 	cmd.Flags().IntVar(&contextBefore, "context-before", 0, "Adjacent earlier exchanges to include (conversation: ids only, 0-3)")
 	cmd.Flags().IntVar(&contextAfter, "context-after", 0, "Adjacent later exchanges to include (conversation: ids only, 0-3)")
 	cmd.Flags().IntVar(&afterTurn, "after-turn", 0, "Outline cursor: entries after this turn ordinal (conversation-session: ids only)")
@@ -658,7 +658,7 @@ survives the nonzero exit.`,
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current)")
 	return cmd
 }
 
@@ -736,7 +736,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	// An id that query or search just handed back and get reports missing is a
 	// worse seam than not returning it at all.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		gopts.GlobalFacts = globalFacts
 	}

@@ -50,7 +50,7 @@ const hookFailureTailBytes = 4096
 func newHookCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hook",
-		Short: "Agent-harness hook surface: surface relevant facts at the moment of action",
+		Short: "Agent-harness hook surface: surface relevant memories at the moment of action",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -160,7 +160,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 				}
 				for _, syncBranch := range syncBranches {
 					if _, err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted fact sync failed (local brain unaffected): %v\n", err)
+						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted memory sync failed (local brain unaffected): %v\n", err)
 					}
 				}
 			}
@@ -210,8 +210,8 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "pre-edit [--file <path> | --claude-hook]",
-		Short: "Facts locus-anchored to a file about to be edited (silent when none)",
-		Long: `pre-edit surfaces the facts anchored to a file an agent is about to change.
+		Short: "Memories locus-anchored to a file about to be edited (silent when none)",
+		Long: `pre-edit surfaces the memories anchored to a file an agent is about to change.
 
 --file names the file directly, for hand-testing and for harnesses that pass
 arguments. --claude-hook is the wired spelling: Claude Code delivers a
@@ -285,7 +285,7 @@ wires it.`,
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path of the file about to be edited (repo-relative or absolute)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose facts to consult (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
 	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code PreToolUse event on stdin and reply with its hook envelope")
@@ -362,7 +362,7 @@ func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) (
 		return nil, nil
 	}
 	lines := make([]string, 0, len(kept)+1)
-	lines = append(lines, "Facts this project recorded about this file:")
+	lines = append(lines, "Memories this project recorded about this file:")
 	for _, f := range kept {
 		lines = append(lines, fmt.Sprintf("- [%s] %s", factKindOrInferred(f), f.Text))
 	}
@@ -412,7 +412,7 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 		},
 	}
 	cmd.Flags().StringVar(&command, "command", "", "The command that failed (added to the match query)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose facts to consult (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
 	return cmd

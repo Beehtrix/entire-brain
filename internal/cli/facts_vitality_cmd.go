@@ -54,7 +54,7 @@ func newFactsVitalityCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "vitality",
-		Short: "Show serve receipts per fact (which facts the read surfaces actually emitted)",
+		Short: "Show serve receipts per memory (which memories the read surfaces actually emitted)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if limit <= 0 {
@@ -88,10 +88,12 @@ func newFactsVitalityCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose receipts to show (default: current branch)")
-	cmd.Flags().StringVar(&factID, "fact", "", "Show only this fact id")
-	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum facts to list (most recently served first)")
+	cmd.Flags().StringVar(&factID, "memory", "", "Show only this memory id")
+	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum memories to list (most recently served first)")
 	cmd.Flags().BoolVar(&compact, "compact", false, "Fold the append log into the compacted rollup before reporting")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
+	// --fact predates the facts→memories rename; keep it working.
+	legacyFlagAlias(cmd.Flags(), "fact", "memory")
 	return cmd
 }
 
@@ -130,7 +132,7 @@ func buildFactsVitalityReport(brainDir, branch string, compact bool, now time.Ti
 	factsByID := map[string]factRecord{}
 	storeLoaded := false
 	if facts, factsErr := loadFacts(brainDir, branch); factsErr != nil {
-		report.Warnings = append(report.Warnings, "fact store unavailable for join: "+factsErr.Error())
+		report.Warnings = append(report.Warnings, "memory store unavailable for join: "+factsErr.Error())
 	} else {
 		storeLoaded = true
 		for _, f := range facts {
@@ -167,7 +169,7 @@ func buildFactsVitalityReport(brainDir, branch string, compact bool, now time.Ti
 
 func printFactsVitality(cmd *cobra.Command, report factsVitalityReport, factID string) {
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "facts vitality for %s\n", report.Branch)
+	fmt.Fprintf(out, "memories vitality for %s\n", report.Branch)
 	if len(report.Facts) == 0 {
 		if factID != "" {
 			fmt.Fprintf(out, "no serve receipts for %s on %s\n", factID, report.Branch)

@@ -47,7 +47,7 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 		return "", "", "", err
 	}
 	if !local {
-		return "", "", "", fmt.Errorf("facts require a local repository path: %s", target)
+		return "", "", "", fmt.Errorf("memories require a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -93,7 +93,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
-		Short: "Retrieve durable facts matching a query for the current branch",
+		Short: "Retrieve durable memories matching a query for the current branch",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := ""
@@ -103,7 +103,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if evidence {
 				for _, flag := range []string{"all", "scope", "kind", "locus", "expand", "agent", "model", "agent-command", "eligible-before", "session-dates", "exclude-session-id", "read-only-semantic-cache"} {
 					if cmd.Flags().Changed(flag) {
-						return fmt.Errorf("--%s is not supported with --evidence; evidence recall is deterministic and does not apply fact filters", flag)
+						return fmt.Errorf("--%s is not supported with --evidence; evidence recall is deterministic and does not apply memory filters", flag)
 					}
 				}
 			} else if cmd.Flags().Changed("evidence-bytes") {
@@ -138,7 +138,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				if globalErr != nil {
 					// A damaged global store must not take recall down with it;
 					// the repository's own facts are the answer to most queries.
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 				} else {
 					allFacts, globalIDs = mergeGlobalFacts(allFacts, globalFacts)
 				}
@@ -146,7 +146,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			var storeWarning string
 			manifest, manifestErr := loadBrainManifest(brainDir)
 			if manifestErr != nil {
-				storeWarning = "fact source manifest unavailable: " + manifestErr.Error()
+				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
 			} else if manifest != nil && manifest.Sources != nil {
 				storeWarning = missingFactStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
 			}
@@ -266,7 +266,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			}
 			if len(matches) == 0 {
 				return writeText(cmd, func(out io.Writer) {
-					fmt.Fprintf(out, "no facts for %q on %s\n", query, resolvedBranch)
+					fmt.Fprintf(out, "no memories for %q on %s\n", query, resolvedBranch)
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
@@ -308,22 +308,22 @@ func newRecallCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
 	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
-	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum facts to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
-	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
-	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum memories to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
+	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
+	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
-	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to facts about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
+	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to memories about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
 	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, ranking is always BM25 lexical")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&eligibleBefore, "eligible-before", "", "Restrict candidates to facts whose provenance is strictly before this RFC3339 cutoff")
+	cmd.Flags().StringVar(&eligibleBefore, "eligible-before", "", "Restrict candidates to memories whose provenance is strictly before this RFC3339 cutoff")
 	cmd.Flags().StringVar(&sessionDatesPath, "session-dates", "", "JSON map of session IDs to provenance timestamps for --eligible-before")
-	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude facts anchored to this session (repeatable)")
+	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude memories anchored to this session (repeatable)")
 	cmd.Flags().BoolVar(&readOnlySemanticCache, "read-only-semantic-cache", false, "Accepted for compatibility: semantic vector caches no longer exist")
-	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts, recalling only this repository's")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global memories, recalling only this repository's")
 	return cmd
 }
 
@@ -351,8 +351,8 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 		jsonOut bool
 	)
 	cmd := &cobra.Command{
-		Use:   "blame <fact-id>",
-		Short: "Show the source anchors a fact was derived from",
+		Use:   "blame <memory-id>",
+		Short: "Show the source anchors a memory was derived from",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
@@ -385,7 +385,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }

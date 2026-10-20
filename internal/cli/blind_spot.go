@@ -169,7 +169,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if len(shown) > 3 {
 		shown, suffix = shown[:3], ", ..."
 	}
-	return fmt.Sprintf("note: no matching facts on %s, but %d active fact(s) on %d other branch(es): %s%s — retry with --branch",
+	return fmt.Sprintf("note: no matching memories on %s, but %d active memory(ies) on %d other branch(es): %s%s — retry with --branch",
 		branch, total, len(names), strings.Join(shown, ", "), suffix)
 }
 

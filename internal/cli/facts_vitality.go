@@ -297,7 +297,7 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 		// dropped) or a failed inline compaction after a successful append;
 		// either way it is one bounded line per invocation and never a read
 		// failure.
-		fmt.Fprintf(errW, "warning: facts vitality recording degraded: %v\n", err)
+		fmt.Fprintf(errW, "warning: memories vitality recording degraded: %v\n", err)
 	}
 }
 

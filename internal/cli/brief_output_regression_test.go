@@ -247,7 +247,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("corrupt fact store should degrade: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, "facts unavailable") {
+		if !strings.Contains(out, "memories unavailable") {
 			t.Fatalf("fact warning absent: %s", out)
 		}
 	})

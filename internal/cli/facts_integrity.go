@@ -213,40 +213,40 @@ func (r factStoreIntegrity) Warning() string {
 	case factStoreDefectMissing:
 		return missingFactStoreWarning(r.Missing)
 	case factStoreDefectUnreadable:
-		where := "fact store"
+		where := "memory store"
 		if len(r.Unreadable) > 0 {
-			where = "fact store for " + strings.Join(r.Unreadable, ", ")
+			where = "memory store for " + strings.Join(r.Unreadable, ", ")
 		}
 		return fmt.Sprintf(
-			"%s is corrupt: %s; the %d fact(s) the manifest declares cannot be recalled — %s",
+			"%s is corrupt: %s; the %d memory(ies) the manifest declares cannot be recalled — %s",
 			where, r.ParseError, r.Declared, factsRepairHint,
 		)
 	case factStoreDefectLossy:
 		detail := fmt.Sprintf(
-			"fact count does not match the manifest: %d declared, %d readable",
+			"memory count does not match the manifest: %d declared, %d readable",
 			r.Declared, r.Readable,
 		)
 		if lost := r.Lost(); lost > 0 {
 			detail += fmt.Sprintf(" (%d lost)", lost)
 		}
 		if r.Unusable > 0 {
-			detail += fmt.Sprintf("; %d stored line(s) carry no fact id", r.Unusable)
+			detail += fmt.Sprintf("; %d stored line(s) carry no memory id", r.Unusable)
 		}
 		// A store can be BOTH short and collided. Reporting only the shortfall
 		// would understate the damage — the overwritten fact is gone too, and
 		// it is not one of the ones the arithmetic accounted for.
 		if overwritten := r.Overwritten(); overwritten > 0 {
-			detail += fmt.Sprintf("; %d more record(s) repeat a fact id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
+			detail += fmt.Sprintf("; %d more record(s) repeat a memory id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
 		}
 		return detail + " — " + factsRepairHint
 	case factStoreDefectDuplicated:
 		return fmt.Sprintf(
-			"fact ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one fact, so each repeat stands where another fact used to be and that fact can no longer be recalled; the manifest's %d were counted, not read — %s",
+			"memory ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one memory, so each repeat stands where another memory used to be and that memory can no longer be recalled; the manifest's %d were counted, not read — %s",
 			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint,
 		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
-			"fact count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `entire brain refresh`",
+			"memory count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `entire brain refresh`",
 			r.Declared, r.Readable,
 		)
 	default:
@@ -364,7 +364,7 @@ func inspectBrainFactStore(brainDir string) factStoreIntegrity {
 // printed — hiding the survivors helps nobody — but the command exits nonzero
 // so a script cannot read the output as complete, matching how a corrupt
 // history index already behaves.
-var errFactStoreIncomplete = errors.New("fact store cannot produce every fact the manifest declares")
+var errFactStoreIncomplete = errors.New("memory store cannot produce every memory the manifest declares")
 
 // reportFactStoreIntegrity prints the cross-check verdict for a fact read
 // surface and returns the error that should end the command, or nil when the

@@ -218,7 +218,7 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 		}
 	}
 	if len(rec.Facts) > 0 {
-		fmt.Fprintf(&b, "Relevant durable facts: %s\n", strings.Join(rec.Facts, "; "))
+		fmt.Fprintf(&b, "Relevant durable memories: %s\n", strings.Join(rec.Facts, "; "))
 	}
 	if len(in.verdict.RequiredEdits) > 0 {
 		fmt.Fprintf(&b, "Verifier-required edits (apply these):\n")

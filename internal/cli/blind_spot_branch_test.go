@@ -58,7 +58,7 @@ func TestBlindSpotNamesOtherBranchesHoldingFacts(t *testing.T) {
 	declareFacts(t, brainDir, now, 3, "feat/stage1a", "feat/scale")
 
 	note := emptyResultBlindSpotOnBranch(brainDir, "main")
-	for _, want := range []string{"no matching facts on main", "3 active fact(s)", "2 other branch(es)", "feat/scale", "feat/stage1a", "--branch"} {
+	for _, want := range []string{"no matching memories on main", "3 active memory(ies)", "2 other branch(es)", "feat/scale", "feat/stage1a", "--branch"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("note must contain %q, got %q", want, note)
 		}
@@ -129,7 +129,7 @@ func TestBlindSpotDoesNotClaimQueriedBranchHasNoFacts(t *testing.T) {
 	seedFactBranch(t, brainDir, "feature", "other")
 	declareFacts(t, brainDir, now, 2, "main", "feature")
 	note := emptyResultBlindSpotOnBranch(brainDir, "main")
-	if strings.Contains(note, "0 memories on main") || !strings.Contains(note, "no matching facts on main") || !strings.Contains(note, "1 active fact(s)") {
+	if strings.Contains(note, "0 memories on main") || !strings.Contains(note, "no matching memories on main") || !strings.Contains(note, "1 active memory(ies)") {
 		t.Fatalf("misleading branch diagnostic: %q", note)
 	}
 }

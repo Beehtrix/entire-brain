@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type Options struct {
@@ -496,4 +497,16 @@ func commandErrorCode(err error) string {
 		}
 	}
 	return "command_failed"
+}
+
+// legacyFlagAlias keeps a renamed flag's old spelling parseable by normalizing
+// it to the new name. One per flag set: SetNormalizeFunc is single-slot, so a
+// second call on the same FlagSet replaces the first.
+func legacyFlagAlias(fs *pflag.FlagSet, oldName, newName string) {
+	fs.SetNormalizeFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == oldName {
+			name = newName
+		}
+		return pflag.NormalizedName(name)
+	})
 }

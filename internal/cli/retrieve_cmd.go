@@ -220,7 +220,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// rather than only on the one command that happened to load them. They go
 	// through the same guard, filters and scoring as repository facts.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		ropts.GlobalFacts = globalFacts
 	}
@@ -736,7 +736,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	// An id that query or search just handed back and get reports missing is a
 	// worse seam than not returning it at all.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		gopts.GlobalFacts = globalFacts
 	}

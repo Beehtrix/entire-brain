@@ -17,7 +17,6 @@ import (
 	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 const (
@@ -73,12 +72,7 @@ Backends (--memories-backend, or ` + envFactsBackend + `):
 	cmd.Flags().StringVar(&syncOpts.token, "token", "", "Entire API bearer token for the http backend (overrides ENTIRE_API_TOKEN)")
 	cmd.Flags().BoolVar(&syncOpts.jsonOut, "json", false, "Emit the sync result as JSON")
 	// --facts-backend predates the facts→memories rename; keep it working.
-	cmd.Flags().SetNormalizeFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
-		if name == "facts-backend" {
-			name = "memories-backend"
-		}
-		return pflag.NormalizedName(name)
-	})
+	legacyFlagAlias(cmd.Flags(), "facts-backend", "memories-backend")
 	return cmd
 }
 

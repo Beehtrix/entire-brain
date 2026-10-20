@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // factsVitalityReport is the JSON contract of `facts vitality`: the branch's
@@ -94,12 +93,7 @@ func newFactsVitalityCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&compact, "compact", false, "Fold the append log into the compacted rollup before reporting")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	// --fact predates the facts→memories rename; keep it working.
-	cmd.Flags().SetNormalizeFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
-		if name == "fact" {
-			name = "memory"
-		}
-		return pflag.NormalizedName(name)
-	})
+	legacyFlagAlias(cmd.Flags(), "fact", "memory")
 	return cmd
 }
 

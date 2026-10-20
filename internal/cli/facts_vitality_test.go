@@ -847,7 +847,7 @@ func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 	if len(recallOut.Facts) != 1 || recallOut.Facts[0].ID != fact.ID {
 		t.Fatalf("recall result changed: %+v", recallOut.Facts)
 	}
-	if got := strings.Count(stderr, "facts vitality recording degraded"); got != 1 {
+	if got := strings.Count(stderr, "memories vitality recording degraded"); got != 1 {
 		t.Fatalf("want exactly one bounded diagnostic, got %d:\n%s", got, stderr)
 	}
 }

@@ -46,7 +46,7 @@ orientation with:
 
 Questions about why something is the way it is, what was decided, or what was
 tried before are answered by durable memories. Retrieve them directly; the brief's
-memories sample is a sample, not the search:
+memories section is a sample, not the search:
 
     entire brain recall "<question>" --json
 

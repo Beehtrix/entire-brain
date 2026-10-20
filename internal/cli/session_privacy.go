@@ -703,7 +703,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 		fmt.Fprintf(out, "excluded %s and removed or rebuilt its derived projections:\n", sessionID)
 		fmt.Fprintf(out, "  %d derived index records\n", plan.Records)
 		if plan.FactsDeleted > 0 || plan.FactAnchorsStripped > 0 {
-			fmt.Fprintf(out, "  %d single-source facts deleted, %d anchors stripped from corroborated facts\n", plan.FactsDeleted, plan.FactAnchorsStripped)
+			fmt.Fprintf(out, "  %d single-source memories deleted, %d anchors stripped from corroborated memories\n", plan.FactsDeleted, plan.FactAnchorsStripped)
 		}
 		if plan.Episodes > 0 {
 			fmt.Fprintf(out, "  %d pattern episodes\n", plan.Episodes)
@@ -1107,7 +1107,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		}
 		fmt.Fprintf(out, "  %d derived index records\n", plan.Records)
 		if plan.FactsDeleted > 0 || plan.FactAnchorsStripped > 0 {
-			fmt.Fprintf(out, "  %d single-source facts deleted, %d anchors stripped from corroborated facts\n", plan.FactsDeleted, plan.FactAnchorsStripped)
+			fmt.Fprintf(out, "  %d single-source memories deleted, %d anchors stripped from corroborated memories\n", plan.FactsDeleted, plan.FactAnchorsStripped)
 		}
 		if plan.Episodes > 0 {
 			fmt.Fprintf(out, "  %d pattern episodes\n", plan.Episodes)

@@ -9,7 +9,6 @@ import (
 	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 const defaultFactRetention = 30 * 24 * time.Hour
@@ -638,12 +637,7 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&gen.force, "force", false, "Re-summarize every node, ignoring unchanged fingerprints")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline summary as JSON")
 	// --min-facts predates the facts→memories rename; keep it working.
-	cmd.Flags().SetNormalizeFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
-		if name == "min-facts" {
-			name = "min-memories"
-		}
-		return pflag.NormalizedName(name)
-	})
+	legacyFlagAlias(cmd.Flags(), "min-facts", "min-memories")
 	return cmd
 }
 

@@ -176,6 +176,76 @@ func TestFilelessMigrationAndStandaloneBundle(t *testing.T) {
 	}
 }
 
+func TestFilelessMigrationRetainsDivergentCache(t *testing.T) {
+	opts, brain, _ := filelessCheckpointFixture(t)
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	runFilelessExport(t, opts, bundle, false)
+	manifest, _ := loadBrainManifest(bundle)
+	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
+	if err := os.MkdirAll(filepath.Dir(brain), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(bundle, brain); err != nil {
+		t.Fatal(err)
+	}
+	// A live session's cached export can legitimately run ahead of its last
+	// checkpoint; divergence must retain the file, not block every export.
+	cached := filepath.Join(brain, filepath.FromSlash(rel))
+	if err := os.WriteFile(cached, []byte(conversationClaudeFixture+`{"newer":true}`+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); err != nil {
+		t.Fatal("lost retained divergent copy:", err)
+	}
+	data, err := readCanonicalHistoryTranscript(context.Background(), brain, rel)
+	if err != nil || string(data) != conversationClaudeFixture {
+		t.Fatalf("migration read: %q %v", data, err)
+	}
+	// The checkpoint-backed sweep on the next export must keep re-proving the
+	// retained copy, not delete it as a stray.
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); err != nil {
+		t.Fatal("retained copy swept by checkpoint-backed export:", err)
+	}
+	// Once the checkpoint holds every cached byte again, the file sweeps.
+	if err := os.WriteFile(cached, []byte(conversationClaudeFixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); !os.IsNotExist(err) {
+		t.Fatalf("reconciled cache not swept: %v", err)
+	}
+}
+
+func TestFilelessMigrationSweepsCacheBehindCheckpoint(t *testing.T) {
+	opts, brain, _ := filelessCheckpointFixture(t)
+	bundle := filepath.Join(t.TempDir(), "bundle")
+	runFilelessExport(t, opts, bundle, false)
+	manifest, _ := loadBrainManifest(bundle)
+	rel := manifest.Sources.Sessions.Sessions[0].TranscriptPath
+	if err := os.MkdirAll(filepath.Dir(brain), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(bundle, brain); err != nil {
+		t.Fatal(err)
+	}
+	// The checkpoint can run ahead of the last disk export; a cached prefix
+	// is fully recoverable from the checkpoint and must still be swept.
+	cached := filepath.Join(brain, filepath.FromSlash(rel))
+	if err := os.WriteFile(cached, []byte(conversationClaudeFixture[:len(conversationClaudeFixture)/2]), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); !os.IsNotExist(err) {
+		t.Fatalf("stale cache prefix not swept: %v", err)
+	}
+	data, err := readCanonicalHistoryTranscript(context.Background(), brain, rel)
+	if err != nil || string(data) != conversationClaudeFixture {
+		t.Fatalf("migration read: %q %v", data, err)
+	}
+}
+
 func TestFilelessMigrationRetainsUnrecoverableCache(t *testing.T) {
 	opts, brain, repo := filelessCheckpointFixture(t)
 	bundle := filepath.Join(t.TempDir(), "bundle")

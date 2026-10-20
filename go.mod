@@ -14,7 +14,6 @@ require (
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
 	github.com/mattn/go-isatty v0.0.24
 	github.com/mattn/go-runewidth v0.0.27
-	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9

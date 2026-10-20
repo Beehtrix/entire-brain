@@ -393,7 +393,7 @@ func renderCandidateEvidence(out io.Writer, cand taskCandidate) {
 		}
 	}
 	if len(c.MatchingFacts) > 0 {
-		fmt.Fprintln(out, "Relevant durable facts:")
+		fmt.Fprintln(out, "Relevant durable memories:")
 		for _, f := range c.MatchingFacts {
 			fmt.Fprintf(out, "  - %s\n", f)
 		}

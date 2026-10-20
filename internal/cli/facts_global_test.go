@@ -496,7 +496,7 @@ func TestUndecidableRepositoryIdentityIsSurfacedNotFiledGlobally(t *testing.T) {
 	if !errorIsRepoIdentityConflict(fmt.Errorf("resolve target: %w", conflict)) {
 		t.Fatal("a wrapped identity conflict is not recognised; it would be treated as no repository")
 	}
-	if errorIsRepoIdentityConflict(errors.New("facts require a local repository path: /nowhere")) {
+	if errorIsRepoIdentityConflict(errors.New("memories require a local repository path: /nowhere")) {
 		t.Fatal("an ordinary not-a-repository error was mistaken for an identity conflict")
 	}
 	_ = opts
@@ -883,7 +883,7 @@ func TestCompactBriefLabelsGlobalFacts(t *testing.T) {
 		if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, packetFormat: format}, "orion"); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), "Facts from the global store") {
+		if !strings.Contains(out.String(), "Memories from the global store") {
 			t.Fatalf("%s lost global scope: %s", format, out.String())
 		}
 	}

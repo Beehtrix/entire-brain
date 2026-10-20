@@ -235,7 +235,7 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 			if os.IsNotExist(err) {
 				continue
 			}
-			return fmt.Errorf("remove stale fact file %s: %w", clean, err)
+			return fmt.Errorf("remove stale memory file %s: %w", clean, err)
 		}
 		if parent := filepath.Dir(clean); parent != "." {
 			dirs = append(dirs, parent)
@@ -329,7 +329,7 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 		rel := filepath.Join(relDir, factFileName(fact.ID))
 		if owner, taken := claimed[rel]; taken {
 			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
-			return result, withManifestFailure(fmt.Errorf("facts %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel), manifestErr)
+			return result, withManifestFailure(fmt.Errorf("memories %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel), manifestErr)
 		}
 		claimed[rel] = fact.ID
 		if err := rejectExistingSymlinkPathComponents(dir, rel); err != nil {
@@ -441,8 +441,8 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "files",
-		Short: "Write durable facts out as plain Markdown files you can grep, read and diff",
-		Long: "Write durable facts out as one Markdown file per fact, laid out by taxonomy path.\n\n" +
+		Short: "Write durable memories out as plain Markdown files you can grep, read and diff",
+		Long: "Write durable memories out as one Markdown file per memory, laid out by taxonomy path.\n\n" +
 			"The export is a projection: the brain remains the source of truth, the directory is\n" +
 			"rewritten on each run, and nothing reads these files back in. Edit them freely; edit\n" +
 			"the brain with remember and retract.",
@@ -475,7 +475,7 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 			if jsonOut {
 				return writeIndentedJSON(cmd.OutOrStdout(), result)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "wrote %d facts to %s\n", result.Written, result.Dir)
+			fmt.Fprintf(cmd.OutOrStdout(), "wrote %d memories to %s\n", result.Written, result.Dir)
 			for _, file := range result.Files {
 				fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", file)
 			}
@@ -489,8 +489,8 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&dir, "dir", "brain-facts", "Directory to write the files into")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch to export facts from (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch to export memories from (default: current)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the manifest as JSON")
-	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
+	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
 	return cmd
 }

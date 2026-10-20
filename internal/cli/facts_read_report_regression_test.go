@@ -92,7 +92,7 @@ func TestFactsReadReportsOutlineMapTreeExactAndReadOnlyFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tree: %v\n%s", err, treeOut)
 	}
-	for _, want := range []string{"1 facts on main under constraints", "constraints (1)", "constraints.invariants.general (1)", "facts commands preserve durable identities"} {
+	for _, want := range []string{"1 memories on main under constraints", "constraints (1)", "constraints.invariants.general (1)", "facts commands preserve durable identities"} {
 		if !strings.Contains(treeOut, want) {
 			t.Fatalf("tree missing %q:\n%s", want, treeOut)
 		}

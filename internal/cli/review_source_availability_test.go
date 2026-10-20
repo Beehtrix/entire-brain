@@ -70,7 +70,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if (!strings.Contains(out, factsFileName) && !strings.Contains(out, "fact count does not match")) || strings.Contains(out, "the answer may genuinely not be") {
+					if (!strings.Contains(out, factsFileName) && !strings.Contains(out, "memory count does not match")) || strings.Contains(out, "the answer may genuinely not be") {
 						t.Fatalf("empty store hidden by recall: %s", out)
 					}
 				}

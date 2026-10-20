@@ -766,7 +766,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
-	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
+	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for memories; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
 	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
@@ -1204,7 +1204,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 			}
 		}
 		if v := f.Verification; v != nil {
-			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+			fmt.Fprintf(out, "  verification: %d memories, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
 		}
 	}
@@ -1594,7 +1594,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	var briefGlobalFacts []factRecord
 	var briefGlobalIDs map[string]bool
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
-		report.Warnings = append(report.Warnings, "global facts unavailable: "+globalErr.Error())
+		report.Warnings = append(report.Warnings, "global memories unavailable: "+globalErr.Error())
 	} else {
 		briefGlobalFacts = globalFacts
 	}
@@ -1624,7 +1624,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Facts.Load, factsLoadStarted, 1, len(facts), factsLoadErrors)
 		}
 		if factsErr != nil {
-			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
+			report.Warnings = append(report.Warnings, "memories unavailable: "+factsErr.Error())
 		} else {
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
@@ -1662,7 +1662,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	likelyFilesStarted := profile.start()
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, factsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
 	if len(report.GlobalFactIDs) > 0 {
-		report.Guidance = append(report.Guidance, "Facts from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
+		report.Guidance = append(report.Guidance, "Memories from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
 	}
 	// A non-current semantic index is still useful for intent and graph shape,
 	// but its repository loci must cross the live worktree boundary before the
@@ -1844,7 +1844,7 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 				break
 			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
+		fmt.Fprintf(cmd.OutOrStdout(), "memory [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 		}
@@ -4477,7 +4477,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 						continue
 					}
 					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("fact store for %s unavailable: %v", branch, err))
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v", branch, err))
 					}
 				}
 			} else {

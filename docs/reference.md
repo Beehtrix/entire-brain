@@ -279,7 +279,7 @@ them:
   own when no agent CLI is available.
 - **The watcher is installed as a persistent background service, by default,
   without asking.** On macOS that is a launchd agent with `RunAtLoad` and
-  `KeepAlive` loaded through `launchctl load -w`; on Linux a systemd user unit
+  `KeepAlive` registered through `launchctl bootstrap`; on Linux a systemd user unit
   with `Restart=always`, enabled with `systemctl --user enable --now`. It
   survives logout and reboot, and its gated distill step calls an agent, so it
   is a **recurring** spend, not a one-off. There is no confirmation prompt
@@ -496,7 +496,7 @@ It is safe on a real machine. Every path the binary can write is redirected into
 `ENTIRE_PLUGIN_*_DIR` directories, and `ENTIRE_BRAIN_DAEMON_DIR`. It also sets
 `ENTIRE_BRAIN_DAEMON_NO_REGISTER=1`, and **both of those last two are needed**:
 `ENTIRE_BRAIN_DAEMON_DIR` moves the plist / systemd unit *file*, while
-`launchctl load -w` and `systemctl --user enable --now` act on your live session
+`launchctl bootstrap` and `systemctl --user enable --now` act on your live session
 whatever directory the file came from. Set only the directory — as a CI job or a
 smoke test naturally would — and a "sandboxed" run still registers a real,
 restart-forever agent on the machine. `ENTIRE_BRAIN_DAEMON_NO_REGISTER` is the

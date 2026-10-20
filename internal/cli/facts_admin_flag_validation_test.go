@@ -64,7 +64,7 @@ func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
 
 		// The orphan store is the damage: it must never have been written.
 		if factBranchStoreExists(f.storage.BrainDir, bogus) {
-			t.Fatalf("refused promote still wrote a fact store for %q", bogus)
+			t.Fatalf("refused promote still wrote a memory store for %q", bogus)
 		}
 		orphanDir := filepath.Join(f.storage.BrainDir, filepath.FromSlash(factsBranchRelDir(bogus)))
 		if _, statErr := os.Stat(orphanDir); statErr == nil {
@@ -78,7 +78,7 @@ func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
 		if err == nil {
 			t.Fatalf("promoting from a branch with no facts reported success:\n%s", out)
 		}
-		if !strings.Contains(err.Error(), "no facts to promote") {
+		if !strings.Contains(err.Error(), "no memories to promote") {
 			t.Fatalf("an empty source should be named as such, got: %v", err)
 		}
 	})
@@ -89,7 +89,7 @@ func TestFactsPromoteValidatesBothBranchEndpoints(t *testing.T) {
 		if err != nil {
 			t.Fatalf("valid promote was refused: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, "promoted 1 fact(s) from feature into main") {
+		if !strings.Contains(out, "promoted 1 memory(ies) from feature into main") {
 			t.Fatalf("unexpected promote summary:\n%s", out)
 		}
 		facts, loadErr := loadFacts(f.storage.BrainDir, "main")

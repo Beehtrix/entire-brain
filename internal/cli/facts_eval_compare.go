@@ -420,7 +420,7 @@ func newFactsEvalCompareCommand(opts Options) *cobra.Command {
 		Hidden: true,
 		Use:    "eval-compare --a <A.json> --b <B.json>",
 		Short:  "Paired A/B comparison of two eval runs with a t-test and Holm correction",
-		Long: `eval-compare reads two 'facts eval --json' summaries over the SAME tasks (two
+		Long: `eval-compare reads two 'memories eval --json' summaries over the SAME tasks (two
 retrieval configs, e.g. base vs --expand) and reports, per metric, the paired
 mean delta, a two-sided Student-t p-value, Cohen's d, and a Holm-Bonferroni
 family-wise significance verdict. Relevance metrics require comparable
@@ -491,7 +491,7 @@ it to report a lift honestly instead of eyeballing two means.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&aPath, "a", "", "Baseline eval summary JSON (facts eval --json)")
+	cmd.Flags().StringVar(&aPath, "a", "", "Baseline eval summary JSON (memories eval --json)")
 	cmd.Flags().StringVar(&bPath, "b", "", "Comparison eval summary JSON")
 	cmd.Flags().Float64Var(&alpha, "alpha", 0.05, "Family-wise significance level for Holm correction")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the comparison as JSON")

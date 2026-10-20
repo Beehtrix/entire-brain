@@ -402,15 +402,15 @@ func plural(n int, word string) string {
 // for an observation.
 func statusFactsIdentity(f *brainStatusFacts) string {
 	if f.Integrity == nil || f.Integrity.OK() {
-		return fmt.Sprintf("facts: %d", f.Facts)
+		return fmt.Sprintf("memories: %d", f.Facts)
 	}
 	// A store that would not parse yielded no count at all, so "0 readable"
 	// would be a measurement nobody took. Say what is true: it could not be
 	// read.
 	if f.Integrity.Mode == factStoreDefectUnreadable {
-		return fmt.Sprintf("facts: %d declared, store unreadable", f.Facts)
+		return fmt.Sprintf("memories: %d declared, store unreadable", f.Facts)
 	}
-	return fmt.Sprintf("facts: %d declared, %d readable", f.Facts, f.Integrity.Readable)
+	return fmt.Sprintf("memories: %d declared, %d readable", f.Facts, f.Integrity.Readable)
 }
 
 // statusLabelWidth aligns the short report's left column.
@@ -435,7 +435,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	}
 	if f := report.Facts; f != nil {
 		if report.Integrity == "not_checked" {
-			identity = append(identity, fmt.Sprintf("facts: %d declared", f.Facts))
+			identity = append(identity, fmt.Sprintf("memories: %d declared", f.Facts))
 		} else {
 			identity = append(identity, statusFactsIdentity(f))
 		}
@@ -492,7 +492,7 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
 	facts := onboarding.Facts
 	factsLine := fmt.Sprintf("  %-*s %s %s distilled",
-		statusLabelWidth, "facts",
+		statusLabelWidth, "memories",
 		render.Bar(facts.Distilled, facts.Sessions, statusBarWidth),
 		render.Ratio(facts.Distilled, facts.Sessions))
 	switch {

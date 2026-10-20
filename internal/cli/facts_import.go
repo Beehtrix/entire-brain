@@ -160,7 +160,7 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		}
 		if foreignIDStripped || replacedByStripped {
 			mem.Unsupported = append(mem.Unsupported,
-				"control, bidi or zero-width characters in a source id (stripped on import; the id is printed by `facts show` and embedded in the fact's anchor)")
+				"control, bidi or zero-width characters in a source id (stripped on import; the id is printed by `memories show` and embedded in the memory's anchor)")
 		}
 		if createdBad || updatedBad {
 			// The caller substitutes `now` for a zero time, so an unparseable
@@ -169,7 +169,7 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 			// every fact with today is worse than carrying no date at all,
 			// because it looks like real information.
 			mem.Unsupported = append(mem.Unsupported, fmt.Sprintf(
-				"a timestamp this import could not read (%s); the fact is dated at import time instead, so its position in recency order is not the source's",
+				"a timestamp this import could not read (%s); the memory is dated at import time instead, so its position in recency order is not the source's",
 				unreadableTimestampDetail(m, createdBad, updatedBad)))
 		}
 		if stripped {
@@ -189,14 +189,14 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 			// than lost quietly — which is the whole reason somebody would
 			// trust an import enough to switch.
 			mem.Unsupported = append(mem.Unsupported,
-				"metadata (Brain facts carry taxonomy paths and provenance, not arbitrary key/value pairs)")
+				"metadata (Brain memories carry taxonomy paths and provenance, not arbitrary key/value pairs)")
 		}
 		if len(m.Structured) > 0 {
 			mem.Unsupported = append(mem.Unsupported,
-				"structured_attributes (Brain has no structured-attribute model; the fact text is imported without them)")
+				"structured_attributes (Brain has no structured-attribute model; the memory text is imported without them)")
 		}
 		if strings.TrimSpace(m.ExpirationDate) != "" {
-			mem.Unsupported = append(mem.Unsupported, "expiration_date (Brain has no TTL; the fact is imported without one)")
+			mem.Unsupported = append(mem.Unsupported, "expiration_date (Brain has no TTL; the memory is imported without one)")
 		}
 		// mem0 scopes by user and agent. Brain scopes by repository and branch,
 		// so the scoping does not survive and is preserved as text rather than
@@ -403,7 +403,7 @@ func validateImportPrefixAgainstTaxonomy(brainDir, prefix string, now time.Time)
 	if kept := filterFactPathsByTaxonomy([]string{candidate}, taxonomy, &warnings); len(kept) == 1 {
 		return nil
 	}
-	return fmt.Errorf("--path-prefix %q is not under a known taxonomy category (%s); importing under it would mint facts the rest of the system treats as orphaned",
+	return fmt.Errorf("--path-prefix %q is not under a known taxonomy category (%s); importing under it would mint memories the rest of the system treats as orphaned",
 		prefix, strings.Join(sortedTaxonomyTopLevels(taxonomy), ", "))
 }
 
@@ -469,7 +469,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			// beats discovering later that a tag the source had cannot be
 			// found anywhere in this brain.
 			report.Unsupported = append(report.Unsupported, fmt.Sprintf(
-				"categories beyond the %d taxonomy paths a fact may hold: %s (the fact is filed under the first %d)",
+				"categories beyond the %d taxonomy paths a memory may hold: %s (the memory is filed under the first %d)",
 				factmerge.MaxPaths, strings.Join(droppedCategories, ", "), factmerge.MaxPaths))
 		}
 		created, updated := mem.CreatedAt, mem.UpdatedAt
@@ -557,17 +557,17 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	}
 	if selfSupersessions > 0 {
 		unsupported[fmt.Sprintf(
-			"supersession target is the memory itself (%d fact(s) name their own id as the replacement and are left with no successor)",
+			"supersession target is the memory itself (%d memory(ies) name their own id as the replacement and are left with no successor)",
 			selfSupersessions)] = true
 	}
 	if ambiguousSupersessions > 0 {
 		unsupported[fmt.Sprintf(
-			"supersession target is ambiguous (%d fact(s) name a duplicated source id and are left with no successor)",
+			"supersession target is ambiguous (%d memory(ies) name a duplicated source id and are left with no successor)",
 			ambiguousSupersessions)] = true
 	}
 	if danglingSupersessions > 0 {
 		unsupported[fmt.Sprintf(
-			"supersession target outside this export (%d fact(s) are marked superseded with no successor in the store)",
+			"supersession target outside this export (%d memory(ies) are marked superseded with no successor in the store)",
 			danglingSupersessions)] = true
 	}
 
@@ -616,7 +616,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	}
 	if len(conflictingRetirement) > 0 {
 		unsupported[fmt.Sprintf(
-			"supersession target disagrees between duplicates (%d fact(s) are named with more than one replacement and are left with no successor)",
+			"supersession target disagrees between duplicates (%d memory(ies) are named with more than one replacement and are left with no successor)",
 			len(conflictingRetirement))] = true
 	}
 	if statusConflicts > 0 {
@@ -631,7 +631,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	}
 	if collapsed := len(facts) - len(distinct); collapsed > 0 {
 		unsupported[fmt.Sprintf(
-			"%d memor(ies) are identical to another under the same category and were merged into one fact",
+			"%d memor(ies) are identical to another under the same category and were merged into one memory",
 			collapsed)] = true
 	}
 	for note := range unsupported {
@@ -640,7 +640,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 	sort.Strings(report.Unsupported)
 	if report.Superseded > 0 {
 		report.Warnings = append(report.Warnings,
-			"Superseded facts keep source timestamps; facts gc may prune them immediately if they are older than its retention window. Preview facts gc without --force and adjust --retain before deleting imported history.")
+			"Superseded memories keep source timestamps; memories gc may prune them immediately if they are older than its retention window. Preview memories gc without --force and adjust --retain before deleting imported history.")
 	}
 	report.Imported = len(distinct)
 	// Count superseded in the SAME UNIT as Imported.
@@ -757,9 +757,9 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Import durable facts from another memory tool's export",
-		Long: "Import memories exported from another tool as durable facts.\n\n" +
-			"Imported facts carry origin \"imported\" and an anchor naming the source tool and\n" +
+		Short: "Import durable memories from another memory tool's export",
+		Long: "Import memories exported from another tool as durable memories.\n\n" +
+			"Imported memories carry origin \"imported\" and an anchor naming the source tool and\n" +
 			"the foreign id. They have no provenance in this repository, so `verify` reports\n" +
 			"them as unverifiable-here — that is accurate, not a failure.\n\n" +
 			"The mem0 mapping follows mem0's published API reference. Anything the source\n" +
@@ -887,7 +887,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				}
 				if manifestErr != nil {
 					report.Warnings = append(report.Warnings, fmt.Sprintf(
-						"the facts were imported, but the source manifest could not be refreshed (%v); `facts status` and freshness will describe the brain as it was before this import until `"+brainInvocation(os.LookupEnv, "refresh")+"` runs",
+						"the memories were imported, but the source manifest could not be refreshed (%v); `memories status` and freshness will describe the brain as it was before this import until `"+brainInvocation(os.LookupEnv, "refresh")+"` runs",
 						manifestErr))
 					sort.Strings(report.Warnings)
 				}
@@ -897,14 +897,14 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// thing a preview must not do.
 			if ontoInactive > 0 {
 				report.Unsupported = append(report.Unsupported, fmt.Sprintf(
-					"%d imported fact(s) match text already present here with a non-active status (retracted or superseded); "+
+					"%d imported memory(ies) match text already present here with a non-active status (retracted or superseded); "+
 						"the local status is kept, so they are not retrievable -- un-retract them if the source is right",
 					ontoInactive))
 				sort.Strings(report.Unsupported)
 			}
 			if keptActive > 0 {
 				report.Unsupported = append(report.Unsupported, fmt.Sprintf(
-					"supersession not applied to %d fact(s) already active in this brain "+
+					"supersession not applied to %d memory(ies) already active in this brain "+
 						"(a local assertion is not retired by an export; retract them explicitly if the source is right)",
 					keptActive))
 				sort.Strings(report.Unsupported)
@@ -950,7 +950,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&source, "source", "mem0", "Source tool the export came from (mem0)")
 	cmd.Flags().StringVar(&file, "file", "", "Path to the export file, or - for stdin")
-	cmd.Flags().StringVar(&prefix, "path-prefix", "project.imported", "Taxonomy prefix imported facts are filed under")
+	cmd.Flags().StringVar(&prefix, "path-prefix", "project.imported", "Taxonomy prefix imported memories are filed under")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to import onto (default: current)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report what would be imported without writing")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the report as JSON")

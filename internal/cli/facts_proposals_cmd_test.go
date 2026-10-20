@@ -338,7 +338,7 @@ func TestFactsProposalsApplyConverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facts proposals apply: %v\n%s", err, out)
 	}
-	for _, want := range []string{"applied " + proposal.ID, "facts head: facts-2", "0 open proposal(s) remain"} {
+	for _, want := range []string{"applied " + proposal.ID, "memories head: facts-2", "0 open proposal(s) remain"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("apply output missing %q:\n%s", want, out)
 		}

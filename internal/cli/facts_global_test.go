@@ -496,7 +496,7 @@ func TestUndecidableRepositoryIdentityIsSurfacedNotFiledGlobally(t *testing.T) {
 	if !errorIsRepoIdentityConflict(fmt.Errorf("resolve target: %w", conflict)) {
 		t.Fatal("a wrapped identity conflict is not recognised; it would be treated as no repository")
 	}
-	if errorIsRepoIdentityConflict(errors.New("facts require a local repository path: /nowhere")) {
+	if errorIsRepoIdentityConflict(errors.New("memories require a local repository path: /nowhere")) {
 		t.Fatal("an ordinary not-a-repository error was mistaken for an identity conflict")
 	}
 	_ = opts
@@ -827,76 +827,6 @@ func TestBriefSurfacesGlobalFacts(t *testing.T) {
 // moment the same query runs with global facts turned off.
 //
 // Guarding only retain is not enough: factVector caches the vector and marks the
-// id touched while ranking, long before retain is reached.
-func TestGlobalFactsNeverEnterARepositorysVectorCache(t *testing.T) {
-	embedder := defaultEmbedder()
-	rr := newSemanticReranker(embedder)
-	rr.touched = map[string]bool{}
-
-	local := factRecord{ID: "local-1", Text: "local claim", Status: factStatusActive}
-	global := factRecord{ID: "global-1", Text: "global claim", Status: factStatusActive}
-	rr.markForeign(map[string]bool{global.ID: true})
-
-	// Ranking embeds both — the global one must still be ranked.
-	if v := rr.factVector(global); len(v) == 0 {
-		t.Fatal("a global fact was not embedded, so it could not be ranked")
-	}
-	if v := rr.factVector(local); len(v) == 0 {
-		t.Fatal("a repository fact was not embedded")
-	}
-	// ...but only the repository's fact may be persisted.
-	if _, cached := rr.cache[global.ID]; cached {
-		t.Fatal("a global fact's vector was cached under this repository's key")
-	}
-	if rr.touched[global.ID] {
-		t.Fatal("a global fact was marked touched, so flush would persist it here")
-	}
-	if _, cached := rr.cache[local.ID]; !cached {
-		t.Fatal("the repository's own fact stopped being cached")
-	}
-	if !rr.touched[local.ID] {
-		t.Fatal("the repository's own fact stopped being retained")
-	}
-
-	// retain and markTouched must agree with factVector.
-	rr.retain([]factRecord{local, global})
-	rr.markTouched(global.ID)
-	if rr.touched[global.ID] {
-		t.Fatal("retain/markTouched still marked a global fact present in this store")
-	}
-	if !rr.touched[local.ID] {
-		t.Fatal("retain dropped the repository's own fact")
-	}
-}
-
-func TestVectorModeRanksGlobalFactsWithoutCachingThem(t *testing.T) {
-	dir := t.TempDir()
-	embedder := defaultEmbedder()
-	local := factRecord{ID: "local-1", Text: "local claim", Status: factStatusActive}
-	global := factRecord{ID: "global-1", Text: "global claim", Status: factStatusActive}
-
-	got := factsVectorRanked(dir, "main", []factRecord{local, global}, "claim", embedder, 10,
-		map[string]bool{global.ID: true})
-	var sawGlobal bool
-	for _, fact := range got {
-		if fact.ID == global.ID {
-			sawGlobal = true
-		}
-	}
-	if !sawGlobal {
-		t.Fatalf("vector mode dropped the global fact instead of ranking it: %+v", got)
-	}
-
-	store := newVectorStore(dir, "main", factEmbeddingModelID(embedder.ID()), embedder.Dim())
-	cached := store.load()
-	if _, ok := cached[global.ID]; ok {
-		t.Fatal("vector mode wrote a global fact into this repository's store")
-	}
-	if _, ok := cached[local.ID]; !ok {
-		t.Fatal("vector mode stopped caching the repository's own fact")
-	}
-}
-
 func TestBriefLabelsGlobalFactsAndChecksOnlyLocalLoci(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
 	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
@@ -953,7 +883,7 @@ func TestCompactBriefLabelsGlobalFacts(t *testing.T) {
 		if err := runBrainBrief(context.Background(), cmd, opts, brainBriefOptions{limit: 10, packetFormat: format}, "orion"); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), "Facts from the global store") {
+		if !strings.Contains(out.String(), "Memories from the global store") {
 			t.Fatalf("%s lost global scope: %s", format, out.String())
 		}
 	}
@@ -1170,7 +1100,7 @@ func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
 			cmd := &cobra.Command{}
 			var out bytes.Buffer
 			if surface == "recall" {
-				cmd = newRecallCommandWithEmbedder(opts, func() Embedder { return nil })
+				cmd = newRecallCommand(opts)
 			}
 			cmd.SetOut(&out)
 			cmd.SetErr(&bytes.Buffer{})

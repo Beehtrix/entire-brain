@@ -54,7 +54,7 @@ loaded snapshot.`,
 	}
 	cmd.Flags().StringVar(&flags.theme, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
 	cmd.Flags().StringVar(&flags.tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic, search")
-	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose facts to load (default: current branch)")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose memories to load (default: current branch)")
 	cmd.Flags().IntVar(&flags.limit, "limit", dashDefaultLimit, "Max entries loaded per tab (0 = no cap)")
 	cmd.Flags().BoolVar(&flags.json, "json", false, "Emit the loaded snapshot as JSON instead of opening the dashboard")
 	cmd.Flags().BoolVar(&flags.plain, "plain", false, "Print a plain text summary instead of opening the dashboard")

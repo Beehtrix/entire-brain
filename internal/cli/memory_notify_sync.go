@@ -49,7 +49,7 @@ func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "push-work",
 		Hidden: true,
-		Short:  "Upload the fact store for a push hint (internal)",
+		Short:  "Upload the memory store for a push hint (internal)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			// One repo resolution: resolveSessionsBrain would run the same
@@ -125,7 +125,7 @@ func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, rep
 	}
 	for _, syncBranch := range syncBranches {
 		if _, err := notifyHostedFactsSync(ctx, errW, opts, repoDir, storage, syncBranch); err != nil {
-			fmt.Fprintf(errW, "memory notify: hosted fact sync failed (local brain unaffected): %v\n", err)
+			fmt.Fprintf(errW, "memory notify: hosted memory sync failed (local brain unaffected): %v\n", err)
 		}
 	}
 	return true

@@ -270,7 +270,7 @@ func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
 	}
 	for _, f := range facts {
 		if f.Status != factStatusActive {
-			t.Errorf("no fact should be superseded below threshold: %+v", f)
+			t.Errorf("no memory should be superseded below threshold: %+v", f)
 		}
 	}
 	if source.Proposals != 1 {

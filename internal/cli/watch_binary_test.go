@@ -135,6 +135,11 @@ func TestDaemonReregisterRespectsUninstall(t *testing.T) {
 		t.Fatalf("no unit on disk, but the service manager was touched: %v", runner.calls)
 	}
 
+	if !plan.supported() {
+		// windows: no service manager, so the calm no-op above is the whole
+		// contract — there is no unit to write and nothing to re-register.
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(plan.UnitPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +149,14 @@ func TestDaemonReregisterRespectsUninstall(t *testing.T) {
 	if err := runDaemonReregister(context.Background(), io.Discard, opts); err != nil {
 		t.Fatalf("reregister: %v", err)
 	}
+	// The plan resolves for the HOST service manager, so assert the verbs that
+	// manager uses: the CI matrix covers darwin and linux with one test.
+	verbs := []string{"launchctl bootout", "launchctl enable", "launchctl bootstrap"}
+	if plan.Manager == daemonManagerSystemd {
+		verbs = []string{"systemctl --user daemon-reload", "systemctl --user enable --now"}
+	}
 	got := strings.Join(runner.calls, "\n")
-	for _, verb := range []string{"launchctl bootout", "launchctl enable", "launchctl bootstrap"} {
+	for _, verb := range verbs {
 		if !strings.Contains(got, verb) {
 			t.Fatalf("re-registration must run %q:\n%s", verb, got)
 		}

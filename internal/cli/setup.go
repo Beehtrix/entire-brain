@@ -1654,6 +1654,14 @@ func daemonEnv(env EntireEnv) map[string]string {
 	if path := strings.TrimSpace(os.Getenv("PATH")); path != "" {
 		values["PATH"] = path
 	}
+	// The unit-directory override is part of the daemon's identity: the daemon
+	// re-derives its own plan when it re-registers itself after a binary
+	// upgrade (daemon-reregister), and without this variable a watcher
+	// installed into an overridden directory would resolve — and bootout — the
+	// DEFAULT unit path, which may belong to a different, real watcher.
+	if unitDir := strings.TrimSpace(os.Getenv(envDaemonUnitDir)); unitDir != "" {
+		values[envDaemonUnitDir] = unitDir
+	}
 	return values
 }
 

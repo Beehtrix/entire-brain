@@ -8,7 +8,15 @@ import (
 	"github.com/entireio/entire-brain/internal/apiurl"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/semver"
 )
+
+// minHostCLIVersion is the first host CLI release that ships `entire repo view
+// --json` (entireio/cli#2758), which placement resolution depends on. Only
+// connect's placement shell-out checks it: local-only brain use and explicit
+// --repo-id/--api-url never touch the host CLI version.
+// TODO: set to the CLI release cut on 2026-10-20; "0.0.0" keeps the gate inert.
+const minHostCLIVersion = "0.0.0"
 
 // hostedPlacement is the slice of the host CLI's `entire repo view --json`
 // output this plugin needs (entireio/cli#2758): the repo's region-local ULID
@@ -138,6 +146,9 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir string) (hostedPlacement, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
 	defer cancel()
+	if err := checkHostCLIVersion(ctx, runner, repoDir, minHostCLIVersion); err != nil {
+		return hostedPlacement{}, err
+	}
 	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
 	if err != nil {
 		return hostedPlacement{}, err
@@ -147,4 +158,26 @@ func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir s
 		return hostedPlacement{}, fmt.Errorf("parse repo view json: %w", err)
 	}
 	return result, nil
+}
+
+// checkHostCLIVersion refuses placement resolution on a host CLI older than
+// min, so the failure says "upgrade" instead of repo view's unknown-command
+// noise. A missing CLI or an unrecognized version line (dev builds) passes:
+// the repo view call itself is the authority on whether the command exists.
+func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min string) error {
+	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "version")
+	if err != nil {
+		return nil
+	}
+	// First line is "Entire CLI <version>"; the version is the last field.
+	line, _, _ := strings.Cut(strings.TrimSpace(string(stdout)), "\n")
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return nil
+	}
+	got := "v" + strings.TrimPrefix(fields[len(fields)-1], "v")
+	if !semver.IsValid(got) || semver.Compare(got, "v"+min) >= 0 {
+		return nil
+	}
+	return fmt.Errorf("entire CLI %s does not support `entire repo view` (needs %s or newer); upgrade the entire CLI and re-run connect", strings.TrimPrefix(got, "v"), min)
 }

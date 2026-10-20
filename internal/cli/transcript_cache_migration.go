@@ -42,18 +42,33 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 	// Persistent brains are shared by worktrees; the previous exporter's
 	// recorded worktree may have been removed since the cache was written.
 	store.repoDir = repoDir
+	backed := checkpointBackedSessions(manifest)
 	var retained map[string]bool
+	retain := func(rel, reason string) {
+		fmt.Fprintf(os.Stderr, "warning: retain transcript cache: %s for %s; keeping the cached copy\n", reason, rel)
+		if retained == nil {
+			retained = make(map[string]bool)
+		}
+		retained[rel] = true
+	}
 	for _, file := range inventory.files {
-		_, live := sessions[file.Rel]
-		if checkpointBackedSessions(manifest) || !live {
+		if _, live := sessions[file.Rel]; !live {
 			continue
 		}
 		location, snapshot, err := store.lookupLocation(ctx, file.Rel)
 		if err != nil {
+			if backed {
+				retain(file.Rel, "checkpoint copy is unavailable")
+				continue
+			}
 			return nil, fmt.Errorf("retain transcript cache: %w", err)
 		}
 		data, err := readSnapshotTranscriptFromSource(ctx, runner, snapshot, location.sourceKey, location.sourcePath)
 		if err != nil {
+			if backed {
+				retain(file.Rel, "checkpoint copy is unreadable")
+				continue
+			}
 			return nil, fmt.Errorf("retain transcript cache for %s: %w", file.Rel, err)
 		}
 		cached, _, err := readHistorySessionInventoryFile(ctx, inventory, file)
@@ -68,12 +83,13 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		case bytes.HasPrefix(cached, data):
 			// The disk export ran ahead of the last checkpoint. Keep the
 			// file out of the sweep instead of blocking every future export;
-			// the next checkpoint reconciles it.
-			fmt.Fprintf(os.Stderr, "warning: retain transcript cache: cached transcript is newer than its checkpoint for %s; keeping the cached copy\n", file.Rel)
-			if retained == nil {
-				retained = make(map[string]bool)
-			}
-			retained[file.Rel] = true
+			// a later checkpoint reconciles it and the next sweep collects
+			// it. Checkpoint-backed exports repeat this proof so the file is
+			// never deleted while it still holds the only copy of the tail.
+			retain(file.Rel, "cached transcript is newer than its checkpoint")
+		case backed:
+			// A divergent override of a checkpoint-backed session is an
+			// untrusted stray; sweeping it is the established cleanup.
 		default:
 			return nil, fmt.Errorf("retain transcript cache: checkpoint bytes differ from %s", file.Rel)
 		}

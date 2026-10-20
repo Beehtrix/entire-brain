@@ -202,6 +202,20 @@ func TestFilelessMigrationRetainsDivergentCache(t *testing.T) {
 	if err != nil || string(data) != conversationClaudeFixture {
 		t.Fatalf("migration read: %q %v", data, err)
 	}
+	// The checkpoint-backed sweep on the next export must keep re-proving the
+	// retained copy, not delete it as a stray.
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); err != nil {
+		t.Fatal("retained copy swept by checkpoint-backed export:", err)
+	}
+	// Once the checkpoint holds every cached byte again, the file sweeps.
+	if err := os.WriteFile(cached, []byte(conversationClaudeFixture), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runFilelessExport(t, opts, "", false)
+	if _, err := os.Stat(cached); !os.IsNotExist(err) {
+		t.Fatalf("reconciled cache not swept: %v", err)
+	}
 }
 
 func TestFilelessMigrationSweepsCacheBehindCheckpoint(t *testing.T) {

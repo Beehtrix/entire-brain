@@ -314,7 +314,7 @@ func TestManifestRefreshFailureIsReportedNotReturned(t *testing.T) {
 	if !strings.Contains(src, "manifestErr = updateFactSourceManifestLocked(") {
 		t.Error("the manifest error is no longer captured for reporting")
 	}
-	if !strings.Contains(src, "the facts were imported, but the source manifest could not be refreshed") {
+	if !strings.Contains(src, "the memories were imported, but the source manifest could not be refreshed") {
 		t.Error("the warning that distinguishes a stale manifest from a failed import is gone")
 	}
 }
@@ -722,7 +722,7 @@ func TestFactReasonPrefersAnAgreedAnchorReason(t *testing.T) {
 	// is a wrong answer.
 	mixed := []verifyAnchorResult{
 		{Verdict: v, Reason: "anchor names a session in mem0, not this repository"},
-		{Verdict: v, Reason: "authored fact has no retained source anchor"},
+		{Verdict: v, Reason: "authored memory has no retained source anchor"},
 	}
 	if got := sharedAnchorReason(mixed, v); got != "" {
 		t.Errorf("disagreeing anchors must fall back to the generic reason, got %q", got)

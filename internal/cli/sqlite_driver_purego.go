@@ -1,12 +1,12 @@
-//go:build !brain_cgo
-
 package cli
 
-// Default build: the pure-Go modernc driver, no cgo. This is the Stage 1b
-// fallback path — `go build` with no tags produces the same stack 1a shipped
-// (modernc + FTS5 + Model2Vec brute-force cosine), so a cgo-less build remains
-// a working (degraded-recall) brain. The cgo stack lives behind the brain_cgo
-// tag in sqlite_driver_cgo.go.
+// The brain's SQLite driver is the pure-Go modernc build, which ships FTS5
+// unconditionally — every index (history, facts, docs) runs on it. The
+// brain_cgo variant (mattn/go-sqlite3 + sqlite-vec) existed for the Stage 1b
+// vector store and the planned qmd/Librarian shared-store convergence; both
+// died with the semantic-retrieval removal (trail #278), so the tag and the C
+// toolchain requirement were retired with it. If a shared mattn stack returns,
+// reintroduce the tag here with the FTS5 pairing guard it used to carry.
 
 import (
 	_ "modernc.org/sqlite"
@@ -15,5 +15,6 @@ import (
 // sqliteDriverName is the database/sql driver this build registers.
 const sqliteDriverName = "sqlite"
 
-// brainCGOBuild reports whether this binary runs the Stage 1b cgo stack.
+// brainCGOBuild is retained for the capabilities report (build.brain_cgo),
+// which committed agent-guides parse; it is permanently false.
 const brainCGOBuild = false

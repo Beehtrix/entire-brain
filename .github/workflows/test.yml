@@ -362,42 +362,6 @@ jobs:
             fi
           done
 
-  # Stage 1b cgo stack: mattn/go-sqlite3 + sqlite-vec (vec0) + FTS5. The
-  # default jobs above stay pure-Go and prove the cgo-less fallback; this lane
-  # proves the cgo stack on the platforms with a stock C toolchain. Windows
-  # cgo (mingw) is a deferred follow-up — Windows users get the pure-Go build.
-  test-cgo:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            runner: depot-ubuntu-24.04-8
-          - os: macos-latest
-            runner: depot-macos-26
-    name: test-cgo (${{ matrix.os }})
-    runs-on: ${{ matrix.runner }}
-    # Backstop only; see the note on the `test` job.
-    timeout-minutes: 45
-    env:
-      CGO_ENABLED: "1"
-    steps:
-      - uses: actions/checkout@v6.0.2
-      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
-        with: { go-version: "1.27.2" }
-      - name: Test CGO with coverage and binary contracts
-        run: python3 -B tools/coverage/run.py --race --tags "brain_cgo sqlite_fts5" --output "${{ runner.temp }}/brain-coverage"
-      - name: Retain CGO coverage and test results
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-cgo-${{ matrix.os }}
-          path: |
-            ${{ runner.temp }}/brain-coverage/*.json
-            ${{ runner.temp }}/brain-coverage/*.jsonl
-            ${{ runner.temp }}/brain-coverage/*.out
-            ${{ runner.temp }}/brain-coverage/*.html
-
   phase1-semantic:
     strategy:
       matrix:

@@ -247,7 +247,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("corrupt fact store should degrade: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, "facts unavailable") {
+		if !strings.Contains(out, "memories unavailable") {
 			t.Fatalf("fact warning absent: %s", out)
 		}
 	})
@@ -484,20 +484,6 @@ func TestBriefOutputRootPromotesGitIntentWhenNoActionsExist(t *testing.T) {
 	}
 	if len(report.ActionChecklist) != 0 || !slices.Contains(report.LikelyEditFiles, rel) {
 		t.Fatalf("git intent was not promoted: actions=%#v edits=%#v", report.ActionChecklist, report.LikelyEditFiles)
-	}
-}
-
-func TestBriefOutputFusionEligibleHistoryFallsBackLexically(t *testing.T) {
-	fixture := newBrainBriefOutputFixture(t)
-	original := defaultEmbedderInst
-	defaultEmbedderInst = &fakeFusionEmbedder{vecs: map[string][]float32{}}
-	t.Cleanup(func() { defaultEmbedderInst = original })
-	packet, err := execute(t, NewRootCommand(fixture.opts), "brief", "ValidateToken provenance", "--json", "--limit", "3", "--profile-json", filepath.Join(t.TempDir(), "profile.json"))
-	if err != nil {
-		t.Fatalf("fusion fallback brief: %v\n%s", err, packet)
-	}
-	if !strings.Contains(packet, "brief-evidence") {
-		t.Fatalf("fusion fallback lost lexical history: %s", packet)
 	}
 }
 

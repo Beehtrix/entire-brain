@@ -672,8 +672,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	distillOpts := distillCommandOptions{agent: "auto", timeout: defaultDistillTimeout, maxChunkBytes: defaultDistillChunkSize, confidenceThreshold: defaultFactConfidenceThreshold, concurrency: defaultDistillConcurrency}
 	cmd := &cobra.Command{
 		Use:   "distill [path]",
-		Short: "Extract durable facts from sessions (requires an agent)",
-		Long:  "Distill captured sessions into durable facts (agent-required)",
+		Short: "Extract durable memories from sessions (requires an agent)",
+		Long:  "Distill captured sessions into durable memories (agent-required)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -688,14 +688,14 @@ func newDistillCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&distillOpts.branch, "branch", "", "Limit distillation to a single branch (default: all exported branches)")
 	cmd.Flags().StringVar(&distillOpts.session, "session", "", "Limit distillation to a single session id (the fast per-session path; incompatible with --force)")
-	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled facts from scratch instead of skipping unchanged sessions")
-	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the fact source summary as JSON")
+	cmd.Flags().BoolVar(&distillOpts.force, "force", false, "Recompute all distilled memories from scratch instead of skipping unchanged sessions")
+	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the memory source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
-	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing facts")
+	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing memories")
 	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call). Also spelled --jobs")
 	// --jobs is the OLD SPELLING of --concurrency, so it is normalized onto it
 	// rather than registered as a second flag of its own.
@@ -713,7 +713,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().DurationVar(&distillOpts.timeout, "timeout", defaultDistillTimeout,
 		"Per-chunk agent timeout. A chunk the agent cannot finish inside this budget fails and is retried on the next run, so a corpus of large transcripts can crawl forward one session per timeout. Raise it for big sessions or a slow local model; lower --max-chunk-bytes instead if the model is the limit")
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
-	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful facts land early (default: oldest first)")
+	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful memories land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	return cmd
 }

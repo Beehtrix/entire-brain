@@ -46,7 +46,7 @@ func buildFactTree(facts []factRecord, includeAll bool) *factTreeNode {
 		}
 	}
 
-	root := &factTreeNode{Label: "facts"}
+	root := &factTreeNode{Label: "memories"}
 	for cat, leaves := range cats {
 		catNode := &factTreeNode{Label: cat}
 		for path, l := range leaves {
@@ -176,7 +176,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "tree",
-		Short: "Show facts as a navigable hierarchy with progressive disclosure",
+		Short: "Show memories as a navigable hierarchy with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if leaves < 0 {
@@ -202,7 +202,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 				if pruned := filterTreeByPath(tree, path); pruned != nil {
 					tree = pruned
 				} else {
-					tree = &factTreeNode{Label: "facts"}
+					tree = &factTreeNode{Label: "memories"}
 				}
 			}
 			// "N facts on main" is a count of what the store produced. When the
@@ -217,20 +217,20 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			}
 			distinct := distinctFactCount(tree)
 			if distinct == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s%s\n", resolvedBranch, pathSuffix(path))
+				fmt.Fprintf(cmd.OutOrStdout(), "no memories on %s%s\n", resolvedBranch, pathSuffix(path))
 				return integrityErr
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%d facts on %s%s\n", distinct, resolvedBranch, pathSuffix(path))
+			fmt.Fprintf(cmd.OutOrStdout(), "%d memories on %s%s\n", distinct, resolvedBranch, pathSuffix(path))
 			renderFactTree(cmd, tree, depth, leaves)
 			return integrityErr
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to outline (default: current branch)")
 	cmd.Flags().StringVar(&path, "path", "", "Drill into a category or path prefix (e.g. constraints or preferences.coding)")
-	cmd.Flags().IntVar(&depth, "depth", 3, "Outline depth: 1=categories, 2=+paths, 3=+sample facts")
-	cmd.Flags().IntVar(&leaves, "leaves", 3, "Sample facts to show per path at depth 3")
-	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
-	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().IntVar(&depth, "depth", 3, "Outline depth: 1=categories, 2=+paths, 3=+sample memories")
+	cmd.Flags().IntVar(&leaves, "leaves", 3, "Sample memories to show per path at depth 3")
+	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
+	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the tree as JSON")
 	return cmd

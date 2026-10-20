@@ -4,23 +4,17 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-const (
-	recallEngineLexicalHandrolled = "lexical_handrolled"
-	recallEngineModel2VecRRF      = "model2vec_rrf"
-	recallEngineEmbeddingGemmaRRF = "embeddinggemma_rrf"
-)
+const recallEngineBM25Lexical = "bm25_lexical"
 
-// recallRetrievalEngine is emitted with recall --json. The effective engine is
-// present only when it can be established from the path rankFactsFused actually
-// took. Requested environment alone is never sufficient: a failed Ollama
-// selection may be a real Model2Vec run, and a selected server may still fail
-// the real query or a document embedding after its startup probe.
+// recallRetrievalEngine is emitted with recall --json. Semantic retrieval was
+// removed (trail #278: BM25 matched or beat the embedder stack end-to-end);
+// the semantic/vector fields are retained in the schema and report inert
+// values so existing consumers keep parsing.
 type recallRetrievalEngine struct {
 	SchemaVersion         int    `json:"schema_version"`
 	EffectiveEngine       string `json:"effective_engine,omitempty"`
@@ -31,144 +25,17 @@ type recallRetrievalEngine struct {
 	BM25Enabled           bool   `json:"bm25_enabled"`
 	BM25Applied           bool   `json:"bm25_applied"`
 	FallbackUsed          bool   `json:"fallback_used"`
-	RequestedEmbedder     string `json:"requested_embedder,omitempty"`
-	SelectedEmbedderID    string `json:"selected_embedder_id,omitempty"`
-	EmbedderID            string `json:"embedder_id,omitempty"`
-	EmbeddingModelID      string `json:"embedding_model_id,omitempty"`
-	EmbeddingDimension    *int   `json:"embedding_dimension,omitempty"`
-	VectorCount           *int   `json:"vector_count,omitempty"`
-	VectorCandidateCount  *int   `json:"vector_candidate_count,omitempty"`
-	LoadedVectorCount     *int   `json:"loaded_vector_count,omitempty"`
-	ResidentVectorCount   *int   `json:"resident_vector_count,omitempty"`
-	VectorCacheBackend    string `json:"vector_cache_backend,omitempty"`
-	VectorCachePath       string `json:"vector_cache_path,omitempty"`
-	VectorCacheReadOnly   *bool  `json:"vector_cache_read_only,omitempty"`
 	IdentityFailureReason string `json:"identity_failure_reason,omitempty"`
 }
 
-type vectorCacheDescriptor interface {
-	vectorCacheBackend() string
-	vectorCachePath() string
-}
-
-func recallIntPtr(v int) *int    { return &v }
-func recallBoolPtr(v bool) *bool { return &v }
-func requestedEmbedderName() string {
-	requested := strings.ToLower(strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")))
-	if requested == "" {
-		return "bundled_model2vec"
+func recallRetrievalIdentity() recallRetrievalEngine {
+	return recallRetrievalEngine{
+		SchemaVersion:    1,
+		EffectiveEngine:  recallEngineBM25Lexical,
+		IdentityVerified: true,
+		BM25Enabled:      true,
+		BM25Applied:      true,
 	}
-	return requested
-}
-
-// recallRetrievalIdentity turns runtime observations into the three primary
-// benchmark identities. Unsupported combinations (currently the optional BM25
-// factor), malformed vectors, partial document embedding, and unknown/custom
-// embedders deliberately have no effective_engine so consumers fail closed.
-func recallRetrievalIdentity(semanticRequested, readOnlyCache bool, rr *semanticReranker) recallRetrievalEngine {
-	identity := recallRetrievalEngine{
-		SchemaVersion:     1,
-		SemanticRequested: semanticRequested,
-		RequestedEmbedder: requestedEmbedderName(),
-		BM25Enabled:       factsBM25Enabled(),
-	}
-
-	backend := ""
-	modelID := ""
-	dim := 0
-	trace := semanticRerankTrace{}
-	if rr != nil {
-		trace = rr.lastRun
-		identity.SemanticApplied = trace.Applied
-		identity.BM25Applied = trace.BM25Used
-		identity.SelectedEmbedderID = strings.TrimSpace(rr.e.ID())
-		identity.VectorCount = recallIntPtr(trace.ValidCandidateVectors)
-		identity.VectorCandidateCount = recallIntPtr(trace.CandidateCount)
-		identity.LoadedVectorCount = recallIntPtr(rr.loaded)
-		identity.ResidentVectorCount = recallIntPtr(len(rr.cache))
-		identity.VectorCacheReadOnly = recallBoolPtr(readOnlyCache)
-		if cache, ok := rr.store.(vectorCacheDescriptor); ok {
-			identity.VectorCacheBackend = cache.vectorCacheBackend()
-			identity.VectorCachePath = cache.vectorCachePath()
-		}
-
-		dim = rr.e.Dim()
-		identity.SemanticAvailable = trace.Attempted && trace.Applied && trace.QueryVectorValid &&
-			trace.ValidCandidateVectors == trace.CandidateCount
-		switch e := rr.e.(type) {
-		case *staticEmbedder:
-			if identity.SelectedEmbedderID != "" && dim > 0 {
-				backend = "model2vec"
-				modelID = identity.SelectedEmbedderID
-			}
-		case *ollamaEmbedder:
-			// The generic loopback endpoint can serve arbitrary embedding models.
-			// Only the supported EmbeddingGemma model name maps to the confirmatory
-			// arm; a custom model remains observable but unclassified.
-			if strings.EqualFold(strings.TrimSpace(e.model), defaultOllamaEmbedModel) && dim > 0 {
-				backend = "embeddinggemma"
-				modelID = e.model
-			}
-		}
-	}
-
-	wantedBackend := ""
-	switch identity.RequestedEmbedder {
-	case "bundled_model2vec":
-		wantedBackend = "model2vec"
-	case "ollama":
-		wantedBackend = "embeddinggemma"
-	}
-	if semanticRequested {
-		identity.FallbackUsed = !identity.SemanticAvailable || wantedBackend == "" || backend != wantedBackend
-	}
-
-	// A configured optional BM25 factor is outside the three primary identities,
-	// even when the current rank path bypassed it (--no-semantic/empty query), it
-	// produced zero hits, or the semantic backend was unavailable. Reporting the
-	// configured state rather than only trace.BM25Used keeps benchmark arms from
-	// being mislabeled under a stray environment variable.
-	if identity.BM25Enabled {
-		identity.IdentityFailureReason = "optional_bm25_factor_not_a_primary_engine"
-		return identity
-	}
-	if !semanticRequested {
-		identity.EffectiveEngine = recallEngineLexicalHandrolled
-		identity.IdentityVerified = true
-		return identity
-	}
-	if rr == nil {
-		identity.EffectiveEngine = recallEngineLexicalHandrolled
-		identity.IdentityVerified = true
-		return identity
-	}
-
-	if !trace.Applied {
-		// This is the ranker's existing clean fallback when the query embedder
-		// returns no vector (or an empty query bypasses semantic ranking).
-		identity.EffectiveEngine = recallEngineLexicalHandrolled
-		identity.IdentityVerified = true
-		return identity
-	}
-	if !identity.SemanticAvailable {
-		identity.IdentityFailureReason = "semantic_vectors_incomplete_or_invalid"
-		return identity
-	}
-
-	identity.EmbedderID = identity.SelectedEmbedderID
-	identity.EmbeddingModelID = modelID
-	identity.EmbeddingDimension = recallIntPtr(dim)
-	switch backend {
-	case "model2vec":
-		identity.EffectiveEngine = recallEngineModel2VecRRF
-	case "embeddinggemma":
-		identity.EffectiveEngine = recallEngineEmbeddingGemmaRRF
-	default:
-		identity.IdentityFailureReason = "unrecognized_semantic_embedder"
-		return identity
-	}
-	identity.IdentityVerified = true
-	return identity
 }
 
 // resolveFactsTarget resolves the repo, brain directory, and the branch facts
@@ -180,7 +47,7 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 		return "", "", "", err
 	}
 	if !local {
-		return "", "", "", fmt.Errorf("facts require a local repository path: %s", target)
+		return "", "", "", fmt.Errorf("memories require a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -203,13 +70,6 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 const recallMaxK = 128
 
 func newRecallCommand(opts Options) *cobra.Command {
-	return newRecallCommandWithEmbedder(opts, defaultEmbedder)
-}
-
-// newRecallCommandWithEmbedder is the command constructor with a narrow test
-// seam for deterministic backend/failure coverage. Production always passes
-// defaultEmbedder.
-func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder) *cobra.Command {
 	var evidence bool
 	var evidenceBytes int
 	var (
@@ -233,7 +93,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 	)
 	cmd := &cobra.Command{
 		Use:   "recall <query>",
-		Short: "Retrieve durable facts matching a query for the current branch",
+		Short: "Retrieve durable memories matching a query for the current branch",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			query := ""
@@ -243,7 +103,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			if evidence {
 				for _, flag := range []string{"all", "scope", "kind", "locus", "expand", "agent", "model", "agent-command", "eligible-before", "session-dates", "exclude-session-id", "read-only-semantic-cache"} {
 					if cmd.Flags().Changed(flag) {
-						return fmt.Errorf("--%s is not supported with --evidence; evidence recall is deterministic and does not apply fact filters", flag)
+						return fmt.Errorf("--%s is not supported with --evidence; evidence recall is deterministic and does not apply memory filters", flag)
 					}
 				}
 			} else if cmd.Flags().Changed("evidence-bytes") {
@@ -278,7 +138,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 				if globalErr != nil {
 					// A damaged global store must not take recall down with it;
 					// the repository's own facts are the answer to most queries.
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 				} else {
 					allFacts, globalIDs = mergeGlobalFacts(allFacts, globalFacts)
 				}
@@ -286,7 +146,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			var storeWarning string
 			manifest, manifestErr := loadBrainManifest(brainDir)
 			if manifestErr != nil {
-				storeWarning = "fact source manifest unavailable: " + manifestErr.Error()
+				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
 			} else if manifest != nil && manifest.Sources != nil {
 				storeWarning = missingFactStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
 			}
@@ -325,32 +185,11 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 				}
 				effectiveQuery = expandedQuery(query, exp)
 			}
-			// Semantic rerank is on by default (the measured Phase D win); it
-			// degrades silently to lexical when the embedder can't load, so a
-			// missing/corrupt model never breaks recall. The disk-backed cache
-			// avoids re-embedding the branch on every invocation.
-			var rr *semanticReranker
-			if !noSemantic {
-				if e := resolveEmbedder(); e != nil {
-					rr = newSemanticRerankerForBranch(e, brainDir, resolvedBranch)
-					// One mechanism for this, shared with query/search and
-					// brief: the reranker itself refuses to cache or retain a
-					// fact that belongs to every repository. The manual filter
-					// at retain below only covered half of it — factVector
-					// caches and marks a fact touched while ranking, before
-					// retain is ever reached.
-					rr.markForeign(globalIDs)
-				}
-			}
-			matches := rankFactsFused(facts, effectiveQuery, limit, includeAll, rr)
-			if rr != nil && !readOnlySemanticCache {
-				// Retain only this repository's facts: the cache is keyed by
-				// (brainDir, branch), so a merged-in global fact would be filed
-				// under this repo's key. markForeign above makes retain skip
-				// them, so the full set can be passed here.
-				rr.retain(allFacts) // keep every present fact's vector; prune only departed facts
-				_ = rr.flush()      // best-effort cache persist
-			}
+			// --no-semantic and --read-only-semantic-cache are vacuously
+			// satisfied since the semantic arm was removed (trail #278):
+			// ranking is always lexical and no vector cache exists to write.
+			_, _ = noSemantic, readOnlySemanticCache
+			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := factsLocusDrift(repoDir, factsEligibleForLocusDrift(matches, globalIDs))
@@ -390,7 +229,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 				if ids := sortedGlobalFactIDs(matches, globalIDs); len(ids) > 0 {
 					out["global_fact_ids"] = ids
 				}
-				engine := recallRetrievalIdentity(!noSemantic, readOnlySemanticCache, rr)
+				engine := recallRetrievalIdentity()
 				out["retrieval_engine"] = engine
 				if engine.EffectiveEngine != "" {
 					out["effective_engine"] = engine.EffectiveEngine
@@ -427,7 +266,7 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 			}
 			if len(matches) == 0 {
 				return writeText(cmd, func(out io.Writer) {
-					fmt.Fprintf(out, "no facts for %q on %s\n", query, resolvedBranch)
+					fmt.Fprintf(out, "no memories for %q on %s\n", query, resolvedBranch)
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
@@ -469,22 +308,22 @@ func newRecallCommandWithEmbedder(opts Options, resolveEmbedder func() Embedder)
 	cmd.Flags().BoolVar(&evidence, "evidence", false, "Experimental: return original source spans using deterministic retrieval; no model call")
 	cmd.Flags().IntVar(&evidenceBytes, "evidence-bytes", 8192, "Maximum compact JSON bytes in the evidence array, including citations; enclosing metadata is separate")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to recall from (default: current branch)")
-	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum facts to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
-	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted facts")
-	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) facts")
+	cmd.Flags().IntVar(&limit, "k", 10, fmt.Sprintf("Maximum memories to return, or candidate sessions with --evidence (1-%d)", recallMaxK))
+	cmd.Flags().BoolVar(&includeAll, "all", false, "Include superseded and retracted memories")
+	cmd.Flags().StringVar(&scope, "scope", "", "Restrict to 'local' (code/subsystem) or 'cross-cutting' (preferences/workflow) memories")
 	cmd.Flags().StringVar(&kind, "kind", "", "Restrict to one kind: decision|invariant|gotcha|preference|convention")
-	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to facts about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
-	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Disable embedding rerank; rank with lexical + taxonomy only")
+	cmd.Flags().StringVar(&locus, "locus", "", "Restrict to memories about a code locus (a path or symbol, e.g. internal/cli/facts.go or factRecord)")
+	cmd.Flags().BoolVar(&noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, ranking is always BM25 lexical")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand the query with agent-generated retrieval terms before ranking")
 	cmd.Flags().StringVar(&agent, "agent", "auto", "Agent for --expand: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().StringVar(&eligibleBefore, "eligible-before", "", "Restrict candidates to facts whose provenance is strictly before this RFC3339 cutoff")
+	cmd.Flags().StringVar(&eligibleBefore, "eligible-before", "", "Restrict candidates to memories whose provenance is strictly before this RFC3339 cutoff")
 	cmd.Flags().StringVar(&sessionDatesPath, "session-dates", "", "JSON map of session IDs to provenance timestamps for --eligible-before")
-	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude facts anchored to this session (repeatable)")
-	cmd.Flags().BoolVar(&readOnlySemanticCache, "read-only-semantic-cache", false, "Do not persist or prune semantic vectors during recall")
-	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts, recalling only this repository's")
+	cmd.Flags().StringArrayVar(&excludeSessionIDs, "exclude-session-id", nil, "Exclude memories anchored to this session (repeatable)")
+	cmd.Flags().BoolVar(&readOnlySemanticCache, "read-only-semantic-cache", false, "Accepted for compatibility: semantic vector caches no longer exist")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global memories, recalling only this repository's")
 	return cmd
 }
 
@@ -512,8 +351,8 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 		jsonOut bool
 	)
 	cmd := &cobra.Command{
-		Use:   "blame <fact-id>",
-		Short: "Show the source anchors a fact was derived from",
+		Use:   "blame <memory-id>",
+		Short: "Show the source anchors a memory was derived from",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
@@ -546,7 +385,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }

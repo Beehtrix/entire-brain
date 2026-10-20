@@ -82,7 +82,7 @@ func TestSupervisedWatchIdlesWhilePaused(t *testing.T) {
 	base.once = true
 	passes := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions, *int) error { passes++; return nil }, nil); err != nil {
+		func(string, watchCommandOptions, *int) error { passes++; return nil }, nil, nil); err != nil {
 		t.Fatalf("a paused watcher must keep running, not exit: %v", err)
 	}
 	if passes != 0 {
@@ -109,7 +109,7 @@ func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
 		func(workspace string, _ watchCommandOptions, _ *int) error {
 			seen = append(seen, workspace)
 			return setBackgroundPaused(f.env, true)
-		}, nil); err != nil {
+		}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) != 1 {

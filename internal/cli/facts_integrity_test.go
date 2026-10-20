@@ -140,7 +140,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "facts: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
+		if !strings.Contains(statusOut, "memories: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
 			t.Fatalf("status must distinguish declared counts from observations:\n%s", statusOut)
 		}
 	})
@@ -279,7 +279,7 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 	if integrity.Readable != 4 || integrity.Unusable != 1 {
 		t.Fatalf("readable/unusable = %d/%d, want 4/1", integrity.Readable, integrity.Unusable)
 	}
-	if !strings.Contains(integrity.Warning(), "carry no fact id") {
+	if !strings.Contains(integrity.Warning(), "carry no memory id") {
 		t.Fatalf("warning does not name the missing id: %q", integrity.Warning())
 	}
 
@@ -376,7 +376,7 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "facts: 5 declared") {
+	if !strings.Contains(statusOut, "memories: 5 declared") {
 		t.Fatalf("status must label unverified manifest counts:\n%s", statusOut)
 	}
 
@@ -744,7 +744,7 @@ func TestFactStoreIntegrityShortAndCollidedReportsBoth(t *testing.T) {
 	if !strings.Contains(got.Warning(), "5 declared, 4 readable") {
 		t.Fatalf("lossy lost its own words: %q", got.Warning())
 	}
-	if !strings.Contains(got.Warning(), "repeat a fact id") {
+	if !strings.Contains(got.Warning(), "repeat a memory id") {
 		t.Fatalf("a store that is short AND collided reported only the shortfall: %q", got.Warning())
 	}
 }

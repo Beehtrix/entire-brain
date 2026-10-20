@@ -44,7 +44,7 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 		}
 		if jsonOut {
 			assertFactsGCSummary(t, out, false, 2, 1, 3)
-		} else if !strings.Contains(out, "would prune 2 fact(s)") || !strings.Contains(out, "re-run with --force") {
+		} else if !strings.Contains(out, "would prune 2 memory(ies)") || !strings.Contains(out, "re-run with --force") {
 			t.Fatalf("dry-run output: %s", out)
 		}
 		if after := privacyTreeDigest(t, brainDir); after != before {
@@ -76,7 +76,7 @@ func TestFactsGCRootPreservesDryRunAndPrunesOnlyEligibleRecords(t *testing.T) {
 		t.Fatal("gc modified an unselected branch")
 	}
 	out, err = execute(t, NewRootCommand(opts), "facts", "gc", "--force")
-	if err != nil || !strings.Contains(out, "pruned 0 fact(s)") {
+	if err != nil || !strings.Contains(out, "pruned 0 memory(ies)") {
 		t.Fatalf("repeat gc: %q err=%v", out, err)
 	}
 }

@@ -129,7 +129,7 @@ func TestBlindSpotDoesNotClaimQueriedBranchHasNoFacts(t *testing.T) {
 	seedFactBranch(t, brainDir, "feature", "other")
 	declareFacts(t, brainDir, now, 2, "main", "feature")
 	note := emptyResultBlindSpotOnBranch(brainDir, "main")
-	if strings.Contains(note, "0 facts on main") || !strings.Contains(note, "no matching facts on main") || !strings.Contains(note, "1 active fact(s)") {
+	if strings.Contains(note, "0 memories on main") || !strings.Contains(note, "no matching facts on main") || !strings.Contains(note, "1 active fact(s)") {
 		t.Fatalf("misleading branch diagnostic: %q", note)
 	}
 }

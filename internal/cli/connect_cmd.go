@@ -14,9 +14,9 @@ import (
 // minHostCLIVersion is the first host CLI release that ships `entire repo view
 // --json` (entireio/cli#2758), which placement resolution depends on. Only
 // connect's placement shell-out checks it: local-only brain use and explicit
-// --repo-id/--api-url never touch the host CLI version.
-// TODO: set to the CLI release cut on 2026-10-20; "0.0.0" keeps the gate inert.
-const minHostCLIVersion = "0.0.0"
+// --repo-id/--api-url never touch the host CLI version. Empty disables the
+// gate explicitly. A var so tests can exercise the gate.
+var minHostCLIVersion = "0.11.6"
 
 // hostedPlacement is the slice of the host CLI's `entire repo view --json`
 // output this plugin needs (entireio/cli#2758): the repo's region-local ULID
@@ -165,6 +165,9 @@ func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir s
 // noise. A missing CLI or an unrecognized version line (dev builds) passes:
 // the repo view call itself is the authority on whether the command exists.
 func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min string) error {
+	if min == "" {
+		return nil
+	}
 	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "version")
 	if err != nil {
 		return nil

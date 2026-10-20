@@ -217,6 +217,7 @@ func TestCheckHostCLIVersion(t *testing.T) {
 		wantErr bool
 	}{
 		{"too old is refused", runnerReporting("Entire CLI 0.11.3\nGo version: go1.27.1\n"), "0.12.0", true},
+		{"unset minimum disables the gate", runnerReporting("Entire CLI 0.11.3\n"), "", false},
 		{"minimum passes", runnerReporting("Entire CLI 0.12.0\n"), "0.12.0", false},
 		{"newer passes", runnerReporting("Entire CLI 0.13.1\n"), "0.12.0", false},
 		{"dev build passes", runnerReporting("Entire CLI dev\n"), "0.12.0", false},
@@ -233,16 +234,17 @@ func TestCheckHostCLIVersion(t *testing.T) {
 }
 
 func TestResolveHostedPlacementRefusesAnOldHostCLI(t *testing.T) {
+	prev := minHostCLIVersion
+	minHostCLIVersion = "0.12.0"
+	t.Cleanup(func() { minHostCLIVersion = prev })
 	repoViewCalled := false
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if len(args) > 0 && args[0] == "version" {
-			return []byte("Entire CLI 0.0.0-old\n"), nil, nil
+			return []byte("Entire CLI 0.11.3\n"), nil, nil
 		}
 		repoViewCalled = true
 		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
 	})
-	// minHostCLIVersion "0.0.0" keeps the gate inert until the release version
-	// is plugged in, so a prerelease of 0.0.0 is the only version below it.
 	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err == nil {
 		t.Fatal("placement on a host CLI older than minHostCLIVersion must fail with upgrade guidance")
 	} else if !strings.Contains(err.Error(), "upgrade") {

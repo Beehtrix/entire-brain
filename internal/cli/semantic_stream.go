@@ -68,7 +68,6 @@ func semanticStrictIngest() bool {
 }
 
 type semanticStreamResult struct {
-
 	header        semanticHeader
 	summary       *semanticSummary
 	counts        semanticCounts

@@ -107,7 +107,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	// it unconditionally masked coverage information permanently. Raised as a
 	// finding, and correct.
 	if imported && (!ok || importedAt.After(last)) {
-		return fmt.Sprintf("note: a bundle import on %s replaced this brain's fact layer with the bundle's, so facts recorded here before then are no longer present; this empty result is not evidence of absence", importedAt.Format("2006-01-02"))
+		return fmt.Sprintf("note: a bundle import on %s replaced this brain's memory layer with the bundle's, so memories recorded here before then are no longer present; this empty result is not evidence of absence", importedAt.Format("2006-01-02"))
 	}
 	// Past that point the coverage note leads, but the import is still named:
 	// re-distilling cannot bring back what the import replaced, and a reader
@@ -266,7 +266,7 @@ func briefBranchBlindSpot(brainDir, branch string) string {
 		shown = shown[:3]
 	}
 	return fmt.Sprintf(
-		"no facts on branch %q, but %d branch(es) hold facts: %s%s — facts are stored per branch; retry with `--branch %s`",
+		"no memories on branch %q, but %d branch(es) hold memories: %s%s — memories are stored per branch; retry with `--branch %s`",
 		branch, len(others), strings.Join(shown, ", "), suffix, shown[0])
 }
 

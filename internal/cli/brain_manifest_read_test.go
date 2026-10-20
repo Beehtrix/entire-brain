@@ -259,7 +259,11 @@ func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
 	path := filepath.Join(dir, "manifest.json")
 	// schema_version must be in range, or the version guards answer first and
 	// this test would pass without ever reaching the unknown-field path.
-	body := fmt.Sprintf(`{"schema_version":%d,"suppressed_warnings":["x"]}`, brainManifestSchemaVersion)
+	// The probe field must be one no release will ever claim. "suppressed_warnings"
+	// was a real candidate for the manifest and has since become a real field,
+	// which turned this guard red on the branch that added it -- the test was
+	// asserting "unknown" about a name the product was still free to take.
+	body := fmt.Sprintf(`{"schema_version":%d,"zz_field_no_release_will_define":["x"]}`, brainManifestSchemaVersion)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +289,7 @@ func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
 		t.Fatal("a writer must refuse rather than silently erase the unknown field")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "suppressed_warnings") {
+	if !strings.Contains(msg, "zz_field_no_release_will_define") {
 		t.Errorf("refusal must name the field the reader has to act on: %v", err)
 	}
 	if !strings.Contains(msg, "NOT damaged") {

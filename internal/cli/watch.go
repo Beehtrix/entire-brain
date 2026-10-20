@@ -358,10 +358,19 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	}
 	if changed {
 		if err := steps.refresh(ctx); err != nil {
-			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
-			// The next tick retries the free refresh before attempting pending agent work.
-			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
-			return
+			// A refusal to index an uncommitted worktree is not a failure: it
+			// is the expected answer while someone is working, and it recurs
+			// every tick until they commit. Treating it as a failure aborted
+			// the tick and left the cursor where it was, so the watcher made no
+			// progress at all for the whole time the tree stayed dirty
+			// (issue #327). Everything else still aborts, because an
+			// unrefreshed brain must not have tokens spent against it.
+			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
+				fmt.Fprintf(out, "[watch] semantic index skipped (uncommitted worktree); continuing\n")
+			} else {
+				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+				return
+			}
 		}
 	}
 	runFactsSync()

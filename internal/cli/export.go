@@ -299,6 +299,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 	}
 
+	// rawWarningTotal is every warning this export produced, before the reader-facing filter.
+	// The printed count must come from here, not from the filtered list.
+	var rawWarningTotal int
 	if persistentBrain {
 		// Discovery controls membership; it does not establish where bytes live.
 		// Routed and branch-scoped catalogs may already be fully available locally.
@@ -352,7 +355,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err != nil {
 				return err
 			}
-			manifest.Warnings = usefulExportWarnings(manifest.Warnings, exportOpts.debug)
+			manifest.Warnings, manifest.SuppressedWarnings, rawWarningTotal = usefulExportWarningsDetailed(manifest.Warnings, exportOpts.debug)
 			manifest.Sessions = sessions
 			manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 			if err := writeBrainSessionSourceLocked(outputDir, repoKey, manifest); err != nil {
@@ -392,7 +395,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 				return err
 			}
 		}
-		manifest.Warnings = usefulExportWarnings(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
+		manifest.Warnings, manifest.SuppressedWarnings, rawWarningTotal = usefulExportWarningsDetailed(append(manifest.Warnings, transcriptWarnings...), exportOpts.debug)
 		manifest.Sessions = sessions
 		manifest.Branches = summarizeBranchExports(sessions, branchDirs, defaultBranch)
 		if err := writeBrainManifestAndReadme(outputDir, manifest); err != nil {
@@ -408,11 +411,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "exported %d sessions from %d checkpoints\n", len(manifest.Sessions), checkpointsScanned)
 	fmt.Fprintf(out, "output: %s\n", outputDir)
-	if len(manifest.Warnings) > 0 {
-		fmt.Fprintf(out, "warnings: %d\n", len(manifest.Warnings))
-		for _, warning := range manifest.Warnings {
-			fmt.Fprintf(out, "warning: %s\n", warning)
-		}
+	for _, line := range exportWarningSummaryLines(manifest.Warnings, manifest.SuppressedWarnings, rawWarningTotal) {
+		fmt.Fprintln(out, line)
 	}
 	return nil
 }
@@ -3626,31 +3626,92 @@ func warningLines(prefix string, data []byte) []string {
 	return warnings
 }
 
-func usefulExportWarnings(warnings []string, debug bool) []string {
+// usefulExportWarningsDetailed filters the raw export warnings into the reader-facing list and
+// returns, separately, the raw text of every warning that list does NOT represent.
+//
+// Without --debug this filter hides whole classes of warning, "checkpoint snapshot unavailable:"
+// among them. That one means a checkpoint's transcript could not be read, so the export is
+// genuinely incomplete — and the run still printed "exported N sessions" with a warning count
+// taken from the FILTERED list, i.e. a count that could not reveal its own omissions. Dropped
+// warnings now travel two ways that need no flag: the raw texts, which the caller persists to the
+// manifest as suppressed_warnings, and a disclosure in the printed summary.
+//
+// This function appends NOTHING to the list it returns. The disclosure is two lines built by
+// exportWarningSummaryLines out of the total and the suppressed slice returned here, and it belongs
+// there: the manifest's reader-facing list must hold warnings, not a sentence about warnings.
+//
+// Exact duplicates of a kept warning are still collapsed and are NOT counted as suppressed: their
+// content survives in the list. The summary quotes the raw total so that collapsing is visible
+// too.
+// total is the number of raw non-empty warnings seen, which is what "warnings: N" must report.
+func usefulExportWarningsDetailed(warnings []string, debug bool) (useful []string, suppressed []string, total int) {
 	if len(warnings) == 0 {
+		return nil, nil, 0
+	}
+	useful = make([]string, 0, len(warnings))
+	seen := make(map[string]struct{}, len(warnings))
+	for _, raw := range warnings {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		total++
+		if !debug && exportWarningIsDebugOnly(raw) {
+			suppressed = append(suppressed, raw)
+			continue
+		}
+		text := usefulExportWarningText(raw)
+		if text == "" {
+			// The rewriter has no reader-facing phrasing for this one. Dropping it outright is
+			// the same silent loss, so it is suppressed-but-recorded, not discarded.
+			suppressed = append(suppressed, raw)
+			continue
+		}
+		if _, ok := seen[text]; ok {
+			continue
+		}
+		seen[text] = struct{}{}
+		useful = append(useful, text)
+	}
+	if len(useful) == 0 {
+		return nil, suppressed, total
+	}
+	return useful, suppressed, total
+}
+
+// exportWarningSummaryLines renders the warning tail of the export summary.
+//
+// The count line used to be len(shown) alone, which is a count derived from the filtered list and
+// therefore structurally incapable of revealing its own omissions: an export whose every warning
+// was debug-only printed no warning line at all, directly under "exported N sessions". The count
+// is now the raw total, and a suppression line names how many were held back and the two ways to
+// read them that need no re-run with --debug.
+func exportWarningSummaryLines(shown []string, suppressed []string, total int) []string {
+	if total == 0 {
 		return nil
 	}
-	useful := make([]string, 0, len(warnings))
-	seen := make(map[string]struct{}, len(warnings))
-	for _, warning := range warnings {
-		warning = strings.TrimSpace(warning)
-		if warning == "" {
-			continue
-		}
-		if !debug && exportWarningIsDebugOnly(warning) {
-			continue
-		}
-		warning = usefulExportWarningText(warning)
-		if warning == "" {
-			continue
-		}
-		if _, ok := seen[warning]; ok {
-			continue
-		}
-		seen[warning] = struct{}{}
-		useful = append(useful, warning)
+	lines := make([]string, 0, len(shown)+2)
+	if len(shown) != total {
+		lines = append(lines, fmt.Sprintf("warnings: %d shown of %d total", len(shown), total))
+	} else {
+		lines = append(lines, fmt.Sprintf("warnings: %d", total))
 	}
-	return useful
+	for _, warning := range shown {
+		lines = append(lines, "warning: "+warning)
+	}
+	if len(suppressed) > 0 {
+		incomplete := ""
+		for _, warning := range suppressed {
+			if strings.HasPrefix(warning, "checkpoint snapshot unavailable:") {
+				incomplete = " (unreadable checkpoint snapshots among them, which mean the export is INCOMPLETE)"
+				break
+			}
+		}
+		lines = append(lines, fmt.Sprintf(
+			"warning: %d warning(s) suppressed as diagnostic detail%s; re-run with --debug to print them, or read \"suppressed_warnings\" in the brain manifest",
+			len(suppressed), incomplete))
+	}
+	return lines
 }
 
 func exportWarningIsDebugOnly(warning string) bool {
@@ -4023,7 +4084,12 @@ type exportManifest struct {
 	Branches           []exportBranch  `json:"branches,omitempty"`
 	Sessions           []exportSession `json:"sessions"`
 	Warnings           []string        `json:"warnings,omitempty"`
-	Sources            *brainSources   `json:"sources,omitempty"`
+	// SuppressedWarnings holds the RAW text of every warning usefulExportWarnings kept out of
+	// Warnings. It exists so a diagnostic warning -- "checkpoint snapshot unavailable:" above all,
+	// which means a transcript was not readable and the export is therefore incomplete -- is
+	// recoverable from the manifest alone, without re-running the export under --debug.
+	SuppressedWarnings []string      `json:"suppressed_warnings,omitempty"`
+	Sources            *brainSources `json:"sources,omitempty"`
 }
 
 type exportBranch struct {

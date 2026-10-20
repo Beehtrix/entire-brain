@@ -263,10 +263,21 @@ func xmlEscape(value string) string {
 	return buf.String()
 }
 
+// daemonUnitRevision is rendered into both unit formats as a comment the
+// service manager ignores. Bumping it changes the unit's bytes, which makes
+// inspectDaemon report every older install as not current, which makes the
+// next `setup` reinstall (bootout + bootstrap) it — the only path that replaces
+// a RUNNING daemon built before the binary-replacement probe existed. Without
+// the bump, a pre-probe daemon wedged on a newer build's manifest stays
+// "already running" to setup forever (COR-2174). Bump it again whenever a
+// running older daemon must be forced through one reinstall.
+const daemonUnitRevision = 2
+
 func renderLaunchdPlist(label string, spec daemonSpec) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
+	fmt.Fprintf(&b, "<!-- io.entire.unit-revision %d -->\n", daemonUnitRevision)
 	b.WriteString(`<plist version="1.0">` + "\n")
 	b.WriteString("<dict>\n")
 	fmt.Fprintf(&b, "  <key>Label</key>\n  <string>%s</string>\n", xmlEscape(label))
@@ -338,6 +349,7 @@ func unitValueSafe(value string) bool {
 
 func renderSystemdUnit(spec daemonSpec) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "# io.entire.unit-revision %d\n", daemonUnitRevision)
 	b.WriteString("[Unit]\n")
 	b.WriteString("Description=Entire brain watcher (deterministic refresh is free; agent steps are gated)\n")
 	b.WriteString("Documentation=https://github.com/entireio/entire-brain\n")
@@ -524,7 +536,7 @@ func daemonRunning(ctx context.Context, runner CommandRunner, plan daemonPlan) (
 		// leaves behind. Only a live job carries a PID entry; equating
 		// registration with running is what let `status` say "daemon ✓ running"
 		// while every spawn had failed (COR-2174).
-		if strings.Contains(string(stdout), `"PID"`) {
+		if bytes.Contains(stdout, []byte(`"PID"`)) {
 			return true, ""
 		}
 		return false, "registered but not running"
@@ -637,7 +649,15 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 		case daemonManagerLaunchd:
 			domain := launchdGUIDomain()
 			if _, stderr, err := runner.Run(ctx, "", "launchctl", "bootout", domain, plan.UnitPath); err != nil {
-				return fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(stderr)))
+				// bootout also fails when the job simply is not registered —
+				// after a manual bootout, or a unit written but never loaded.
+				// Absence is exactly what uninstall wants, so only a job that
+				// is STILL registered turns the failure into an error; exit
+				// codes and messages vary across macOS versions, so the job's
+				// continued existence is the one portable signal.
+				if _, _, listErr := runner.Run(ctx, "", "launchctl", "list", plan.Label); listErr == nil {
+					return fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(stderr)))
+				}
 			}
 			// `unload -w` used to record the decline; keep that half: the label
 			// stays disabled so nothing resurrects it before the next install's

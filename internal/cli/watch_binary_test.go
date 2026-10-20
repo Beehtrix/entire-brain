@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,6 +110,68 @@ func TestDaemonRunningRequiresALivePID(t *testing.T) {
 	live := &scriptedListRunner{listOutput: "{\n\t\"PID\" = 123;\n}\n"}
 	if running, _ := daemonRunning(context.Background(), live, plan); !running {
 		t.Fatal("a job with a live PID must report as running")
+	}
+}
+
+// The re-register child must repair the registration under the shared lock —
+// but only while the unit still exists: a concurrent `setup --uninstall-daemon`
+// removing the unit means the user declined the watcher, and re-registering it
+// would resurrect what they just removed.
+func TestDaemonReregisterRespectsUninstall(t *testing.T) {
+	f := newSetupTestFixture(t)
+	t.Setenv(envDaemonNoRegister, "")
+	runner := &recordingDaemonRunner{}
+	opts := f.opts
+	opts.Runner = runner
+
+	plan, err := installedDaemonUnitPlan(opts)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	if err := runDaemonReregister(context.Background(), io.Discard, opts); err != nil {
+		t.Fatalf("reregister with no unit installed: %v", err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("no unit on disk, but the service manager was touched: %v", runner.calls)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(plan.UnitPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDaemonReregister(context.Background(), io.Discard, opts); err != nil {
+		t.Fatalf("reregister: %v", err)
+	}
+	got := strings.Join(runner.calls, "\n")
+	for _, verb := range []string{"launchctl bootout", "launchctl enable", "launchctl bootstrap"} {
+		if !strings.Contains(got, verb) {
+			t.Fatalf("re-registration must run %q:\n%s", verb, got)
+		}
+	}
+}
+
+// Uninstall must treat an already-unregistered job as success: bootout fails
+// for absence too, and absence is exactly what uninstall wants. Only a job the
+// service manager still lists turns a failed bootout into an error.
+func TestUninstallDaemonToleratesAnUnregisteredJob(t *testing.T) {
+	plan, err := planBrainWatchDaemon("darwin", t.TempDir(), "", "", fixedDaemonSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingDaemonRunner{
+		stopErr: errors.New("Boot-out failed: 36: No such process"),
+		listErr: errors.New("Could not find service"),
+	}
+	if err := uninstallDaemon(context.Background(), runner, plan); err != nil {
+		t.Fatalf("uninstall of an unregistered job must succeed: %v", err)
+	}
+	if _, err := os.Stat(plan.UnitPath); !os.IsNotExist(err) {
+		t.Fatalf("unit must be removed: %v", err)
 	}
 }
 

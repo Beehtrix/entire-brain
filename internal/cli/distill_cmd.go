@@ -28,6 +28,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 const (
@@ -453,7 +454,6 @@ type distillCommandOptions struct {
 	model               string
 	effort              string
 	dryRun              bool
-	jobs                int
 	cacheSalt           string
 	legacyCacheSalt     string
 	checkpointBacked    bool
@@ -696,8 +696,20 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing memories")
-	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call)")
-	cmd.Flags().IntVar(&distillOpts.jobs, "jobs", 0, "Compatibility alias for --concurrency")
+	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call). Also spelled --jobs")
+	// --jobs is the OLD SPELLING of --concurrency, so it is normalized onto it
+	// rather than registered as a second flag of its own.
+	//
+	// It used to be its own IntVar described as a "Compatibility alias", and an
+	// alias was the one thing it was not: `--jobs 4 --concurrency 4` was
+	// accepted, `--jobs 4 --concurrency 8` was an error telling you to use the
+	// flag you had just used, `--jobs 0` was rejected while the identical
+	// default of 0 was fine, and distillRequestedJobs silently preferred jobs
+	// over concurrency for in-process callers that never ran the reconciliation
+	// in runDistill. One flag under two names has none of those states: there is
+	// a single value, last spelling wins, and every validation message names
+	// --concurrency because that is what the value is.
+	cmd.Flags().SetNormalizeFunc(distillFlagAliases)
 	cmd.Flags().DurationVar(&distillOpts.timeout, "timeout", defaultDistillTimeout,
 		"Per-chunk agent timeout. A chunk the agent cannot finish inside this budget fails and is retried on the next run, so a corpus of large transcripts can crawl forward one session per timeout. Raise it for big sessions or a slow local model; lower --max-chunk-bytes instead if the model is the limit")
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
@@ -733,15 +745,6 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// the flag stops silently swallowing a value it cannot honour.
 	if cmd.Flags().Changed("confidence") && (math.IsNaN(distillOpts.confidenceThreshold) || distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
 		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
-	}
-	if cmd.Flags().Changed("jobs") {
-		if distillOpts.jobs <= 0 {
-			return fmt.Errorf("--jobs must be greater than 0")
-		}
-		if cmd.Flags().Changed("concurrency") && distillOpts.jobs != distillOpts.concurrency {
-			return fmt.Errorf("--jobs conflicts with --concurrency; use --concurrency")
-		}
-		distillOpts.concurrency = distillOpts.jobs
 	}
 	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
 		return err
@@ -1564,9 +1567,6 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 }
 
 func distillRequestedJobs(distillOpts distillCommandOptions) int {
-	if distillOpts.jobs > 0 {
-		return distillOpts.jobs
-	}
 	if distillOpts.concurrency > 0 {
 		return distillOpts.concurrency
 	}
@@ -2842,4 +2842,16 @@ func ollamaLoadedContextWindow(ctx context.Context, generateURL *url.URL, model 
 		}
 	}
 	return 0
+}
+
+// distillFlagAliases folds the historical `--jobs` spelling onto
+// `--concurrency`. pflag applies a normalizer on registration, on parse and on
+// lookup, so `--jobs 4`, `Flags().Changed("jobs")` and
+// `Flags().Lookup("jobs")` all resolve to the one real flag -- which is what
+// "alias" has to mean for there to be nothing left to conflict.
+func distillFlagAliases(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+	if name == "jobs" {
+		return pflag.NormalizedName("concurrency")
+	}
+	return pflag.NormalizedName(name)
 }

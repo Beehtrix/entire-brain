@@ -790,6 +790,10 @@ type memoryWorkerStats struct {
 	AlreadyActive bool `json:"already_active,omitempty"`
 	Paused        bool `json:"paused,omitempty"`
 	PrepassFailed bool `json:"prepass_failed,omitempty"`
+	// PrepassError is why the pass failed. The bool alone told a reader that
+	// something was wrong without telling them what, which is the state the
+	// 1285-failure incident was invisible in.
+	PrepassError string `json:"prepass_error,omitempty"`
 	// PrepassGaveUp reports that the relaunch chain this failure belongs to has
 	// exhausted memoryWorkerPrepassRetryAttempts and will not reschedule
 	// itself. The condition is durable, so the honest answer is to stop rather
@@ -1193,193 +1197,14 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	return stats, err
 }
 
-func syncMemoryProjectionVectors(ctx context.Context, brainDir string, now time.Time) (bool, error) {
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
-		return false, nil
-	}
-	e := historySemanticEmbedder(defaultEmbedder())
-	if e == nil {
-		return false, nil
-	}
-	_, pending, err := syncMemoryProjectionVectorsWithEmbedder(ctx, brainDir, now, e, memoryVectorBatchRecords)
-	return pending, err
-}
-
-// syncMemoryProjectionVectorsWithEmbedder is the only writer for projection
-// vector stores. Every destructive reset and every incremental upsert is bound
-// to the exact manifest and tombstone identities captured before embedding,
-// plus the exact current progress leaf owned by this pass. The pass advances
-// that ownership after each of its progress writes. This makes a concurrent
-// privacy purge, projection replacement, or progress takeover a closed failure:
-// stale vectors cannot be published after any authority changes.
-func syncMemoryProjectionVectorsWithEmbedder(ctx context.Context, brainDir string, now time.Time, e Embedder, batchRecords int) (memoryVectorSyncPass, bool, error) {
-	var pass memoryVectorSyncPass
-	if e == nil {
-		return pass, false, nil
-	}
-	if batchRecords <= 0 {
-		batchRecords = memoryVectorBatchRecords
-	}
-	epoch, manifest, err := captureMemoryVectorEpoch(brainDir)
-	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
-		return pass, false, err
-	}
-	privacyIdentity := manifest.Sources.History.PrivacyIdentity
-	if privacyIdentity != epoch.tombstoneIdentity && !(privacyIdentity == "" && epoch.tombstoneIdentity == "absent") {
-		return pass, true, fmt.Errorf("%s: history generation does not match the current privacy epoch", memoryErrSourceStale)
-	}
-	targetDigest := manifest.Sources.History.IndexDigest
-	if !validSHA256Identity(targetDigest) {
-		// A history source published before generation-addressed projections
-		// carries no index_digest, and the codebase models that as a supported
-		// state. SourceDigest is the vector store's binding to the exact
-		// projection it was built from, and decodeMemoryVectorProgress requires
-		// a valid sha256, so writing a digest-less progress leaf would create a
-		// file this very process can never read back: the next ownership
-		// validation fails memory_state_corrupt and every later pass refuses to
-		// run, wedging vector sync with its own output. There is nothing to
-		// bind to yet, so do no work and stay un-pending; the next projection
-		// publish stamps a digest and the pass resumes normally.
-		return pass, false, nil
-	}
-	prior, present, ownership, progressErr := loadMemoryVectorProgressWithOwnership(brainDir)
-	if progressErr != nil {
-		// Content-free progress is still durable state. Unknown-newer, unsafe,
-		// and corrupt leaves remain byte-for-byte read-only until an explicit
-		// repair/migration action replaces them.
-		return pass, true, progressErr
-	}
-	rawHistoryStore, ok := historyVectorStoreFor(brainDir, e)
-	if !ok {
-		return pass, false, nil
-	}
-	historyStore := &memoryGuardedVectorStore{brainDir: brainDir, epoch: epoch, ownership: ownership, store: rawHistoryStore}
-	var conversationStore historyVectorStore
-	if rawConversationStore, available := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); available {
-		conversationStore = &memoryGuardedVectorStore{brainDir: brainDir, epoch: epoch, ownership: ownership, store: rawConversationStore}
-	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
-	if err != nil {
-		return pass, false, err
-	}
-	needsReset := memoryVectorProgressNeedsReset(prior, present, e.ID(), targetDigest)
-	progress := memoryVectorProgress{ModelID: e.ID(), SourceDigest: targetDigest, UpdatedAt: now, Pending: true}
-	if !needsReset {
-		progress = prior
-		progress.HistoryAdded = 0
-		progress.ConversationAdded = 0
-		progress.ErrorCode = ""
-		progress.UpdatedAt = now
-	}
-	if needsReset {
-		// Persist the reset intent before deleting anything. A crash at any point
-		// leaves reset_complete=false, so the next pass finishes clearing stale
-		// vectors before it can treat stable IDs as reusable.
-		if err := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); err != nil {
-			return pass, true, err
-		}
-		pass.HistoryDropped, err = clearMemoryVectorStore(ctx, historyStore)
-		if err != nil {
-			return pass, true, err
-		}
-		if conversationStore != nil {
-			pass.ConversationDrop, err = clearMemoryVectorStore(ctx, conversationStore)
-			if err != nil {
-				return pass, true, err
-			}
-		}
-		progress.ResetComplete = true
-		if err := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); err != nil {
-			return pass, true, err
-		}
-	}
-	historyAdded, historyDropped, historyTotal, historyPending, syncErr := syncVectorsForKindsContextBatch(ctx, historyStore, index, e, historyGeneralRankingHiddenKind, func(r historyRecord) string { return r.Summary }, batchRecords)
-	pass.HistoryAdded = historyAdded
-	pass.HistoryDropped += historyDropped
-	pass.HistoryTotal = historyTotal
-	progress.HistoryAdded = historyAdded
-	remainingBudget := batchRecords - historyAdded
-	if remainingBudget < 0 {
-		remainingBudget = 0
-	}
-	conversationPending := false
-	if syncErr == nil && conversationStore != nil {
-		if remainingBudget == 0 {
-			conversationPending = vectorStoreHasMissing(conversationStore, index, conversationSemanticHiddenKind)
-		} else {
-			conversationAdded, conversationDropped, conversationTotal, pending, conversationErr := syncVectorsForKindsContextBatch(ctx, conversationStore, index, e, conversationSemanticHiddenKind, conversationEmbeddingText, remainingBudget)
-			pass.ConversationAdded = conversationAdded
-			pass.ConversationDrop += conversationDropped
-			pass.ConversationTotal = conversationTotal
-			progress.ConversationAdded = conversationAdded
-			conversationPending = pending
-			if conversationErr != nil {
-				syncErr = conversationErr
-			}
-		}
-	}
-	progress.Pending = historyPending || conversationPending || syncErr != nil
-	if syncErr != nil {
-		progress.ErrorCode = "memory_vector_sync_failed"
-	} else if !progress.Pending {
-		progress.CompleteSourceDigest = targetDigest
-	}
-	if progressErr := saveMemoryVectorProgressAtEpochOwned(brainDir, epoch, ownership, progress); progressErr != nil {
-		syncErr = errors.Join(syncErr, fmt.Errorf("memory_vector_progress_write_failed: %w", progressErr))
-	}
-	return pass, progress.Pending, syncErr
-}
-
-func syncMemoryProjectionVectorsFully(ctx context.Context, brainDir string, now time.Time, e Embedder, progress func(memoryVectorSyncPass)) (memoryVectorSyncPass, error) {
-	var total memoryVectorSyncPass
-	for {
-		if err := ctx.Err(); err != nil {
-			return total, err
-		}
-		pass, pending, err := syncMemoryProjectionVectorsWithEmbedder(ctx, brainDir, now, e, memoryVectorBatchRecords)
-		total.HistoryAdded += pass.HistoryAdded
-		total.HistoryDropped += pass.HistoryDropped
-		total.HistoryTotal = pass.HistoryTotal
-		total.ConversationAdded += pass.ConversationAdded
-		total.ConversationDrop += pass.ConversationDrop
-		total.ConversationTotal = pass.ConversationTotal
-		if progress != nil {
-			progress(total)
-		}
-		if err != nil {
-			return total, err
-		}
-		if !pending {
-			return total, nil
-		}
-		if pass.HistoryAdded+pass.ConversationAdded == 0 {
-			return total, errors.New("memory_vector_sync_failed: vector sync made no progress")
-		}
-	}
-}
-
 func runMemoryVectorLane(ctx context.Context, brainDir string, now time.Time, owner string) memoryWorkerStats {
 	var stats memoryWorkerStats
 	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
 		return stats
 	}
-	// This lane always runs after deterministic and abstract work. The overall
-	// deadline, in addition to each call timeout, caps coordinator occupancy and
-	// guarantees a prompt opportunity for shutdown or newly exported work.
-	laneCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	pending, err := syncMemoryProjectionVectors(laneCtx, brainDir, now)
-	laneYielded := errors.Is(laneCtx.Err(), context.DeadlineExceeded)
-	stats.VectorPending = pending || laneYielded
-	// Only a clean batch or a deliberate lane yield earns the fast relaunch; a
-	// failed sync must wait for the next trigger instead of self-spinning.
-	stats.VectorContinue = stats.VectorPending && (err == nil || laneYielded)
-	if err != nil {
-		stats.addHealthIssue("memory_vector_sync_failed")
-		if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_failed", owner); logErr != nil {
-			stats.addHealthIssue("memory_worker_log_write_failed")
-		}
-	} else if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_complete", owner); logErr != nil {
+	// Semantic retrieval was removed (trail #278); the vector lane is a no-op
+	// kept only so lane sequencing and worker logs stay shaped as before.
+	if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_complete", owner); logErr != nil {
 		stats.addHealthIssue("memory_worker_log_write_failed")
 	}
 	return stats
@@ -1736,9 +1561,24 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// let 1285 consecutive failures accumulate with every health
 				// surface showing a healthy last outcome.
 				outcome = memoryWorkerOutcomeDegraded
-				_ = appendMemoryWorkerLog(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token)
+				// Record WHY. Without it the log says a pass failed and the
+				// backoff relaunches for two hours, leaving a reader a retry
+				// storm with no cause attached to any of it.
+				// `entire memory worker --json` is pasted into issues, so the
+				// same redaction the durable log applies is applied here.
+				stats.PrepassError = redactText(err.Error())
+				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
-				if retry, ok := memoryWorkerPrepassRetry(failures); ok {
+				// Some failures are durable: no retry changes the bytes on
+				// disk. A retired manifest field is the one measured here --
+				// it burned a full 1m..30m chain per repository, every chain
+				// ending exactly where it started, each pending retry a live
+				// sleeping process rather than a timer.
+				if durable := errDurablePrepassFailure(err); durable {
+					stats.PrepassGaveUp = true
+					stats.PrepassError = durablePrepassMessage(err)
+					_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_gave_up", coordinator.token, stats.PrepassError)
+				} else if retry, ok := memoryWorkerPrepassRetry(failures); ok {
 					prepassRetry = &retry
 					relaunchPrepassFailures = failures
 				} else {

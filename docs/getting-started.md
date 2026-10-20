@@ -94,8 +94,8 @@ goes away is having to arrange directories before you start.
 
 `scripts/bootstrap.sh` is the same flow for a machine with nothing on it: it
 clones `entire-brain` when it is not already present and then runs
-`scripts/install.sh`. Build from source when you intend to change Brain, or when
-you want the `brain_cgo` build. For simply using it, install a release instead.
+`scripts/install.sh`. Build from source when you intend to change Brain. For simply using it,
+install a release instead.
 
 ### Installing a release
 
@@ -277,26 +277,37 @@ command, is:
 
 ```sh
 entire enable                              # capture sessions + wire the session-end hook
-git add .entire .claude && git commit      # enable wrote these and did not commit them
 entire brain setup                         # then onboard: build, backfill, watch
 ```
 
 That order is a quality decision, not a correctness one — running `entire enable`
 after `setup` works too, and the next backfill pass picks the new sessions up.
 
-**The commit in the middle is not optional.** `entire enable` writes
+**Entire's own config no longer blocks the install.** `entire enable` writes
 `.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
-for Claude Code) and leaves them uncommitted, so a `setup` run immediately
-afterwards finds a dirty worktree and refuses to seed or index it — two red `x`
-on a first run, caused by the command directly above it:
+for Claude Code, `.codex/hooks.json` for Codex); `entire graph init-agents`
+writes `AGENTS.md` and `CLAUDE.md`.
+A `setup` run immediately afterwards used to find that dirty worktree and refuse
+to seed or index it — two red `x` on a first run, caused by the command directly
+above it, which is not a failure a user can be expected to attribute. The dirty
+check now exempts the files Entire itself authored, so the sequence above works
+from a clean clone with nothing committed in between.
+
+The exemption is deliberately narrow. Uncommitted **source** still stops a seed
+or an index, because a brain attributed to a commit must not absorb work that
+commit does not contain:
 
 ```
-Brain set up, but not queryable in 1.9s
-  no semantic index and no seed baseline -- `entire brain query` and `entire brain brief` have nothing to read for this repo yet
-  instant     + session export  x seed baseline  + history index  + doc index  x semantic index  + pattern layer  + entity index  + memory coordinator
-              x seed baseline: dirty_worktree: refusing to seed uncommitted content without --worktree
-                hint: commit or stash the working tree, then re-run `entire brain setup`, or `entire brain refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over
+  instant     + sessions  x seed  + history  + docs  x semantic  + patterns  + entities  + memory
+              x seed baseline: dirty_worktree: refusing to seed uncommitted content without
+                --worktree (2 uncommitted paths: src/app.ts, src/lib/parse.ts); pass --worktree
+                to seed the working tree as it stands, or commit or stash these changes first
 ```
+
+The Entire-authored files are still **indexed** — `AGENTS.md` and `CLAUDE.md` are
+exactly the repository docs you want the brain to know about. They just stop
+counting as uncommitted source for the gate. (`--worktree`, which the refusal
+names, is a `refresh` flag — `setup` does not accept it.)
 
 The code index and the baseline are the two sources a query reads, so with both
 refused the summary says the brain is not queryable rather than calling it
@@ -594,14 +605,22 @@ repo-wide text search until the brain's targeted context has been used.
 
 ### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
 
-`entire-brain` also has a hidden hook surface for harness integrations. These
-hooks are not installed by the base Entire repository enablement flow; a harness
-must be configured to invoke them, for example from Claude Code
-`PreToolUse`/`PostToolUse` hooks or Entire CLI lifecycle hooks. Until then they
-have no effect. They are not intended as human-facing commands, although they
-can be hand-tested when
-debugging harness wiring. They are designed to surface a small, high-confidence
-fact exactly when it matters:
+`entire-brain` also has a hook surface for harness integrations. A harness must
+be configured to invoke a hook before it can have any effect, and `init-agents`
+— which `setup` runs for you — wires the one that matters for Claude Code: it
+merges a `PreToolUse` entry for `Edit`/`Write`/`MultiEdit`/`NotebookEdit` into
+the repository's `.claude/settings.json`, running
+`entire-brain hook pre-edit --claude-hook`. That flag is the wired spelling: it
+reads the host's `PreToolUse` event from stdin and replies with the
+`hookSpecificOutput` envelope, which is the only stdout shape Claude Code adds
+to the agent's context (plain lines are discarded). Pass
+`setup --no-agent-hooks` to decline it; the decline is remembered on re-runs.
+
+The remaining hooks — `post-failure`, `session-end` — are still harness-wired by
+hand, and have no effect until something calls them. None of them are intended
+as human-facing commands, although they can be hand-tested when debugging
+harness wiring. They are designed to surface a small, high-confidence fact
+exactly when it matters:
 
 - before editing a file, facts anchored to that file
 - after a failed command, gotchas and known dead ends that match the failure
@@ -731,7 +750,7 @@ entire brain recall "MirrorCommittedMetadataRef" --expand
 When a task depends on structure rather than text, the agent should use semantic
 tools. The normal path is: find candidate symbols, inspect relation-aware
 context, inspect likely impact, then ask for tests. The normal tools are
-`brain_code` or `brain_search_code`, followed by `brain_context`,
+`brain_code`, followed by `brain_context`,
 `brain_impact`, and `brain_tests`.
 
 This is where `entire-graph` matters. It is not an agent memory layer; it is the

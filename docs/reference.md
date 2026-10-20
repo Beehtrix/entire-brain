@@ -1084,7 +1084,7 @@ calls.
 ### Navigate code by meaning
 
 When a task depends on structure rather than text, use the semantic tools:
-`brain_code`/`brain_search_code` to find candidate symbols, then `brain_context`,
+`brain_code` to find candidate symbols, then `brain_context`,
 `brain_impact`, and `brain_tests`. This is where `entire-graph` matters — it is the
 local parser/provider that gives the brain the graph the agent queries. Semantic
 depth is language-dependent: parser-backed extraction covers the semantic

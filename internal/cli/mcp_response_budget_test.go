@@ -364,7 +364,9 @@ func TestEverySizeArgumentDeclaresTheTruncationContract(t *testing.T) {
 	t.Parallel()
 
 	seen := 0
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		schema, _ := tool["inputSchema"].(map[string]any)
 		props, _ := schema["properties"].(map[string]any)

@@ -1281,9 +1281,9 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 		var err error
 		switch {
 		case semanticDetailMeansBinaryNotFound(detail):
-			err = fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q was not found: %s; install the provider with `entire plugin install graph`", code, graphBinary, detail)
 		case semanticDetailMeansBinaryNotExecutable(detail):
-			err = fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
 			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
 		}

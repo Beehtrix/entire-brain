@@ -117,16 +117,12 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:         5 * time.Minute,
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
-		// Empty means "detect at run time" (defaultRefreshAgent), not "no
-		// agent". This was hardcoded to codex, which is the same defect as
-		// issue #328 and worse here: the watcher runs unattended, so a user
-		// with a local model installed had their transcripts sent to a cloud
-		// provider on a timer, without ever choosing it.
-		// "auto" is the sentinel runDistill resolves through defaultRefreshAgent;
-		// the empty string is NOT -- it passes through as an invalid agent name.
-		// This was hardcoded to codex, the same defect as issue #328 and worse
-		// here: the watcher runs unattended, so a user with a local model
-		// installed had transcripts sent to a cloud provider on a timer.
+		// "auto", not "codex". A hardcoded vendor here was a THIRD codex default
+		// that never reached defaultRefreshAgent at all, so reordering that
+		// function alone would have left the watcher — the one unattended path
+		// that spends tokens on its own — routing repository content to codex
+		// forever. runDistill resolves "auto" on this path (distill_cmd.go), and
+		// `setup` still overrides it per workspace through the watch plan.
 		distillAgent: "auto",
 		distillJobs:  1,
 		seedAgent:    "none",

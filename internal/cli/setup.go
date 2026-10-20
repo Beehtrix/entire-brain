@@ -14,6 +14,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
 
@@ -131,7 +132,7 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // pass to the command they ran. Both halves of the remedy belong here: what to
 // do, and why the tree is dirty when they never edited anything.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree, then re-run `" + setupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
 		" setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
 
@@ -188,7 +189,13 @@ func newSetupComponent(name string, err error, brainCmd string) setupComponent {
 	if err == nil {
 		return setupComponent{Name: name, State: "ok"}
 	}
-	component := setupComponent{Name: name, State: "failed", Detail: strings.TrimSpace(err.Error())}
+	// Flatten is the CLASS guard, applied where EVERY component's detail is
+	// born rather than per component: a stage that shells out to another
+	// program hands us that program's whole stderr, and an unsummarised usage
+	// dump printed here buries setup's real report under sixty lines of
+	// someone else's help screen. A producer that already summarised passes
+	// through untouched; see providerdetail.Flatten.
+	component := setupComponent{Name: name, State: "failed", Detail: providerdetail.Flatten(err.Error())}
 	switch {
 	case setupIsRepoKeyMismatch(component.Detail):
 		component.Hint = setupRepoKeyMismatchHint(brainCmd)
@@ -266,8 +273,30 @@ func setupComponentFailureLine(component setupComponent, dash, brainCmd string) 
 	if detail == "" {
 		detail = "no detail reported"
 	}
+	// A hint that ends by naming `setup` closes a referral loop if this line
+	// also names `doctor`: doctor re-renders this same component with this
+	// same hint appended, so the two commands point at each other and neither
+	// adds a step. Where the hint names a DIFFERENT remedy (the repo-key skew
+	// names `refresh index --force`) there is no circle and doctor keeps its
+	// referral: it really is where the rest of the detail lives.
+	if setupHintReferralLoops(component.Hint, brainCmd) {
+		return fmt.Sprintf("%s failed (%s) %s continuing",
+			setupComponentLabel(component.Name), detail, dash)
+	}
 	return fmt.Sprintf("%s failed (%s) %s continuing; run '%s doctor' for detail",
 		setupComponentLabel(component.Name), detail, dash, setupBrainCommand(brainCmd))
+}
+
+// setupHintReferralLoops reports a hint whose own remedy is `setup` -- the
+// command the reader is already running. Pointing them at `doctor` on top of
+// that is the closed referral: doctor's only answer for this component is this
+// same hint, which sends them straight back here.
+func setupHintReferralLoops(hint, brainCmd string) bool {
+	hint = strings.TrimSpace(hint)
+	if hint == "" {
+		return false
+	}
+	return strings.Contains(hint, setupBrainCommand(brainCmd)+" setup")
 }
 
 // setupComponentCountSummary is the Build phase's clause, and it COUNTS where
@@ -370,6 +399,15 @@ type setupCommandOptions struct {
 	verbose         bool
 	uninstallDaemon bool
 	noBackfill      bool
+	noAgentHooks    bool
+	// daemon/backfill/agentHooks are the AFFIRMATIVE overrides. A decline is
+	// remembered (see setupRecord), so without an affirmative spelling the only
+	// way back from one would be `--no-daemon=false`, which nothing documents
+	// and nobody guesses. Their value is only ever read when cobra reports the
+	// flag as typed.
+	daemon     bool
+	backfill   bool
+	agentHooks bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -487,6 +525,7 @@ type setupReport struct {
 	Workspace     setupWorkspaceState `json:"workspace"`
 	Daemon        daemonState         `json:"daemon"`
 	Hook          setupHookState      `json:"session_end_hook"`
+	Agents        setupAgentsState    `json:"agent_instructions"`
 	Facts         factsBackfillStatus `json:"facts"`
 	Warnings      []string            `json:"warnings,omitempty"`
 }
@@ -550,10 +589,14 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 		},
 	}
 	cmd.Flags().StringVar(&setupOpts.workspace, "workspace", setupOpts.workspace, "Workspace the repo joins (created when absent)")
-	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher")
-	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
+	cmd.Flags().BoolVar(&setupOpts.noDaemon, "no-daemon", false, "Run the instant phase and backfill but do not install the background watcher (remembered: later bare re-runs keep declining)")
+	cmd.Flags().BoolVar(&setupOpts.daemon, "daemon", false, "Install the background watcher even if a previous run declined it")
 	cmd.Flags().BoolVar(&setupOpts.uninstallDaemon, "uninstall-daemon", false, "Stop and remove the background watcher, then exit")
-	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill (no token spend at all)")
+	cmd.Flags().BoolVar(&setupOpts.noBackfill, "no-backfill", false, "Do not start the background fact backfill, which SPENDS TOKENS (remembered: later bare re-runs keep declining)")
+	cmd.Flags().BoolVar(&setupOpts.backfill, "backfill", false, "Start the background fact backfill even if a previous run declined it (SPENDS TOKENS)")
+	cmd.Flags().BoolVar(&setupOpts.noAgentHooks, "no-agent-hooks", false, "Write the agent guide but do not merge the Claude Code PreToolUse entry (remembered)")
+	cmd.Flags().BoolVar(&setupOpts.agentHooks, "agent-hooks", false, "Merge the Claude Code PreToolUse entry even if a previous run declined it")
+	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
 	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
 	cmd.Flags().StringVar(&setupOpts.model, "model", "", "Cheap/fast model for the background backfill (recommended)")
@@ -617,6 +660,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `%s setup` to re-adopt the watcher", recordErr, brainCmd)
 	}
 	changed := setupFlagChanged(cmd)
+	if err := rejectConflictingSetupToggles(changed); err != nil {
+		return err
+	}
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
 	if steps.observeComponent == nil {
 		steps.observeComponent = &setupComponentObserver{}
@@ -842,6 +888,19 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed)),
 		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
 
+	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
+	// is told the brain exists it will never ask, and setup used to end without
+	// writing a guide, a pointer or a hook — `setup.go` did not reference the
+	// agentsetup package at all. A setup-only repository was invisible to every
+	// agent that opened it.
+	//
+	// This runs here, immediately after the instant phase, rather than at the
+	// end: the pointer is what makes the queryable brain worth anything, and it
+	// must survive a later phase failing. It is best-effort for the same reason
+	// the instant phase is — a repository whose AGENTS.md cannot be written
+	// still has a working brain — so a failure is one warning, never an exit
+	// code.
+
 	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
@@ -859,10 +918,24 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	agentsPhase.Step("push hook")
 	pushDetails := refreshSetupPushHook(ctx, opts, repoDir, brainCmd)
 
-	if hookWired {
-		agentsPhase.OK(hookLine, pushDetails...)
+	// Agent instructions ride this phase for the same reason: they are the step
+	// that makes the brain discoverable at all. A failure here is one warning,
+	// never an exit code -- a repository whose AGENTS.md cannot be written still
+	// has a working brain.
+	agentsPhase.Step("agent instructions")
+	agentsStarted := time.Now()
+	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks)
+	timings.record("agents", time.Since(agentsStarted))
+	agentDetails, agentWarning := setupAgentsPhaseDetails(report.Agents, setupOpts.noAgentHooks, rend.Dash(), brainCmd)
+	if agentWarning != "" {
+		report.Warnings = append(report.Warnings, agentWarning)
+	}
+
+	phaseDetails := append(append([]string{}, pushDetails...), agentDetails...)
+	if setupAgentsPhaseDidWork(hookWired, report.Agents) {
+		agentsPhase.OK(hookLine, phaseDetails...)
 	} else {
-		agentsPhase.Skip(hookLine, pushDetails...)
+		agentsPhase.Skip(hookLine, phaseDetails...)
 	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
@@ -961,6 +1034,12 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		DistillEvery:   setupOpts.distillEvery.String(),
 		Model:          strings.TrimSpace(setupOpts.model),
 		Effort:         strings.TrimSpace(setupOpts.effort),
+		// The RESOLVED values, not the raw flags: a run that inherited a
+		// decline must re-record it, or the decision would survive exactly one
+		// re-run and then evaporate.
+		NoDaemon:     setupOpts.noDaemon,
+		NoBackfill:   setupOpts.noBackfill,
+		NoAgentHooks: setupOpts.noAgentHooks,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
 	}
@@ -1021,7 +1100,7 @@ func renderSetupReady(run *setupui.Run, rend *setupui.Renderer, report setupRepo
 		Failures:  run.Failures(),
 	}
 	if queryable {
-		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending(), setupOffersConnect(report.BrainPath))
+		summary.Next = setupNextSteps(brainCmd, report.Daemon.Installed, report.Facts.Pending(), setupOffersConnect(report.BrainPath), report.Agents.Installed)
 	}
 	verdict := summary.Verdict(rend)
 	if total := timings.total(); total > 0 {
@@ -1636,7 +1715,15 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
+			// setup resolves the agent once and embeds it in the daemon plan,
+			// so this is the single place a user is told which agent their
+			// repository's content will be sent to — announce it. Silent under
+			// --json, as every other human line in setup already is.
+			var announce io.Writer
+			if !setupOpts.json {
+				announce = cmd.ErrOrStderr()
+			}
+			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
 		}
 	}
 	if steps.spawnBackfill == nil {
@@ -1686,6 +1773,21 @@ type setupRecord struct {
 	Effort         string `json:"effort,omitempty"`
 	Agent          string `json:"agent,omitempty"`
 	BackfillBudget *int   `json:"backfill_budget,omitempty"`
+	// What the user DECLINED is part of the setup too, and leaving it out was
+	// the sharpest edge on this command: our own output tells a reader to
+	// re-run `setup`, and a bare re-run after `setup --no-daemon --no-backfill`
+	// silently installed the persistent login service they had refused and
+	// started the token spend they had refused. A decline is a decision; it is
+	// remembered exactly like the daemon name and the tuning, and only an
+	// explicit affirmative flag on a later run reverses it.
+	//
+	// A record written by an older build carries none of these, which decodes
+	// to false — "nothing was declined" — and leaves that repo behaving exactly
+	// as it does today. That is why the absent and the "no" case may share a
+	// spelling here: both mean do it.
+	NoDaemon     bool `json:"no_daemon,omitempty"`
+	NoBackfill   bool `json:"no_backfill,omitempty"`
+	NoAgentHooks bool `json:"no_agent_hooks,omitempty"`
 }
 
 // setupFlagNames maps each remembered option to its flag, so "was this passed?"
@@ -1699,7 +1801,48 @@ const (
 	setupFlagDistillEvery   = "distill-every"
 	setupFlagModel          = "model"
 	setupFlagEffort         = "effort"
+	setupFlagNoDaemon       = "no-daemon"
+	setupFlagDaemon         = "daemon"
+	setupFlagNoBackfill     = "no-backfill"
+	setupFlagBackfill       = "backfill"
+	setupFlagNoAgentHooks   = "no-agent-hooks"
+	setupFlagAgentHooks     = "agent-hooks"
 )
+
+// setupToggleConflicts pairs each decline with the affirmative that reverses it.
+// Passing both in one run is a contradiction with no safe reading, and guessing
+// one is how a reader ends up with the service they just declined.
+var setupToggleConflicts = [][2]string{
+	{setupFlagNoDaemon, setupFlagDaemon},
+	{setupFlagNoBackfill, setupFlagBackfill},
+	{setupFlagNoAgentHooks, setupFlagAgentHooks},
+}
+
+// rejectConflictingSetupToggles refuses a run that both declines and demands the
+// same thing.
+func rejectConflictingSetupToggles(changed func(string) bool) error {
+	for _, pair := range setupToggleConflicts {
+		if changed(pair[0]) && changed(pair[1]) {
+			return fmt.Errorf("--%s and --%s contradict each other; pass one", pair[0], pair[1])
+		}
+	}
+	return nil
+}
+
+// resolveSetupToggle answers one decline for this run.
+//
+// Precedence, strictest first: an explicit affirmative wins outright, then an
+// explicit decline, then whatever the previous run recorded. Anything else
+// would make the remembered decline unescapable or make it worthless.
+func resolveSetupToggle(declined, affirmed, recorded bool, changed func(string) bool, declineFlag, affirmFlag string) bool {
+	if changed(affirmFlag) {
+		return !affirmed
+	}
+	if changed(declineFlag) {
+		return declined
+	}
+	return recorded
+}
 
 // setupFlagChanged reports which flags the user actually typed. Comparing a
 // value against its default cannot answer that: `--daemon-name entire-brain-watch`
@@ -1753,6 +1896,9 @@ func applySetupRecordDefaults(setupOpts setupCommandOptions, recorded setupComma
 	if !changed(setupFlagEffort) && strings.TrimSpace(recorded.effort) != "" {
 		setupOpts.effort = recorded.effort
 	}
+	setupOpts.noDaemon = resolveSetupToggle(setupOpts.noDaemon, setupOpts.daemon, recorded.noDaemon, changed, setupFlagNoDaemon, setupFlagDaemon)
+	setupOpts.noBackfill = resolveSetupToggle(setupOpts.noBackfill, setupOpts.backfill, recorded.noBackfill, changed, setupFlagNoBackfill, setupFlagBackfill)
+	setupOpts.noAgentHooks = resolveSetupToggle(setupOpts.noAgentHooks, setupOpts.agentHooks, recorded.noAgentHooks, changed, setupFlagNoAgentHooks, setupFlagAgentHooks)
 	return setupOpts
 }
 
@@ -1864,6 +2010,9 @@ func setupOptionsFromRecord(stateDir string) (setupCommandOptions, bool, error) 
 	if strings.TrimSpace(record.Effort) != "" {
 		opts.effort = record.Effort
 	}
+	opts.noDaemon = record.NoDaemon
+	opts.noBackfill = record.NoBackfill
+	opts.noAgentHooks = record.NoAgentHooks
 	return opts, true, nil
 }
 
@@ -1909,9 +2058,36 @@ func readSetupInstantRecord(stateDir string) setupInstantRecord {
 
 // failedSetupComponents is what `doctor` prints: the components the last setup
 // could not build, with the reason and the hint.
-func failedSetupComponents(stateDir string) []setupComponent {
-	_, failed := partitionSetupComponents(readSetupInstantRecord(stateDir).Components)
-	return failed
+// failedSetupComponents returns the components the last setup could not
+// build, with failures that have since been fixed removed.
+//
+// It takes brainDir for the same reason instantPhaseComponents does: a
+// recorded failure is only still a failure if the component's own subsystem
+// has not produced a successful run since. Without that, `brain status`
+// clears a stale failure and `brain doctor` keeps reporting it from the same
+// record -- which is the two-surfaces-disagree bug this rule exists to end,
+// reproduced between a different pair of surfaces.
+func failedSetupComponents(stateDir, brainDir string) []setupComponent {
+	record := readSetupInstantRecord(stateDir)
+	_, failed := partitionSetupComponents(record.Components)
+	return pruneRebuiltFailures(failed, componentRunTimes(brainDir), record.UpdatedAt)
+}
+
+// pruneRebuiltFailures drops failures whose component has produced a
+// successful run since the failure was recorded.
+//
+// One implementation, shared by `status` and `doctor`. They used to each
+// decide for themselves, which is how status came to report a component as
+// built while doctor reported the same record as an error.
+func pruneRebuiltFailures(failed []setupComponent, runs map[string]time.Time, recordedAt time.Time) []setupComponent {
+	kept := make([]setupComponent, 0, len(failed))
+	for _, component := range failed {
+		if componentRebuiltSince(runs, component.Name, recordedAt) {
+			continue
+		}
+		kept = append(kept, component)
+	}
+	return kept
 }
 
 func writeSetupBackfillState(stateDir string, state setupBackfillState) error {
@@ -1923,6 +2099,60 @@ func writeSetupBackfillState(stateDir string, state setupBackfillState) error {
 
 func roundedSeconds(seconds float64) string {
 	return time.Duration(seconds * float64(time.Second)).Round(100 * time.Millisecond).String()
+}
+
+// setupAgentsPhaseDetails says whether any agent can now find this brain, as
+// rows that hang off the AGENTS phase rather than lines printed beside it --
+// the same move main made for the push hook, and for the same reason: this is
+// wiring that makes later work reach the brain, not a phase of its own.
+//
+// It returns the warning instead of printing it so the caller can put it on
+// the report, where `--json` and the closing summary both read it. Silently
+// skipping the one step that makes the brain discoverable is the defect this
+// phase exists to fix, and a silent failure here would reintroduce it.
+// setupAgentsPhaseDidWork reports whether the AGENTS phase actually did
+// something, which decides its mark.
+//
+// Wiring is WORK, and a phase that did work must not report "skipped" -- that
+// is the contradiction this PR exists to remove. The session-end hook is not
+// the only wiring in the phase: writing the agent instructions, or merging the
+// pre-edit hook, is the step that makes the brain discoverable at all. A run
+// that did either on a repo whose session-end hook was already absent still
+// did work, and saying "skipped" there denies it.
+func setupAgentsPhaseDidWork(hookWired bool, agents setupAgentsState) bool {
+	if hookWired {
+		return true
+	}
+	return agents.Installed && (agents.HookChanged || len(agents.Changed) > 0)
+}
+
+func setupAgentsPhaseDetails(agents setupAgentsState, declinedHooks bool, dash, brainCmd string) (details []string, warning string) {
+	if !agents.Installed {
+		warning = "agent instructions not written: " + agents.Detail
+		return []string{fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`",
+			warning, dash, setupBrainCommand(brainCmd))}, warning
+	}
+	what := strings.Join(agents.Files, ", ")
+	if len(agents.Changed) == 0 && !agents.HookChanged {
+		details = append(details, "agent instructions already current ("+what+")")
+	} else {
+		details = append(details, "agent instructions written ("+what+") "+dash+" agents are told this brain exists")
+	}
+	// All three pre-edit hook states stay distinct. "wired" is work that was
+	// done, "already wired" is work that was not needed, and a decline is a
+	// choice this run must not quietly undo.
+	switch {
+	case declinedHooks:
+		details = append(details, "pre-edit hook not wired (--no-agent-hooks), remembered")
+	case agents.Hook != "" && agents.HookChanged:
+		details = append(details, fmt.Sprintf("pre-edit hook wired (%s) %s facts about a file arrive as it is edited", agents.Hook, dash))
+	case agents.Hook != "":
+		details = append(details, fmt.Sprintf("pre-edit hook already wired (%s)", agents.Hook))
+	case agents.Detail != "":
+		warning = agents.Detail
+		details = append(details, agents.Detail)
+	}
+	return details, warning
 }
 
 func describeDaemonState(state daemonState, brainCmd string) string {

@@ -1265,9 +1265,6 @@ func memoryInstallHealth(brainDir string) map[string]any {
 	historyDir := inspectMemoryInstallDirectory(brainDir, historyDirName)
 	providerEgress := memoryProviderEgressHealth(brainDir)
 	buildProfile := "pure_go"
-	if brainCGOBuild {
-		buildProfile = "cgo_vector"
-	}
 	hostAdapter := memoryHostAdapterHealth{
 		State:               "not_observable",
 		Authority:           "entire-cli",
@@ -2004,7 +2001,7 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 		logHealth["path"] = filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel))
 		payload["worker_log"] = logHealth
 	} else {
-		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": memoryErrorCode(err), "action": "inspect the content-free worker log path"}
+		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": memoryErrorCode(err), "action": "inspect the worker log path; it holds event names and bounded, redacted reasons"}
 	}
 	payload["vector_progress"] = memoryVectorProgressHealth(brainDir, source)
 	return payload

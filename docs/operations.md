@@ -82,11 +82,8 @@ writing anything if the parent `entire` CLI is not on `PATH`. It does not touch
 the provider, so `entire graph` has to be installed separately for the semantic
 layer.
 
-The default build is the pure-Go stack. To install the optional cgo vector stack:
-
-```sh
-BUILD_TAGS="brain_cgo sqlite_fts5" scripts/install-local.sh
-```
+The build is the pure-Go stack (cgo-free; the former `brain_cgo` vector
+variant was removed with semantic retrieval, trail #278).
 
 ## Release Archives
 
@@ -112,9 +109,8 @@ Set `ENTIRE_RELEASE_TARGETS` to override that list:
 ENTIRE_RELEASE_TARGETS="linux/amd64" scripts/release.sh
 ```
 
-The default release build uses the pure-Go fallback stack with `CGO_ENABLED=0`,
-which is the portable distribution path. To build cgo artifacts, set
-`BUILD_TAGS="brain_cgo sqlite_fts5"` and provide the matching platform compiler.
+Release builds use the pure-Go stack with `CGO_ENABLED=0`, which is the
+portable distribution path for every target.
 The script records checksums for artifacts it successfully builds; it also signs
 archives when a local signing key is explicitly configured:
 

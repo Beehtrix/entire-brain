@@ -85,8 +85,13 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 
 	// MCP surface: search/query advertise source + conversation filters;
 	// vsearch advertises neither (the guide documents that limit).
+	// mcpAllToolDefinitions, not mcpToolDefinitions: brain_search and
+	// brain_vsearch are hidden compatibility aliases now, so they are routed
+	// and still answer but are no longer advertised. This check is about their
+	// SCHEMAS staying at parity with brain_query, which hiding must not change
+	// -- so it reads the full set deliberately.
 	var searchSchema, vsearchSchema map[string]any
-	for _, tool := range mcpToolDefinitions() {
+	for _, tool := range mcpAllToolDefinitions() {
 		switch tool["name"] {
 		case "brain_search":
 			searchSchema = tool["inputSchema"].(map[string]any)

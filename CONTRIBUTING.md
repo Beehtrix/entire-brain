@@ -7,10 +7,24 @@ and agents, not a replacement for the operational reference.
 1. **Branch from current `main`.** Tags mark releases on `main`; they are not branches to work from.
 2. **Run the full suite before you push:**
    ```bash
-   go test ./... -count=1
-   gofmt -l -s .
-   go vet ./...
+   mise run test:prepush
    ```
+   That is `go test ./... -count=1`, `gofmt -l -s .` and `go vet ./...`, in one
+   place so this file and the task cannot drift apart.
+
+   It is uncached on purpose: `mise run test` is cached, which is what you want
+   in the inner loop and not what you want as the last thing before a push --
+   a cached pass tells you some earlier tree was green, not this one. It is
+   also not `-race`: CI owns that, and `internal/cli` alone takes 17-20 minutes
+   under `-race` on a developer machine while saturating it.
+
+   **Two failures that mean your environment, not your change:**
+   - `FORCE_COLOR` set in your shell makes colour-asserting tests fail on
+     correct code. Unset it, or run `env -u FORCE_COLOR ...`.
+   - A red `test (macos-latest)` on CI is more often the job's time cap than
+     your diff. Re-read the log before you start bisecting.
+
+   Before concluding a failure is yours, reproduce it on unpatched `main`.
 3. **Every fix needs a test that fails without it.** Prove it: revert the fix's behaviour while keeping identifiers compiling, run the test, and put the failure output in the pull request.
 4. **Reproduce before you fix.** Paste the real output of the defect on unpatched `main`, then the output after.
 5. **Re-test combinations after merging.** Two individually-green pull requests can break `main` together.

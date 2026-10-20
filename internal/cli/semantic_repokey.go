@@ -200,11 +200,11 @@ func shellQuotedRepoDir(repoDir string) string {
 	if strings.TrimSpace(repoDir) == "" {
 		return "."
 	}
-	// The wide trigger set is this branch's point and is kept: main narrowed
-	// it to space/tab/quote, which leaves $, a backtick, ;, |, & and globs
-	// unquoted in a string the user is invited to paste into a shell.
-	// main's shellSingleQuote is byte-identical to the inline form used here,
-	// so the body takes the shared helper and only detection stays wide.
+	// The wide character set is this branch's point and is kept: main narrowed
+	// the trigger to space/tab/quote, which leaves $, a backtick, ;, |, & and
+	// globs unquoted in a string the user is invited to paste into a shell.
+	// main's shellSingleQuote is byte-identical to the inline form this branch
+	// used, so the body takes the shared helper and only the detection widens.
 	if strings.ContainsAny(repoDir, " \t\n\r\"'$`;|&<>()[]{}*?!#~^\\") {
 		return shellSingleQuote(repoDir)
 	}

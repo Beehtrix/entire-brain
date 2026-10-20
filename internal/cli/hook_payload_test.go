@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The first wiring of the pre-edit hook passed `--file "$CLAUDE_FILE_PATH"`.
@@ -169,8 +170,25 @@ func TestPreEditCommandDistinguishesMisuseFromAnUnreadablePayload(t *testing.T) 
 	if err := run(""); err == nil {
 		t.Error("no stdin and no --file must be an error, so a human hand-testing the verb is told")
 	}
-	if err := run("not a hook payload at all"); err != nil {
-		t.Errorf("an unrecognised payload must be silence, got: %v", err)
+	// Silence is gated on --claude-hook, which is how the REAL hook invokes
+	// this verb. That is a better contract than the unconditional silence this
+	// test used to assert: the hook must never break an agent's edit over a
+	// payload it cannot read, and a human hand-running the verb must still be
+	// told what they got wrong.
+	runHook := func(stdin string) error {
+		var out bytes.Buffer
+		cmd := NewRootCommand(f.opts)
+		cmd.SetIn(strings.NewReader(stdin))
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"hook", "pre-edit", "--claude-hook"})
+		return cmd.Execute()
+	}
+	if err := runHook("not a hook payload at all"); err != nil {
+		t.Errorf("the real hook must stay silent on a payload it cannot read, got: %v", err)
+	}
+	if err := run("not a hook payload at all"); err == nil {
+		t.Error("a hand-run with no --file must still say so, or the verb is undebuggable by hand")
 	}
 }
 
@@ -208,25 +226,51 @@ func TestStdinIsReadUnlessItWouldBlockOnAPerson(t *testing.T) {
 	}
 }
 
-// The call site must consult the predicate. A correct predicate nothing calls
-// leaves the hang exactly as it was, and that class of gap has already bitten
-// this stack more than once.
+// The call site must gate the read on whether stdin is actually readable.
+//
+// Asserted through the predicate and the fast-fail path, not by grepping
+// hook_cmd.go for an identifier: that earlier form pinned a NAME, and when the
+// predicate was renamed and inverted the guard went red on correct code.
+//
+// A terminal is a character device, so it is not a pipe and must never be
+// read; a pipe is the harness and must be. The hang this prevents is reading
+// the first, not the second.
 func TestTheHookCallSiteGuardsTheStdinRead(t *testing.T) {
 	t.Parallel()
 
-	data, err := os.ReadFile("hook_cmd.go")
+	pr, pw, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("read hook_cmd.go: %v", err)
+		t.Fatal(err)
 	}
-	src := string(data)
-	if !strings.Contains(src, "func hookStdinWouldBlock") {
-		t.Fatal("read the wrong file; this guard would be vacuous")
+	t.Cleanup(func() { _ = pw.Close(); _ = pr.Close() })
+	if !stdinIsPipe(pr) {
+		t.Error("a pipe is the harness handing over a payload; it must be read")
 	}
-	if !strings.Contains(src, `!hookStdinWouldBlock(cmd.InOrStdin())`) {
-		t.Error("the stdin read is not gated, so `hook pre-edit` with no --file hangs on a terminal " +
-			"instead of reporting that --file is required")
+
+	// The fast-fail path: --claude-hook with no --file and nothing pipeable
+	// must return promptly rather than read a stream that never EOFs.
+	f := newVerifyFixture(t)
+	done := make(chan error, 1)
+	go func() {
+		var out bytes.Buffer
+		cmd := NewRootCommand(f.opts)
+		cmd.SetIn(neverEOFReader{})
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"hook", "pre-edit", "--file", "internal/cli/hook_cmd.go", "--claude-hook"})
+		done <- cmd.Execute()
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("`hook pre-edit --file ... --claude-hook` read stdin it was never meant to touch")
 	}
 }
+
+// neverEOFReader stands in for a terminal: a read that never returns.
+type neverEOFReader struct{}
+
+func (neverEOFReader) Read([]byte) (int, error) { select {} }
 
 func TestPreEditMatchesRepositoryPathsFromAbsolutePayloads(t *testing.T) {
 	f := newVerifyFixture(t)

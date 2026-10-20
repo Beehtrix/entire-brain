@@ -21,7 +21,6 @@ import (
 // the agent when to use it instead of grep/read/git, and when not to.
 var mcpToolsExemptFromSubstitutionCue = map[string]string{
 	"brain_status":           "freshness preflight for the brain itself; no built-in reports it",
-	"brain_index_status":     "alias of brain_status; same reason",
 	"brain_refresh":          "rebuilds brain sources (a write); not a retrieval an agent would substitute",
 	"brain_index_repository": "builds the semantic index (a write); not a retrieval",
 	"brain_list_projects":    "brain project administration; no built-in equivalent",
@@ -30,7 +29,6 @@ var mcpToolsExemptFromSubstitutionCue = map[string]string{
 	"brain_get":              "fetches an id produced by another brain tool; unreachable without one",
 	"brain_multi_get":        "batch form of brain_get; same reason",
 	"brain_get_graph_schema": "metadata about the graph itself, not about the repository's code",
-	"brain_get_architecture": "alias of brain_get_graph_schema; same reason",
 	"brain_ingest_traces":    "imports a runtime trace file into the graph; no built-in equivalent",
 	"brain_patterns":         "reads the mined pattern corpus; no built-in produces it",
 	"brain_patterns_status":  "freshness of the pattern layer; no built-in reports it",

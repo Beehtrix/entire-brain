@@ -15,6 +15,31 @@ run = "go test ./..."
 description = "Run tests with race detection"
 run = "go test -race ./..."
 
+# The pre-push gate CONTRIBUTING.md points at. Deliberately NOT `test`:
+# `test` is cached, which is right for the inner loop and wrong as the last
+# thing you do before pushing -- a cached pass says a previous tree was green,
+# not this one. Deliberately NOT `test:ci` either: that is -race, and
+# internal/cli alone runs 17-20 minutes under -race on a developer machine
+# while saturating it. CI owns -race; this owns "is the tree I am about to
+# push actually green".
+[tasks."test:prepush"]
+description = "Uncached full suite + fmt + vet, the gate before you push"
+run = """
+set -e
+go test ./... -count=1
+# gofmt -l PRINTS the offending files and still exits 0, so running it bare
+# under `set -e` is a check that can never fail. CI gets this right; a
+# pre-push gate that does not is worse than none, because it sends people to
+# push work CI will reject for exactly the thing the gate claimed to cover.
+unformatted=$(gofmt -l -s .)
+if [ -n "$unformatted" ]; then
+  echo "unformatted files:"
+  echo "$unformatted"
+  exit 1
+fi
+go vet ./...
+"""
+
 [tasks."test:phase1"]
 description = "Run deterministic Phase 1 semantic brain contract tests"
 run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
@@ -587,22 +612,9 @@ description = "Build checksum-backed release archives under dist/"
 run = "scripts/release.sh"
 
 # CGO_CFLAGS silences the sqlite3_auto_extension / sqlite3_cancel_auto_extension
-# deprecation warnings emitted when compiling sqlite-vec-go-bindings/cgo on macOS.
 # Apple tags those symbols deprecated in the SDK's sqlite3.h (process-global auto
 # extensions are disabled in *their* system SQLite), but we link against mattn's
 # bundled SQLite amalgamation, where the calls are fully supported. The warning is
-# header-only noise; -Wno-deprecated-declarations drops just the deprecated-symbol
-# category, and since these symbols are not deprecated on Linux it changes nothing
-# there. Setting CGO_CFLAGS replaces Go's default -O2 -g, so we re-add that default
-# only when the variable is unset and otherwise append to whatever compile flags the
-# developer already exported (link flags belong in CGO_LDFLAGS and are left alone).
-[tasks."build:cgo"]
-description = "Build the Stage 1b cgo stack (mattn + sqlite-vec vec0 + FTS5)"
-run = "CGO_ENABLED=1 CGO_CFLAGS=\"${CGO_CFLAGS--O2 -g} -Wno-deprecated-declarations\" go build -tags 'brain_cgo sqlite_fts5' -o entire-brain ./cmd/entire-brain"
-
-[tasks."test:cgo"]
-description = "Run the test suite against the Stage 1b cgo stack"
-run = "CGO_ENABLED=1 CGO_CFLAGS=\"${CGO_CFLAGS--O2 -g} -Wno-deprecated-declarations\" go test -race -tags 'brain_cgo sqlite_fts5' ./..."
 
 [tasks.build-all]
 description = "Cross-build common Entire CLI plugin targets"
@@ -615,4 +627,4 @@ done
 
 [tasks.check]
 description = "Run formatting, linting, tests, and builds"
-depends = ["lint", "test:ci", "test:cgo", "test:phase1", "test:benchmarks", "build-all"]
+depends = ["lint", "test:ci", "test:phase1", "test:benchmarks", "build-all"]

@@ -68,9 +68,6 @@ func semanticStrictIngest() bool {
 }
 
 type semanticStreamResult struct {
-	// stampedHeader is the disclosure text when brain supplied provenance the
-	// provider could not, or "" when it did not need to.
-	stampedHeader string
 
 	header        semanticHeader
 	summary       *semanticSummary
@@ -156,7 +153,6 @@ func scanSemanticStream(r io.Reader, out io.Writer, cfg semanticStreamScanConfig
 			header.RepoKey = cfg.repoKey
 		}
 		header.RepoRoot = ""
-		res.stampedHeader = stampSemanticHeaderFromLocalGit(&header, cfg.commit, cfg.tree)
 		keptWarnings, keptFailures := cfg.ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
 		header.Warnings = sanitizeSemanticWarnings(keptWarnings, cfg.repoDir)
 		header.PartialFailures = sanitizeSemanticWarnings(keptFailures, cfg.repoDir)

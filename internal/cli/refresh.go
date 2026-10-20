@@ -75,7 +75,11 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
 	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
-	_ = cmd.Flags().MarkDeprecated("semantic-worktree", "use `entire brain index --worktree` for an explicit semantic worktree snapshot")
+	// The deprecation notice is the last thing a user of the old flag reads, so
+	// it has to name a command that runs. It named "entire brain index", which
+	// never existed in either spelling.
+	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
+		fmt.Sprintf("use `%s --worktree` for an explicit semantic worktree snapshot", brainInvocation(os.LookupEnv, semanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -142,10 +146,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		}
 	}
 	if refreshOpts.seed.agent == "auto" {
-		refreshOpts.seed.agent = defaultRefreshAgent(ctx, opts.Runner, repoDir)
-		if warning := ollamaModelMissingWarning(ctx, opts.Runner, repoDir, refreshOpts.seed.agent); warning != "" {
-			fmt.Fprintln(cmd.ErrOrStderr(), "warning:", warning)
-		}
+		refreshOpts.seed.agent = resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, refreshOpts.seed.model, cmd.ErrOrStderr())
 	}
 	progress := newRefreshProgress(cmd.ErrOrStderr())
 	reportStageAndShouldAbort := func(name string, err error) bool {
@@ -322,52 +323,6 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	} else if refreshOpts.historyIndex {
 		progress.Skip(refreshHistoryLabel(existingHistorySource(manifest)))
 		reportStageAndShouldAbort(brainComponentHistory, nil)
-	}
-	// History vectors: the persisted semantic arm behind the fusion gate (see
-	// history_vec.go). The stage exists only when the user has opted into an
-	// external embedder — without ENTIRE_BRAIN_EMBEDDER there is no line at
-	// all, so the default refresh output is unchanged. The first sync of a
-	// large repo embeds every record (potentially hours, one HTTP embed at a
-	// time); progress is batched to disk, so interrupting and re-running
-	// refresh resumes rather than restarts.
-	if refreshOpts.historyIndex && strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) != "" &&
-		manifest != nil && manifest.Sources != nil && manifest.Sources.History != nil {
-		e := historySemanticEmbedder(defaultEmbedder())
-		store, storeOK := historyVectorStoreFor(brainDir, e)
-		switch {
-		case e == nil:
-			// Opt-in set but not honored (server unreachable → Model2Vec
-			// fallback, which is a closed negative on history). defaultEmbedder
-			// already printed the fallback warning.
-			progress.Skip("history vectors: embed server unavailable")
-		case !storeOK:
-			progress.Skip("history vectors: requires the brain_cgo build")
-		default:
-			_ = store // availability was checked above; the guarded writer reopens it.
-			vecTask := progress.Begin("history vectors")
-			vectors, serr := syncMemoryProjectionVectorsFully(ctx, brainDir, opts.Now().UTC(), e, func(current memoryVectorSyncPass) {
-				vecTask.Update(fmt.Sprintf("history vectors: %d new %s embedded", current.HistoryAdded, pluralUnit("record", current.HistoryAdded)))
-			})
-			if serr != nil {
-				vecTask.Finish(serr)
-				if reportStageAndShouldAbort(brainComponentHistoryVectors, serr) {
-					return serr
-				}
-				break
-			}
-			vecTask.Update(fmt.Sprintf("history vectors: %d embedded, %d pruned (%d total)", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal))
-			vecTask.Finish(nil)
-			reportStageAndShouldAbort(brainComponentHistoryVectors, nil)
-			// Conversation vectors ride the same stage and gate but live in
-			// their own store (separate identity; general history KNN never
-			// spends budget on exchanges). Skipped silently when the store is
-			// unavailable; the history stage above already reported why.
-			if _, convOK := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim()); convOK {
-				convTask := progress.Begin("conversation vectors")
-				convTask.Update(fmt.Sprintf("conversation vectors: %d embedded, %d pruned (%d total)", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal))
-				convTask.Finish(nil)
-			}
-		}
 	}
 	// Doc index: retrievable chunks of the brain's own markdown (seed summaries
 	// + copied repo docs). It derives from seed, not history, so gate it on its own
@@ -843,51 +798,35 @@ func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManif
 	return true
 }
 
-// defaultRefreshAgent picks the agent that will read session transcripts.
+// defaultRefreshAgent resolves `--agent auto`.
 //
-// ollama is tried FIRST, and that ordering is the point of issue #328. It was
-// absent from this list entirely, so a user who had installed a local model
-// specifically to keep transcripts off a third party got one of two outcomes:
-// "none", and silently no distillation at all, or -- if they also happened to
-// have codex or claude installed -- their session content sent to a cloud
-// provider instead. Neither is what installing ollama asked for.
+// It used to be no-egress → codex → claude-code → none, which meant a user
+// sitting INSIDE Claude Code, who had codex installed for some other purpose,
+// had their repository's own content routed to the other vendor's agent — and
+// nothing said so. The harness the user is actually running under is a stronger
+// signal than PATH order, so it is consulted first.
 //
-// Transcripts are the most sensitive thing this product touches. When a local
-// model is available, preferring it is the behaviour the user configured, and
-// the only one that needs no explanation afterwards.
-//
-// This does change the agent for someone who has both ollama and a cloud CLI
-// installed. --agent still overrides it per run.
+// Detection is positive and verified for exactly one harness: CLAUDECODE and
+// CLAUDE_CODE_ENTRYPOINT are genuinely exported by Claude Code. There is NO
+// verified Codex signal — CODEX_HOME resolves a write destination and does not
+// imply a running Codex — so Codex keeps the PATH probe it always had. Guessing
+// one would repeat a mistake this codebase has already paid for: a guard
+// written against a key the real CLI never emits.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
 	if brainNoEgressMode() {
 		return "none"
 	}
-	// Ollama is preferred ONLY when a model is actually named.
-	//
-	// The preference above is right and deliberate: transcripts are the most
-	// sensitive thing this product touches, and a user who installed a local
-	// model asked for it to be used. But execOllamaDistillAgent hard-errors
-	// with "--agent ollama requires --model", and no model is resolved here --
-	// so merely having ollama ON PATH made every agent-backed command fail:
-	// distill, refresh, watch --distill, remember without --path, and
-	// recall --expand. `ollama --version` succeeds with no server and no
-	// models pulled, so installing it was enough to break them.
-	//
-	// AUTO selection can never supply that model. The distill path reads it
-	// from --model alone (distill_cmd.go takes args[1]); the only ollama
-	// environment variable, ENTIRE_BRAIN_OLLAMA_MODEL, is read by the
-	// EMBEDDING path and does nothing here. So "auto -> ollama" is a state
-	// that cannot work, whatever else is configured.
-	//
-	// A model is NOT auto-picked instead. `ollama list` routinely offers
-	// nomic-embed-text, an EMBEDDING model that would return nonsense for
-	// distillation; choosing one is a product decision, not a default worth
-	// guessing.
-	//
-	// Ollama is still fully available EXPLICITLY -- `--agent ollama --model
-	// <name>` is unaffected. What is removed is only the automatic choice that
-	// then failed. The caller warns when it falls through, so a
-	// privacy-motivated install does not quietly become a cloud call.
+	// Prefer the detected harness ONLY IF its binary is runnable. Detection
+	// alone is not enough to return it: distillAgentCommandArgs turns
+	// "claude-code" into an argv that starts with `claude` and there is no
+	// fallback at exec time, so a session whose child PATH lacks `claude` would
+	// have a WORKING codex run replaced by a hard exec failure. A detected but
+	// unavailable harness falls through to the probe order below, unchanged.
+	if harness := detectedAgentHarness(); harness != "" {
+		if binary := agentProbeBinary(harness); binary != "" && commandLooksAvailable(ctx, runner, repoDir, binary) {
+			return harness
+		}
+	}
 	if commandLooksAvailable(ctx, runner, repoDir, "codex") {
 		return "codex"
 	}
@@ -897,18 +836,86 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 	return "none"
 }
 
-// ollamaModelMissingWarning is the line a caller prints when ollama is present
-// but unusable, so a privacy-motivated install does not quietly become a cloud
-// call.
-func ollamaModelMissingWarning(ctx context.Context, runner CommandRunner, repoDir, chosen string) string {
-	if chosen == "ollama" || chosen == "none" {
+// detectedAgentHarness names the agent harness THIS process is running under,
+// or "" when none is recognized. Env-read style follows brainNoEgressMode /
+// envBool in agent_policy.go.
+//
+// CLAUDE_CODE_ENTRYPOINT carries a mode ("cli", "vscode", …), not a boolean, so
+// it is tested for presence; CLAUDECODE is a flag and goes through envBool, so
+// an explicit CLAUDECODE=0 is honoured as "no".
+func detectedAgentHarness() string {
+	if envBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
+		return "claude-code"
+	}
+	return ""
+}
+
+// agentProbeBinary maps an agent NAME to the executable behind it. The two
+// differ for Claude Code — the agent is "claude-code", the binary is "claude" —
+// and that mismatch is exactly where an unverified preference turns into an
+// exec failure.
+func agentProbeBinary(agent string) string {
+	switch agent {
+	case "claude-code":
+		return "claude"
+	case "codex":
+		return "codex"
+	case "ollama":
+		return "ollama"
+	default:
 		return ""
 	}
-	if !commandLooksAvailable(ctx, runner, repoDir, "ollama") {
-		return ""
+}
+
+// resolveRefreshAgentAnnounced is defaultRefreshAgent plus a line saying which
+// agent it picked. Auto-selection used to be silent everywhere except setup's
+// backfill spend label, so on every other path a user's repository content went
+// to an agent they were never told about.
+//
+// It is a WRAPPER on purpose. defaultRefreshAgent has 13 call sites and three
+// tests calling it with its 3-arg shape; threading a writer through all of them
+// would churn the lot to serve the three places a human is actually watching.
+// Internal and non-interactive callers keep the pure function.
+//
+// A nil writer means "say nothing", which is how --json callers stay silent.
+func resolveRefreshAgentAnnounced(ctx context.Context, runner CommandRunner, repoDir, model string, out io.Writer) string {
+	agent := defaultRefreshAgent(ctx, runner, repoDir)
+	announceResolvedAgent(out, agent, model)
+	return agent
+}
+
+// announceResolvedAgent prints the choice BEFORE anything is spent on it,
+// mirroring the ordering rule the backfill cost line already documents: a user
+// who did not want this has to be able to read it and Ctrl-C.
+//
+// It names the MODEL as well as the agent, because the report that prompted
+// this was two sentences and the second one was "idk what model". An unpinned
+// model is stated outright rather than omitted: silence about the model is the
+// exact condition being fixed, and a line that mentions only the agent would
+// leave a reader guessing in the same way for the same reason.
+//
+// It does NOT default the model. setupBackfillDefaultEffort's comment already
+// settled that — "model ids age badly" — and hardcoding one here would be the
+// codex-first mistake again, pointing the other way. The agent's own default
+// applies; this just stops it being a secret.
+//
+// Deliberately a plain line rather than a progress task: this text is asserted
+// in tests and read by users, and routing it through the spinner would make the
+// bytes depend on TTY detection and on elapsed time.
+func announceResolvedAgent(out io.Writer, agent, model string) {
+	if out == nil || agent == "" {
+		return
 	}
-	return "ollama is installed but cannot be chosen automatically (it needs --model), so " + chosen +
-		" was selected; run with `--agent ollama --model <name>` to keep transcripts local"
+	if agent == "none" {
+		// No agent means no model to name.
+		fmt.Fprintln(out, "agent: auto-selected none — no supported agent CLI found (codex, claude); deterministic steps only")
+		return
+	}
+	if model = strings.TrimSpace(model); model != "" {
+		fmt.Fprintf(out, "agent: auto-selected %s, model %s (SPENDS TOKENS) — override with --agent/--model\n", agent, model)
+		return
+	}
+	fmt.Fprintf(out, "agent: auto-selected %s, model: the agent's own default (SPENDS TOKENS) — override with --agent, pin a model with --model\n", agent)
 }
 
 func commandLooksAvailable(ctx context.Context, runner CommandRunner, repoDir, name string) bool {

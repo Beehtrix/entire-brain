@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"io"
 	"os"
 	"path/filepath"
@@ -5133,5 +5134,32 @@ func TestCompletenessLevelFromStats(t *testing.T) {
 	}
 	if got := completenessLevelFromStats([]byte(`not json`)); got != "" {
 		t.Errorf("bad json: got %q, want empty", got)
+	}
+}
+
+// TestUnverifiedErrorDoesNotRepeatTheHostsOwnRemedy is the identity_remedy
+// test's twin on the semantic side. Both call sites must reach the same
+// answer for the same stderr; asserting that on one of them proves half.
+func TestUnverifiedErrorDoesNotRepeatTheHostsOwnRemedy(t *testing.T) {
+	t.Parallel()
+	bare := `unknown command "graph" for "entire"`
+
+	got := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: bare}}).Error()
+	if !strings.Contains(got, providerdetail.InstallGraphCommand) {
+		t.Fatalf("a bare missing-provider failure must still name the install command:\n%s", got)
+	}
+
+	// The single-line case the summary KEEPS: this is the one that can tell
+	// the shared decision from an unconditional append.
+	oneLine := `unknown command "graph"; run ` + "`" + providerdetail.InstallGraphCommand + "`"
+	kept := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: oneLine}}).Error()
+	if n := strings.Count(kept, providerdetail.InstallGraphCommand); n != 1 {
+		t.Fatalf("the message already names the remedy; it appears %d times:\n%s", n, kept)
+	}
+
+	multi := bare + "\n\nDid you mean to run `" + providerdetail.InstallGraphCommand + "`?"
+	summarised := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: multi}}).Error()
+	if n := strings.Count(summarised, providerdetail.InstallGraphCommand); n != 1 {
+		t.Fatalf("the summary dropped the host's copy, so exactly one of ours is owed; got %d:\n%s", n, summarised)
 	}
 }

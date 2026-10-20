@@ -3536,6 +3536,18 @@ type staleAxis struct {
 	Detail  string `json:"detail,omitempty"`
 	Current string `json:"current,omitempty"`
 	Indexed string `json:"indexed,omitempty"`
+	// Remedy is the next step, when one exists. Additive, so existing readers
+	// are unaffected.
+	//
+	// The dirty-worktree remedy used to live inside Detail. Moving it out
+	// stopped the short status printing it twice, and left the JSON carrying
+	// a cause with no way out: the text renderer re-attached it, and an agent
+	// or a script reading `status --json` -- which is how the MCP surface and
+	// every automated consumer read this -- got only the diagnosis. A field
+	// is the fix rather than putting it back in Detail, because a renderer
+	// that wants the cause without the remedy can still have it, and the two
+	// surfaces now read the same value instead of one of them re-deriving it.
+	Remedy string `json:"remedy,omitempty"`
 }
 
 type brainBlindSpot struct {
@@ -3687,7 +3699,11 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	case dirtyErr != nil:
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
 	case dirty && source.WorktreeMode != "worktree":
-		axes["worktree"] = staleAxis{State: "dirty-unindexed", Detail: "semantic index is based on committed HEAD"}
+		axes["worktree"] = staleAxis{
+			State:  dirtyUnindexedAxisState,
+			Detail: "semantic index is based on committed HEAD",
+			Remedy: setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+		}
 	case !audit && dirty && source.WorktreeHash == "":
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree semantic snapshot has no verifiable fingerprint; refresh again with --worktree"}
 	case !audit && dirty:

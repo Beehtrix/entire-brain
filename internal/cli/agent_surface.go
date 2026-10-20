@@ -4634,7 +4634,20 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case seed.Commit != live.Head:
 			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
-			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+			// CAUSE only, no remedy. This axis is rendered as the `Cause`
+			// line directly under the status verdict, which prints the one
+			// remedy a dirty tree has (setupDirtyWorktreeHint). While this
+			// string also carried "refresh with --worktree to include current
+			// changes", the two appeared together on one screen: the verdict
+			// said commit or stash, the next line said index the uncommitted
+			// content instead.
+			axes["seed"] = staleAxis{
+				State:   dirtyUnindexedAxisState,
+				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
+				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Current: live.Head,
+				Indexed: seed.Commit,
+			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
@@ -4705,6 +4718,11 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 	return status
 }
 
+// dirtyUnindexedAxisState is the one spelling of the axis state that means the
+// working tree has uncommitted changes the index does not carry. Named so the
+// producer and the renderer that attaches the remedy cannot drift on a literal.
+const dirtyUnindexedAxisState = "dirty-unindexed"
+
 func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 	keys := make([]string, 0, len(axes))
 	for key := range axes {
@@ -4716,6 +4734,13 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 		line := "    " + key + ": " + axis.State
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
+		}
+		// The remedy comes from the axis now, not from this renderer asking
+		// the same question again. Re-deriving it here meant the JSON report
+		// carried a cause with no next step -- which is what an agent and
+		// every script read -- while only the text surface was whole.
+		if axis.Remedy != "" {
+			line += " — " + axis.Remedy
 		}
 		fmt.Fprintln(out, line)
 	}

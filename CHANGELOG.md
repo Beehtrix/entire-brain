@@ -5,6 +5,16 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Durable facts are now called memories on the command surface: the `facts`
+  command group is renamed to `memories`, and help text, flag names
+  (`--min-memories`, `--memories-backend`, `vitality --memory`) and human
+  output say "memories". Every old spelling keeps working: `facts` remains an
+  alias and the old flag names are accepted. JSON output keys, record ids
+  (`fact:<hex>`), on-disk file names, the sync wire, and the eval harness are
+  unchanged (tracked in COR-2190).
+
 ## [0.1.0] - 2026-09-19
 
 First numbered release of the public line. Work that shipped as 0.2.0 and 0.3.0

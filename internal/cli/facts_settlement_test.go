@@ -171,8 +171,8 @@ func TestFactsReviewRefusesToSettleSharedProposalLocally(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected a refusal for a shared proposal, got success:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "facts proposals") {
-		t.Fatalf("refusal should point at 'facts proposals', got: %v", err)
+	if !strings.Contains(err.Error(), "memories proposals") {
+		t.Fatalf("refusal should point at 'memories proposals', got: %v", err)
 	}
 
 	// The local facts must be untouched — no half-applied settlement.

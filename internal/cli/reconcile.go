@@ -337,7 +337,7 @@ func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agent
 	}
 	var warnings []string
 	if capped {
-		warnings = append(warnings, fmt.Sprintf("reconcile: more than %d existing facts at these paths; comparing against the %d most recent", maxReconcileExisting, maxReconcileExisting))
+		warnings = append(warnings, fmt.Sprintf("reconcile: more than %d existing memories at these paths; comparing against the %d most recent", maxReconcileExisting, maxReconcileExisting))
 	}
 	out, err := run(ctx, repoDir, agentArgs, reconcileInput(candidates, existing), timeout)
 	if err != nil {

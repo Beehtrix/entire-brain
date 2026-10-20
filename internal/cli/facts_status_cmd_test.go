@@ -40,7 +40,7 @@ func TestFactsStatusEmptyStoreJSON(t *testing.T) {
 		t.Fatalf("empty store should not invent a manifest facts source: %+v", report.ManifestFacts)
 	}
 	warnings := strings.Join(report.Warnings, "\n")
-	for _, want := range []string{"no active facts", "no facts source"} {
+	for _, want := range []string{"no active memories", "no facts source"} {
 		if !strings.Contains(warnings, want) {
 			t.Fatalf("warnings missing %q: %+v", want, report.Warnings)
 		}

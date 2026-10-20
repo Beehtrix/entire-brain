@@ -47,7 +47,7 @@ const (
 
 // globalBrainDir returns the global store's directory, creating nothing. The
 // caller creates it on first write, so merely reading never materialises a
-// directory for somebody who has no global facts.
+// directory for somebody who has no global memories.
 func globalBrainDir(env EntireEnv) (string, error) {
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
@@ -226,7 +226,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "global",
-		Short: "List facts recorded globally rather than for one repository",
+		Short: "List memories recorded globally rather than for one repository",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			facts, err := loadGlobalFacts(opts.Env)
@@ -256,18 +256,18 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				// The empty state is where somebody learns the feature exists,
 				// so it says how to use it rather than only that there is
 				// nothing here.
-				fmt.Fprintln(out, "no global facts")
-				fmt.Fprintln(out, "  `entire-brain remember \"<fact>\" --global` records one for every repository")
+				fmt.Fprintln(out, "no global memories")
+				fmt.Fprintln(out, "  `entire-brain remember \"<memory>\" --global` records one for every repository")
 				return nil
 			}
 			for _, fact := range active {
 				printFactLine(out, fact)
 			}
-			fmt.Fprintf(out, "\n%d global fact(s) in %s\n", len(active), brainDir)
+			fmt.Fprintf(out, "\n%d global memory(ies) in %s\n", len(active), brainDir)
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the facts as JSON")
-	cmd.Flags().BoolVar(&includeAll, "all", false, "Include retracted and superseded facts")
+	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the memories as JSON")
+	cmd.Flags().BoolVar(&includeAll, "all", false, "Include retracted and superseded memories")
 	return cmd
 }

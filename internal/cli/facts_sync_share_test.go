@@ -58,7 +58,7 @@ func TestFactsSyncSharesRaisedProposals(t *testing.T) {
 
 	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C", "--json")
 	if err != nil {
-		t.Fatalf("facts sync: %v\n%s", err, out)
+		t.Fatalf("memories sync: %v\n%s", err, out)
 	}
 	var report struct {
 		Backend         string `json:"backend"`
@@ -153,7 +153,7 @@ func TestFactsSyncShareHardFailureFailsTheCommand(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a real publish failure must fail the command:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "sharing") || !strings.Contains(err.Error(), "facts review") {
+	if !strings.Contains(err.Error(), "sharing") || !strings.Contains(err.Error(), "memories review") {
 		t.Fatalf("failure must say the head advanced and point at local review: %v", err)
 	}
 	queued, loadErr := loadFactProposals(f.storage.BrainDir, "main")

@@ -674,7 +674,7 @@ func TestImportCountsMergedDuplicatesOnce(t *testing.T) {
 	if report.Imported != 2 {
 		t.Fatalf("report.Imported = %d, but only %d distinct facts exist", report.Imported, len(distinct))
 	}
-	if !strings.Contains(strings.Join(report.Unsupported, " | "), "merged into one fact") {
+	if !strings.Contains(strings.Join(report.Unsupported, " | "), "merged into one memory") {
 		t.Fatalf("the merge was not reported: %v", report.Unsupported)
 	}
 }
@@ -1090,7 +1090,7 @@ func TestImportReportsSupersededRetention(t *testing.T) {
 				if err != nil {
 					t.Fatalf("import: %v\n%s", err, out)
 				}
-				for _, want := range []string{"source timestamps", "facts gc", "immediately", "--retain"} {
+				for _, want := range []string{"source timestamps", "memories gc", "immediately", "--retain"} {
 					if !strings.Contains(out, want) {
 						t.Fatalf("missing retention warning %q: %s", want, out)
 					}

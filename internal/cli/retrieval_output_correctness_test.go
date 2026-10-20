@@ -190,7 +190,7 @@ func TestDistillWarningsPersistUncappedToManifest(t *testing.T) {
 		}
 		return "", fmt.Errorf("synthetic agent failure")
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, jobs: 1}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, concurrency: 1}
 
 	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
 	if err != nil {

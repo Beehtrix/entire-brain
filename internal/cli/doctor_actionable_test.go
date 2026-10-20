@@ -57,7 +57,7 @@ func TestHealthyDoctorSaysSoInTwoLines(t *testing.T) {
 	if !strings.Contains(out.String(), "6 check(s) passed") {
 		t.Fatalf("the short report dropped the number of checks that ran:\n%s", out)
 	}
-	if !strings.Contains(out.String(), "`"+doctorVerboseInvocation+"`") {
+	if !strings.Contains(out.String(), "`"+doctorVerboseInvocation()+"`") {
 		t.Fatalf("the short report must name the flag that restores the long one:\n%s", out)
 	}
 }
@@ -161,9 +161,12 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	root := NewRootCommand(Options{Version: "test"})
 	checked := 0
 	for name, remedy := range doctorRemedies {
-		rest, ok := strings.CutPrefix(remedy, "entire brain ")
-		if !ok {
-			continue // a host-CLI or shell remedy; not ours to resolve
+		// The table holds bare VERBS now -- the reader's spelling is applied at
+		// lookup -- so the verb IS the command path. Anything carrying a shell
+		// construct is a template, not a verb, and is not ours to resolve.
+		rest := remedy
+		if strings.ContainsAny(rest, "&|'<") {
+			continue
 		}
 		var path []string
 		for _, field := range strings.Fields(rest) {
@@ -198,7 +201,7 @@ func TestDoctorRemediesAreRealCommands(t *testing.T) {
 	// The flag the short report advertises has to exist too.
 	doctor, _, err := root.Find([]string{"doctor"})
 	if err != nil || doctor.Flags().Lookup("verbose") == nil {
-		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", doctorVerboseInvocation)
+		t.Fatalf("the short report advertises `%s`, but doctor has no --verbose flag", doctorVerboseInvocation())
 	}
 }
 
@@ -501,5 +504,38 @@ func TestTheRemedyNamesAnAncestorThatExists(t *testing.T) {
 		if strings.Contains(remedy, shellQuote(filepath.Join(root, absent))) {
 			t.Errorf("the remedy names %q, which does not exist: %s", absent, remedy)
 		}
+	}
+}
+
+// TestDoctorRemedyIsRunnableNotABareVerb closes a gap the table rewrite opened.
+//
+// doctorRemedies now stores VERBS and renders the reader's spelling at lookup.
+// That is right, but nothing asserted the lookup actually renders: returning
+// the bare verb left every doctor test green while printing "refresh" at a
+// reader who needs "entire-brain refresh". A remedy that is not a whole
+// command is exactly the defect this PR exists to remove.
+func TestDoctorRemedyIsRunnableNotABareVerb(t *testing.T) {
+	t.Parallel()
+	prefix := brainInvocation(os.LookupEnv, "")
+	if strings.TrimSpace(prefix) == "" {
+		t.Fatal("no brain invocation to compare against; this guard would be vacuous")
+	}
+	checked := 0
+	for name, verb := range doctorRemedies {
+		if strings.ContainsAny(verb, "&|'<") {
+			continue // a shell template, resolved elsewhere
+		}
+		got := doctorRemedy(doctorCheckResult{Name: name})
+		if !strings.HasPrefix(got, prefix+" ") {
+			t.Errorf("doctor's remedy for %q is %q, which is not a command a reader can run (expected it to start with %q)",
+				name, got, prefix)
+		}
+		if got == verb {
+			t.Errorf("doctor's remedy for %q is the bare verb %q; the lookup did not render it", name, verb)
+		}
+		checked++
+	}
+	if checked < 15 {
+		t.Fatalf("only checked %d remedies; the table or the filter is wrong", checked)
 	}
 }

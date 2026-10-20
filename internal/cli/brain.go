@@ -224,7 +224,11 @@ func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 // so a relaunch chain spends two hours and ends exactly where it started.
 // retiredManifestRemedy is the one wording, so the "already said it" check
 // below cannot drift from the thing it is checking for.
-const retiredManifestRemedy = "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `entire brain refresh --force`"
+// A func, not a const: the spelling depends on how the reader reached this
+// binary, which is only knowable at call time.
+func retiredManifestRemedy() string {
+	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + brainInvocation(os.LookupEnv, "refresh") + " --force`"
+}
 
 // retiredManifestFieldMessage states the failure AND what to do about it.
 //
@@ -242,10 +246,10 @@ func retiredManifestFieldMessage(err error) string {
 	// printed the whole explanation TWICE. Caught by weakening: deleting this
 	// function's retired-field branch made the output better, which is only
 	// possible if the branch was doing harm.
-	if strings.Contains(msg, retiredManifestRemedy) {
+	if strings.Contains(msg, retiredManifestRemedy()) {
 		return msg
 	}
-	return msg + retiredManifestRemedy
+	return msg + retiredManifestRemedy()
 }
 
 // errRepositoryGone reports a prepass that failed because the repository this
@@ -316,7 +320,7 @@ func durablePrepassText(err error) string {
 		return retiredManifestFieldMessage(err)
 	}
 	if errRepositoryGone(err) {
-		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `entire brain reset` if the repository is not coming back"
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + brainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
 	}
 	return err.Error()
 }

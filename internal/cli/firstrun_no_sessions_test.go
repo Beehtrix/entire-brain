@@ -316,7 +316,7 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	}
 	// The stage genuinely not having run still points at the stage.
 	never := captureCheckFor(t, false)
-	if never.State != "warn" || !strings.Contains(never.Detail, "entire brain refresh") {
+	if never.State != "warn" || !strings.Contains(never.Detail, brainInvocation(os.LookupEnv, "refresh")) {
 		t.Errorf("a sessions stage that never ran is still a refresh away: %+v", never)
 	}
 }

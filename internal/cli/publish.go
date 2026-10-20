@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -191,7 +192,7 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	}
 	repoID, baseURL, token := target.repoID, target.baseURL, target.token
 	if !brainExportExists(storage.BrainDir) {
-		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
+		return errors.New("publish: no brain found for this repo; run '" + brainInvocation(os.LookupEnv, "refresh") + "' first")
 	}
 
 	// Exclusion and purge use the same boundary. Hold it from collection through

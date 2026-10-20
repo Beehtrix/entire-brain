@@ -575,20 +575,6 @@ func TestTheRemedyReachesTheJSONReport(t *testing.T) {
 	}
 }
 
-// readGoSourceForTest reads one of this package's source files.
-//
-// Walking the producers is the only way to hold "every axis of this kind
-// ships a remedy": the alternative is listing the two known call sites in a
-// test, which passes forever the moment someone adds a third.
-func readGoSourceForTest(t *testing.T, name string) string {
-	t.Helper()
-	data, err := os.ReadFile(name)
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	return string(data)
-}
-
 // setupRenderFixtureReport and renderSetupSummaryPlain used to live in
 // setup_render_test.go, beside the long closing block this PR extended. That
 // renderer is gone (#401 replaced it with the phase + terse output), so they

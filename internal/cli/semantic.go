@@ -1318,9 +1318,9 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 		var err error
 		switch {
 		case semanticDetailMeansBinaryNotFound(detail):
-			err = fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q was not found: %s; install the provider with `entire plugin install graph`", code, graphBinary, detail)
 		case semanticDetailMeansBinaryNotExecutable(detail):
-			err = fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
 			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
 		}
@@ -3597,7 +3597,7 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if unknownPaths > 0 {
 		spots = append(spots, brainBlindSpot{
 			Code:   "E_PATH_UNAVAILABLE",
-			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+brainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
 		})
 	}
 	return spots, nil
@@ -3739,7 +3739,7 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 			if identityErr != nil {
 				axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
 			} else if revision != source.IdentityRevision {
-				axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+				axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run " + brainInvocation(os.LookupEnv, "refresh")}
 			}
 		} else {
 			axes["provider"] = staleAxis{State: "recorded", Detail: source.Provider + " " + source.ProviderVersion + "; live provider not probed"}
@@ -4103,7 +4103,7 @@ func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	}
 	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `entire brain refresh --semantic`")
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, "refresh")+" --semantic`")
 		return
 	}
 	shown := strings.Join(kinds, ", ")

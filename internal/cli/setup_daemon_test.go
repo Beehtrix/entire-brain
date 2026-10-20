@@ -190,11 +190,16 @@ type recordingDaemonRunner struct {
 
 func (r *recordingDaemonRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	r.calls = append(r.calls, strings.Join(append([]string{name}, args...), " "))
-	if len(args) > 0 && (args[0] == "unload" || (len(args) > 1 && args[1] == "disable")) {
+	if len(args) > 0 && (args[0] == "bootout" || (len(args) > 1 && args[1] == "disable")) {
 		return nil, nil, r.stopErr
 	}
 	if name == "launchctl" && len(args) > 0 && args[0] == "list" {
-		return nil, nil, r.listErr
+		if r.listErr != nil {
+			return nil, nil, r.listErr
+		}
+		// A live job's listing carries a PID entry; a registered-but-dead one
+		// does not, and daemonRunning distinguishes the two.
+		return []byte("{\n\t\"PID\" = 123;\n}\n"), nil, nil
 	}
 	if name == "systemctl" && len(args) > 1 && args[1] == "is-active" {
 		if r.listErr != nil {
@@ -233,10 +238,15 @@ func TestInstallDaemonWritesUnitAndLoadsItIdempotently(t *testing.T) {
 	if got := info.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Fatalf("installed unit exposes local paths/env to other users: mode %o", got)
 	}
-	// Unload-before-load is the idempotence hinge: without it a second install
-	// fails with "service already loaded" and leaves a stale job registered.
-	if got := strings.Join(runner.calls, "\n"); strings.Count(got, "launchctl unload") != 2 || strings.Count(got, "launchctl load -w") != 2 {
-		t.Fatalf("each install must unload then load exactly once:\n%s", got)
+	// Bootout-before-bootstrap is the idempotence hinge: without it a second
+	// install fails with "service already bootstrapped" and leaves a stale job
+	// registered. bootout/bootstrap rather than unload/load because only a
+	// fresh bootstrap re-records launchd's cdhash pin after the ad-hoc-signed
+	// binary is rebuilt (COR-2174), and `enable` clears a disabled flag an
+	// older build's `unload -w` may have left.
+	got := strings.Join(runner.calls, "\n")
+	if strings.Count(got, "launchctl bootout") != 2 || strings.Count(got, "launchctl bootstrap") != 2 || strings.Count(got, "launchctl enable") != 2 {
+		t.Fatalf("each install must bootout, enable, then bootstrap exactly once:\n%s", got)
 	}
 }
 

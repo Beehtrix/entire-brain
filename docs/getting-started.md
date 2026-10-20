@@ -94,8 +94,8 @@ goes away is having to arrange directories before you start.
 
 `scripts/bootstrap.sh` is the same flow for a machine with nothing on it: it
 clones `entire-brain` when it is not already present and then runs
-`scripts/install.sh`. Build from source when you intend to change Brain, or when
-you want the `brain_cgo` build. For simply using it, install a release instead.
+`scripts/install.sh`. Build from source when you intend to change Brain. For simply using it,
+install a release instead.
 
 ### Installing a release
 

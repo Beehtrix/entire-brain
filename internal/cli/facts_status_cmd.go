@@ -54,11 +54,11 @@ type factsVitalitySummary struct {
 func factsVitalitySummaryForBranch(brainDir, branch string) (*factsVitalitySummary, []string) {
 	rollup, stats, err := loadVitalityView(brainDir, branch)
 	if err != nil {
-		return nil, []string{fmt.Sprintf("facts vitality ledger unreadable on %s: %v", branch, err)}
+		return nil, []string{fmt.Sprintf("memories vitality ledger unreadable on %s: %v", branch, err)}
 	}
 	var warnings []string
 	if stats.RollupCorrupt {
-		warnings = append(warnings, fmt.Sprintf("facts vitality rollup corrupt on %s; run `facts vitality --compact` to rebuild", branch))
+		warnings = append(warnings, fmt.Sprintf("memories vitality rollup corrupt on %s; run `memories vitality --compact` to rebuild", branch))
 	}
 	summary := &factsVitalitySummary{PendingEvents: stats.PendingEvents}
 	for id, entry := range rollup.Facts {
@@ -99,7 +99,7 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "status",
-		Short: "Summarize durable fact readiness without refreshing or writing",
+		Short: "Summarize durable memory readiness without refreshing or writing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if allBranches && branch != "" {
@@ -125,7 +125,7 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to summarize (default: current branch)")
-	cmd.Flags().BoolVar(&allBranches, "all-branches", false, "Summarize every branch in the local fact store")
+	cmd.Flags().BoolVar(&allBranches, "all-branches", false, "Summarize every branch in the local memory store")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
 }
@@ -261,7 +261,7 @@ func (counts *factsStatusCounts) add(other factsStatusCounts) {
 func factsStatusWarnings(report factsStatusReport) []string {
 	var warnings []string
 	if !report.FactsArmReady {
-		warnings = append(warnings, "facts retriever has no active facts; facts-vs-raw release proof cannot be collected yet")
+		warnings = append(warnings, "memories retriever has no active memories; facts-vs-raw release proof cannot be collected yet")
 	}
 	if report.ManifestFacts == nil {
 		warnings = append(warnings, "brain manifest has no facts source")
@@ -277,15 +277,15 @@ func printFactsStatus(cmd *cobra.Command, report factsStatusReport) {
 	if report.AllBranches {
 		target = "all branches"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "facts status for %s\n", target)
+	fmt.Fprintf(cmd.OutOrStdout(), "memories status for %s\n", target)
 	fmt.Fprintf(cmd.OutOrStdout(), "brain: %s\n", report.BrainPath)
 	printFactsStatusCounts(cmd, report.Totals)
 	if v := report.Vitality; v != nil && v.ServedTotal > 0 {
 		last := ""
 		if v.LastServedAt != nil {
-			last = fmt.Sprintf(" last_served=%s fact=%s surface=%s", v.LastServedAt.UTC().Format(time.RFC3339), v.LastServedFact, v.LastSurface)
+			last = fmt.Sprintf(" last_served=%s memory=%s surface=%s", v.LastServedAt.UTC().Format(time.RFC3339), v.LastServedFact, v.LastSurface)
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "vitality: served_facts=%d served_total=%d pending_events=%d%s\n",
+		fmt.Fprintf(cmd.OutOrStdout(), "vitality: served_memories=%d served_total=%d pending_events=%d%s\n",
 			v.ServedFacts, v.ServedTotal, v.PendingEvents, last)
 	}
 	for _, warning := range report.Warnings {

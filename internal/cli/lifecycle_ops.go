@@ -423,7 +423,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		if integrity := inspectFactStore(brainDir, facts); !integrity.OK() {
 			add("facts", "error", integrity.Warning())
 		} else {
-			add("facts", "ok", fmt.Sprintf("%d fact(s) across %d branch(es)", facts.Facts, len(facts.Branches)))
+			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
 			branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 			if branchErr != nil {
 				add("facts_verification", "warn", "branch unavailable: "+branchErr.Error())

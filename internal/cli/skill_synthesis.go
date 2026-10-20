@@ -135,7 +135,7 @@ func buildSkillEvidenceChecked(brainDir string, c taskCandidate) (string, error)
 	}
 
 	if len(c.MatchingFacts) > 0 {
-		fmt.Fprintf(&b, "Relevant durable repository facts:\n")
+		fmt.Fprintf(&b, "Relevant durable repository memories:\n")
 		for _, f := range c.MatchingFacts {
 			fmt.Fprintf(&b, "- %s\n", f)
 		}

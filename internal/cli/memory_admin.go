@@ -1265,9 +1265,6 @@ func memoryInstallHealth(brainDir string) map[string]any {
 	historyDir := inspectMemoryInstallDirectory(brainDir, historyDirName)
 	providerEgress := memoryProviderEgressHealth(brainDir)
 	buildProfile := "pure_go"
-	if brainCGOBuild {
-		buildProfile = "cgo_vector"
-	}
 	hostAdapter := memoryHostAdapterHealth{
 		State:               "not_observable",
 		Authority:           "entire-cli",

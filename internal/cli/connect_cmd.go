@@ -172,14 +172,18 @@ func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min
 	if err != nil {
 		return nil
 	}
-	// First line is "Entire CLI <version>"; the version is the last field.
+	// First line is "Entire CLI <version>", on some builds with a trailing
+	// "(<commit>)". Take the first field that parses as semver, not a fixed
+	// position, so a build suffix cannot fail-open the gate.
 	line, _, _ := strings.Cut(strings.TrimSpace(string(stdout)), "\n")
-	fields := strings.Fields(line)
-	if len(fields) == 0 {
-		return nil
+	got := ""
+	for _, field := range strings.Fields(line) {
+		if v := "v" + strings.TrimPrefix(field, "v"); semver.IsValid(v) {
+			got = v
+			break
+		}
 	}
-	got := "v" + strings.TrimPrefix(fields[len(fields)-1], "v")
-	if !semver.IsValid(got) || semver.Compare(got, "v"+min) >= 0 {
+	if got == "" || semver.Compare(got, "v"+min) >= 0 {
 		return nil
 	}
 	return fmt.Errorf("entire CLI %s does not support `entire repo view` (needs %s or newer); upgrade the entire CLI and re-run connect", strings.TrimPrefix(got, "v"), min)

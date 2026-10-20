@@ -217,6 +217,8 @@ func TestCheckHostCLIVersion(t *testing.T) {
 		wantErr bool
 	}{
 		{"too old is refused", runnerReporting("Entire CLI 0.11.3\nGo version: go1.27.1\n"), "0.12.0", true},
+		{"too old with commit suffix is refused", runnerReporting("Entire CLI 0.11.3 (abc1234)\n"), "0.12.0", true},
+		{"new enough with commit suffix passes", runnerReporting("Entire CLI 0.12.0 (abc1234)\n"), "0.12.0", false},
 		{"unset minimum disables the gate", runnerReporting("Entire CLI 0.11.3\n"), "", false},
 		{"minimum passes", runnerReporting("Entire CLI 0.12.0\n"), "0.12.0", false},
 		{"newer passes", runnerReporting("Entire CLI 0.13.1\n"), "0.12.0", false},

@@ -42,6 +42,7 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 	// Persistent brains are shared by worktrees; the previous exporter's
 	// recorded worktree may have been removed since the cache was written.
 	store.repoDir = repoDir
+	var retained map[string]bool
 	for _, file := range inventory.files {
 		_, live := sessions[file.Rel]
 		if checkpointBackedSessions(manifest) || !live {
@@ -59,9 +60,32 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		if err != nil {
 			return nil, err
 		}
-		if !bytes.Equal(data, cached) {
+		switch {
+		case bytes.HasPrefix(data, cached):
+			// The checkpoint holds every cached byte (equal, or the
+			// append-only transcript ran ahead of the last disk export), so
+			// the file is recoverable and safe to sweep.
+		case bytes.HasPrefix(cached, data):
+			// The disk export ran ahead of the last checkpoint. Keep the
+			// file out of the sweep instead of blocking every future export;
+			// the next checkpoint reconciles it.
+			fmt.Fprintf(os.Stderr, "warning: retain transcript cache: cached transcript is newer than its checkpoint for %s; keeping the cached copy\n", file.Rel)
+			if retained == nil {
+				retained = make(map[string]bool)
+			}
+			retained[file.Rel] = true
+		default:
 			return nil, fmt.Errorf("retain transcript cache: checkpoint bytes differ from %s", file.Rel)
 		}
+	}
+	if len(retained) > 0 {
+		kept := inventory.files[:0]
+		for _, file := range inventory.files {
+			if !retained[file.Rel] {
+				kept = append(kept, file)
+			}
+		}
+		inventory.files = kept
 	}
 	success = true
 	return inventory, nil

@@ -183,7 +183,16 @@ func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min
 			break
 		}
 	}
-	if got == "" || semver.Compare(got, "v"+min) >= 0 {
+	if got == "" {
+		return nil
+	}
+	// Compare the release core only: a prerelease or pseudo-version of min
+	// (nightly, git describe) ranks below min in full semver order yet may
+	// already ship repo view — those builds pass and repo view stays the
+	// authority.
+	core := strings.TrimSuffix(got, semver.Build(got))
+	core = strings.TrimSuffix(core, semver.Prerelease(core))
+	if semver.Compare(core, "v"+min) >= 0 {
 		return nil
 	}
 	return fmt.Errorf("entire CLI %s does not support `entire repo view` (needs %s or newer); upgrade the entire CLI and re-run connect", strings.TrimPrefix(got, "v"), min)

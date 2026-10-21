@@ -1055,12 +1055,12 @@ func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 	// failure streak long enough to cross the flush interval.
 	brainDir := writeSingleSessionFixture(t, now, strings.Repeat("a conversational turn\n", 6))
 
-	// Chunk 1 distills a fact (2 counted calls: distill + reconcile), then the
-	// agent starts failing. The flush interval (3) is crossed on chunk 2's
-	// failure, so by chunk 3's call the fact must already be durable — failure
-	// streaks are exactly when runs get killed, and the failure path skipping
-	// maybeFlush left everything since the last flush at risk for the whole
-	// streak.
+	// Chunk 1 distills a fact (1 counted call: extraction — reconcile is
+	// deferred to the end-of-run pass), then the agent starts failing. The
+	// flush interval (2) is crossed on chunk 2's failure, so by chunk 3's call
+	// the staged fact must already be durable — failure streaks are exactly
+	// when runs get killed, and the failure path skipping maybeFlush left
+	// everything since the last flush at risk for the whole streak.
 	var calls int
 	sawFlushedFact := false
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -1075,7 +1075,7 @@ func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 		}
 		return "", errors.New("rate limited")
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 3}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 2}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
 	}

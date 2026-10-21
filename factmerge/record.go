@@ -14,6 +14,13 @@ const (
 	StatusActive     = "active"
 	StatusSuperseded = "superseded"
 	StatusRetracted  = "retracted"
+	// StatusCandidate is a fact extracted by distill but not yet reconciled
+	// against the active set. Candidates are durable (a crashed run resumes
+	// them) but invisible to every consumer that selects StatusActive —
+	// recall, sync, promote — so nothing unreconciled ever publishes. The
+	// end-of-run reconcile pass promotes them to active (or merges/supersedes
+	// them away). GC keeps unknown-to-it statuses, so candidates survive it.
+	StatusCandidate = "candidate"
 )
 
 // Record is one durable, self-contained statement. The id is content

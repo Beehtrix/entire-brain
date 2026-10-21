@@ -909,6 +909,11 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "distilled %d facts (%d distilled, %d authored, %d superseded) across %d branch(es) from %d chunks; %d proposals queued for review\n",
 		source.Facts, source.Distilled, source.Authored, source.Superseded, len(source.Branches), source.ChunksScanned, source.Proposals)
+	if source.CandidatesReconciled > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "reconciled %d candidates: %d promoted without an agent call, %d adjudicated in %d similarity cluster(s) (%d agent calls)\n",
+			source.CandidatesReconciled, source.PromotedWithoutAgent,
+			source.CandidatesReconciled-source.PromotedWithoutAgent, source.ReconcileClusters, source.ReconcileCalls)
+	}
 	return nil
 }
 
@@ -1353,36 +1358,16 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			factsFound += len(records)
 			chunksDistilled++
-			// Reconcile the chunk's candidates against the branch's active facts
-			// so near-duplicates merge and contradictions supersede instead of
-			// piling up. Low-confidence decisions are queued for review.
-			reconcileCalled := false
-			countingReconcileRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
-				reconcileCalled = true
-				return distillOpts.run(ctx, dir, args, input, timeout)
+			// Stage, don't adjudicate: candidates are persisted with
+			// factStatusCandidate — durable (a crashed run resumes them) but
+			// invisible to every consumer that selects active, so nothing
+			// unreconciled publishes. The end-of-run pass below reconciles all
+			// staged candidates in similarity clusters, which is what removed
+			// the one-agent-call-per-chunk serialization (COR-2184).
+			for i := range records {
+				records[i].Status = factStatusCandidate
+				byBranch[branch] = upsertFact(byBranch[branch], records[i])
 			}
-			reconcileStarted := time.Now()
-			actions, recWarnings := reconcileChunkCandidates(ctx, countingReconcileRun, reconcileArgs, records, byBranch[branch], repoDir, distillOpts.timeout)
-			if reconcileCalled {
-				reconcileAgentCalls++
-				reconcileSeconds += time.Since(reconcileStarted).Seconds()
-			}
-			warnings = append(warnings, recWarnings...)
-			callsSinceFlush++ // reconcile is an agent call too
-			var chunkProposals []factProposal
-			for _, action := range actions {
-				actionThreshold := threshold
-				if distillOpts.newestFirst && action.Kind == "supersede" {
-					// Extraction order is not evidence that a candidate is newer.
-					// In reverse-order backfill, preserve both facts for review.
-					actionThreshold = 2 // above every valid agent confidence
-					warnings = append(warnings, "newest-first supersession requires review; both facts retained (run facts review)")
-				}
-				var pending []factProposal
-				byBranch[branch], pending = applyFactActions(byBranch[branch], []factAction{action}, actionThreshold, now)
-				chunkProposals = append(chunkProposals, pending...)
-			}
-			proposalsByBranch[branch] = append(proposalsByBranch[branch], chunkProposals...)
 			dirtyBranches[branch] = true
 			maybeFlush()
 		}
@@ -1403,10 +1388,44 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		reportProgress()
 	}
 	if agentFailures > 0 && !anyAgentSuccess {
+		// Candidates extracted so far stay staged — unpublished — and the next
+		// run reconciles them first. Running the pass here would fall back to
+		// promoting everything unadjudicated against the same broken agent.
 		return nil, fmt.Errorf(
 			"distill aborted after all %d agent calls failed with no successful response; check --agent, --model, authentication, and executable PATH. Last error: %v",
 			agentFailures, lastAgentErr,
 		)
+	}
+
+	// End-of-run reconcile: adjudicate every staged candidate on every loaded
+	// branch — this run's and any a crashed run left behind — in similarity
+	// clusters, before anything is published by the write below.
+	batchTotals := reconcileBatchStats{}
+	{
+		reconcileStarted := time.Now()
+		branches := make([]string, 0, len(byBranch))
+		for b := range byBranch {
+			branches = append(branches, b)
+		}
+		sort.Strings(branches)
+		for _, b := range branches {
+			updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, threshold, distillOpts.newestFirst, now)
+			if stats.Candidates == 0 {
+				continue
+			}
+			byBranch[b] = updated
+			dirtyBranches[b] = true
+			proposalsByBranch[b] = append(proposalsByBranch[b], pending...)
+			warnings = append(warnings, recWarnings...)
+			batchTotals.Candidates += stats.Candidates
+			batchTotals.Promoted += stats.Promoted
+			batchTotals.Clusters += stats.Clusters
+			batchTotals.AgentCalls += stats.AgentCalls
+		}
+		reconcileAgentCalls += batchTotals.AgentCalls
+		if batchTotals.Candidates > 0 {
+			reconcileSeconds += time.Since(reconcileStarted).Seconds()
+		}
 	}
 
 	if budgetDeferred > 0 {
@@ -1470,6 +1489,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		source.Confidence = threshold
 		source.ExtractionCalls = extractionAgentCalls
 		source.ReconcileCalls = reconcileAgentCalls
+		source.CandidatesReconciled = batchTotals.Candidates
+		source.PromotedWithoutAgent = batchTotals.Promoted
+		source.ReconcileClusters = batchTotals.Clusters
 		source.TotalAgentCalls = extractionAgentCalls + reconcileAgentCalls
 		source.TokenUsage = usageCollector.summary(source.TotalAgentCalls)
 		source.ExtractionWaitSeconds = extractionSeconds
@@ -1607,7 +1629,7 @@ func printDistillDryRunReport(cmd *cobra.Command, report distillDryRunReport) {
 	if report.ChunksIfUncached != report.Chunks {
 		fmt.Fprintf(out, "chunks if uncached: %d\n", report.ChunksIfUncached)
 	}
-	fmt.Fprintf(out, "estimated agent calls: %d extraction + up to %d reconcile = up to %d total\n",
+	fmt.Fprintf(out, "estimated agent calls: %d extraction + up to %d reconcile (batched by similarity cluster; typically far fewer) = up to %d total\n",
 		report.ExtractionAgentCalls, report.ReconcileAgentCallsUpperBound, report.EstimatedAgentCallsUpperBound)
 	fmt.Fprintf(out, "bytes: %d raw, %d preprocessed\n", report.RawBytes, report.PreprocessedBytes)
 	for _, branch := range report.Branches {

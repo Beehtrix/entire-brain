@@ -43,6 +43,41 @@ func ConflictConfidence(a, b Record) float64 {
 	return math.Round(math.Min(score, PromoteConfidenceCeiling)*100) / 100
 }
 
+// TextOverlap is the overlap coefficient |a ∩ b| / min(|a|, |b|) over the two
+// texts' token sets, in [0, 1].
+//
+// It is the similarity the distill reconcile pass uses to decide whether a
+// candidate fact is CLOSE enough to another statement that an agent must rule
+// on merge/supersede — not ConflictConfidence, deliberately. ConflictConfidence
+// adds a 0.3-weight path-jaccard term, and within a shared-path comparison that
+// term is a near-constant floor: on the recorded calibration corpus
+// (COR-2184, 2026-10-20) it compressed hallucinated pairings (0.31–0.35) against
+// genuine ones (0.39–0.43) with no usable gap, while text-only overlap
+// separated them cleanly (every genuine merge/supersede ≥ 0.24, every
+// hallucinated pairing < 0.20). min-normalization rather than jaccard because a
+// short restatement of a long fact is still the same fact; jaccard punishes the
+// length mismatch.
+//
+// Like ConflictConfidence it is lexical EVIDENCE only, never a judgment:
+// callers use it to decide whether to ask, not what to answer.
+func TextOverlap(a, b string) float64 {
+	ta, tb := textTokens(a), textTokens(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+	intersection := 0
+	for k := range ta {
+		if _, ok := tb[k]; ok {
+			intersection++
+		}
+	}
+	m := len(ta)
+	if len(tb) < m {
+		m = len(tb)
+	}
+	return float64(intersection) / float64(m)
+}
+
 // jaccard is |a ∩ b| / |a ∪ b|, and 0 when both sets are empty (two facts that
 // say nothing are not evidence of each other).
 func jaccard(a, b map[string]struct{}) float64 {

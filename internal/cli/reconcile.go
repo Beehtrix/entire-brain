@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -349,5 +351,69 @@ func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agent
 		return actions, warnings
 	}
 	actions, parseWarnings := parseReconcileActions(out, candidates, existing)
+	dumpReconcileCall(candidates, existing, out, actions)
 	return actions, append(warnings, parseWarnings...)
+}
+
+// envReconcileDump, when set to a file path, appends one JSON line per
+// agent-adjudicated reconcile call: the candidates, the existing facts shown,
+// the raw agent output, and the parsed actions. Calibration instrumentation —
+// it produced the COR-2184 threshold sweep — and deliberately not a flag:
+// recording repository content to a file is a developer measurement, not a
+// user feature.
+const envReconcileDump = "ENTIRE_BRAIN_RECONCILE_DUMP"
+
+var reconcileDumpMu sync.Mutex
+
+type reconcileDumpFact struct {
+	Text  string   `json:"text"`
+	Paths []string `json:"paths"`
+}
+
+type reconcileDumpAction struct {
+	Kind          string  `json:"kind"`
+	TargetID      string  `json:"target_id,omitempty"`
+	Confidence    float64 `json:"confidence"`
+	CandidateText string  `json:"candidate_text"`
+}
+
+func dumpReconcileCall(candidates, existing []factRecord, output string, actions []factAction) {
+	path := os.Getenv(envReconcileDump)
+	if path == "" {
+		return
+	}
+	toFacts := func(records []factRecord) []reconcileDumpFact {
+		out := make([]reconcileDumpFact, len(records))
+		for i, r := range records {
+			out[i] = reconcileDumpFact{Text: r.Text, Paths: r.Paths}
+		}
+		return out
+	}
+	ids := make([]string, len(existing))
+	for i, e := range existing {
+		ids[i] = e.ID
+	}
+	acts := make([]reconcileDumpAction, len(actions))
+	for i, a := range actions {
+		acts[i] = reconcileDumpAction{Kind: a.Kind, TargetID: a.TargetID, Confidence: a.Confidence, CandidateText: a.Candidate.Text}
+	}
+	payload := struct {
+		Candidates  []reconcileDumpFact   `json:"candidates"`
+		Existing    []reconcileDumpFact   `json:"existing"`
+		ExistingIDs []string              `json:"existing_ids"`
+		Output      string                `json:"output"`
+		Actions     []reconcileDumpAction `json:"actions"`
+	}{toFacts(candidates), toFacts(existing), ids, output, acts}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	reconcileDumpMu.Lock()
+	defer reconcileDumpMu.Unlock()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = f.Write(append(data, '\n'))
 }

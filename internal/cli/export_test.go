@@ -475,7 +475,11 @@ func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.
 	}
 }
 
-func TestDiscoverCheckpointsRejectsIncompleteZeroResult(t *testing.T) {
+// An incomplete inventory with zero readable IDs is the never-checkpointed
+// state, not a fault: it must succeed empty exactly like the no-egress path
+// does (COR-2203). The empty-export refusal in runExport remains the guard for
+// brains that already hold sessions.
+func TestDiscoverCheckpointsTreatsIncompleteZeroResultAsEmpty(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[]`,
@@ -483,10 +487,17 @@ func TestDiscoverCheckpointsRejectsIncompleteZeroResult(t *testing.T) {
 		},
 	}}
 	checkpoints, warnings, err := discoverCheckpoints(context.Background(), runner, "/repo", "entire-test", exportScopeAll, 0)
-	if err == nil || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) || len(checkpoints) != 0 {
+	if err != nil || len(checkpoints) != 0 {
 		t.Fatalf("incomplete zero result = checkpoints:%+v warnings:%v err:%v", checkpoints, warnings, err)
 	}
-	if strings.Contains(strings.Join(warnings, "\n"), "complete routed checkpoint list") {
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, errCheckpointCatalogEmpty.Error()) {
+		t.Fatalf("empty result did not carry the no-checkpoints warning: %v", warnings)
+	}
+	if !hasCheckpointScopeIncompleteWarning(warnings) {
+		t.Fatalf("incomplete scope was not surfaced as a warning: %v", warnings)
+	}
+	if strings.Contains(joined, "complete routed checkpoint list") {
 		t.Fatalf("incomplete scope was described as complete: %v", warnings)
 	}
 }

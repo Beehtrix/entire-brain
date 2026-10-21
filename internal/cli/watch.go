@@ -194,10 +194,11 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
+	logOut := newWatchLogPrefixWriter(cmd.OutOrStdout(), storage.Key, now)
+	fmt.Fprintf(logOut, "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
 		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model,
 		watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
-	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
+	return watchLoop(ctx, logOut, w, cursorPath, steps)
 }
 
 // watchCapLabel renders a cap where a non-positive value means "no cap".

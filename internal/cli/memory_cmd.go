@@ -109,6 +109,36 @@ var memoryWorkerLaunch = func(repoDir string) error {
 	return memoryWorkerLaunchAfter(repoDir, 0, 0)
 }
 
+// memoryWorkerRunInline runs the worker and WAITS for it, for callers that
+// are about to take the brain write lock themselves.
+//
+// The detached launch above is right for notify, which is done the moment it
+// has queued the work. It is wrong for the watch tick, which queues the work
+// and then, seconds later in the same tick, runs a refresh that needs the same
+// write.lock the worker is holding. The worker wins the race essentially
+// always -- it starts first -- and refresh's lock timeout is shorter than the
+// worker's 11-16s run, so the tick logs `brain_locked`, skips ALL agent work
+// including distill, and does not advance its cursor. On a repo with an active
+// session every tick has a changed transcript, so that repo's daemon distill
+// effectively never runs (COR-2175: 368 of 369 observed brain_locked failures
+// followed a reconciliation queued in the same tick).
+//
+// Waiting costs the tick the worker's runtime. That is the right trade for a
+// background daemon on a 5m interval: a tick that takes 16s longer and then
+// distills beats a tick that returns fast having done nothing.
+var memoryWorkerRunInline = func(ctx context.Context, repoDir string) error {
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	command := exec.CommandContext(ctx, exe, "memory", "worker", "--once")
+	command.Dir = repoDir
+	command.Env = memoryWorkerChildEnvironment(os.Environ(), repoDir)
+	command.Stdout = nil
+	command.Stderr = nil
+	return command.Run()
+}
+
 var memoryWorkerLaunchAfter = func(repoDir string, delay time.Duration, prepassFailures int) error {
 	args := []string{"memory", "worker", "--once"}
 	if delay > 0 {
@@ -232,11 +262,23 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 	if err != nil {
 		return created, "", err
 	}
+	// The watch tick waits, because it takes the same lock moments later; every
+	// other caller is done once the work is queued. See memoryWorkerRunInline.
+	if trigger == memoryTriggerWatch {
+		if err := memoryWorkerRunInline(ctx, repoDir); err != nil {
+			return created, "worker run failed (reconciliation will repair): " + err.Error(), nil
+		}
+		return created, "", nil
+	}
 	if err := memoryWorkerLaunch(repoDir); err != nil {
 		return created, "worker launch failed (reconciliation will repair): " + err.Error(), nil
 	}
 	return created, "", nil
 }
+
+// memoryTriggerWatch is the trigger the watch daemon passes. It is the one
+// caller that must not race its own child for the write lock.
+const memoryTriggerWatch = "watch"
 
 func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
 	if memoryWorkerOrigin() {

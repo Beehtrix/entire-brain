@@ -343,7 +343,7 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					// upsert-by-content-id makes even a stale skip harmless. A
 					// force run bypasses reuse: it just DROPPED the distilled
 					// facts it is about to regenerate.
-					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
+					if done := distillChunksAlreadyDone(prevCache, ps.branch, ps.session, duplicateKeys); len(done) > 0 {
 						kept := ps.chunks[:0]
 						for i := range ps.chunks {
 							if !done[ps.chunkHashes[i]] {
@@ -595,6 +595,70 @@ func (c distillCache) chunkSet(key string) map[string]bool {
 	set := make(map[string]bool, len(hashes))
 	for _, h := range hashes {
 		set[h] = true
+	}
+	return set
+}
+
+// distillChunksAlreadyDone is the whole "do not pay for this chunk again"
+// decision, as one value.
+//
+// It is a function rather than three lines at the call site because the
+// decision is the fix: a unit test on chunkSetForSession alone passed while
+// the call site ignored it entirely, which is the same shape as the bug.
+//
+// The union is this branch's own key PLUS every other branch carrying the
+// session. The per-key lookup still matters on its own: a duplicate-
+// disambiguated key (two exports of one session) is not reachable from the
+// session segment alone.
+func distillChunksAlreadyDone(prev distillCache, branch string, session exportSession, duplicates map[string]bool) map[string]bool {
+	done := prev.chunkSetForSession(session.SessionID)
+	for h := range prev.chunkSet(distillSessionCacheKeyFor(branch, session, duplicates)) {
+		if done == nil {
+			done = map[string]bool{}
+		}
+		done[h] = true
+	}
+	return done
+}
+
+// chunkSetForSession is chunkSet widened to every branch that carries this
+// session, which is what makes a merged session free the second time.
+//
+// The cache is keyed branch/session, and session export DELIBERATELY copies a
+// merged feature-branch session onto the default branch — default-branch
+// history should include merged feature work. The consequence was that every
+// branch copy was a cache miss with zero chunk reuse, so the same transcript
+// went back to the agent once per branch it appeared on. Measured on
+// agent-insights: 69 "sessions" were 41 unique, 19 of them on more than one
+// branch, and `--dry-run` reported chunks 209 of 209 uncached — nothing reused
+// despite most of it having been distilled already (COR-2177).
+//
+// Reuse across branches is sound because the hashes are CONTENT hashes: an
+// identical chunk has already been through the agent and its facts are already
+// in the store, whichever branch paid for it. Chunking is prefix-stable, so a
+// copied transcript resolves almost entirely from this union.
+func (c distillCache) chunkSetForSession(sessionID string) map[string]bool {
+	if sessionID == "" {
+		return nil
+	}
+	want := url.PathEscape(sessionID)
+	var set map[string]bool
+	for key, hashes := range c.Chunks {
+		// Keys are escape(branch)/escape(session), with an optional third
+		// segment disambiguating two exports of one session. Match the SECOND
+		// segment exactly: a substring match would let one session's hashes
+		// mask another's, and a chunk wrongly treated as distilled is a chunk
+		// whose facts never get written.
+		parts := strings.Split(key, "/")
+		if len(parts) < 2 || parts[1] != want {
+			continue
+		}
+		for _, h := range hashes {
+			if set == nil {
+				set = make(map[string]bool, len(hashes))
+			}
+			set[h] = true
+		}
 	}
 	return set
 }

@@ -20,7 +20,7 @@ import (
 )
 
 // hostedFake is an in-memory brainstore speaking the per-fact wire:
-// POST …/brain/facts:upsert (identity-verified NDJSON batch, counts reply)
+// POST …/brain/facts (identity-verified NDJSON batch, counts reply)
 // and GET …/brain/facts (insert-ordered keyset feed, index page tokens,
 // empty page terminal). Upserted records join the feed with the caller's
 // server-stamped attribution, like the real store.
@@ -108,7 +108,7 @@ func newHostedFakeServer(t *testing.T, fake *hostedFake) *httptest.Server {
 		fake.requests++
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts:upsert"):
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/brain/facts"):
 			fake.upsertCalls++
 			if fake.denyPush {
 				w.WriteHeader(http.StatusForbidden)

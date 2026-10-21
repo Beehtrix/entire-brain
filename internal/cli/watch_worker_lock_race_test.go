@@ -108,7 +108,10 @@ func TestOnlyWatchWaitsAndTheLaunchStaysBehindTheStubbedSeam(t *testing.T) {
 	if err != nil {
 		t.Skipf("source not readable from this runner: %v", err)
 	}
-	source := string(data)
+	// Normalised: a Windows checkout gives .go files CRLF, and the body
+	// delimiter below is searched as "\n}\n". Without this the guard reported
+	// a defect that was not there — twice, on shard 7 only.
+	source := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if len(source) == 0 {
 		t.Fatal("memory_cmd.go is empty; this guard would be vacuous")
 	}

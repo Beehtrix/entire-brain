@@ -13,11 +13,11 @@ require (
 	github.com/go-git/go-billy/v6 v6.0.0-beta.1
 	github.com/go-git/go-git/v6 v6.0.0-beta.1
 	github.com/mattn/go-isatty v0.0.24
-	github.com/mattn/go-runewidth v0.0.27
+	github.com/mattn/go-runewidth v0.0.31
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
-	github.com/spf13/pflag v1.0.9
-	golang.org/x/mod v0.41.0
+	github.com/spf13/pflag v1.0.10
+	golang.org/x/mod v0.42.0
 	golang.org/x/sys v0.49.0
 	modernc.org/sqlite v1.60.1
 )

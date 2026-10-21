@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -105,6 +108,55 @@ var setupComponentLabels = map[string]string{
 	brainComponentEntities:       "entity index",
 }
 
+// setupRetrievalCore is the pair of components a QUERY reads. The semantic
+// index is what `inspect code`, `query` and `brief` search; the seed baseline
+// is the repository overview they fall back to. Every other component enriches
+// an answer -- these two are what there is to answer FROM.
+var setupRetrievalCore = []string{brainComponentSemantic, brainComponentSeed}
+
+// setupUnqueryableCore returns the labels of the retrieval-core components when
+// EVERY one of them failed, and nil otherwise.
+//
+// It exists because "Brain ready (degraded) ... the brain is queryable now" was
+// printed, at exit 0, for a brain with no code index and no baseline: setup
+// treats one surviving component as success, which is right for the exit code
+// and wrong for that sentence. The exit code is deliberately NOT changed here
+// -- a brain that captured sessions but could not index the tree is still worth
+// keeping -- only the claim is.
+//
+// A component the phase never reported is NOT evidence of a failure: callers
+// predating per-component reporting hand back no components at all, and reading
+// that as "everything is gone" would cry wolf on every one of them.
+// setupQueryabilityClause is the tail of the Build phase line, and it must
+// never assert queryability this brain does not have.
+//
+// The phase line is `--verbose` output, so it is the one surface that still
+// names the missing SOURCES rather than the lost capability. A brain with no
+// index and no baseline answers nothing about this repository, and saying
+// "the brain is queryable now" over it is the sentence this guard removes.
+func setupQueryabilityClause(components []setupComponent) string {
+	unavailable := setupUnqueryableCore(components)
+	if len(unavailable) == 0 {
+		return "the brain is queryable now"
+	}
+	return "no " + strings.Join(unavailable, " and no ") + ", so queries have nothing to read for this repo yet"
+}
+
+func setupUnqueryableCore(components []setupComponent) []string {
+	states := make(map[string]string, len(components))
+	for _, component := range components {
+		states[component.Name] = component.State
+	}
+	labels := make([]string, 0, len(setupRetrievalCore))
+	for _, name := range setupRetrievalCore {
+		if states[name] != "failed" {
+			return nil
+		}
+		labels = append(labels, setupComponentLabel(name))
+	}
+	return labels
+}
+
 // setupRepoKeyMismatchHint covers what is LEFT of the repo-key mismatch once
 // the two tools' naming conventions no longer collide.
 //
@@ -123,17 +175,29 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 		setupBrainCommand(brainCmd) + " refresh index --force`"
 }
 
-// setupDirtyWorktreeHint is the second thing a first run hits, and it is caused
-// by the step the docs put immediately before setup. `entire enable` writes
+// setupDirtyWorktreeHint is the ONE remedy resolver for an uncommitted working
+// tree. Every surface that tells a reader what to do about a dirty tree calls
+// it, and no other surface offers a remedy of its own.
+//
+// It is the second thing a first run hits, and it is caused by the step the
+// docs put immediately before setup. `entire enable` writes
 // .entire/settings.json and the agent's hook settings (.claude/settings.json)
 // and does NOT commit them, so the very next `entire-brain setup` finds a dirty
 // worktree and refuses to seed or index it. The error text names --worktree,
-// which `setup` does not accept — leaving the reader with a flag they cannot
-// pass to the command they ran. Both halves of the remedy belong here: what to
-// do, and why the tree is dirty when they never edited anything.
+// which `setup` does not accept -- leaving the reader with a flag they cannot
+// pass to the command they ran.
+//
+// It names BOTH ways out, because there are two and a reader handed one of them
+// has no way to discover the other. That is also why it is a single resolver:
+// `status` printed this remedy in its verdict while the freshness cause
+// directly underneath said "refresh with --worktree to include current
+// changes", so one screen gave two contradictory instructions. The cause now
+// states the cause only (see buildBrainRetrievalStatus) and the remedy comes
+// from here.
 func setupDirtyWorktreeHint(brainCmd string) string {
 	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
-		" setup`; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
+		" setup`, or `" + setupBrainCommand(brainCmd) +
+		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
 
 // setupNoSessionsHint covers the state EVERY repo is in between `entire enable`
@@ -657,7 +721,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		// Refusing here is the whole point: every path below acts on a PREVIOUS
 		// daemon identity, and without the record we would act on the default
 		// one — retiring or uninstalling a watcher that belongs to another repo.
-		return fmt.Errorf("%w\nthis repo's setup record is unreadable; delete it and re-run `%s setup` to re-adopt the watcher", recordErr, brainCmd)
+		return fmt.Errorf("%w\n%s", recordErr, setupRecordRemedy(recordErr, stateDir, brainCmd))
 	}
 	changed := setupFlagChanged(cmd)
 	if err := rejectConflictingSetupToggles(changed); err != nil {
@@ -884,8 +948,13 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		}
 		return fmt.Errorf("the brain is not queryable: this repository has no commits yet, so there is nothing to index")
 	}
-	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, the brain is queryable now",
-		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed)),
+	// Never assert queryability this brain does not have: see
+	// setupUnqueryableCore. Exit 0 is unchanged -- a brain that built
+	// something is still usable; it just must not claim to answer from
+	// sources that are not there.
+	queryability := setupQueryabilityClause(components)
+	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
+		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
 		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
 
 	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
@@ -1159,12 +1228,14 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 	if !plan.supported() {
 		return ""
 	}
-	what := strings.TrimSpace(plan.Label)
-	if what == "" {
-		what = "background watcher"
-	}
+	// Name the unit FILE, never the hashed service id. A label like
+	// "io.entire.brain-watch.1a2b3c4d" is an internal uniqueness key: it is not
+	// a path the reader can open, not a name they chose, and not an argument
+	// any documented command accepts. The unit path is all three, and it is the
+	// ONE place setup prints the watcher's identity.
+	what := "a background watcher"
 	if unit := strings.TrimSpace(plan.UnitPath); unit != "" {
-		what += " at " + unit
+		what = "a background watcher at " + unit
 	}
 	if before.Installed {
 		return fmt.Sprintf(
@@ -1684,8 +1755,80 @@ func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, 
 	return state, nil
 }
 
+// newSetupInstantCommand builds the cobra command the nested deterministic
+// refresh runs under. Its output is ALWAYS discarded, in every mode.
+//
+// The nested refresh is a complete command with its own renderer: its own
+// consent text, its own names for the components, its own daemon identity. Only
+// --json discarded it, so a human first run printed setup's lines AND the inner
+// refresh's on top of each other -- roughly two dozen extra lines in which the
+// same consent appeared twice and one component answered to two different
+// names in one run. The sub-command exists to be RUN, not to be read: every
+// component it builds is reported by setup itself, live through
+// observeComponent and again in the closing summary.
+//
+// Discarding unconditionally is also why the --json contract is untouched:
+// that path already discarded, so its bytes cannot move.
+func newSetupInstantCommand(ctx context.Context, stepOutput io.Writer) (*cobra.Command, *bytes.Buffer) {
+	// stdout is discarded: it is the nested refresh's progress, which setup
+	// reports itself. stderr is CAPTURED rather than discarded, because the
+	// same stream carries genuine warnings -- a memory coordinator that could
+	// not launch, an entity index that was skipped -- and discarding it lost
+	// them silently. Raised as a finding on this change.
+	var captured bytes.Buffer
+	sub := &cobra.Command{}
+	sub.SetContext(ctx)
+	// stdout goes to the step sink rather than io.Discard: the nested reporter
+	// has no idea it is nested, and left pointed at the real streams it writes
+	// a permanent line per stage on top of the live row setup owns.
+	sub.SetOut(stepOutput)
+	// stderr is TEED, not chosen between. It has to reach the step sink so it
+	// renders where the rest of the phase does, and it has to be captured so
+	// setupWarningsFrom can lift the genuine warnings out. Sending it to only
+	// one of the two is how either the rendering or the warnings go missing.
+	sub.SetErr(io.MultiWriter(stepOutput, &captured))
+	return sub, &captured
+}
+
+// setupWarningsFrom picks the warnings out of the nested refresh's stderr.
+//
+// Everything else on that stream is progress setup reports itself, so only
+// lines the refresh explicitly marked as a warning are carried up.
+func setupWarningsFrom(captured *bytes.Buffer) []string {
+	if captured == nil {
+		return nil
+	}
+	// A warning is one `warning: ` line plus any continuation lines under it.
+	// Go errors are routinely multi-line -- errors.Join concatenates with a
+	// newline, and the memory path joins a deterministic failure with a run
+	// failure -- so keeping only prefixed lines dropped every cause after the
+	// first, reproducing in miniature the information loss this re-emission
+	// exists to repair.
+	//
+	// A continuation ends at a blank line or at the next warning, so unrelated
+	// stderr written after a warning is not swept into it.
+	var out []string
+	inWarning := false
+	for _, line := range strings.Split(captured.String(), "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "warning: "):
+			out = append(out, strings.TrimPrefix(line, "warning: "))
+			inWarning = true
+		case line == "":
+			inWarning = false
+		case inWarning:
+			out[len(out)-1] += "; " + line
+		}
+	}
+	return out
+}
+
 // resolveSetupSteps fills any injection point the caller left nil with the real
 // implementation.
+// The cobra command is used again: the nested refresh writes to io.Discard,
+// but its stderr is captured and any WARNINGS on it are re-emitted here, on
+// the command the user is actually reading.
 func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandOptions, repoDir, brainCmd string, steps setupSteps) setupSteps {
 	if steps.now == nil {
 		steps.now = opts.Now
@@ -1704,20 +1847,22 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// failure does not abort the build. History is the one difference from
 			// a tick: onboarding builds the projection now rather than leaving the
 			// first `brief` to answer without it.
-			sub := &cobra.Command{}
-			sub.SetContext(ctx)
-			// Both streams go to the step sink, never to the terminal. The
-			// nested reporter has no idea it is nested; left pointed at the
-			// real streams it writes one permanent line per stage, on top of
-			// the row setup's own live line owns.
-			sub.SetOut(steps.stepOutput)
-			sub.SetErr(steps.stepOutput)
+			sub, capturedStderr := newSetupInstantCommand(ctx, steps.stepOutput)
 			var components []setupComponent
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)
 			})
+			// The nested refresh's progress is discarded, but a warning on that
+			// stream is not progress -- a memory coordinator that could not
+			// launch, an entity index that was skipped -- and it reaches nobody
+			// unless it is re-emitted on the command the user is reading.
+			if cmd != nil && !setupOpts.json {
+				for _, warning := range setupWarningsFrom(capturedStderr) {
+					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+				}
+			}
 			return components, err
 		}
 	}
@@ -1859,6 +2004,50 @@ func resolveSetupToggle(declined, affirmed, recorded bool, changed func(string) 
 // explicitly re-affirming a default silently restored the recorded value
 // instead. cmd may be nil in tests that drive runSetup directly; then nothing
 // was typed.
+// setupRecordRemedy answers an unreadable setup record with advice matched to
+// WHY it could not be read.
+//
+// It used to say "delete it and re-run" for every failure. Deleting the record
+// loses this repo's daemon identity and tuning, and the comment above the call
+// site explains why that matters: every path below acts on a PREVIOUS daemon
+// identity, so a lost record can retire a watcher belonging to another repo.
+// Advising that for a transient read -- a permission problem, a file locked by
+// another process, a disk hiccup -- is telling the reader to destroy recoverable
+// state to clear an error that would have gone away.
+//
+// Only a record that cannot be PARSED is actually unrecoverable.
+func setupRecordRemedy(err error, stateDir, brainCmd string) string {
+	path := filepath.Join(stateDir, setupRecordFile)
+	if setupRecordIsCorrupt(err) {
+		return fmt.Sprintf("this repo's setup record cannot be parsed, so the watcher it names is unknown; delete %s and re-run `%s setup` to re-adopt the watcher", path, brainCmd)
+	}
+	return fmt.Sprintf("this repo's setup record could not be read, which may be temporary; check %s is readable and re-run `%s setup`. Do not delete it unless the re-run reports it cannot be parsed -- it records which watcher belongs to this repo", path, brainCmd)
+}
+
+// setupRecordIsCorrupt distinguishes "the bytes are not valid" from "the bytes
+// could not be fetched". Typed errors first; the text check is the fallback for
+// the wrapped forms this package produces.
+func setupRecordIsCorrupt(err error) bool {
+	if err == nil {
+		return false
+	}
+	var syntax *json.SyntaxError
+	var typeErr *json.UnmarshalTypeError
+	if errors.As(err, &syntax) || errors.As(err, &typeErr) {
+		return true
+	}
+	if errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	msg := err.Error()
+	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", memoryErrStateCorrupt} {
+		if strings.Contains(msg, mark) {
+			return true
+		}
+	}
+	return false
+}
+
 func setupFlagChanged(cmd *cobra.Command) func(string) bool {
 	if cmd == nil {
 		return func(string) bool { return false }
@@ -2178,13 +2367,17 @@ func describeDaemonState(state daemonState, brainCmd string) string {
 		// Current and this function dropped it, so a watcher installed by a
 		// different build or a different name reported as plain "running" and
 		// nothing in `status` said otherwise.
-		return fmt.Sprintf("running, but the installed unit is stale and not current (%s); re-run `%s setup`", state.Label, setupBrainCommand(brainCmd))
+		//
+		// The hashed label it used to carry is gone from all four branches: it
+		// identified nothing a reader could act on. It stays in --json
+		// (daemonState.Label) for anything that needs the service id.
+		return fmt.Sprintf("running, but the installed unit is stale and not current; re-run `%s setup`", setupBrainCommand(brainCmd))
 	case state.Running:
-		return fmt.Sprintf("running (%s)", state.Label)
+		return "running"
 	case state.Installed && !state.Current:
-		return fmt.Sprintf("installed but not running, and not current (%s)", state.Label)
+		return "installed but not running, and not current"
 	case state.Installed:
-		return fmt.Sprintf("installed but not running (%s)", state.Label)
+		return "installed but not running"
 	default:
 		return "not installed"
 	}

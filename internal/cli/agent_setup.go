@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 func newBrainGuideCommand(opts Options) *cobra.Command {
@@ -61,8 +62,8 @@ func newAgentInstructionsCommand(opts Options, install bool) *cobra.Command {
 					// unquoted path with a space -- ordinary on macOS -- made
 					// the remedy silently do the wrong thing when copied, and
 					// one with $ or a backtick would expand.
-					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    entire brain init-agents --repo %s\n\n",
-					root, outer, shellQuotedRepoDir(outer))
+					"warning: %s is a git repository inside %s.\nThe guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s --repo %s\n\n",
+					root, outer, brainInvocation(os.LookupEnv, "init-agents"), shellQuotedRepoDir(outer))
 			}
 			// The PreToolUse merge is deliberately NOT inside agentsetup: that
 			// package is mirrored byte-for-byte into entire-graph and its

@@ -753,13 +753,20 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 		}
 		return !semanticRefreshArtifactsUsable(brainDir, source), warning, nil
 	}
-	dirty, err := worktreeDirty(ctx, opts.Runner, repoDir)
-	if err != nil {
-		return false, warning, fmt.Errorf("check worktree dirtiness for semantic refresh: %w", err)
-	}
-	if dirty {
-		return true, warning, nil
-	}
+	// A dirty worktree used to force a rebuild here, unconditionally. That
+	// asked for work the indexer then REFUSED to do: without --worktree,
+	// runSemanticIndex returns dirty_worktree rather than indexing uncommitted
+	// content. Every tick asked, every tick was refused, and because a failed
+	// refresh aborts the whole watch tick the cursor never advanced -- so
+	// indexing stalled for as long as the tree stayed dirty, which for anyone
+	// actually working is most of the time (issue #327).
+	//
+	// Dirtiness on its own says nothing about whether the INDEXED content is
+	// stale: the index describes HEAD, and HEAD has not moved just because the
+	// worktree has uncommitted edits. The two cases where it does matter are
+	// already decided below -- a snapshot taken in worktree mode, or one taken
+	// from a dirty tree (source.WorktreeMode / source.DirtyWorktree) -- as is a
+	// moved HEAD. So the check is not merely harmful here, it is redundant.
 	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
 	if err != nil {
 		return false, warning, fmt.Errorf("resolve HEAD tree for semantic refresh: %w", err)
@@ -939,7 +946,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `entire brain refresh index --force` first")
+		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

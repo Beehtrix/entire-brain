@@ -160,16 +160,19 @@ func TestWatchLoopDistillWhenEnabledAndElapsed(t *testing.T) {
 }
 
 func TestWatchDistillOptionsDefaultAndExplicitJobs(t *testing.T) {
+	// concurrency, not a separate `jobs` field: --jobs is now a spelling of
+	// --concurrency, so there is one value for a caller to get wrong instead of
+	// two to keep in step.
 	defaultOpts := watchDistillOptions(defaultWatchOptions())
-	if defaultOpts.jobs != 1 {
-		t.Fatalf("default watch distill jobs = %d, want 1", defaultOpts.jobs)
+	if defaultOpts.concurrency != 1 {
+		t.Fatalf("default watch distill concurrency = %d, want 1", defaultOpts.concurrency)
 	}
 	explicit := defaultWatchOptions()
 	explicit.distillJobs = 4
 	explicit.distillAgent = "ollama"
 	explicit.model = "local-model"
 	got := watchDistillOptions(explicit)
-	if got.jobs != 4 || got.agent != "ollama" || got.model != "local-model" {
+	if got.concurrency != 4 || got.agent != "ollama" || got.model != "local-model" {
 		t.Fatalf("watch distill options not propagated: %+v", got)
 	}
 }
@@ -295,6 +298,35 @@ func TestWatchTickSkipsAgentWorkWhenRefreshFails(t *testing.T) {
 	// Cursor must NOT advance, so the next tick retries the free refresh and never re-distills on failure.
 	if c := loadWatchCursor(cursorPath); !c.LastRefreshAt.IsZero() || c.LastFingerprint != "" {
 		t.Fatalf("cursor must not advance on failed refresh (else thrash): %+v", c)
+	}
+}
+
+func TestWatchTickOnlyContinuesForDirtyWorktreeRefusal(t *testing.T) {
+	for _, tc := range []struct {
+		detail       string
+		continueTick bool
+	}{
+		{dirtyWorktreeErrorCode + ": uncommitted edits", true},
+		{`invalid manifest field "dirty_worktree"`, false},
+	} {
+		t.Run(tc.detail, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			var refreshed, seeded, distilled, calls int
+			steps := fakeWatchSteps("ck:orig:head", &refreshed, &seeded, &distilled)
+			steps.refresh = func(context.Context) error { refreshed++; return errors.New(tc.detail) }
+			w := watchCommandOptions{distill: true, seedAgent: "codex", distillEvery: 0}
+			watchTick(context.Background(), &bytes.Buffer{}, w, cursorPath, steps, &calls)
+			want := 0
+			if tc.continueTick {
+				want = 1
+			}
+			if refreshed != 1 || seeded != want || distilled != want {
+				t.Fatalf("refresh=%d seed=%d distill=%d; want 1,%d,%d", refreshed, seeded, distilled, want, want)
+			}
+			if !tc.continueTick && (calls != 0 || loadWatchCursor(cursorPath).LastFingerprint != "") {
+				t.Fatal("an unrelated failure spent budget or advanced the cursor")
+			}
+		})
 	}
 }
 

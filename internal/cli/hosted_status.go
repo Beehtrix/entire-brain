@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
-		warning = "hosted binding unreadable (run 'entire brain connect' to rebind): " + err.Error()
+		warning = "hosted binding unreadable (run '" + brainInvocation(os.LookupEnv, "connect") + "' to rebind): " + err.Error()
 	case present && binding.OptedOut:
 		// Coordinates survive an opt-out (reconnect needs no placement
 		// resolution), so the target stays visible here too.
@@ -109,7 +110,7 @@ func hostedStatusLine(h *brainStatusHosted) string {
 		}
 		return "Connected to Brainstore (no branches synced yet)"
 	case hostedStateDisconnected:
-		return "Disconnected from Brainstore (run 'entire brain connect' to join)"
+		return "Disconnected from Brainstore (run '" + brainInvocation(os.LookupEnv, "connect") + "' to join)"
 	default:
 		// Local-only: name the variable actually set, and keep the underlying
 		// repo state visible so unsetting the variable is predictable.

@@ -26,7 +26,11 @@ func writeManifestWithRetiredField(t *testing.T, dir string) {
 		"schema_version": brainManifestSchemaVersion,
 		"repo_key":       "local/demo-1234",
 		"generated_at":   "2026-10-11T22:00:00Z",
-		"suppressed_warnings": []string{
+		// A field this build RETIRED. It must be one no release will ever
+		// define: "suppressed_warnings" was the obvious candidate and has
+		// since become a real manifest field, which turns this fixture from
+		// "retired" into "known" and the guard silently green.
+		"zz_field_no_release_will_define": []string{
 			"checkpoint ref refs/remotes/origin/entire/checkpoints/v1 unreadable for 0a2fd94192c1",
 		},
 	}
@@ -115,7 +119,7 @@ func TestTheRemedyMessageKeepsTheOriginalCause(t *testing.T) {
 	_, err := loadBrainManifestForReplace(dir)
 
 	msg := retiredManifestFieldMessage(err)
-	if !strings.Contains(msg, "suppressed_warnings") {
+	if !strings.Contains(msg, "zz_field_no_release_will_define") {
 		t.Fatalf("the remedy replaced the cause instead of adding to it: %s", msg)
 	}
 	if !strings.Contains(msg, "refresh --force") {
@@ -146,7 +150,7 @@ func TestAMissingRepositoryIsDurable(t *testing.T) {
 		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
 	}
 	msg := durablePrepassMessage(err)
-	if !strings.Contains(msg, "entire brain reset") {
+	if !strings.Contains(msg, brainInvocation(os.LookupEnv, "reset")) {
 		t.Fatalf("the message names no way to clear the orphan: %s", msg)
 	}
 	if !strings.Contains(msg, "not a git repository") {
@@ -293,7 +297,7 @@ func TestADeletedRepositoryDirectoryIsDurable(t *testing.T) {
 	if !errDurablePrepassFailure(err) {
 		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
 	}
-	if msg := durablePrepassMessage(err); !strings.Contains(msg, "entire brain reset") {
+	if msg := durablePrepassMessage(err); !strings.Contains(msg, brainInvocation(os.LookupEnv, "reset")) {
 		t.Fatalf("the message names no way to clear the orphan: %s", msg)
 	}
 

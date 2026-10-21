@@ -55,10 +55,10 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 	explicitFlag := strings.TrimSpace(flagRepoID) != "" || strings.TrimSpace(flagAPIURL) != "" || strings.TrimSpace(flagToken) != ""
 	if !connected && !explicitFlag {
 		if !envBool(envBrainAllowHosted) {
-			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run 'entire brain connect', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, envBrainAllowHosted)
+			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run '%s', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, brainInvocation(os.LookupEnv, "connect"), envBrainAllowHosted)
 		}
 		if _, seen := securityToggleWarned.LoadOrStore(envBrainAllowHosted+":deprecated", struct{}{}); !seen {
-			fmt.Fprintf(os.Stderr, "warning: %s is deprecated; run 'entire brain connect' or pass explicit target flags\n", envBrainAllowHosted)
+			fmt.Fprintf(os.Stderr, "warning: %s is deprecated; run '%s' or pass explicit target flags\n", envBrainAllowHosted, brainInvocation(os.LookupEnv, "connect"))
 		}
 	}
 
@@ -67,7 +67,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		t.repoID = binding.RepoID
 	}
 	if t.repoID == "" {
-		return t, fmt.Errorf("%s: target repo id is required; run 'entire brain connect', or set --repo-id or %s", command, envRepoID)
+		return t, fmt.Errorf("%s: target repo id is required; run '%s', or set --repo-id or %s", command, brainInvocation(os.LookupEnv, "connect"), envRepoID)
 	}
 	if err := repoid.Validate(t.repoID); err != nil {
 		return t, fmt.Errorf("%s: %w", command, err)
@@ -78,7 +78,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		t.baseURL = binding.BaseURL
 	}
 	if t.baseURL == "" {
-		return t, fmt.Errorf("%s: API base URL is required; run 'entire brain connect', or set --api-url or %s", command, envAPIBaseURL)
+		return t, fmt.Errorf("%s: API base URL is required; run '%s', or set --api-url or %s", command, brainInvocation(os.LookupEnv, "connect"), envAPIBaseURL)
 	}
 	baseURL, err := apiurl.Validate(t.baseURL)
 	if err != nil {

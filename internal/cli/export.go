@@ -937,12 +937,19 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 			return checkpoints, warnings, nil
 		}
 		if scopeIncomplete {
-			return nil, warnings, fmt.Errorf("%s: routed checkpoint discovery failed and no local checkpoint IDs were enumerable", checkpointScopeIncompleteCode)
+			return nil, warnings, fmt.Errorf("%s: Entire could not list this repository's checkpoints and no checkpoint refs are readable locally; run `entire checkpoint list` to see what Entire can see, fix what it reports, then re-run", checkpointScopeIncompleteCode)
 		}
 		return nil, warnings, fmt.Errorf("complete routed checkpoint discovery failed: %w", fallbackErr)
 	}
 	if scopeIncomplete && len(checkpoints) == 0 && len(fallback) == 0 {
-		return nil, warnings, fmt.Errorf("%s: Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory", checkpointScopeIncompleteCode)
+		// Zero readable IDs from an incomplete inventory is the state every
+		// repository is in between `entire enable` and its first finished agent
+		// session — the same state the no-egress path reports as a friendly
+		// empty export. Succeed the same way here: runExport's empty-export
+		// refusal still protects a brain that already holds sessions, so the
+		// only brain this can leave empty is one with nothing to lose.
+		warnings = append(warnings, errCheckpointCatalogEmpty.Error())
+		return nil, warnings, nil
 	}
 	if !scopeIncomplete && len(checkpoints) == 0 {
 		warnings = append(warnings, "used Entire's complete routed checkpoint list because no local metadata refs were enumerable")

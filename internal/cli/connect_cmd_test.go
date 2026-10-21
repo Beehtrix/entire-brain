@@ -46,21 +46,15 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	out, _, err := runConnectCommand(t, opts,
 		"--repo-id", "01M2Q9WATHXVM46CD8Y4D3AX8W",
 		"--api-url", "https://cell.api.example.com/api/v1")
-	if err != nil {
-		t.Fatal(err)
+	// This runner cannot mint a token, so the first sync does not run and
+	// connect reports that instead of claiming success (COR-2202). The binding
+	// below must be written regardless.
+	if err == nil || !strings.Contains(err.Error(), "first sync did not run") {
+		t.Fatalf("want the first-sync failure, got err=%v stdout=%q", err, out)
 	}
 	if placementCalls != 0 {
 		t.Fatalf("explicit flags must bypass placement resolution entirely, got %d calls", placementCalls)
 	}
-	for _, want := range []string{
-		"Connected: repo 01M2Q9WATHXVM46CD8Y4D3AX8W is now syncing memories",
-		"sync periodically, at session end, and on git push",
-	} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("output must contain %q, got:\n%s", want, out)
-		}
-	}
-	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
 		t.Fatal(err)
@@ -88,8 +82,10 @@ func TestConnectResolvesViaRepoView(t *testing.T) {
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 
-	if _, _, err := runConnectCommand(t, opts); err != nil {
-		t.Fatal(err)
+	// Placement resolves, but this runner cannot mint a token for the sync, so
+	// connect reports the failed first sync; the binding must still be written.
+	if _, _, err := runConnectCommand(t, opts); err == nil || !strings.Contains(err.Error(), "first sync did not run") {
+		t.Fatalf("want the first-sync failure, got %v", err)
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
@@ -169,10 +165,20 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if _, _, err := runConnectCommand(t, opts,
-		"--repo-id", "repo1", "--api-url", srv.URL); err != nil {
+	out, _, err := runConnectCommand(t, opts,
+		"--repo-id", "repo1", "--api-url", srv.URL)
+	if err != nil {
 		t.Fatal(err)
 	}
+	for _, want := range []string{
+		"Connected: repo repo1 is now syncing memories",
+		"sync periodically, at session end, and on git push",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output must contain %q, got:\n%s", want, out)
+		}
+	}
+	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
 		t.Fatal(err)
@@ -339,5 +345,97 @@ func TestConnectClearsOptOut(t *testing.T) {
 	}
 	if binding.RepoID != "repo1" || binding.BaseURL != srv.URL {
 		t.Fatalf("connect must rebind the kept coordinates, got %+v", binding)
+	}
+}
+
+// Connect's headline must reflect the first sync's outcome (COR-2202): a
+// failed pull means nothing syncs yet, so the command must not claim "now
+// syncing memories" and must exit non-zero — while still recording the
+// binding, which is durable intent and makes a plain re-run the retry.
+func TestConnectReportsFirstSyncFailure(t *testing.T) {
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{denyFeed: true}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	out, errOut, err := runConnectCommand(t, opts, "--repo-id", "repo1", "--api-url", srv.URL)
+	if err == nil {
+		t.Fatalf("connect must fail when the first sync fails; stdout=%q stderr=%q", out, errOut)
+	}
+	if strings.Contains(out, "now syncing") {
+		t.Fatalf("failed sync must not claim success: %q", out)
+	}
+	storage, storageErr := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if storageErr != nil {
+		t.Fatal(storageErr)
+	}
+	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+		t.Fatalf("binding must survive a failed first sync: present=%v err=%v", present, readErr)
+	}
+}
+
+// Under the kill switch the binding is still recorded (the environment only
+// subtracts), but the output must say nothing will sync instead of claiming
+// "now syncing memories".
+func TestConnectUnderNoEgressSaysNothingSyncs(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	out, _, err := runConnectCommand(t, opts, "--repo-id", "repo1", "--api-url", "https://cell.api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "now syncing") || !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("no-egress connect must name the kill switch, not claim syncing: %q", out)
+	}
+	storage, storageErr := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if storageErr != nil {
+		t.Fatal(storageErr)
+	}
+	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+		t.Fatalf("binding must be recorded under no-egress: present=%v err=%v", present, readErr)
+	}
+}
+
+// Re-running connect on an already-connected repo acknowledges the existing
+// connection instead of announcing a new one.
+func TestConnectAcknowledgesExistingConnection(t *testing.T) {
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := runConnectCommand(t, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Already connected") {
+		t.Fatalf("re-connect must acknowledge the existing connection: %q", out)
 	}
 }

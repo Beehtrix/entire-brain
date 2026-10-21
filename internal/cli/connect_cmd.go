@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
@@ -91,13 +92,16 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 			apiURL = resolved.APIURL
 		}
 	}
+	// Whether this run re-affirms an existing connection decides the success
+	// headline: "connected" must not read like a state change when nothing
+	// changed.
+	existing, existingPresent, existingErr := readHostedRepoBinding(storage.BrainDir)
 	binding, err := bindHostedRepo(storage.BrainDir, repoID, apiURL)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
 	}
-	renderHostedBanner(cmd.OutOrStdout(),
-		"Connected: repo "+binding.RepoID+" is now syncing memories",
-		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")
+	already := existingErr == nil && existingPresent && !existing.OptedOut &&
+		existing.RepoID == binding.RepoID && existing.BaseURL == binding.BaseURL
 	// A connected repo wants the push-beat upload: install our pre-push hook
 	// (chained beside whatever hook owns the slot). Best-effort — a hook
 	// problem must not fail the connect.
@@ -106,10 +110,38 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	} else if hookState == pushHookSharedDir {
 		fmt.Fprintf(cmd.ErrOrStderr(), "connect: core.hooksPath (%s) is shared across repos; push hook not managed — uploads ride the daemon tick\n", hookPath)
 	}
+	// The kill switch suppresses every sync this command is about to promise,
+	// so say that instead of "now syncing". The binding still gets recorded:
+	// the environment only subtracts, and unsetting it resumes syncing.
+	if brainNoEgressMode() {
+		renderHostedBanner(cmd.OutOrStdout(),
+			"Connected: repo "+binding.RepoID+" — but nothing syncs while "+noEgressToggleName()+" is set",
+			"The binding is recorded and memories stay local. Unset "+noEgressToggleName()+" to start syncing.")
+		return nil
+	}
 	// Connect doubles as the initial pull so a fresh clone receives team
-	// memories immediately; failures note and never fail the connect.
-	_, err = hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
-	return err
+	// memories immediately. The sync runs BEFORE the banner so the headline
+	// reports what actually happened: a connect whose first pull failed has
+	// not started syncing, and claiming so hides a dead connection.
+	outcome, err := hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	if err != nil {
+		return err
+	}
+	if !outcome.PullSucceeded {
+		verdict := "failed"
+		if !outcome.Attempted {
+			verdict = "did not run"
+		}
+		return fmt.Errorf("connect: repo %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
+			binding.RepoID, verdict, brainInvocation(os.LookupEnv, "connect"))
+	}
+	headline := "Connected: repo " + binding.RepoID + " is now syncing memories"
+	if already {
+		headline = "Already connected: repo " + binding.RepoID + " — memories are syncing"
+	}
+	renderHostedBanner(cmd.OutOrStdout(), headline,
+		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")
+	return nil
 }
 
 // normalizeHostedBinding validates the target and strips a quoted /api/v1

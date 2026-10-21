@@ -2,73 +2,155 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
+	"time"
 )
 
-// TestWatchWaitsForItsOwnWorkerBeforeRefresh pins COR-2175.
+// TestWatchSettlesTheLockBeforeRefresh pins COR-2175.
 //
-// The watch tick queued long-term reconciliation, launched the memory worker
-// DETACHED, and then ran a refresh needing the same brain write lock. The
-// worker starts first and holds the lock for 11-16s; refresh's timeout is
-// shorter, so the tick logged `brain_locked`, skipped ALL agent work including
-// distill, and did not advance its cursor. On a repo with an active session
-// every tick has a changed transcript, so that repo's daemon distill
-// effectively never ran: 368 of 369 observed brain_locked failures followed a
+// The watch tick queued reconciliation, launched the memory worker detached,
+// then ran a refresh needing the same brain write.lock. The worker starts
+// first and holds it 11-16s; refresh's timeout is shorter, so the tick logged
+// brain_locked, skipped ALL agent work including distill, and did not advance
+// its cursor. 368 of 369 observed brain_locked failures followed a
 // reconciliation queued in the same tick.
-//
-// The ordering is the fix, so the ordering is what is asserted. A test that
-// only checked "refresh succeeded" would pass on a lucky schedule.
-func TestWatchWaitsForItsOwnWorkerBeforeRefresh(t *testing.T) {
-	var order []string
-	var workerRunning atomic.Bool
-	var sawOverlap atomic.Bool
+func TestWatchSettlesTheLockBeforeRefresh(t *testing.T) {
+	dir := t.TempDir()
 
-	restore := memoryWorkerRunInline
-	memoryWorkerRunInline = func(ctx context.Context, repoDir string) error {
-		workerRunning.Store(true)
-		order = append(order, "worker")
-		workerRunning.Store(false)
-		return nil
+	// Hold the lock, as the worker would.
+	unlock, err := acquireBrainWriteLockTimeout(dir, time.Second)
+	if err != nil {
+		t.Fatalf("seed the held lock: %v", err)
 	}
-	t.Cleanup(func() { memoryWorkerRunInline = restore })
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		unlock()
+		close(released)
+	}()
 
-	refresh := func() {
-		if workerRunning.Load() {
-			sawOverlap.Store(true)
-		}
-		order = append(order, "refresh")
-	}
+	start := time.Now()
+	memoryWorkerSettle(context.Background(), dir, 5*time.Second)
+	// Measured BEFORE joining the releaser: taking the elapsed time after
+	// waiting on it made this assertion true no matter what settle did.
+	elapsed := time.Since(start)
+	<-released
 
-	// Drive the shape the tick has: reconcile (which runs the worker), then
-	// refresh. With the detached launch these overlapped; inline they cannot.
-	if err := memoryWorkerRunInline(context.Background(), t.TempDir()); err != nil {
-		t.Fatalf("worker: %v", err)
+	if elapsed < 250*time.Millisecond {
+		t.Fatalf("settle returned in %v while the lock was still held; refresh would hit brain_locked", elapsed)
 	}
-	refresh()
+	// And it must actually be free afterwards, not merely waited out.
+	again, err := acquireBrainWriteLockTimeout(dir, time.Second)
+	if err != nil {
+		t.Fatalf("the lock is still held after settle: %v", err)
+	}
+	again()
+}
 
-	if sawOverlap.Load() {
-		t.Fatal("refresh began while the worker still held the write lock; this is the brain_locked race")
+// The wait is BOUNDED: a pathological hold must not stall the tick forever.
+// One observed hold ran 2m15s, so the budget has to expire rather than block.
+func TestLockSettleGivesUpWithinItsBudget(t *testing.T) {
+	dir := t.TempDir()
+	unlock, err := acquireBrainWriteLockTimeout(dir, time.Second)
+	if err != nil {
+		t.Fatalf("seed the held lock: %v", err)
 	}
-	if got := strings.Join(order, ","); got != "worker,refresh" {
-		t.Fatalf("the tick must finish its worker before refresh, got %q", got)
+	t.Cleanup(unlock)
+
+	start := time.Now()
+	memoryWorkerSettle(context.Background(), dir, 600*time.Millisecond)
+	elapsed := time.Since(start)
+	if elapsed > 5*time.Second {
+		t.Fatalf("settle did not respect its budget: waited %v on a lock that is never released", elapsed)
 	}
 }
 
-// TestOnlyWatchWaitsForTheWorker guards the other side: notify and the
-// session-end hook are DONE once the work is queued, and making them block on
-// a 16s worker would turn a fast path into a slow one for no benefit. Only the
-// caller that takes the lock itself pays the wait.
-func TestOnlyWatchWaitsForTheWorker(t *testing.T) {
+// A cancelled tick must abandon the wait immediately.
+func TestLockSettleStopsOnContextCancel(t *testing.T) {
+	dir := t.TempDir()
+	unlock, err := acquireBrainWriteLockTimeout(dir, time.Second)
+	if err != nil {
+		t.Fatalf("seed the held lock: %v", err)
+	}
+	t.Cleanup(unlock)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	memoryWorkerSettle(ctx, dir, time.Minute)
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("a cancelled tick kept waiting for %v", elapsed)
+	}
+}
+
+// Only the watch trigger pays the wait: notify and the session-end hook are
+// done once the work is queued, and the launch itself stays behind
+// memoryWorkerLaunch, which 36 existing tests stub. Waiting on the PROCESS
+// instead re-execed os.Executable() — inside a test binary, the test binary.
+func TestOnlyWatchWaitsAndTheLaunchStaysBehindTheStubbedSeam(t *testing.T) {
+	t.Parallel()
 	if memoryTriggerWatch != "watch" {
-		t.Fatalf("the watch trigger is %q; the branch in reconcileMemoryAndLaunch keys on it", memoryTriggerWatch)
+		t.Fatalf("the watch trigger is %q; reconcileMemoryAndLaunch keys on it", memoryTriggerWatch)
 	}
 	source := readGoSourceForTest(t, "memory_cmd.go")
 	if !strings.Contains(source, "if trigger == memoryTriggerWatch {") {
-		t.Error("the inline wait is not gated on the watch trigger, so every caller now blocks on the worker")
+		t.Error("the wait is not gated on the watch trigger, so every caller now blocks")
 	}
 	if !strings.Contains(source, "memoryWorkerLaunch(repoDir)") {
-		t.Error("the detached launch is gone, so notify and the hook lost their non-blocking path")
+		t.Error("the launch no longer goes through memoryWorkerLaunch, so the tests that stub it would spawn real processes")
+	}
+	// Scoped to the settle function's own body: os.Executable() is legitimate
+	// in launchDetachedSelf, which lives in this same file.
+	start := strings.Index(source, "var memoryWorkerSettle = func(")
+	if start < 0 {
+		t.Fatal("memoryWorkerSettle not found; this guard would be vacuous")
+	}
+	end := strings.Index(source[start:], "\n}\n")
+	if end < 0 {
+		t.Fatal("could not delimit memoryWorkerSettle's body")
+	}
+	body := source[start : start+end]
+	if strings.Contains(body, "os.Executable()") || strings.Contains(body, "exec.Command") {
+		t.Error("settle re-execs the binary; it must wait on the LOCK, not the process — inside a test binary that spawns the test binary")
+	}
+	if !strings.Contains(body, "acquireBrainWriteLockTimeout") {
+		t.Error("settle does not wait on the brain write lock, which is the resource actually in contention")
+	}
+}
+
+// TestLockSettleDoesNotWaitOutNonContentionErrors is why CI's 30-minute job
+// timed out on the first version of this change.
+//
+// A brain root that cannot be locked for a reason other than contention will
+// still fail in 90 seconds. The first implementation treated every error as
+// "still held" and sat through the whole budget, and tests with unlockable
+// brain dirs each paid that, pushing the suite past its cap.
+//
+// A symlinked root is the case: rejectSymlinkedBrainRoot refuses it outright.
+// A MISSING directory is deliberately not used here — the lock creates it and
+// succeeds, so it exercises nothing, which is how the first version of this
+// test passed against the very bug it was meant to catch.
+func TestLockSettleDoesNotWaitOutNonContentionErrors(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	real := filepath.Join(base, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable here: %v", err)
+	}
+	if _, err := acquireBrainWriteLockTimeout(link, 100*time.Millisecond); err == nil {
+		t.Skip("this platform allows locking a symlinked brain root; nothing to assert")
+	}
+
+	start := time.Now()
+	memoryWorkerSettle(context.Background(), link, time.Minute)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("settle waited %v on an error that cannot resolve; only contention is worth waiting out", elapsed)
 	}
 }

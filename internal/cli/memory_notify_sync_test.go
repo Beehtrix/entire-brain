@@ -21,9 +21,9 @@ func captureNotifyHostedSync(t *testing.T) *[]string {
 	original := notifyHostedFactsSync
 	t.Cleanup(func() { notifyHostedFactsSync = original })
 	var branches []string
-	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage, branch string) (bool, error) {
+	notifyHostedFactsSync = func(_ context.Context, _ io.Writer, _ Options, _ string, _ repoStorage, branch string) (hostedSyncOutcome, error) {
 		branches = append(branches, branch)
-		return true, nil
+		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 	}
 	return &branches
 }

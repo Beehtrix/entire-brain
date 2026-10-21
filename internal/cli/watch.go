@@ -497,15 +497,15 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 				return false, err
 			}
 			branch := hostedSyncBranch(c, opts.Runner, repoDir)
-			attempted, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch)
+			outcome, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch)
 			if err != nil {
-				return attempted, err
+				return outcome.Attempted, err
 			}
 			if branch != distillDefaultBranch {
 				also, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
-				return attempted || also, err
+				return outcome.Attempted || also.Attempted, err
 			}
-			return attempted, nil
+			return outcome.Attempted, nil
 		},
 		paused: func() bool { return backgroundPaused(opts.Env) },
 	}

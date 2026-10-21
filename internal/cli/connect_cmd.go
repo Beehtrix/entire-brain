@@ -8,7 +8,15 @@ import (
 	"github.com/entireio/entire-brain/internal/apiurl"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/mod/semver"
 )
+
+// minHostCLIVersion is the first host CLI release that ships `entire repo view
+// --json` (entireio/cli#2758), which placement resolution depends on. Only
+// connect's placement shell-out checks it: local-only brain use and explicit
+// --repo-id/--api-url never touch the host CLI version. Empty disables the
+// gate explicitly. A var so tests can exercise the gate.
+var minHostCLIVersion = "0.11.6"
 
 // hostedPlacement is the slice of the host CLI's `entire repo view --json`
 // output this plugin needs (entireio/cli#2758): the repo's region-local ULID
@@ -138,6 +146,9 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) 
 func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir string) (hostedPlacement, error) {
 	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
 	defer cancel()
+	if err := checkHostCLIVersion(ctx, runner, repoDir, minHostCLIVersion); err != nil {
+		return hostedPlacement{}, err
+	}
 	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
 	if err != nil {
 		return hostedPlacement{}, err
@@ -147,4 +158,42 @@ func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir s
 		return hostedPlacement{}, fmt.Errorf("parse repo view json: %w", err)
 	}
 	return result, nil
+}
+
+// checkHostCLIVersion refuses placement resolution on a host CLI older than
+// min, so the failure says "upgrade" instead of repo view's unknown-command
+// noise. A missing CLI or an unrecognized version line (dev builds) passes:
+// the repo view call itself is the authority on whether the command exists.
+func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min string) error {
+	if min == "" {
+		return nil
+	}
+	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "version")
+	if err != nil {
+		return nil
+	}
+	// First line is "Entire CLI <version>", on some builds with a trailing
+	// "(<commit>)". Take the first field that parses as semver, not a fixed
+	// position, so a build suffix cannot fail-open the gate.
+	line, _, _ := strings.Cut(strings.TrimSpace(string(stdout)), "\n")
+	got := ""
+	for _, field := range strings.Fields(line) {
+		if v := "v" + strings.TrimPrefix(field, "v"); semver.IsValid(v) {
+			got = v
+			break
+		}
+	}
+	if got == "" {
+		return nil
+	}
+	// Compare the release core only: a prerelease or pseudo-version of min
+	// (nightly, git describe) ranks below min in full semver order yet may
+	// already ship repo view — those builds pass and repo view stays the
+	// authority.
+	core := strings.TrimSuffix(got, semver.Build(got))
+	core = strings.TrimSuffix(core, semver.Prerelease(core))
+	if semver.Compare(core, "v"+min) >= 0 {
+		return nil
+	}
+	return fmt.Errorf("entire CLI %s does not support `entire repo view` (needs %s or newer); upgrade the entire CLI and re-run connect", strings.TrimPrefix(got, "v"), min)
 }

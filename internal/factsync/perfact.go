@@ -24,7 +24,7 @@ import (
 // resets its cursor and cache and refetches from the start.
 var ErrInvalidPageToken = errors.New("factsync: hosted feed rejected the page token")
 
-// UpsertCounts is the facts:upsert response: how the batch landed.
+// UpsertCounts is the facts upsert response: how the batch landed.
 type UpsertCounts struct {
 	Added     int `json:"added"`
 	Changed   int `json:"changed"`
@@ -67,22 +67,24 @@ func (h *HTTPServer) UpsertFacts(ctx context.Context, repoID string, ndjson []by
 	if err != nil {
 		return UpsertCounts{}, err
 	}
-	req, err := h.newRequest(ctx, http.MethodPost, base+"/facts:upsert", bytes.NewReader(ndjson))
+	// POST on the facts collection is the batch upsert (COR-2212 replaced the
+	// facts:upsert colon path); requires a brainstore that serves it.
+	req, err := h.newRequest(ctx, http.MethodPost, base+"/facts", bytes.NewReader(ndjson))
 	if err != nil {
 		return UpsertCounts{}, err
 	}
 	req.Header.Set("Content-Type", "application/x-ndjson")
 	resp, err := h.do(req)
 	if err != nil {
-		return UpsertCounts{}, fmt.Errorf("factsync: POST facts:upsert %s: %w", repoID, err)
+		return UpsertCounts{}, fmt.Errorf("factsync: POST facts upsert %s: %w", repoID, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return UpsertCounts{}, fmt.Errorf("factsync: POST facts:upsert %s: unexpected status %s%s", repoID, resp.Status, h.detail(resp))
+		return UpsertCounts{}, fmt.Errorf("factsync: POST facts upsert %s: unexpected status %s%s", repoID, resp.Status, h.detail(resp))
 	}
 	var counts UpsertCounts
 	if err := httpx.DecodeJSONBody(resp, &counts); err != nil {
-		return UpsertCounts{}, fmt.Errorf("factsync: decode facts:upsert %s: %w", repoID, err)
+		return UpsertCounts{}, fmt.Errorf("factsync: decode facts upsert %s: %w", repoID, err)
 	}
 	return counts, nil
 }

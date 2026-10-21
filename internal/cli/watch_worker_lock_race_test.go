@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -95,7 +96,22 @@ func TestOnlyWatchWaitsAndTheLaunchStaysBehindTheStubbedSeam(t *testing.T) {
 	if memoryTriggerWatch != "watch" {
 		t.Fatalf("the watch trigger is %q; reconcileMemoryAndLaunch keys on it", memoryTriggerWatch)
 	}
-	source := readGoSourceForTest(t, "memory_cmd.go")
+	// Resolved relative to THIS file, not the working directory: the Windows
+	// shard runner executes precompiled test binaries from a temp directory,
+	// where a bare "memory_cmd.go" does not exist. That is what made this
+	// guard the only failure on shard 7.
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate this test's own file; the source guard cannot run here")
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "memory_cmd.go"))
+	if err != nil {
+		t.Skipf("source not readable from this runner: %v", err)
+	}
+	source := string(data)
+	if len(source) == 0 {
+		t.Fatal("memory_cmd.go is empty; this guard would be vacuous")
+	}
 	if !strings.Contains(source, "if trigger == memoryTriggerWatch {") {
 		t.Error("the wait is not gated on the watch trigger, so every caller now blocks")
 	}

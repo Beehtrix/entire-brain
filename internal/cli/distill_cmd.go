@@ -745,7 +745,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing memories")
-	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Distill agent calls to run in flight at once, shared across sessions (1 = strictly sequential; higher values may add one concurrent reconcile call). Also spelled --jobs")
+	cmd.Flags().IntVar(&distillOpts.concurrency, "concurrency", defaultDistillConcurrency, "Maximum concurrent agent calls during extraction (shared across sessions) or batch reconciliation (1 = sequential). Also spelled --jobs")
 	// --jobs is the OLD SPELLING of --concurrency, so it is normalized onto it
 	// rather than registered as a second flag of its own.
 	//
@@ -1234,12 +1234,67 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 	}
 
+	batchTotals := reconcileBatchStats{}
+	reconcileBranch := func(b string) {
+		reconcileStarted := time.Now()
+		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, threshold, distillOpts.newestFirst, now)
+		if stats.Candidates == 0 {
+			return
+		}
+		byBranch[b] = updated
+		dirtyBranches[b] = true
+		proposalsByBranch[b] = append(proposalsByBranch[b], pending...)
+		warnings = append(warnings, recWarnings...)
+		batchTotals.Candidates += stats.Candidates
+		batchTotals.Promoted += stats.Promoted
+		batchTotals.Clusters += stats.Clusters
+		batchTotals.AgentCalls += stats.AgentCalls
+		reconcileAgentCalls += stats.AgentCalls
+		reconcileSeconds += time.Since(reconcileStarted).Seconds()
+	}
+
+	// Finish durable work from an interrupted pass before the extraction pool
+	// starts. Only load branches with candidates here: eagerly loading every
+	// branch would make --force discard facts on branches deferred by the cap.
+	resumeBranches := map[string]bool{}
+	for _, session := range sessions {
+		b := resolveBranch(session)
+		if (distillOpts.branch != "" && b != distillOpts.branch) ||
+			(distillOpts.session != "" && session.SessionID != distillOpts.session) || resumeBranches[b] {
+			continue
+		}
+		resumeBranches[b] = true
+		stored, err := loadFacts(brainDir, b)
+		if err != nil {
+			return nil, fmt.Errorf("load staged candidates for %s: %w", b, err)
+		}
+		for _, f := range stored {
+			if f.Status == factStatusCandidate {
+				// Resume against the intact store. Under --force, defer the
+				// destructive rebuild until extraction actually visits this
+				// branch; the session cap may defer it entirely.
+				baselineByBranch[b] = cloneDistillFacts(stored)
+				byBranch[b] = stored
+				loaded[b] = !distillOpts.force
+				reconcileBranch(b)
+				break
+			}
+		}
+	}
+	if batchTotals.Candidates > 0 {
+		if err := flushFactStores(false); err != nil {
+			return nil, fmt.Errorf("persist resumed reconciliation: %w", err)
+		}
+		// Resume is complete even under --force. Only a branch actually
+		// rebuilt below should replace its prior proposal backlog at the end.
+		clear(dirtyBranches)
+	}
+
 	// Session pipeline: a producer goroutine prepares sessions ahead —
 	// transcript read, preprocessing, fingerprint/cache check, chunking — and
 	// dispatches chunk agent calls into one pool shared ACROSS sessions (see
 	// startSessionPrefetch), while this loop consumes results strictly in
-	// chronological order, so reconcile and fact application keep their exact
-	// serial semantics. Canceling pipeCtx (deferred; covers the abort return
+	// chronological order, so staging and session-cache updates are deterministic. Canceling pipeCtx (deferred; covers the abort return
 	// too) stops preparation, dispatch, and in-flight agent calls.
 	pipeCtx, pipeCancel := context.WithCancel(ctx)
 	defer pipeCancel()
@@ -1397,35 +1452,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		)
 	}
 
-	// End-of-run reconcile: adjudicate every staged candidate on every loaded
-	// branch — this run's and any a crashed run left behind — in similarity
-	// clusters, before anything is published by the write below.
-	batchTotals := reconcileBatchStats{}
-	{
-		reconcileStarted := time.Now()
-		branches := make([]string, 0, len(byBranch))
-		for b := range byBranch {
-			branches = append(branches, b)
-		}
-		sort.Strings(branches)
-		for _, b := range branches {
-			updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, threshold, distillOpts.newestFirst, now)
-			if stats.Candidates == 0 {
-				continue
-			}
-			byBranch[b] = updated
-			dirtyBranches[b] = true
-			proposalsByBranch[b] = append(proposalsByBranch[b], pending...)
-			warnings = append(warnings, recWarnings...)
-			batchTotals.Candidates += stats.Candidates
-			batchTotals.Promoted += stats.Promoted
-			batchTotals.Clusters += stats.Clusters
-			batchTotals.AgentCalls += stats.AgentCalls
-		}
-		reconcileAgentCalls += batchTotals.AgentCalls
-		if batchTotals.Candidates > 0 {
-			reconcileSeconds += time.Since(reconcileStarted).Seconds()
-		}
+	// Reconcile this pass's new candidates before the final publication.
+	branches := make([]string, 0, len(byBranch))
+	for b := range byBranch {
+		branches = append(branches, b)
+	}
+	sort.Strings(branches)
+	for _, b := range branches {
+		reconcileBranch(b)
 	}
 
 	if budgetDeferred > 0 {
@@ -2897,6 +2931,16 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 		if i < 0 {
 			if force && record.Origin == factOriginDistilled && record.Status == factStatusActive && existed && reflect.DeepEqual(old, record) {
 				continue // only discard the unchanged facts this force run owns
+			}
+			// A staged candidate this run flushed and then CONSUMED — merged
+			// into a target or promoted under its target's row — is absent from
+			// memory on purpose; re-appending it resurrects a row the reconcile
+			// pass just absorbed. Candidates are exclusively distill's working
+			// state (no other writer creates or edits them), so one we knew at
+			// baseline and no longer hold was consumed by this run. One we did
+			// NOT know belongs to another run and is kept for its resume pass.
+			if record.Status == factStatusCandidate && existed && reflect.DeepEqual(old, record) {
+				continue
 			}
 			out = append(out, record)
 			continue

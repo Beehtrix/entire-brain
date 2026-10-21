@@ -90,6 +90,17 @@ func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agen
 			threshold = 2 // above every valid agent confidence
 			warnings = append(warnings, "newest-first supersession requires review; both facts retained (run facts review)")
 		}
+		if action.Kind == factActionMerge || action.Kind == factActionSupersede {
+			// Low lexical overlap is insufficient evidence for automatically
+			// discarding a candidate or replacing its target. Preserve both and
+			// ask for review, even when the agent reports high confidence.
+			// This is a conservative guard, not a semantic correctness test.
+			if ti := indexOfFact(active, action.TargetID); ti >= 0 &&
+				factTextOverlap(action.Candidate.Text, active[ti].Text) < reconcileFlagThreshold {
+				threshold = 2
+				warnings = append(warnings, "reconcile: "+action.Kind+" pairs lexically unrelated facts; queued for review instead of applying")
+			}
+		}
 		updated, pending := applyFactActions(active, []factAction{action}, threshold, now)
 		*proposals = append(*proposals, pending...)
 		return updated

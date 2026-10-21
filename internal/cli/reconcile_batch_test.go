@@ -232,3 +232,150 @@ func TestStagedReconcileIsDeterministic(t *testing.T) {
 		t.Fatal("same input, different stores: concurrent clusters leaked completion order")
 	}
 }
+
+// A high-confidence merge whose two texts share almost no vocabulary is a
+// hallucinated pairing (measured: every such ruling on the calibration corpus
+// was wrong). The guard queues it for review instead of destroying a fact.
+func TestStagedReconcileGuardsLexicallyUnrelatedRulings(t *testing.T) {
+	for _, kind := range []string{factActionMerge, factActionSupersede} {
+		t.Run(kind, func(t *testing.T) {
+			now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+			similar := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-2*time.Hour))
+			unrelated := stagedTestFact("the export pipeline reads checkpoint blobs in batches", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+			candidate := stagedTestFact("use tabs to indent source files", []string{"preferences.coding.style"}, factStatusCandidate, now)
+			run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+				// EXISTING is most-recent-first: 1 = unrelated, 2 = similar. Rule a
+				// confident merge into the UNRELATED fact — the hallucination shape.
+				if !strings.Contains(string(input), "1 ") {
+					t.Fatalf("unexpected input:\n%s", input)
+				}
+				return "1 " + kind + " 1 0.95", nil
+			}
+			updated, proposals, _, warnings := reconcileStagedCandidates(context.Background(), run, nil, []factRecord{similar, unrelated, candidate}, ".", time.Minute, 2, 0.75, false, now)
+			if len(proposals) != 1 {
+				t.Fatalf("an unrelated merge must queue for review, got proposals %v", proposals)
+			}
+			active := 0
+			for _, f := range updated {
+				if f.Status == factStatusActive {
+					active++
+				}
+			}
+			if active != 3 {
+				t.Fatalf("nothing may be destroyed by a guarded ruling; want 3 active, got %d", active)
+			}
+			guarded := false
+			for _, w := range warnings {
+				if strings.Contains(w, "lexically unrelated") {
+					guarded = true
+				}
+			}
+			if !guarded {
+				t.Fatalf("the guard must be disclosed: %v", warnings)
+			}
+		})
+	}
+}
+
+// A staged candidate that was flushed to disk and then consumed by the
+// reconcile pass (merged away) must not be resurrected by the rebase-onto-disk
+// at the final write; one staged by ANOTHER run (absent from our baseline) must
+// survive for that run's resume pass.
+func TestRebaseDropsConsumedCandidatesOnly(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+	consumed := stagedTestFact("use tabs to indent source files", []string{"preferences.coding.style"}, factStatusCandidate, now)
+	foreign := stagedTestFact("another run staged this statement", []string{"architecture.data.flow"}, factStatusCandidate, now)
+	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+	if err := writeFacts(brainDir, "main", []factRecord{target, consumed, foreign}); err != nil {
+		t.Fatal(err)
+	}
+	// Baseline knew target+consumed (this run staged and flushed them); memory
+	// holds only target: the pass merged the candidate away.
+	baseline := []factRecord{target, consumed}
+	inMemory := []factRecord{target}
+	rebased, err := rebaseFactsOntoDisk(brainDir, "main", inMemory, baseline, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]string{}
+	for _, f := range rebased {
+		ids[f.ID] = f.Status
+	}
+	if _, resurrected := ids[consumed.ID]; resurrected {
+		t.Fatal("a consumed candidate was resurrected by the rebase")
+	}
+	if status, ok := ids[foreign.ID]; !ok || status != factStatusCandidate {
+		t.Fatalf("a foreign run's staged candidate must survive for its resume pass, got %v", ids)
+	}
+	if _, kept := ids[target.ID]; !kept {
+		t.Fatal("the merge target must survive")
+	}
+}
+
+func TestStagedReconcilePersistsResumeBeforeExtraction(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeSingleSessionFixture(t, now, "new transcript content\n")
+	target := stagedTestFact("indent all source files with tabs", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+	leftover := stagedTestFact("use tabs to indent source files", target.Paths, factStatusCandidate, now.Add(-time.Minute))
+	if err := writeFacts(brainDir, "main", []factRecord{target, leftover}); err != nil {
+		t.Fatal(err)
+	}
+	reconciled := false
+	run := func(_ context.Context, _ string, _ []string, input []byte, _ time.Duration) (string, error) {
+		if strings.HasPrefix(string(input), "CANDIDATES\n") {
+			reconciled = true
+			return "1 merge 1 0.95", nil
+		}
+		if !reconciled {
+			t.Error("extraction began before leftover reconciliation")
+		}
+		stored, err := loadFacts(brainDir, "main")
+		if err != nil || len(stored) != 1 || stored[0].ID != target.ID || stored[0].Status != factStatusActive {
+			t.Errorf("resumed merge must be durable before extraction: %+v, %v", stored, err)
+		}
+		return "workflow.testing.rules\tRun tests before committing.\n", nil
+	}
+	source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, distillCommandOptions{
+		agent: "command", agentCommand: []string{"fake"}, run: run, timeout: time.Minute, flushEvery: 1,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if source.PendingReconcile != 0 || source.CandidatesReconciled != 2 || source.ReconcileCalls != 1 {
+		t.Fatalf("resume and new work must both be counted: %+v", source)
+	}
+	stored, err := loadFacts(brainDir, "main")
+	if err != nil || len(stored) != 2 {
+		t.Fatalf("consumed candidate reappeared after final flush: %+v, %v", stored, err)
+	}
+}
+
+func TestStagedReconcileForceResumePreservesDeferredBranch(t *testing.T) {
+	now := time.Date(2026, 10, 21, 0, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	stored := stagedTestFact("keep this existing memory", []string{"preferences.coding.style"}, factStatusActive, now.Add(-time.Hour))
+	leftover := stagedTestFact("exports use batch checkpoint reads", []string{"architecture.data.flow"}, factStatusCandidate, now.Add(-time.Minute))
+	stored.Branch, leftover.Branch = "feature", "feature"
+	if err := writeFacts(brainDir, "feature", []factRecord{stored, leftover}); err != nil {
+		t.Fatal(err)
+	}
+	run := func(context.Context, string, []string, []byte, time.Duration) (string, error) {
+		return "workflow.testing.rules\tRun tests before committing.\n", nil
+	}
+	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, distillCommandOptions{
+		agent: "command", agentCommand: []string{"fake"}, run: run, timeout: time.Minute, force: true, maxSessions: 1,
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts, err := loadFacts(brainDir, "feature")
+	if err != nil || len(facts) != 2 {
+		t.Fatalf("resuming a deferred branch must not force-rebuild it: %+v, %v", facts, err)
+	}
+	for _, f := range facts {
+		if f.Status != factStatusActive {
+			t.Fatalf("leftover was not resumed: %+v", f)
+		}
+	}
+}

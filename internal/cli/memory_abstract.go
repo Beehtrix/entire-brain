@@ -2307,9 +2307,12 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 		return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 			return map[string]any{"receipt": receipt, "config": config}
 		}, func(out io.Writer, receipt memoryOperationReceipt) {
-			renderMemoryOperationReceiptText(out, receipt, "completed")
-			fmt.Fprintf(out, "config abstracts_enabled=%v automatic=%v provider=%q model=%q hosted_egress_allowed=%v\n",
-				config.Abstracts.Enabled, config.Abstracts.Automatic, config.Abstracts.Provider, config.Abstracts.Model, config.Abstracts.HostedEgressAllowed)
+			prefix := ""
+			if receipt.DryRun {
+				prefix = "dry-run: would set "
+			}
+			fmt.Fprintf(out, "%sabstracts enabled=%v automatic=%v provider=%q model=%q hosted_egress_allowed=%v\n",
+				prefix, config.Abstracts.Enabled, config.Abstracts.Automatic, config.Abstracts.Provider, config.Abstracts.Model, config.Abstracts.HostedEgressAllowed)
 		})
 	}
 	cmd := &cobra.Command{Use: "configure", Short: "Manage optional memory feature selection"}
@@ -2625,7 +2628,6 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 							"worker": memoryWorkerStats{}, "receipt": receipt,
 						}
 					}, func(out io.Writer, receipt memoryOperationReceipt) {
-						renderMemoryOperationReceiptText(out, receipt, "completed")
 						fmt.Fprintf(out, "abstract dry-run for %s (would enqueue durable job %s)\n", ref, job.JobID)
 					})
 				})
@@ -2683,7 +2685,6 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 					}
 					return payload
 				}, func(out io.Writer, receipt memoryOperationReceipt) {
-					renderMemoryOperationReceiptText(out, receipt, "completed")
 					if artifact != nil {
 						fmt.Fprintf(out, "abstract %s for %s (%d/%d turns covered)\n", status, ref, artifact.Coverage.IncludedTurns, artifact.Coverage.TotalTurns)
 						return

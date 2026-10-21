@@ -483,7 +483,7 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 		t.Fatalf("stored=%+v state=%s err=%v payload=%+v", stored, state, err, payload.Config)
 	}
 	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--enable", "--provider", "codex")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "configure_abstracts completed") {
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstracts enabled=true") || strings.Contains(out, "operation_id=") {
 		t.Fatalf("idempotent configure plain: err=%v\n%s", err, out)
 	}
 	if repeated, repeatedState, repeatedErr := loadMemoryConfigChecked(storage.BrainDir); repeatedErr != nil || repeatedState != memoryConfigCurrent || repeated != stored {
@@ -518,7 +518,7 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 		t.Fatalf("automatic pre-disable inventory=%+v", inventory)
 	}
 	out, err = execute(t, newMemoryConfigureCommand(opts), "abstracts", "--disable", "--dry-run")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "configure_abstracts completed") || !strings.Contains(out, "dry_run=true") {
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "dry-run: would set abstracts enabled=false") {
 		t.Fatalf("disable plain dry-run: err=%v\n%s", err, out)
 	}
 	if stored, _, loadErr := loadMemoryConfigChecked(storage.BrainDir); loadErr != nil || !stored.Abstracts.Enabled {

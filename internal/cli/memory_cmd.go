@@ -1707,7 +1707,6 @@ func newMemoryReconcileCommand(opts Options) *cobra.Command {
 					"jobs_would_create": jobsWouldCreate, "jobs_changed": len(receipt.Artifacts),
 				}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				if dryRun {
 					fmt.Fprintf(out, "reconcile would enqueue %d jobs (%d state changes)\n", jobsWouldCreate, len(receipt.Artifacts))
 					return
@@ -2076,8 +2075,11 @@ func newMemoryRetryCommand(opts Options) *cobra.Command {
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 				return map[string]any{"receipt": receipt, "jobs_matched": matched, "jobs_eligible": eligible}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
-				fmt.Fprintf(out, "result jobs_matched=%d jobs_eligible=%d\n", matched, eligible)
+				if receipt.DryRun {
+					fmt.Fprintf(out, "retry dry-run: %d job(s) matched, %d eligible\n", matched, eligible)
+					return
+				}
+				fmt.Fprintf(out, "retry: %d job(s) matched, %d now pending\n", matched, eligible)
 			})
 		},
 	}
@@ -2215,8 +2217,11 @@ func newMemoryCancelCommand(opts Options) *cobra.Command {
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 				return map[string]any{"receipt": receipt, "jobs_matched": matched, "jobs_eligible": eligible}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
-				fmt.Fprintf(out, "result jobs_matched=%d jobs_eligible=%d\n", matched, eligible)
+				if receipt.DryRun {
+					fmt.Fprintf(out, "cancel dry-run: %d job(s) matched, %d eligible\n", matched, eligible)
+					return
+				}
+				fmt.Fprintf(out, "cancel: %d job(s) matched, %d affected\n", matched, eligible)
 			})
 		},
 	}

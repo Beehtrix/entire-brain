@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestFinishMemoryOperationFailureEmitsOneCompleteReceiptInRequestedFormat(t *testing.T) {
+func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 	started := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
 	finished := started.Add(2 * time.Second)
 	cause := fmt.Errorf("%s: injected", memoryErrSourceStale)
@@ -50,9 +50,10 @@ func TestFinishMemoryOperationFailureEmitsOneCompleteReceiptInRequestedFormat(t 
 				}
 				return
 			}
-			if strings.Contains(output.String(), "{") || strings.Count(output.String(), "repair failed ") != 1 ||
-				!strings.Contains(output.String(), "error_code="+memoryErrSourceStale) || !strings.Contains(output.String(), "finished_at="+finished.Format(time.RFC3339Nano)) {
-				t.Fatalf("plain failure receipt = %q", output.String())
+			// Plain mode: the receipt is --json telemetry (COR-2205); the
+			// returned error is the whole report and stdout stays silent.
+			if output.Len() != 0 {
+				t.Fatalf("plain failure wrote receipt telemetry = %q", output.String())
 			}
 		})
 	}
@@ -209,8 +210,8 @@ func TestManualAbstractMutationReceiptsAndDryRun(t *testing.T) {
 	}
 
 	out, err = execute(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "test")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstract_generate completed") || !strings.Contains(out, "operation_id=") {
-		t.Fatalf("repeat abstract plain receipt: err=%v\n%s", err, out)
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstract") || strings.Contains(out, "operation_id=") {
+		t.Fatalf("repeat abstract plain output: err=%v\n%s", err, out)
 	}
 	if provider.calls.Load() != 2 || len(loadMemoryJobs(brainDir)) != 1 {
 		t.Fatalf("repeat generation duplicated identity: provider_calls=%d jobs=%+v", provider.calls.Load(), loadMemoryJobs(brainDir))
@@ -253,8 +254,8 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) || committed != 1 {
 			t.Fatalf("err=%v committed=%d out=%s", err, committed, out)
 		}
-		if strings.Contains(out, "{") || strings.Count(out, "rebuild failed ") != 1 || !strings.Contains(out, "finished_at=") {
-			t.Fatalf("plain failure receipt = %q", out)
+		if out != "" {
+			t.Fatalf("plain failure wrote receipt telemetry = %q", out)
 		}
 	})
 
@@ -332,7 +333,7 @@ func TestConfigureAbstractsEmitsFinalizedReceiptAfterCommittedFailure(t *testing
 	}
 }
 
-func TestConfigureAbstractsValidationFailureHonorsPlainReceiptMode(t *testing.T) {
+func TestConfigureAbstractsValidationFailureKeepsPlainSurfaceQuiet(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
 	oldFactory := memoryAbstractorFactory
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
@@ -345,8 +346,8 @@ func TestConfigureAbstractsValidationFailureHonorsPlainReceiptMode(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
 		t.Fatalf("configure validation error=%v out=%s", err, out)
 	}
-	if strings.Contains(out, "{") || strings.Count(out, "configure_abstracts failed ") != 1 || !strings.Contains(out, "schema_version=1") || !strings.Contains(out, "error_code="+memoryErrProviderUnavail) || !strings.Contains(out, "finished_at=") {
-		t.Fatalf("configure plain failure receipt=%q", out)
+	if out != "" {
+		t.Fatalf("configure plain failure wrote receipt telemetry=%q", out)
 	}
 	if _, state, loadErr := loadMemoryConfigChecked(brainDir); loadErr != nil || state != memoryConfigAbsent {
 		t.Fatalf("validation failure mutated config state=%s err=%v", state, loadErr)

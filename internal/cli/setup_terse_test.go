@@ -42,6 +42,37 @@ func TestSetupDefaultIsTheShortForm(t *testing.T) {
 	}
 }
 
+func TestSetupTerseBackfillCountsOnlyPendingSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		budget    int
+		distilled []string
+		want      string
+	}{
+		{"capped", 1, []string{"s1"}, "Distilling 1 of 2 sessions in the background"},
+		{"uncapped", 0, []string{"s1"}, "Distilling 2 sessions in the background"},
+		{"last session", 1, []string{"s1", "s2"}, "Distilling 1 session in the background"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSetupTestFixture(t, "s1", "s2", "s3")
+			f.markDistilled(t, tc.distilled...)
+			rec := &recordedSetup{agent: "codex"}
+			opts := defaultSetupOptions()
+			opts.yes = true
+			opts.noDaemon = true
+			opts.backfillBudget = tc.budget
+
+			out := runSetupTerseForTest(t, f, opts, rec)
+			if rec.spawnCalls != 1 {
+				t.Fatalf("expected one backfill, got %d", rec.spawnCalls)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("summary must exclude already distilled sessions; want %q:\n%s", tc.want, out)
+			}
+		})
+	}
+}
+
 // TestSetupVerboseStillReportsPhases keeps the escape hatch honest: --verbose
 // has to bring back the thing the default hides, or hiding it is a loss.
 func TestSetupVerboseStillReportsPhases(t *testing.T) {

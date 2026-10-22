@@ -97,9 +97,8 @@ type TerseReport struct {
 	Distilled int
 	// Queued is how many sessions the just-started backfill will actually
 	// distill (the pending pool capped by the spend budget). Zero means
-	// uncapped or unknown; when it is smaller than Sessions the distill line
-	// says both, because "Distilling 272 sessions" about a budget of 2 is a
-	// false promise.
+	// uncapped or unknown; when it is smaller than the pending pool
+	// (Sessions - Distilled), the distill line says both counts.
 	Queued  int
 	Distill DistillOutcome
 	// DistillReason explains a DistillFailed outcome in one clause.
@@ -236,9 +235,10 @@ func (rep TerseReport) distillLine(brainCmd string) (string, tui.Mark) {
 	case DistillNoSessions:
 		return "No past sessions to distill — memories accrue as you work", tui.MarkDone
 	case DistillStarted:
-		count := plural(rep.Sessions, "session")
-		if rep.Queued > 0 && rep.Queued < rep.Sessions {
-			count = fmt.Sprintf("%d of %d sessions", rep.Queued, rep.Sessions)
+		pending := max(0, rep.Sessions-rep.Distilled)
+		count := plural(pending, "session")
+		if rep.Queued > 0 && rep.Queued < pending {
+			count = fmt.Sprintf("%d of %d sessions", rep.Queued, pending)
 		}
 		return fmt.Sprintf("Distilling %s in the background (watch: %s status)",
 			count, brainCmd), tui.MarkDone

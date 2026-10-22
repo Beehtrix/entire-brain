@@ -675,20 +675,20 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusUnprocessableEntity:
-		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusServiceUnavailable:
 		// The server uses 503 for more than one reason (no hosted brain on this
 		// deployment, publishing disabled for this jurisdiction, a store that is
 		// temporarily read-only), so its own sentence is the only thing that says
 		// WHICH — dropping the body here left the client guessing on the member's
 		// behalf.
-		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusRequestEntityTooLarge:
-		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, resp.StatusCode, token))
 	default:
-		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	}
 }
 
@@ -715,11 +715,21 @@ func publishStatusDetail(status, token string) string {
 // the cut) and a body carrying control bytes, printed straight into the member's
 // terminal. httpx renders both, and still prefers the envelope's own detail when the
 // endpoint did answer.
-func publishServerDetail(body []byte, token string) string {
+//
+// Every message this suffixes already prints the status ("(HTTP 404)"), so a body
+// that merely echoes the status text would render doubled: "unexpected server
+// response (HTTP 404): not found". The echo is stripped; a body saying more keeps
+// the part beyond it.
+func publishServerDetail(body []byte, statusCode int, token string) string {
+	detail := httpx.StripStatusEcho(httpx.ErrorDetailFromBody(body),
+		strconv.Itoa(statusCode)+" "+http.StatusText(statusCode))
+	if detail == "" {
+		return ""
+	}
 	// httpx.Redact strips this request's own bearer token from the rendered line: a
 	// server that echoes the Authorization header back would otherwise put it in the
 	// member's stderr, and from there into a CI log or a pasted bug report.
-	return httpx.Redact(httpx.SuffixFromBody(body), token)
+	return ": " + httpx.Redact(detail, token)
 }
 
 // contentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the

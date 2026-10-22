@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -122,6 +123,47 @@ func TestConnectPlacementUnavailableIsCleanError(t *testing.T) {
 	}
 	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written on failure")
+	}
+}
+
+func TestConnectPlacementErrorKeepsHostMessageAndFlagsHint(t *testing.T) {
+	// COR-2207: the failure the user reads must carry the host CLI's message
+	// alone — no argv echo, no "Using context" banner — with the explicit-flags
+	// hint as its own line instead of a dangling "; pass ..." clause.
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	hostMessage := `no repo matching "sandbox-audit/brain-sbx" visible from your login (GitHub repos you could onboard: ` + "`entire repo mirror list --available`" + `)`
+	stderr := "Using context 'us.auth.entire.io'.\n" + hostMessage + "\n"
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) > 0 && args[0] == "version" {
+			return []byte("Entire CLI 0.12.0\n"), nil, nil
+		}
+		if name == "entire" && len(args) > 0 && args[0] == "repo" {
+			return nil, []byte(stderr), fmt.Errorf("entire [repo view --json]: exit status 1: %s", stderr)
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	_, _, err := runConnectCommand(t, opts)
+	if err == nil {
+		t.Fatal("placement-resolution failure without flags must error")
+	}
+	want := "connect: " + hostMessage + "\nOr pass --repo-id and --api-url explicitly"
+	if err.Error() != want {
+		t.Fatalf("error must be the host message plus the flags hint, got:\n%s\nwant:\n%s", err.Error(), want)
+	}
+}
+
+func TestPlacementFailureErrorWithoutStderrNamesTheCommand(t *testing.T) {
+	err := placementFailureError(fmt.Errorf("entire [repo view --json]: %w", errors.New("exit status 1")), nil)
+	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	bannerOnly := []byte("Using context 'us.auth.entire.io'.\n")
+	err = placementFailureError(errors.New("exit status 1"), bannerOnly)
+	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
+		t.Fatalf("banner-only stderr must fall back to the command, got %q, want %q", got, want)
 	}
 }
 

@@ -2084,6 +2084,69 @@ func TestDistillCommandRejectsOutOfRangeConfidence(t *testing.T) {
 	}
 }
 
+// TestDistillDryRunAllowedUnderNoEgress is the COR-2208 regression: --dry-run
+// returns before the agent runner is constructed and reads local files only,
+// so ENTIRE_BRAIN_NO_EGRESS must not block it. A real run keeps the unchanged
+// pre-resolution refusal.
+func TestDistillDryRunAllowedUnderNoEgress(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	setup := func(t *testing.T) (Options, *fakeCommandRunner) {
+		repoDir := t.TempDir()
+		runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+			fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+		}}
+		opts := Options{
+			Version: "test",
+			Env: EntireEnv{
+				RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
+				PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
+			},
+			Runner: runner,
+			Now:    func() time.Time { return now },
+		}
+		storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+		if err != nil {
+			t.Fatalf("storage: %v", err)
+		}
+		writeDistillFixtureAt(t, storage.BrainDir, now)
+		return opts, runner
+	}
+
+	opts, runner := setup(t)
+	var stdout, stderr bytes.Buffer
+	cmd := NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run must succeed under no-egress: %v\nstderr:\n%s", err, stderr.String())
+	}
+	for _, call := range runner.calls {
+		if call.name != "git" {
+			t.Fatalf("dry-run under no-egress ran %q %v; it must invoke nothing but local git", call.name, call.args)
+		}
+	}
+
+	opts, _ = setup(t)
+	stdout.Reset()
+	stderr.Reset()
+	cmd = NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--agent", "auto"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("real run must still refuse under no-egress; stdout:\n%s", stdout.String())
+	}
+	want := "no_egress: --agent auto can send selected brain context outside local loopback"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("real-run refusal changed: got %q, want it to contain %q", err, want)
+	}
+}
+
 // TestRunDistillForBrainNeverTripsFactStoreIntegrity guards the fact-integrity
 // cross-check against firing on a legitimate distill. The check compares
 // declared-vs-stored fact IDS (not just counts) and reports a repeated id on one

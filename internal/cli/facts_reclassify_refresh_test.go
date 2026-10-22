@@ -79,3 +79,69 @@ func TestReclassifyAllFactBranchesNoFacts(t *testing.T) {
 		t.Errorf("changed=%d err=%v, want 0/nil", changed, err)
 	}
 }
+
+// TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates is the COR-2220
+// regression. Setup reproduces the damaged shape a connected repo reaches: the
+// hosted pull mirrored main's facts (branch stamp unchanged) into a feature
+// branch's store, and an earlier reclassify pass — which wrote record-branch
+// BUCKETS back into single files — had already doubled main's file. The pass
+// must (1) heal the doubled file losslessly, (2) leave the mirror file alone,
+// and (3) stay fixed-point: re-running must never grow any store again.
+func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	brainDir := t.TempDir()
+
+	fact := factRecord{ID: "fact:dup", Paths: []string{"constraints.api.shape"}, Text: "The token must never be logged.",
+		Branch: "main", Origin: "distilled", Status: "active", Kind: factKindInvariant,
+		Provenance: []factAnchor{{SessionID: "s1"}}, UpdatedAt: now}
+	// Main's file holds the record twice (the doubling damage); the second copy
+	// carries an anchor the first lacks, so the fold must union, not discard.
+	second := fact
+	second.Provenance = []factAnchor{{SessionID: "s2"}}
+	if err := writeFacts(brainDir, "main", []factRecord{fact, second}); err != nil {
+		t.Fatal(err)
+	}
+	// The feature store mirrors the same main-stamped record (hosted pull shape).
+	if err := writeFacts(brainDir, "feature", []factRecord{fact}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := reclassifyAllFactBranches(brainDir, now); err != nil {
+		t.Fatal(err)
+	}
+	gotMain, err := loadFacts(brainDir, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotMain) != 1 || len(gotMain[0].Provenance) != 2 {
+		t.Fatalf("main store after heal = %+v, want one record with both anchors", gotMain)
+	}
+	gotFeature, err := loadFacts(brainDir, "feature")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gotFeature) != 1 {
+		t.Fatalf("mirror store = %+v, want untouched single record", gotFeature)
+	}
+
+	// Fixed point: another pass must not move records between files or grow any
+	// store — the doubling bug was exactly a non-fixed-point rewrite.
+	if again, err := reclassifyAllFactBranches(brainDir, now); err != nil || again != 0 {
+		t.Fatalf("second pass changed=%d err=%v, want 0/nil", again, err)
+	}
+	if gotMain, _ = loadFacts(brainDir, "main"); len(gotMain) != 1 {
+		t.Fatalf("main store grew on second pass: %d records", len(gotMain))
+	}
+
+	// Integrity: the cross-file mirror is ordinary, not corruption.
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report := inspectFactStore(brainDir, manifest.Sources.Facts); report.Warning() != "" {
+		t.Fatalf("mirror reported as corruption: %s", report.Warning())
+	}
+}

@@ -113,6 +113,54 @@ func TestExcludePhantomReportsTombstoneOnly(t *testing.T) {
 	}
 }
 
+// TestPurgePhantomReportsTombstoneOnly pins purge to the same honesty contract
+// as exclude (COR-2209): purging an id no captured session answers to records
+// the tombstone, exits 0, and must not claim artifacts were purged.
+func TestPurgePhantomReportsTombstoneOnly(t *testing.T) {
+	opts, _ := privacyCommandFixture(t)
+	phantom := "session:totally-made-up-12345"
+
+	dryCmd := &cobra.Command{Use: "purge"}
+	var dryOut bytes.Buffer
+	dryCmd.SetOut(&dryOut)
+	if err := runSessionsPurge(dryCmd.Context(), dryCmd, opts, phantom, true, false); err != nil {
+		t.Fatalf("dry-run purge of a phantom: %v", err)
+	}
+	if text := dryOut.String(); strings.Contains(text, "would remove session") ||
+		!strings.Contains(text, "no captured session in this brain matches this id") {
+		t.Fatalf("dry-run purge did not say the id matched nothing:\n%s", text)
+	}
+
+	cmd := &cobra.Command{Use: "purge"}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := runSessionsPurge(cmd.Context(), cmd, opts, phantom, false, false); err != nil {
+		t.Fatalf("pre-emptive purge must stay permitted: %v", err)
+	}
+	text := out.String()
+	if strings.Contains(text, "purged session "+phantom) || strings.Contains(text, "derived index records") {
+		t.Fatalf("purge claimed cleanup for a session that produced nothing:\n%s", text)
+	}
+	if !strings.Contains(text, "tombstone recorded, nothing to remove or rebuild") ||
+		!strings.Contains(text, "no captured session in this brain matches this id") {
+		t.Fatalf("purge did not say the id matched nothing:\n%s", text)
+	}
+
+	jsonCmd := &cobra.Command{Use: "purge"}
+	var jsonBuf bytes.Buffer
+	jsonCmd.SetOut(&jsonBuf)
+	if err := runSessionsPurge(jsonCmd.Context(), jsonCmd, opts, "session:another-phantom", false, true); err != nil {
+		t.Fatalf("purge --json: %v", err)
+	}
+	var plan sessionPurgePlan
+	if err := json.Unmarshal(jsonBuf.Bytes(), &plan); err != nil {
+		t.Fatalf("parse purge --json: %v\n%s", err, jsonBuf.String())
+	}
+	if plan.SessionID != "session:another-phantom" || plan.Matched {
+		t.Fatalf("purge --json must report matched=false for a phantom: %+v", plan)
+	}
+}
+
 // TestPrivacyListMarksUnmatchedTombstones pins the other half: the list is the
 // only place a user can notice that the id they typed matched nothing, and it
 // rendered a phantom exactly like a completed exclusion, forever.

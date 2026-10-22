@@ -66,9 +66,16 @@ func fetchGraphTaskContext(ctx context.Context, runner CommandRunner, repoDir, g
 	}
 	runCtx, cancel := context.WithTimeout(ctx, graphTaskContextTimeout)
 	defer cancel()
-	stdout, stderr, err := runner.Run(runCtx, repoDir, binary,
-		"graph", "context", "--repo", repoDir, "--task", task,
-		"--limit", fmt.Sprint(limit), "--tests-limit", fmt.Sprint(testsLimit))
+	args := []string{"graph", "context", "--repo", repoDir, "--task", task, "--limit", fmt.Sprint(limit), "--tests-limit", fmt.Sprint(testsLimit)}
+	ignores, err := semanticProviderIgnoreFiles(repoDir)
+	if err != nil {
+		return graphTaskContext{}, err
+	}
+	for _, ignore := range ignores {
+		args = append(args, "--ignore-file", ignore)
+	}
+	stdout, stderr, err := runner.Run(runCtx, repoDir, binary, args...)
+
 	if err != nil {
 		detail := strings.TrimSpace(string(stderr))
 		if detail == "" {

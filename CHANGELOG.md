@@ -17,6 +17,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Changed
 
+- Code inspection reads Graph's shared committed-tree store. `refresh index`
+  asks Graph to build it and migrates runtime observations before retiring
+  Brain's duplicate code snapshots and SQLite generations. Briefs still work
+  without Graph; code context requires Graph's read-only store interface.
+- Bundles carry Brain data and runtime observations without copying code indexes.
+  Persistent worktree code indexes are retired; use Graph queries without
+  `--head` to inspect uncommitted code.
+
 - Durable facts are now called memories on the command surface: the `facts`
   command group is renamed to `memories`, and help text, flag names
   (`--min-memories`, `--memories-backend`, `vitality --memory`) and human

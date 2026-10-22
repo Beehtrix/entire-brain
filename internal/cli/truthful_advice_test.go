@@ -10,8 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/agentsetup"
 )
 
 // Three defects shared one shape: a string telling the reader something that is
@@ -183,18 +184,6 @@ func assertDirtyRefusalIsActionable(t *testing.T, what string, err error, wantPa
 	if !strings.Contains(message, wantPath) {
 		t.Errorf("%s refusal does not name the blocking path %q: %q", what, wantPath, message)
 	}
-}
-
-func TestSemanticIndexDirtyRefusalNamesBrainignoreAndTheBlockingPaths(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M research/notes.go\n"}
-	delete(runner.responses, fakeCommandKey("entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"))
-
-	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"},
-		Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	assertDirtyRefusalIsActionable(t, "semantic index", err, "research/notes.go")
 }
 
 func TestSeedDirtyRefusalNamesBrainignoreAndTheBlockingPaths(t *testing.T) {

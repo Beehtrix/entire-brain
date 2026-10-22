@@ -38,7 +38,8 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := mustSemanticSource(t, env)
+	descriptor := runner.graphStoreFixtures[repo+"\x00full"]
+	source := graphStoreSource(descriptor, dir)
 	db, err := sql.Open(sqliteDriverName, filepath.Join(t.TempDir(), "corpus.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -92,17 +93,8 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if got := read(); !reflect.DeepEqual(first, got) {
 		t.Fatalf("rebuild changed membership: %v -> %v", first, got)
 	}
-	// The snapshot path must provide the same usable symbol identities as SQLite.
-	withoutStore := *source
-	withoutStore.StorePath = ""
-	withoutStore.GenerationPath = ""
-	if err := linkEpisodeSymbols(db, dir, &withoutStore); err != nil {
-		t.Fatal(err)
-	}
-	if got := read(); !reflect.DeepEqual(first, got) {
-		t.Fatalf("snapshot/store differ: %v -> %v", first, got)
-	}
-	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(source.StorePath)), []byte("corrupt store"), 0o600); err != nil {
+	// There is no retained snapshot fallback when Graph's store is unreadable.
+	if err := os.WriteFile(descriptor.Path, []byte("corrupt store"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := linkEpisodeSymbols(db, dir, source); err != nil {
@@ -119,5 +111,51 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	}
 	if got := read(); len(got) != 0 {
 		t.Fatalf("removed semantic source retained stale links: %v", got)
+	}
+}
+
+func TestPatternCorpusLinksUsingLiveGraphContext(t *testing.T) {
+	for _, state := range []string{"imported", "moved", "local", "foreign"} {
+		t.Run(state, func(t *testing.T) {
+			opts, repo, _, d := newGraphStoreFixture(t)
+			runner := opts.Runner.(*fakeCommandRunner)
+			d.Header.RepoKey = "gh/example/repo"
+			if state == "local" {
+				runner = semanticRepoKeyFixtureRunner(repo, "", providerLocalKeyFixtureSnapshot(repo))
+				opts.Runner = runner
+				d.Header.RepoKey = "local/" + filepath.Base(repo)
+			}
+			if state == "foreign" {
+				d.Header.RepoKey = "gh/other/repo"
+			}
+			key := semanticStorageKeyForTest(t, runner, opts.Env, repo)
+			brain := writeEpisodeFixture(t, opts.Now(), key, []sessionFixture{{id: "s1", agent: "Claude", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: `{"type":"user","message":{"content":"fix rendering in main.go"}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"edit1","name":"Edit","input":{"file_path":"main.go","old_string":"old","new_string":"new"}}]}}`}})
+			if state == "moved" {
+				if err := writeBrainSemanticSource(brain, key, &semanticSourceManifest{StoreOwner: "graph", GraphRepoRoot: filepath.Join(t.TempDir(), "old-checkout")}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			data, err := json.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner.responses[fakeCommandKey("custom-entire", "graph", "store", "--repo", repo, "--profile", "full")] = fakeCommandResponse{stdout: string(data)}
+			graph := patternCorpusGraphContext{Context: context.Background(), Options: opts, RepoDir: repo, Binary: "custom-entire"}
+			if err := buildPatternCorpus(brain, opts.Now(), graph); err != nil {
+				t.Fatal(err)
+			}
+			db := openCorpusReadSnapshot(t, brain)
+			if n := corpusCount(t, db, "episode_files"); n == 0 {
+				t.Fatal("fixture has no file evidence")
+			}
+			want := 2
+			if state == "foreign" {
+				want = 0
+			}
+			if n := corpusCount(t, db, "episode_symbols"); n != want {
+				t.Fatalf("linked %d symbols, want %d", n, want)
+			}
+		})
 	}
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestSemanticAuditStoreAndSnapshotCoverageAgree(t *testing.T) {
+func TestSemanticAuditReadsGraphCoverage(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	snapshotFixture := strings.Replace(semanticFixtureSnapshot("1.0"), "\n{\"record_type\":\"symbol\"", "\n{\"record_type\":\"file\",\"path\":\"internal/auth/token.go\",\"language\":\"Go\"}\n{\"record_type\":\"symbol\"", 1)
@@ -24,19 +24,14 @@ func TestSemanticAuditStoreAndSnapshotCoverageAgree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := *mustSemanticSource(t, env)
+	source := *graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], brainDir)
 	freshness := staleReport{Axes: map[string]staleAxis{"store": {State: "ok"}, "snapshot": {State: "ok"}}}
 	store, err := semanticAuditStoreCoverage(brainDir, &source, freshness)
 	if err != nil {
 		t.Fatal(err)
 	}
-	source.StorePath, source.GenerationPath = "", ""
-	snapshot, err := semanticAuditStoreCoverage(brainDir, &source, freshness)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(store, snapshot) || !reflect.DeepEqual(store.Languages, []semanticAuditCount{{Name: "Go", Count: 1}}) {
-		t.Fatalf("store/snapshot coverage differs: store=%+v snapshot=%+v", store, snapshot)
+	if !reflect.DeepEqual(store.Languages, []semanticAuditCount{{Name: "Go", Count: 1}}) {
+		t.Fatalf("Graph coverage missing: %+v", store)
 	}
 }
 

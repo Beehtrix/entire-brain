@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -146,7 +145,7 @@ func loadSemanticEnv(cmd *cobra.Command, opts Options) (semanticEnv, error) {
 	if err != nil {
 		return semanticEnv{}, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(cmd.Context(), opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return semanticEnv{}, err
 	}
@@ -172,7 +171,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -422,7 +421,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -752,7 +751,7 @@ func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTr
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -924,7 +923,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -968,237 +967,7 @@ LIMIT ?`, limit)
 }
 
 func runSemanticIngestTraces(cmd *cobra.Command, opts Options, ingestOpts semanticTraceIngestOptions, path string) error {
-	env, err := loadSemanticEnv(cmd, opts)
-	if err != nil {
-		return err
-	}
-	// Read and parse the caller-supplied trace file BEFORE taking the index lock.
-	// The path is untrusted (the brain_ingest_traces MCP tool accepts an arbitrary
-	// path), so any time spent on it must not be time the index lock is held —
-	// otherwise one hostile path denies the lock to every other caller on this
-	// brain. This does not weaken the reload invariant below: traces are input
-	// data, not brain state, and nothing staged or published is derived from the
-	// manifest read above.
-	traces, err := readRuntimeTraces(path)
-	if err != nil {
-		return err
-	}
-	unlock, err := acquireSemanticIndexLock(env.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	// Reload after taking the index lock so an index publication that completed
-	// while we waited cannot be replaced by a trace generation cloned from stale
-	// manifest state.
-	env, err = loadSemanticEnv(cmd, opts)
-	if err != nil {
-		return err
-	}
-	report := semanticTraceIngestReport{
-		ImportedAt: opts.Now().UTC(),
-		Path:       filepath.ToSlash(path),
-		Total:      len(traces),
-	}
-	staging, generationRel, generationID, err := stageSemanticTraceGeneration(env, report, traces)
-	if err != nil {
-		return err
-	}
-	published := false
-	defer func() {
-		if !published {
-			_ = os.RemoveAll(staging)
-		}
-	}()
-	db, err := sql.Open(sqliteDriverName, filepath.Join(staging, semanticSQLiteName))
-	if err != nil {
-		return err
-	}
-	if err := ensureSemanticRuntimeTraceTable(db); err != nil {
-		_ = db.Close()
-		return err
-	}
-	matched := 0
-	traceMatches := make([]bool, len(traces))
-	for i, trace := range traces {
-		ok, err := runtimeTraceMatchesStaticEdge(db, trace)
-		if err != nil {
-			_ = db.Close()
-			return err
-		}
-		if ok {
-			matched++
-		}
-		traceMatches[i] = ok
-	}
-	report.Matched = matched
-	report.Unmatched = len(traces) - matched
-	rel, err := writeRuntimeTraceImport(env.BrainDir, report, traces)
-	if err != nil {
-		_ = db.Close()
-		return err
-	}
-	report.Path = rel
-	if err := insertRuntimeTraceFacts(db, report, traces, traceMatches); err != nil {
-		_ = db.Close()
-		return err
-	}
-	if _, err := db.Exec(`INSERT OR REPLACE INTO meta(key, value) VALUES ('generation_id', ?)`, generationID); err != nil {
-		_ = db.Close()
-		return err
-	}
-	if _, err := db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
-		_ = db.Close()
-		return err
-	}
-	if err := db.Close(); err != nil {
-		return err
-	}
-	if err := rewriteSemanticTraceGenerationMetrics(staging, generationID, report.ImportedAt); err != nil {
-		return err
-	}
-	finalDir := filepath.Join(env.BrainDir, filepath.FromSlash(generationRel))
-	if err := rejectExistingSymlinkPathComponents(env.BrainDir, filepath.FromSlash(generationRel)); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(finalDir); err == nil {
-		return fmt.Errorf("semantic trace generation target already exists: %s", finalDir)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Rename(staging, finalDir); err != nil {
-		return err
-	}
-	published = true
-	updated := *env.Source
-	updated.GeneratedAt = report.ImportedAt
-	rewriteSemanticGenerationRefs(&updated, generationRel)
-	if err := writeBrainSemanticSource(env.BrainDir, env.RepoKey, &updated); err != nil {
-		return err
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(updated.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	snapshotID := filepath.Base(filepath.Dir(snapshotRel))
-	if err := writeSemanticSnapshotManifest(env.BrainDir, snapshotID, &updated); err != nil {
-		return err
-	}
-	if ingestOpts.json {
-		return writeJSON(cmd, report)
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "ingested runtime traces: %d\nmatched_static_edges: %d\nartifact: %s\n", report.Total, report.Matched, report.Path)
-	return nil
-}
-
-func stageSemanticTraceGeneration(env semanticEnv, report semanticTraceIngestReport, traces []semanticRuntimeTrace) (string, string, string, error) {
-	generationRel, err := validateSemanticGenerationPath(env.Source.GenerationPath)
-	if err != nil {
-		return "", "", "", err
-	}
-	if err := rejectSymlinkPathComponents(env.BrainDir, generationRel); err != nil {
-		return "", "", "", err
-	}
-	generationsRel := filepath.Join(semanticDirName, semanticGenerationsDir)
-	if err := rejectExistingSymlinkPathComponents(env.BrainDir, generationsRel); err != nil {
-		return "", "", "", err
-	}
-	generationsRoot := filepath.Join(env.BrainDir, generationsRel)
-	payload, err := json.Marshal(struct {
-		Report semanticTraceIngestReport `json:"report"`
-		Traces []semanticRuntimeTrace    `json:"traces"`
-	}{Report: report, Traces: traces})
-	if err != nil {
-		return "", "", "", err
-	}
-	base := filepath.Base(generationRel) + "-traces"
-	generationID, err := semanticAvailableGenerationID(generationsRoot, base, semanticGenerationContentSuffix(payload))
-	if err != nil {
-		return "", "", "", err
-	}
-	staging, err := os.MkdirTemp(generationsRoot, ".tmp-"+generationID+"-*")
-	if err != nil {
-		return "", "", "", err
-	}
-	sourceRoot := filepath.Join(env.BrainDir, generationRel)
-	if err := copySemanticTraceGenerationDir(sourceRoot, staging); err != nil {
-		_ = os.RemoveAll(staging)
-		return "", "", "", err
-	}
-	newGenerationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, generationID))
-	return staging, newGenerationRel, generationID, nil
-}
-
-func copySemanticTraceGenerationDir(sourceRoot, targetRoot string) error {
-	return filepath.WalkDir(sourceRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == sourceRoot {
-			return nil
-		}
-		rel, err := filepath.Rel(sourceRoot, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(targetRoot, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o700)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("semantic generation entry must not be a symlink: %s", rel)
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("semantic generation entry must be a regular file: %s", rel)
-		}
-		in, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		out, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err != nil {
-			_ = in.Close()
-			return err
-		}
-		_, copyErr := io.Copy(out, in)
-		inCloseErr := in.Close()
-		outCloseErr := out.Close()
-		if copyErr != nil {
-			return copyErr
-		}
-		if inCloseErr != nil {
-			return inCloseErr
-		}
-		return outCloseErr
-	})
-}
-
-func rewriteSemanticTraceGenerationMetrics(generationDir, generationID string, generatedAt time.Time) error {
-	metricsPath := filepath.Join(generationDir, semanticMetricsName)
-	data, err := safeReadFile(metricsPath, maxManifestBytes)
-	if err != nil {
-		return err
-	}
-	var metrics semanticBuildMetrics
-	if err := json.Unmarshal(data, &metrics); err != nil {
-		return err
-	}
-	metrics.GenerationID = generationID
-	metrics.GeneratedAt = generatedAt
-	info, err := os.Stat(filepath.Join(generationDir, semanticSQLiteName))
-	if err != nil {
-		return err
-	}
-	metrics.StoreBytes = info.Size()
-	data, err = json.MarshalIndent(metrics, "", "  ")
-	if err != nil {
-		return err
-	}
-	return writeFileAtomic(metricsPath, append(data, '\n'), 0o600)
+	return ingestGraphTraces(cmd, opts, ingestOpts, path)
 }
 
 func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUIOptions, outputPath string) error {
@@ -1213,7 +982,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	if err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -1336,7 +1105,7 @@ func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 	// The trace path is caller-supplied (including via the brain_ingest_traces MCP
 	// tool), so bound the whole-file read before decoding: a giant array would
 	// otherwise drive json.Decode to allocate an unbounded slice.
-	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
+	data, err := safeReadFile(path, graphTraceMaxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -1378,6 +1147,10 @@ func runtimeTraceMatchesStaticEdge(db *sql.DB, trace semanticRuntimeTrace) (bool
 }
 
 func ensureSemanticRuntimeTraceTable(db *sql.DB) error {
+	if rows, err := db.Query("SELECT id FROM runtime_traces LIMIT 0"); err == nil {
+		rows.Close()
+		return nil
+	}
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS runtime_traces (id INTEGER PRIMARY KEY AUTOINCREMENT, imported_at TEXT NOT NULL, source_path TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, observed_type TEXT, matched_static_edge INTEGER NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS idx_runtime_traces_from ON runtime_traces(from_id)`,
@@ -1387,28 +1160,6 @@ func ensureSemanticRuntimeTraceTable(db *sql.DB) error {
 		if _, err := db.Exec(statement); err != nil {
 			return err
 		}
-	}
-	return nil
-}
-
-func insertRuntimeTraceFacts(db *sql.DB, report semanticTraceIngestReport, traces []semanticRuntimeTrace, matched []bool) error {
-	tx, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	for i, trace := range traces {
-		isMatched := 0
-		if i < len(matched) && matched[i] {
-			isMatched = 1
-		}
-		if _, err := tx.Exec(`INSERT INTO runtime_traces(imported_at, source_path, from_id, to_id, observed_type, matched_static_edge) VALUES (?, ?, ?, ?, ?, ?)`,
-			report.ImportedAt.Format(time.RFC3339Nano), report.Path, trace.From, trace.To, strings.TrimSpace(trace.Type), isMatched); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return err
 	}
 	return nil
 }
@@ -1510,27 +1261,6 @@ func runtimeTraceWhereSQL(filters graphQueryFilters) (string, []any) {
 		args = append(args, like, like, like, like)
 	}
 	return query, args
-}
-
-func writeRuntimeTraceImport(brainDir string, report semanticTraceIngestReport, traces []semanticRuntimeTrace) (string, error) {
-	rel := filepath.ToSlash(filepath.Join(semanticDirName, "traces", "import-"+report.ImportedAt.Format("20060102T150405Z")+".json"))
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.FromSlash(rel)); err != nil {
-		return "", err
-	}
-	full := filepath.Join(brainDir, filepath.FromSlash(rel))
-	payload := struct {
-		Report semanticTraceIngestReport `json:"report"`
-		Traces []semanticRuntimeTrace    `json:"traces"`
-	}{Report: report, Traces: traces}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	data = append(data, '\n')
-	if err := writeFileAtomic(full, data, 0o600); err != nil {
-		return "", err
-	}
-	return rel, nil
 }
 
 func scanGraphRelations(rows *sql.Rows) ([]semanticRecord, error) {

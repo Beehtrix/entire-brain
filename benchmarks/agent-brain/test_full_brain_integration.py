@@ -133,7 +133,13 @@ class RealFullBrainIntegrationTest(unittest.TestCase):
         self.assertGreater(manifest["sources"]["facts"]["chunks_distilled"], 0)
         self.assertEqual(manifest["sources"]["facts"].get("failed_chunks", 0), 0)
         semantic = manifest["sources"]["semantic"]
-        self.assertIn("RenderWidget", (brain_dir / semantic["snapshot_path"]).read_text())
+        self.assertEqual(semantic["store_owner"], "graph")
+        self.assertFalse(semantic.get("snapshot_path"))
+        self.assertFalse(semantic.get("store_path"))
+        self.assertFalse((brain_dir / "semantic" / "generations").exists())
+        inspected = subprocess.run([str(self.brain), "inspect", "code", "RenderWidget", "--json"],
+                                   cwd=repo, env=env, text=True, capture_output=True, check=True)
+        self.assertIn("RenderWidget", inspected.stdout)
         self.assertTrue(self.calls.is_file(), "distillation provider was never called")
         self.assertIn("STUB.md", self.calls.read_text())
         self.assertEqual(len(prep["commands"]), 5)

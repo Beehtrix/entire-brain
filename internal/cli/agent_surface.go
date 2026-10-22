@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -23,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -4462,7 +4461,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4531,6 +4530,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		manifestSchema = manifest.SchemaVersion
 	}
+	// Legacy graph artifacts are not consulted by status or brief. Graph is
+	// optional: retain all non-code Brain sources when it is absent.
+	if manifest != nil {
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		profile := graphStoreProfile(manifest)
+		manifest.Sources.Semantic = nil
+		if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr == nil {
+			manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
+		}
+	}
 	report := brainStatusReport{
 		GeneratedAt: generatedAt,
 		Repo:        brainStatusRepo{Root: repoDir, Key: storage.Key},
@@ -4594,7 +4605,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 					Version:      sem.ProviderVersion,
 					Schema:       sem.SchemaVersion,
 					Snapshot:     sem.SnapshotPath,
-					Store:        sem.StorePath,
+					Store:        "graph-owned",
 					Capabilities: sortedStringCopy(sem.Capabilities),
 				},
 			}
@@ -4907,7 +4918,7 @@ func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifes
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return semanticRecord{}, err
 	}

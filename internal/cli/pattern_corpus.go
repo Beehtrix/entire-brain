@@ -440,21 +440,46 @@ func requirePatternCorpusAvailable(brainDir string) error {
 	return nil
 }
 
+// patternCorpusGraphContext supplies the live checkout and caller's provider
+// execution context. Persisted checkout paths are not valid locators after a
+// move or bundle import; the corpus can still build when Graph is unavailable.
+type patternCorpusGraphContext struct {
+	Context context.Context
+	Options Options
+	RepoDir string
+	Binary  string
+}
+
+func (g patternCorpusGraphContext) source(brainDir string, manifest *exportManifest) *semanticSourceManifest {
+	storage, err := repoStoragePaths(g.Context, g.Options.Runner, g.Options.Env, g.RepoDir)
+	if err != nil || !semanticRepoKeyEqual(storage.Key, manifest.RepoKey) {
+		return nil
+	}
+	d, err := fetchGraphStore(g.Context, g.Options, g.RepoDir, g.Binary, graphStoreProfile(manifest))
+	if err != nil {
+		return nil
+	}
+	if err := validateSemanticProviderRepoKey(g.Context, g.Options.Runner, g.RepoDir, storage.Key, d.Header.RepoKey, "", g.Binary); err != nil {
+		return nil
+	}
+	return graphStoreSource(d, brainDir)
+}
+
 // buildPatternCorpus (re)indexes the brain's sessions into patterns/corpus.sqlite.
 // Idempotent: unchanged sessions are skipped, changed sessions are replaced in a
 // transaction, removed transcripts are pruned, and an indexer-version bump forces
 // a full re-index. Deterministic and token-free.
-func buildPatternCorpus(brainDir string, now time.Time) error {
+func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
 	// Session manifests, exported transcripts, facts, tombstones, corpus
 	// verifiers, and purge all use this lock for their mutation boundary. The
 	// deterministic build can therefore take a coherent input snapshot and a
 	// purge cannot verify clean before a stale corpus is published.
 	return withBrainWriteLock(brainDir, func() error {
-		return buildPatternCorpusLocked(brainDir, now)
+		return buildPatternCorpusLocked(brainDir, now, graph...)
 	})
 }
 
-func buildPatternCorpusLocked(brainDir string, now time.Time) error {
+func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
 	if err := recoverPatternCorpusPublicationLocked(brainDir); err != nil {
 		return err
 	}
@@ -568,8 +593,11 @@ func buildPatternCorpusLocked(brainDir string, now time.Time) error {
 	// Link episodes to semantic symbols (if a semantic index exists), then
 	// rebuild candidate patterns, then materialize the synapse explanation graph.
 	var sem *semanticSourceManifest
-	if manifest.Sources != nil {
-		sem = manifest.Sources.Semantic
+	if len(graph) > 0 {
+		sem = graph[0].source(brainDir, manifest)
+		if err := graph[0].Context.Err(); err != nil {
+			return err
+		}
 	}
 	if err := linkEpisodeSymbols(db, brainDir, sem); err != nil {
 		return err

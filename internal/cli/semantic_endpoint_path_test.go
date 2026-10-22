@@ -5,9 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // TestSemanticEndpointPathRecoversFieldsAroundColons pins the endpoint parse
@@ -86,21 +83,15 @@ func semanticEndpointPathIndex(t *testing.T, brainignore, snapshot string) (*exp
 	if err := os.WriteFile(filepath.Join(repoDir, ".brainignore"), []byte(brainignore), 0o600); err != nil {
 		t.Fatalf("write .brainignore: %v", err)
 	}
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, snapshot)
-	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brainDir)
+	ignore, err := loadBrainIgnore(repoDir)
 	if err != nil {
-		t.Fatalf("load manifest: %v", err)
+		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.SnapshotPath)))
+	_, counts, data, err := filterSemanticSnapshot([]byte(snapshot), ignore, repoDir)
 	if err != nil {
-		t.Fatalf("read snapshot: %v", err)
+		t.Fatal(err)
 	}
+	manifest := &exportManifest{Sources: &brainSources{Semantic: &semanticSourceManifest{Files: counts.Files, Symbols: counts.Symbols, Relations: counts.Relations}}}
 	return manifest, string(data)
 }
 

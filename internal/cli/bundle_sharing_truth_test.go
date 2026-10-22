@@ -205,7 +205,7 @@ func TestTheImportIsRecordedBeforeAnythingIsReplaced(t *testing.T) {
 	fn = fn[:end]
 
 	audit := strings.Index(fn, `appendSemanticAuditLayers(storage.BrainDir, "bundle_import"`)
-	walk := strings.Index(fn, "filepath.WalkDir(tmpDir")
+	walk := strings.Index(fn, "restoreBundleBrainLayers(storage.BrainDir, tmpDir)")
 	if audit < 0 || walk < 0 {
 		t.Fatalf("expected both the audit write and the layer walk in this function (audit=%d walk=%d)", audit, walk)
 	}

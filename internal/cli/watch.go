@@ -103,7 +103,7 @@ type watchSteps struct {
 	// factsSync publishes-and-pulls hosted facts (hostedFactsSyncAndPull) for
 	// the current + default branch. Nil when the surface has no hosted step;
 	// non-fatal and cursor-throttled (hostedSyncMinInterval).
-	factsSync func(context.Context) error
+	factsSync func(context.Context) (bool, error)
 	paused    func() bool
 }
 
@@ -117,9 +117,15 @@ func defaultWatchOptions() watchCommandOptions {
 		interval:         5 * time.Minute,
 		consolidateEvery: 30 * time.Minute,
 		distillEvery:     24 * time.Hour,
-		distillAgent:     "codex",
-		distillJobs:      1,
-		seedAgent:        "none",
+		// "auto", not "codex". A hardcoded vendor here was a THIRD codex default
+		// that never reached defaultRefreshAgent at all, so reordering that
+		// function alone would have left the watcher — the one unattended path
+		// that spends tokens on its own — routing repository content to codex
+		// forever. runDistill resolves "auto" on this path (distill_cmd.go), and
+		// `setup` still overrides it per workspace through the watch plan.
+		distillAgent: "auto",
+		distillJobs:  1,
+		seedAgent:    "none",
 	}
 }
 
@@ -284,27 +290,43 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 	cursor := loadWatchCursor(cursorPath)
 	// The hosted step pulls teammates' facts as much as it publishes local
 	// ones, so it must run on idle (no-change) ticks too — a machine that only
-	// receives would otherwise never sync. It is skipped on a failed refresh
-	// (callers below return before invoking it) and throttled by its own
-	// cursor timestamp, advanced regardless of outcome so a failing hosted
-	// endpoint cannot turn every tick into an egress attempt.
+	// receives would otherwise never sync. The defer below makes it run on
+	// every exit path from here down, including a failed refresh: a failed
+	// refresh never advances the main cursor, so a machine whose refresh
+	// always fails (e.g. the graph plugin is missing) takes that path on every
+	// tick and would otherwise be starved of the team's facts forever
+	// (COR-2114; a hand-placed call per return had already missed a path
+	// twice). It is token-free and throttled by its own cursor timestamp,
+	// advanced regardless of outcome so a failing hosted endpoint cannot turn
+	// every tick into an egress attempt. The success path still calls it
+	// explicitly BEFORE the agent steps — the `ran` guard makes the deferred
+	// call a no-op then — so the sync never inherits a context cancelled
+	// during a long agent step and burns its throttle window on an attempt
+	// that never happened.
+	factsSyncRan := false
 	runFactsSync := func() {
+		if factsSyncRan {
+			return
+		}
+		factsSyncRan = true
 		now := steps.now().UTC()
 		if steps.factsSync == nil || now.Sub(cursor.LastFactsSyncAt) < hostedSyncMinInterval {
 			return
 		}
-		if err := steps.factsSync(ctx); err != nil {
+		attempted, err := steps.factsSync(ctx)
+		switch {
+		case err != nil:
 			fmt.Fprintf(out, "[watch] hosted fact sync failed (local brain unaffected): %v\n", err)
-		} else {
+		case attempted:
 			fmt.Fprintln(out, "[watch] hosted fact sync ran")
 		}
 		markFactsSyncAttempt(cursorPath, now)
 	}
+	defer runFactsSync()
 	fp := steps.fingerprint(ctx)
 	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
 	if !changed && !(cursor.PendingSeed && w.seedAgent != "none" || cursor.PendingDistill && w.distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
-		runFactsSync()
 		return
 	}
 	// Consolidation throttle: the fingerprint includes checkpoint refs, so an
@@ -331,16 +353,24 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 		if since := steps.now().UTC().Sub(cursor.LastRefreshAt); since < wait {
 			fmt.Fprintf(out, "[watch] consolidation deferred (%s since last full refresh; due in %s; %s)\n",
 				since.Round(time.Second), (wait - since).Round(time.Second), state)
-			runFactsSync()
 			return
 		}
 	}
 	if changed {
 		if err := steps.refresh(ctx); err != nil {
-			// Refresh failed: do NOT spend tokens on an unrefreshed brain, and do NOT advance the cursor.
-			// The next tick retries the free refresh before attempting pending agent work.
-			fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
-			return
+			// A refusal to index an uncommitted worktree is not a failure: it
+			// is the expected answer while someone is working, and it recurs
+			// every tick until they commit. Treating it as a failure aborted
+			// the tick and left the cursor where it was, so the watcher made no
+			// progress at all for the whole time the tree stayed dirty
+			// (issue #327). Everything else still aborts, because an
+			// unrefreshed brain must not have tokens spent against it.
+			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
+				fmt.Fprintf(out, "[watch] semantic index skipped (uncommitted worktree); continuing\n")
+			} else {
+				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
+				return
+			}
 		}
 	}
 	runFactsSync()
@@ -461,19 +491,21 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
 		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
-		factsSync: func(c context.Context) error {
+		factsSync: func(c context.Context) (bool, error) {
 			storage, err := repoStoragePaths(c, opts.Runner, opts.Env, repoDir)
 			if err != nil {
-				return err
+				return false, err
 			}
 			branch := hostedSyncBranch(c, opts.Runner, repoDir)
-			if err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch); err != nil {
-				return err
+			outcome, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, branch)
+			if err != nil {
+				return outcome.Attempted, err
 			}
 			if branch != distillDefaultBranch {
-				return hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
+				also, err := hostedFactsSyncAndPull(c, cmd.ErrOrStderr(), opts, repoDir, storage, distillDefaultBranch)
+				return outcome.Attempted || also.Attempted, err
 			}
-			return nil
+			return outcome.Attempted, nil
 		},
 		paused: func() bool { return backgroundPaused(opts.Env) },
 	}
@@ -800,12 +832,12 @@ func watchDistillOptions(w watchCommandOptions) distillCommandOptions {
 		// there is no cap, so an uncapped `watch --distill` is unchanged.
 		maxSessions: maxSessions,
 		newestFirst: maxSessions > 0,
-		jobs:        jobs,
 		// concurrency is what the distill pipeline (and runDistill's guard)
-		// actually reads; --jobs is only its compatibility alias. Leaving it at
-		// the zero value made every gated distill the watcher ever attempted
-		// fail with "--concurrency must be greater than 0" before making a
-		// single agent call.
+		// actually reads. Leaving it at the zero value made every gated distill
+		// the watcher ever attempted fail with "--concurrency must be greater
+		// than 0" before making a single agent call. There used to be a second
+		// `jobs` field to keep in step with it; `--jobs` is now a spelling of
+		// --concurrency rather than a field, so there is only one value to set.
 		concurrency: jobs,
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,22 +31,19 @@ import (
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
 // the plugin allowed to egress brain data, and only behind an explicit opt-in.
 //
-// Two-gate opt-in (ADR-P1-A, no implicit egress): a network call happens only
-// when BOTH gates are satisfied — (1) the user explicitly runs
-// `entire brain publish`, and (2) ENTIRE_BRAIN_ALLOW_HOSTED is truthy. Either
-// gate unsatisfied refuses BEFORE any resolution, disk read, or HTTP request, so
-// the default (no gate) stays strictly local-only. The master local-only switch
-// (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY) always wins over the hosted
-// opt-in.
+// No implicit egress (ADR-P1-A, amended by COR-2111): a network call happens
+// only when the user explicitly runs `entire brain publish` AND supplies the
+// full target (repo id, API URL, token) — there are no target defaults, so a
+// bare invocation refuses BEFORE any resolution, disk read, or HTTP request.
+// The ENTIRE_BRAIN_ALLOW_HOSTED env gate this command originally required was
+// retired once `entire brain connect` made hosted consent an explicit, durable
+// state. The master kill switch (ENTIRE_BRAIN_NO_EGRESS) always wins.
 //
 // Where the bundle may go is gated too: the resolved base URL must clear the shared
 // scheme floor (internal/apiurl) — https, or http only to a loopback host — checked
 // on the same egress-free side of the disk read as the two gates above, so an
 // unsafe or malformed target never gets the brain built for it.
 const (
-	// envBrainAllowHosted is the explicit opt-in gate for hosted publishing.
-	envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
-
 	// The hosted target is resolved from these env vars (each overridable by a
 	// flag). There is no pre-existing entire-api client in this plugin, so these
 	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
@@ -139,11 +137,13 @@ artifacts (manifest, semantic snapshots, branch overlays, and durable facts) and
 uploads them to hosted Entire.
 
 Hosted publishing is opt-in and off by default: the brain stays entirely local
-unless you BOTH run this command AND set ENTIRE_BRAIN_ALLOW_HOSTED=1. No brain
-data ever leaves your machine implicitly.
+unless you run this command with a target — the connected binding by default
+(see 'entire brain connect'), or an explicit one. No brain data ever leaves
+your machine implicitly, and ENTIRE_BRAIN_NO_EGRESS always wins.
 
-The target repo, API base URL, and bearer token are resolved from --repo-id /
-ENTIRE_REPO_ID, --api-url / ENTIRE_API_URL, and --token / ENTIRE_API_TOKEN. The
+The target repo, API base URL, and bearer token resolve flag > env > connected
+binding: --repo-id / ENTIRE_REPO_ID, --api-url / ENTIRE_API_URL, --token /
+ENTIRE_API_TOKEN. On a connected repo the token is minted via the host CLI. The
 base URL must be https:// — brain content and the API token are refused over
 plaintext http:// unless the host is loopback (or
 ENTIRE_BRAIN_ALLOW_INSECURE_API_URL is explicitly set).
@@ -163,51 +163,16 @@ coordinate, so identical bytes produce an identical result.`,
 }
 
 func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOpts publishCommandOptions) error {
-	// --- Two-gate opt-in (ADR-P1-A). Both gates are checked BEFORE resolving any
-	// target, reading the brain, or making a network call, so a refusal is
-	// guaranteed egress-free. Gate 1 (explicit invocation) is implicit here.
+	// Every gate is checked BEFORE resolving any target, reading the brain, or
+	// making a network call, so a refusal is guaranteed egress-free.
 
-	// The master local-only switch always wins over the hosted opt-in.
+	// The master kill switch always wins over the hosted opt-in.
 	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: hosted brain publish is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it to publish")
-	}
-	// Gate 2: the explicit hosted opt-in must be truthy. Unset/empty/false refuses
-	// with no network call — the client-side no-implicit-egress guarantee. This is
-	// deliberately NOT securityToggleEnabled (which fails a garbage value ON): a
-	// publish opt-in must fail CLOSED, so anything not clearly truthy stays local.
-	if !envBool(envBrainAllowHosted) {
-		return fmt.Errorf("hosted_publish_disabled: hosted brain publishing is opt-in and off by default; nothing was sent. Set %s=1 and re-run 'entire brain publish' to enable it", envBrainAllowHosted)
+		return fmt.Errorf("no_egress: hosted brain publish is disabled while %s is set; unset it to publish", noEgressToggleName())
 	}
 
-	// Resolve the target (flag overrides env). Fail clearly before touching git or
-	// disk so a misconfiguration never produces a partial request.
-	repoID := publishFlagOrEnv(publishOpts.repoID, envRepoID)
-	if repoID == "" {
-		return fmt.Errorf("publish: target repo id is required; set --repo-id or %s", envRepoID)
-	}
-	// The id is concatenated into the publish target, so it must be exactly one safe
-	// path segment. Checked here, alongside the URL floor and before any git/disk
-	// work, so a malformed target refuses with the whole brain still on disk.
-	if err := repoid.Validate(repoID); err != nil {
-		return fmt.Errorf("publish: %w", err)
-	}
-	baseURL := publishFlagOrEnv(publishOpts.apiURL, envAPIBaseURL)
-	if baseURL == "" {
-		return fmt.Errorf("publish: API base URL is required; set --api-url or %s", envAPIBaseURL)
-	}
-	// Gate 3: the target must be a well-formed, non-plaintext origin. Checked here,
-	// before any git/disk work, so an unsafe or malformed target refuses with the
-	// whole brain still on disk — the same egress-free guarantee as the gates above.
-	baseURL, urlErr := apiurl.Validate(baseURL)
-	if urlErr != nil {
-		return fmt.Errorf("publish: %w", urlErr)
-	}
-	token := publishFlagOrEnv(publishOpts.token, envAPIToken)
-	if token == "" {
-		return fmt.Errorf("publish: API token is required; set --token or %s", envAPIToken)
-	}
-
-	// Locate the on-disk brain for this repo.
+	// Locate the on-disk brain for this repo; the connected binding under it is
+	// the default target.
 	repoDir := opts.Env.RepoRoot
 	if repoDir == "" {
 		repoDir = "."
@@ -216,8 +181,18 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	if err != nil {
 		return fmt.Errorf("publish: resolve brain: %w", err)
 	}
+
+	// Resolve the target: flag > env > connected binding. Validation (repo-id
+	// path segment, URL scheme floor) happens inside, before any brain read or
+	// network call, so a malformed or missing target refuses with the whole
+	// brain still on disk — the same egress-free guarantee as the gate above.
+	target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "publish", publishOpts.repoID, publishOpts.apiURL, publishOpts.token)
+	if err != nil {
+		return err
+	}
+	repoID, baseURL, token := target.repoID, target.baseURL, target.token
 	if !brainExportExists(storage.BrainDir) {
-		return fmt.Errorf("publish: no brain found for this repo; run 'entire brain refresh' first")
+		return errors.New("publish: no brain found for this repo; run '" + brainInvocation(os.LookupEnv, "refresh") + "' first")
 	}
 
 	// Exclusion and purge use the same boundary. Hold it from collection through
@@ -485,8 +460,8 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 }
 
 // collectFactArtifacts reads facts/<slug>/facts.ndjson, recovering each stream's
-// logical branch from the records (the on-disk slug is lossy), and registers a
-// FactsRef on art. Streams are keyed by branch and emitted in branch order.
+// logical branch (resolveFactStreamBranch), and registers a FactsRef on art.
+// Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -521,7 +496,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		if !ok {
 			continue
 		}
-		branch, err := firstFactBranch(data)
+		branch, err := resolveFactStreamBranch(dir, data)
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
@@ -700,20 +675,20 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusUnprocessableEntity:
-		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusServiceUnavailable:
 		// The server uses 503 for more than one reason (no hosted brain on this
 		// deployment, publishing disabled for this jurisdiction, a store that is
 		// temporarily read-only), so its own sentence is the only thing that says
 		// WHICH — dropping the body here left the client guessing on the member's
 		// behalf.
-		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusRequestEntityTooLarge:
-		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, resp.StatusCode, token))
 	default:
-		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, token))
+		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	}
 }
 
@@ -740,11 +715,21 @@ func publishStatusDetail(status, token string) string {
 // the cut) and a body carrying control bytes, printed straight into the member's
 // terminal. httpx renders both, and still prefers the envelope's own detail when the
 // endpoint did answer.
-func publishServerDetail(body []byte, token string) string {
+//
+// Every message this suffixes already prints the status ("(HTTP 404)"), so a body
+// that merely echoes the status text would render doubled: "unexpected server
+// response (HTTP 404): not found". The echo is stripped; a body saying more keeps
+// the part beyond it.
+func publishServerDetail(body []byte, statusCode int, token string) string {
+	detail := httpx.StripStatusEcho(httpx.ErrorDetailFromBody(body),
+		strconv.Itoa(statusCode)+" "+http.StatusText(statusCode))
+	if detail == "" {
+		return ""
+	}
 	// httpx.Redact strips this request's own bearer token from the rendered line: a
 	// server that echoes the Authorization header back would otherwise put it in the
 	// member's stderr, and from there into a CI log or a pasted bug report.
-	return httpx.Redact(httpx.SuffixFromBody(body), token)
+	return ": " + httpx.Redact(detail, token)
 }
 
 // contentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the
@@ -795,24 +780,49 @@ func subdirNames(entries []os.DirEntry) []string {
 	return names
 }
 
-// firstFactBranch validates the entire stream before choosing its branch. Empty
-// streams are optional; malformed records and mixed branch coordinates are not.
-func firstFactBranch(data []byte) (string, error) {
+// resolveFactStreamBranch validates a stream and recovers the branch that owns
+// it. Records from other branches are expected content, not corruption: the
+// hosted pull rebuilds a branch store from the repo-wide feed
+// (pullHostedFacts), so after a sync on a feature branch the store also
+// carries teammates' main facts. The owner is therefore not "the records'
+// branch" but the branch that re-derives the directory name
+// (factsBranchRelDir is deterministic: slug plus a hash of the full name).
+// Candidates are every branch the records name, plus the directory's own slug
+// for a store holding only pulled foreign records. A directory no candidate
+// re-derives is refused — publishing it under a guessed branch would corrupt
+// the artifact coordinate. (Residual gap: a store of only foreign records for
+// a branch whose name sanitizes lossily, e.g. "evis/x"; such a stream fails
+// publish until the branch distills or records a fact of its own.)
+func resolveFactStreamBranch(dir string, data []byte) (string, error) {
 	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("invalid fact stream: %w", err)
 	}
-	branch := ""
+	seen := make(map[string]struct{})
+	var candidates []string
 	for i, record := range records {
-		if strings.TrimSpace(record.Branch) == "" {
+		branch := strings.TrimSpace(record.Branch)
+		if branch == "" {
 			return "", fmt.Errorf("fact record %d has no branch", i+1)
 		}
-		if i > 0 && record.Branch != branch {
-			return "", fmt.Errorf("fact stream contains multiple branches")
+		if _, dup := seen[branch]; !dup {
+			seen[branch] = struct{}{}
+			candidates = append(candidates, branch)
 		}
-		branch = record.Branch
 	}
-	return branch, nil
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	recordBranches := strings.Join(candidates, ", ")
+	if i := len(dir) - len("-01234567"); i > 0 {
+		candidates = append(candidates, dir[:i])
+	}
+	for _, candidate := range candidates {
+		if filepath.Base(factsBranchRelDir(candidate)) == dir {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("directory name matches no branch named by its records (%s); refusing to publish the stream under a guessed branch", recordBranches)
 }
 
 // overlayBranchName reads the advisory "branch" field from an overlay payload.

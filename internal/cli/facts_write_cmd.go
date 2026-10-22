@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ type rememberCommandOptions struct {
 	path         string
 	kind         string
 	branch       string
+	session      string
 	agent        string
 	model        string
 	agentCommand []string
@@ -23,22 +25,37 @@ type rememberCommandOptions struct {
 func newRememberCommand(opts Options) *cobra.Command {
 	rememberOpts := rememberCommandOptions{agent: "auto"}
 	cmd := &cobra.Command{
-		Use:   "remember <fact>",
-		Short: "Record a durable fact about this repository",
+		Use:   "remember <memory>",
+		Short: "Record a durable memory about this repository",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runRemember(cmd.Context(), cmd, opts, rememberOpts, args[0])
 		},
 	}
-	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the fact")
-	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Fact kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
-	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the fact on (default: current branch)")
+	cmd.Flags().StringVar(&rememberOpts.path, "path", "", "Taxonomy path(s), comma-separated (e.g. preferences.coding.style). If omitted, the agent classifies the memory")
+	cmd.Flags().StringVar(&rememberOpts.kind, "kind", "", "Memory kind: decision|invariant|gotcha|preference|convention. If omitted, it is inferred")
+	cmd.Flags().StringVar(&rememberOpts.branch, "branch", "", "Branch to store the memory on (default: current branch)")
+	cmd.Flags().StringVar(&rememberOpts.session, "session", "", "Session id the memory was authored in (default: $"+rememberSessionEnv+"); agent and hook callers pass it so the memory carries session provenance")
 	cmd.Flags().StringVar(&rememberOpts.agent, "agent", "auto", "Agent used to classify when --path is omitted: auto, codex, claude-code, ollama, command, or none")
 	cmd.Flags().StringVar(&rememberOpts.model, "model", "", "Model for codex/claude-code/ollama classification")
 	cmd.Flags().StringArrayVar(&rememberOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
-	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created fact as JSON")
-	cmd.Flags().BoolVar(&rememberOpts.global, "global", false, "Record the fact globally, so every repository recalls it")
+	cmd.Flags().BoolVar(&rememberOpts.json, "json", false, "Emit the created memory as JSON")
+	cmd.Flags().BoolVar(&rememberOpts.global, "global", false, "Record the memory globally, so every repository recalls it")
 	return cmd
+}
+
+// rememberSessionEnv lets agent/hook/MCP callers pass the session id through
+// the environment when the --session flag is not plumbable.
+const rememberSessionEnv = "ENTIRE_BRAIN_SESSION_ID"
+
+// rememberSessionID resolves the session an authored fact was created in:
+// --session, then $ENTIRE_BRAIN_SESSION_ID. A human running `remember` in a
+// terminal legitimately has neither; an absent SessionID stays valid.
+func rememberSessionID(rememberOpts rememberCommandOptions) string {
+	if session := strings.TrimSpace(rememberOpts.session); session != "" {
+		return session
+	}
+	return strings.TrimSpace(os.Getenv(rememberSessionEnv))
 }
 
 // rememberAnchorCommit resolves the commit an authored fact should cite.
@@ -72,7 +89,7 @@ func rememberAnchorCommit(ctx context.Context, opts Options, repoDir, branch str
 func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, rememberOpts rememberCommandOptions, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return fmt.Errorf("fact text must not be empty")
+		return fmt.Errorf("memory text must not be empty")
 	}
 	// A fact that is not about one repository has nowhere to go in a per-repo
 	// store, and outside a checkout there is no store at all. Both cases file
@@ -104,7 +121,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		if strings.TrimSpace(rememberOpts.branch) != "" {
 			// A global fact is not on a branch, and quietly ignoring --branch
 			// would file it somewhere the user did not ask for.
-			return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+			return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 		}
 		brainDir, branch, err = resolveGlobalFactsTarget(opts.Env)
 		if err != nil {
@@ -140,11 +157,12 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	anchor := factAnchor{}
-	// A global fact has no commit to cite. An anchor pointing at whatever
-	// happened to be checked out would be worse than none: verification would
-	// resolve it and report the fact as evidenced by a commit it has nothing to
-	// do with.
+	// A global fact has no provenance to cite: a commit from whatever happened
+	// to be checked out would be laundered by verification, and a session id is
+	// repo-scoped — stamping it on a record in the cross-repo store leaks one
+	// repository's session into every repository's recall.
 	if !global {
+		anchor.SessionID = rememberSessionID(rememberOpts)
 		if commit, ok := rememberAnchorCommit(ctx, opts, repoDir, branch, strings.TrimSpace(rememberOpts.branch) != ""); ok {
 			anchor.Commit = commit
 		}
@@ -270,7 +288,7 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 	}
 	out, err := run(ctx, repoDir, args, []byte(text), defaultDistillTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("classify fact: %w; pass --path to classify manually", err)
+		return nil, fmt.Errorf("classify memory: %w; pass --path to classify manually", err)
 	}
 	paths := parseClassifyOutput(out, taxonomy)
 	if len(paths) == 0 {

@@ -189,7 +189,7 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 
 	// The long-term build keeps its actionable guidance.
 	if _, _, err := buildBrainHistoryIndex(brainDir, now, nil); err == nil ||
-		!strings.Contains(err.Error(), "run `entire brain refresh sessions` first") {
+		!strings.Contains(err.Error(), "run `"+brainInvocation(os.LookupEnv, "refresh sessions")+"` first") {
 		t.Fatalf("history build guidance = %v", err)
 	}
 }
@@ -383,14 +383,7 @@ func TestWriteLockCheckIsOkWhenPresentUnproven(t *testing.T) {
 	}
 }
 
-// TestPartialTranscriptFailureSignalsIncompleteExport locks the
-// export sweep. writeSnapshotSessionTranscripts skips a session whose source
-// blob is unreadable (a promisor-absent blob in a partial clone under no-egress)
-// and drops it from the returned list, and cleanupStaleSessionFiles deletes
-// every transcript the list does not claim, so a PARTIAL read failure destroyed
-// the copies a previous export had written for exactly those sessions. Only the
-// all-fail case was guarded. Before the skip-and-continue behavior, an
-// unreadable transcript aborted the export and left the brain untouched.
+// A partial bundle write reports missing blobs without deleting existing files.
 func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	const (
 		badID  = "aaa111aaa111"
@@ -436,7 +429,7 @@ func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	written, _, complete, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
+	written, _, complete, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs)
 	if err != nil {
 		t.Fatalf("partial write: %v", err)
 	}
@@ -446,13 +439,8 @@ func TestPartialTranscriptFailureSignalsIncompleteExport(t *testing.T) {
 	if complete {
 		t.Fatal("a skipped transcript must report the write as incomplete")
 	}
-	// The caller must hold the sweep back on an incomplete write. Running it
-	// anyway is exactly the data loss this locks.
-	if err := cleanupStaleSessionFiles(outputDir, written); err != nil {
-		t.Fatal(err)
-	}
-	if _, statErr := os.Stat(priorFull); !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("fixture sweep must remove the unclaimed transcript; stat error = %v", statErr)
+	if _, statErr := os.Stat(priorFull); statErr != nil {
+		t.Fatalf("partial bundle write removed retained transcript: %v", statErr)
 	}
 }
 

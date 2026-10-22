@@ -155,7 +155,9 @@ func TestMultiConceptLimitContractAcrossSurfaces(t *testing.T) {
 	if _, err := buildRetrievalOptions(retrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
 		t.Fatalf("oversized concept list: %v", err)
 	}
-	definitions, _ := json.Marshal(mcpToolDefinitions())
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	definitions, _ := json.Marshal(mcpAllToolDefinitions())
 	if !bytes.Contains(definitions, []byte(`"maximum":50`)) || !bytes.Contains(definitions, []byte(`"required":["concepts"]`)) {
 		t.Fatalf("MCP conditional multi-concept limit missing: %s", definitions)
 	}

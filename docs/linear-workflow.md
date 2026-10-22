@@ -94,11 +94,12 @@ normally. A subsequent identical retry is idempotent again.
    explicitly known. Do not infer associations from similarity.
 
 Default search/query includes configured issue evidence. `--source issue`
-restricts search/query/vsearch. Threads are grouped to avoid result domination;
-search and brief excerpts are bounded. Without embeddings, hybrid retains
-lexical matches; issue-only vsearch reports unavailable capability. The existing
-local embedding abstraction uses a separate content-hash cache. Queries make
-no Linear calls.
+restricts search/query. Threads are grouped to avoid result domination;
+search and brief excerpts are bounded. Issue evidence is ranked with the same
+BM25 lexical ranking as every other source; semantic retrieval was removed in
+trail #278, so `vsearch` and `--semantic` are compatibility aliases for that
+ranking. Queries make no Linear calls and send issue text to no embedding
+provider.
 
 ## Requested writes
 
@@ -235,7 +236,7 @@ The repository's external Brain directory contains `issues/state.json`: an
 atomically replaced manifest containing bindings, immutable content-addressed
 revisions, current pointers, batches, progress, links, and operations. Publication
 uses Brain's existing lock and platform-specific replacement on Windows, macOS,
-and Linux. `issues/derived/` contains disposable lexical/vector indexes. This
+and Linux. `issues/derived/` contains a disposable lexical index. This
 first release loads the local manifest into memory; it does not claim unlimited
 project size.
 

@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 type Options struct {
@@ -63,7 +64,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
 It builds a local, inspectable repository brain from retained sessions, seed
-context, docs, history, semantic records, and durable facts, then exposes
+context, docs, history, semantic records, and durable memories, then exposes
 retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -83,7 +84,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	cmd.AddGroup(
 		&cobra.Group{ID: "setup", Title: "Set up the brain & agents:"},
 		&cobra.Group{ID: "explore", Title: "Search & explore the brain:"},
-		&cobra.Group{ID: "facts", Title: "Durable facts & patterns:"},
+		&cobra.Group{ID: "facts", Title: "Durable memories & patterns:"},
 		&cobra.Group{ID: "code", Title: "Code & semantic index:"},
 		&cobra.Group{ID: "maintain", Title: "Brain state & maintenance:"},
 		&cobra.Group{ID: "share", Title: "Workspaces & sharing:"},
@@ -124,6 +125,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
 	addGrouped("facts", newConnectCommand(opts))
+	addGrouped("facts", newDisconnectCommand(opts))
 	addGrouped("facts", newVerifyCommand(opts))
 	addGrouped("facts", newPatternsCommand(opts))
 
@@ -142,6 +144,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("operations", newDocsCommand(opts))
 	addGrouped("operations", newRefreshCommand(opts))
 	addGrouped("operations", newWatchCommand(opts))
+	addHidden(newDaemonReregisterCommand(opts))
 	addGrouped("operations", newStopCommand(opts))
 	addGrouped("operations", newStartCommand(opts))
 	addGrouped("operations", newSemanticGCCommand(opts))
@@ -206,13 +209,13 @@ func setRootUsage(root *cobra.Command, commands []*cobra.Command) {
 		var ordered []helpEntry
 		for _, c := range commands {
 			ordered = append(ordered, helpEntry{c, c.Name(), c.GroupID})
-			if c.Name() == "facts" {
-				// Surface operator paths without moving the everyday facts family
+			if c.Name() == "memories" {
+				// Surface operator paths without moving the everyday memories family
 				// or changing any child's registration or visibility.
 				for _, name := range []string{"import", "sync", "proposals", "gc", "vitality"} {
 					for _, child := range c.Commands() {
 						if child.Name() == name {
-							ordered = append(ordered, helpEntry{child, "facts " + name, "operations"})
+							ordered = append(ordered, helpEntry{child, "memories " + name, "operations"})
 						}
 					}
 				}
@@ -376,7 +379,19 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 			return renderedCommandError{err: err}
 		}
 	}
+	// CHAIN, do not replace. This walks every child, and a plain
+	// SetFlagErrorFunc here silently discarded any handler a command had set
+	// for itself -- which is how the `--symbol` hint on `inspect impact`
+	// vanished without a trace: the command set it, this overwrote it, and the
+	// user still saw cobra's bare "unknown flag".
+	//
+	// Any command may now improve its own flag error, and this still gets to
+	// render the JSON form on top.
+	prior := flagErrorFuncOf(cmd)
 	cmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
+		if prior != nil {
+			err = prior(cmd, err)
+		}
 		if !commandWantsJSONError(cmd) {
 			return err
 		}
@@ -386,6 +401,25 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 	for _, child := range cmd.Commands() {
 		wrapJSONErrorRendering(child)
 	}
+}
+
+// flagErrorFuncOf returns a command's OWN flag-error handler, or nil when it
+// has none.
+//
+// cobra's FlagErrorFunc() walks up to the root when a command has not set one,
+// so calling it directly would return the parent's and chain it to itself.
+// Comparing against the parent's is what distinguishes "this command set one"
+// from "this command inherited one".
+func flagErrorFuncOf(cmd *cobra.Command) func(*cobra.Command, error) error {
+	own := cmd.FlagErrorFunc()
+	if own == nil || cmd.Parent() == nil {
+		return own
+	}
+	inherited := cmd.Parent().FlagErrorFunc()
+	if inherited != nil && reflect.ValueOf(own).Pointer() == reflect.ValueOf(inherited).Pointer() {
+		return nil
+	}
+	return own
 }
 
 func commandWantsJSONError(cmd *cobra.Command) bool {
@@ -496,4 +530,16 @@ func commandErrorCode(err error) string {
 		}
 	}
 	return "command_failed"
+}
+
+// legacyFlagAlias keeps a renamed flag's old spelling parseable by normalizing
+// it to the new name. One per flag set: SetNormalizeFunc is single-slot, so a
+// second call on the same FlagSet replaces the first.
+func legacyFlagAlias(fs *pflag.FlagSet, oldName, newName string) {
+	fs.SetNormalizeFunc(func(f *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == oldName {
+			name = newName
+		}
+		return pflag.NormalizedName(name)
+	})
 }

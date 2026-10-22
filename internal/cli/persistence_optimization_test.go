@@ -123,6 +123,9 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		return context.Canceled
 	}
 	t.Cleanup(func() { beforePatternCorpusPublish = originalPublishHook })
+	// If the retained exclusion filter is removed, the transcript store rejects
+	// the tombstoned session before reaching the cancellation hook. The mutation
+	// check pins that diagnostic: this defense now prevents corpus resurrection.
 	if err := buildPatternCorpus(brainDir, now.Add(3*time.Minute)); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancelled refresh error = %v, want context cancellation", err)
 	}

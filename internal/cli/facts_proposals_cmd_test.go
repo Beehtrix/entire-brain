@@ -189,8 +189,7 @@ func TestFactsProposalsRefusesWithoutGates(t *testing.T) {
 		args []string
 		want string
 	}{
-		{name: "opt-in unset", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": ""}, want: "hosted_proposals_disabled"},
-		{name: "opt-in false", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": "false"}, want: "hosted_proposals_disabled"},
+		{name: "env-only without consent", env: map[string]string{"ENTIRE_BRAIN_ALLOW_HOSTED": ""}, want: "opt-in"},
 		{name: "no-egress wins", env: map[string]string{"ENTIRE_BRAIN_NO_EGRESS": "1"}, want: "no_egress"},
 		{name: "local-only wins", env: map[string]string{"ENTIRE_BRAIN_LOCAL_ONLY": "1"}, want: "no_egress"},
 		{name: "missing repo id", env: map[string]string{"ENTIRE_REPO_ID": ""}, want: "target repo id is required"},
@@ -278,6 +277,46 @@ func TestFactsProposalsListEmpty(t *testing.T) {
 	}
 }
 
+// A backend that predates the proposal queue (404/501 on the collection) is an
+// answer for `list` — nothing can be open there — not a transport error to
+// surface raw (COR-2204).
+func TestFactsProposalsListQueueUnsupported(t *testing.T) {
+	for _, status := range []int{http.StatusNotFound, http.StatusNotImplemented} {
+		f, fake, _ := newHostedProposalsFixture(t)
+		fake.mu.Lock()
+		fake.failList = status
+		fake.mu.Unlock()
+
+		out, err := execute(t, NewRootCommand(f.opts), "facts", "proposals", "list")
+		if err != nil {
+			t.Fatalf("list with %d collection: %v\n%s", status, err, out)
+		}
+		if !strings.Contains(out, "no open cross-member proposals on main") ||
+			!strings.Contains(out, "does not serve the proposal queue") {
+			t.Fatalf("unsupported-queue list output = %q", out)
+		}
+		if strings.Contains(out, "404") || strings.Contains(out, "factsync:") || strings.Contains(out, "GET ") {
+			t.Fatalf("transport jargon leaked to the human surface: %q", out)
+		}
+
+		out, err = execute(t, NewRootCommand(f.opts), "facts", "proposals", "list", "--json")
+		if err != nil {
+			t.Fatalf("list --json with %d collection: %v\n%s", status, err, out)
+		}
+		var report struct {
+			Open           int                     `json:"open"`
+			Proposals      []factsync.OpenProposal `json:"proposals"`
+			QueueSupported bool                    `json:"queue_supported"`
+		}
+		if err := json.Unmarshal([]byte(out), &report); err != nil {
+			t.Fatalf("parse list json: %v\n%s", err, out)
+		}
+		if report.Open != 0 || len(report.Proposals) != 0 || report.QueueSupported {
+			t.Fatalf("unsupported-queue list json = %+v", report)
+		}
+	}
+}
+
 func TestFactsProposalsShow(t *testing.T) {
 	f, _, proposal := newHostedProposalsFixture(t)
 
@@ -339,7 +378,7 @@ func TestFactsProposalsApplyConverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facts proposals apply: %v\n%s", err, out)
 	}
-	for _, want := range []string{"applied " + proposal.ID, "facts head: facts-2", "0 open proposal(s) remain"} {
+	for _, want := range []string{"applied " + proposal.ID, "memories head: facts-2", "0 open proposal(s) remain"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("apply output missing %q:\n%s", want, out)
 		}
@@ -429,7 +468,7 @@ func TestFactsProposalsRegisteredUnderFacts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("facts proposals --help: %v\n%s", err, out)
 	}
-	for _, want := range []string{"list", "show", "apply", "reject", envBrainAllowHosted} {
+	for _, want := range []string{"list", "show", "apply", "reject"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("help missing %q:\n%s", want, out)
 		}

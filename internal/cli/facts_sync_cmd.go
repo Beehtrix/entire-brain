@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/factgitmeta"
 	"github.com/entireio/entire-brain/internal/factsync"
 
@@ -47,30 +46,35 @@ func newFactsSyncCommand(opts Options) *cobra.Command {
 	var syncOpts factsSyncOptions
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Read-merge-CAS this branch's local facts into the shared fact-set head",
+		Short: "Read-merge-CAS this branch's local memories into the shared memory-set head",
 		Long: `sync runs the factsync read-merge-CAS loop for the current branch: pull the
-current fact-set head, keep-both merge this member's local facts into it, and
-compare-and-swap the result back; retrying on a losing swap.
+current memory-set head, keep-both merge this member's local memories into it,
+and compare-and-swap the result back; retrying on a losing swap.
 
-Backends (--facts-backend, or ` + envFactsBackend + `):
+Backends (--memories-backend, or ` + envFactsBackend + `):
   local-gitmeta  (default) a bare, on-disk git-meta store under the brain cache
                  (<cache>/brain/<repo-key>/gitmeta.git); fully local, no network,
-                 entiredb, or Postgres.
-  http           the hosted entire-api FactSetStore; opt-in, requires
-                 --api-url/ENTIRE_API_URL, --repo-id/ENTIRE_REPO_ID,
-                 --token/ENTIRE_API_TOKEN and ENTIRE_BRAIN_ALLOW_HOSTED=1.`,
+                 entiredb, or Postgres. This is the default whether or not the
+                 repo is connected: a plain sync never leaves the machine.
+  http           the hosted entire-api FactSetStore; opt-in with
+                 --memories-backend=http. Target resolves flag > env > connected
+                 binding: --api-url/ENTIRE_API_URL, --repo-id/ENTIRE_REPO_ID,
+                 --token/ENTIRE_API_TOKEN; on a connected repo the binding
+                 supplies the target and the token is minted automatically.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFactsSync(cmd, opts, syncOpts)
 		},
 	}
 	cmd.Flags().StringVar(&syncOpts.branch, "branch", "", "Branch to sync (default: current branch)")
-	cmd.Flags().StringVar(&syncOpts.backend, "facts-backend", "", "Fact-set backend: local-gitmeta (default) or http")
+	cmd.Flags().StringVar(&syncOpts.backend, "memories-backend", "", "Memory-set backend: local-gitmeta (default) or http")
 	cmd.Flags().StringVar(&syncOpts.member, "member", "", "Member identity stamped on cross-member proposals (default: git user.email)")
 	cmd.Flags().StringVar(&syncOpts.repoID, "repo-id", "", "Target repo id for the http backend (overrides ENTIRE_REPO_ID)")
 	cmd.Flags().StringVar(&syncOpts.apiURL, "api-url", "", "Entire API base URL for the http backend, https:// (overrides ENTIRE_API_URL)")
 	cmd.Flags().StringVar(&syncOpts.token, "token", "", "Entire API bearer token for the http backend (overrides ENTIRE_API_TOKEN)")
 	cmd.Flags().BoolVar(&syncOpts.jsonOut, "json", false, "Emit the sync result as JSON")
+	// --facts-backend predates the facts→memories rename; keep it working.
+	legacyFlagAlias(cmd.Flags(), "facts-backend", "memories-backend")
 	return cmd
 }
 
@@ -82,7 +86,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		return err
 	}
 	if !local {
-		return fmt.Errorf("facts sync requires a local repository path")
+		return fmt.Errorf("memories sync requires a local repository path")
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -105,7 +109,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	}
 	memberID := resolveSyncMemberID(ctx, opts.Runner, repoDir, syncOpts.member)
 
-	srv, repoID, backendLabel, err := buildFactsSyncBackend(opts, resolveFactsBackendName(syncOpts.backend), storage, syncOpts)
+	srv, repoID, backendLabel, err := buildFactsSyncBackend(ctx, opts, resolveFactsBackendName(syncOpts.backend), storage, repoDir, syncOpts)
 	if err != nil {
 		return err
 	}
@@ -120,7 +124,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	// The binding records the fact-head sync, independently of proposal queue health.
 	if hosted, ok := srv.(*factsync.HTTPServer); ok {
 		if err := writeHostedFactsBinding(storage.BrainDir, branch, repoID, hosted.BaseURL); err != nil {
-			return fmt.Errorf("facts sync: record hosted target: %w", err)
+			return fmt.Errorf("memories sync: record hosted target: %w", err)
 		}
 	}
 
@@ -148,11 +152,11 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	if transport, hasQueue := srv.(factsync.ProposalTransport); hasQueue {
 		localQueue, queueErr := loadFactProposals(storage.BrainDir, branch)
 		if queueErr != nil {
-			return fmt.Errorf("facts sync: load review queue: %w", queueErr)
+			return fmt.Errorf("memories sync: load review queue: %w", queueErr)
 		}
 		ledger, ledgerErr := loadSharedProposalLedger(storage.BrainDir, branch)
 		if ledgerErr != nil {
-			return fmt.Errorf("facts sync: load shared-proposal ledger: %w", ledgerErr)
+			return fmt.Errorf("memories sync: load shared-proposal ledger: %w", ledgerErr)
 		}
 		// The post-sync head gates what may be published AND supplies the settlements
 		// mirrored into local facts below. Sync already computed it, so take it from
@@ -163,7 +167,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		if len(hostedFacts) == 0 {
 			fetched, headErr := readSharedFactHead(ctx, srv, repoID, branch)
 			if headErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read the shared fact head; skipping settled-proposal checks this sync: %v\n", headErr)
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not read the shared memory head; skipping settled-proposal checks this sync: %v\n", headErr)
 			}
 			hostedFacts = fetched
 		}
@@ -200,9 +204,9 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			switch {
 			case pubErr == nil:
 			case errors.Is(pubErr, factsync.ErrProposalQueueUnsupported):
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: backend has no shared review queue; %d proposal(s) stay in the local queue ('facts review'): %v\n", len(localQueue), pubErr)
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: backend has no shared review queue; %d proposal(s) stay in the local queue ('memories review'): %v\n", len(localQueue), pubErr)
 			default:
-				return fmt.Errorf("facts sync: facts head advanced to %s, but sharing %d proposal(s) to the review queue failed: %w (they remain reviewable locally with 'facts review', and the next 'facts sync' republishes them)",
+				return fmt.Errorf("memories sync: memories head advanced to %s, but sharing %d proposal(s) to the review queue failed: %w (they remain reviewable locally with 'memories review', and the next 'memories sync' republishes them)",
 					refOrNone(res.NewRef), len(toPublish), pubErr)
 			}
 		} else if set, listErr := transport.ListProposals(ctx, repoID, branch); listErr != nil {
@@ -224,7 +228,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			// mirroring — the queue entry stays until reconciled, so the next
 			// sync retries.
 			if err := reconcileLocalProposalQueue(storage.BrainDir, branch, pub.Proposals, hostedFacts, opts.Now().UTC()); err != nil {
-				return fmt.Errorf("facts sync: reconcile review queue: %w", err)
+				return fmt.Errorf("memories sync: reconcile review queue: %w", err)
 			}
 		}
 	}
@@ -251,10 +255,10 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 
 	out := cmd.OutOrStdout()
 	if res.Published {
-		fmt.Fprintf(out, "synced %d local fact(s) on %s via %s: head advanced to %s (%d attempt(s))\n",
+		fmt.Fprintf(out, "synced %d local memory(ies) on %s via %s: head advanced to %s (%d attempt(s))\n",
 			len(facts), branch, backendLabel, res.NewRef, res.Attempts)
 	} else {
-		fmt.Fprintf(out, "synced %d local fact(s) on %s via %s: no change; head at %s (%d attempt(s))\n",
+		fmt.Fprintf(out, "synced %d local memory(ies) on %s via %s: no change; head at %s (%d attempt(s))\n",
 			len(facts), branch, backendLabel, refOrNone(res.NewRef), res.Attempts)
 	}
 	if len(res.Proposals) > 0 {
@@ -263,7 +267,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			fmt.Fprintf(out, "  %s %s -> %s (by %s, confidence %.2f)\n", p.Action, p.CandidateID, p.TargetID, p.ProposedBy, p.Confidence)
 		}
 		if pub.Published {
-			fmt.Fprintf(out, "shared to the review queue (%d open); resolve with 'facts proposals apply|reject <proposal>'\n", pub.Open)
+			fmt.Fprintf(out, "shared to the review queue (%d open); resolve with 'memories proposals apply|reject <proposal>'\n", pub.Open)
 		}
 	}
 	return nil
@@ -280,10 +284,10 @@ func persistFactsSyncProposals(brainDir, branch string, proposals []factProposal
 	return withBrainWriteLock(brainDir, func() error {
 		existing, err := loadFactProposals(brainDir, branch)
 		if err != nil {
-			return fmt.Errorf("facts sync: load review queue: %w", err)
+			return fmt.Errorf("memories sync: load review queue: %w", err)
 		}
 		if err := writeFactProposals(brainDir, branch, append(existing, proposals...)); err != nil {
-			return fmt.Errorf("facts sync: persist review queue: %w", err)
+			return fmt.Errorf("memories sync: persist review queue: %w", err)
 		}
 		return nil
 	})
@@ -356,13 +360,13 @@ func readSharedFactHead(ctx context.Context, srv factsync.Server, repoID, branch
 	}
 	parsed, err := factmerge.ParseNDJSON(bytes.NewReader(plaintext))
 	if err != nil {
-		return nil, fmt.Errorf("parse shared fact head: %w", err)
+		return nil, fmt.Errorf("parse shared memory head: %w", err)
 	}
 	// The head is written by every member with push access. Re-derive each
 	// record's content id before any of it reaches local state: this read feeds
 	// proposal reconciliation, which supersedes and removes LOCAL facts by id.
 	if err := factmerge.VerifyIdentities(parsed); err != nil {
-		return nil, fmt.Errorf("shared fact head for %s/%s is not trustworthy: %w", repoID, branch, err)
+		return nil, fmt.Errorf("shared memory head for %s/%s is not trustworthy: %w", repoID, branch, err)
 	}
 	return parsed, nil
 }
@@ -550,7 +554,7 @@ func resolveFactsBackendName(flagVal string) string {
 // to thread through Sync, and a human label for output. The local-gitmeta path
 // is keyed by the repo storage key; the http path mirrors publish's opt-in gates
 // and flag/env resolution.
-func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, syncOpts factsSyncOptions) (factsync.Server, string, string, error) {
+func buildFactsSyncBackend(ctx context.Context, opts Options, backend string, storage repoStorage, repoDir string, syncOpts factsSyncOptions) (factsync.Server, string, string, error) {
 	switch backend {
 	case factsBackendLocalGitmeta:
 		gitDir, err := gitmetaDirForKey(opts.Env, storage.Key)
@@ -564,36 +568,21 @@ func buildFactsSyncBackend(opts Options, backend string, storage repoStorage, sy
 		return b, storage.Key, "local-gitmeta (" + gitDir + ")", nil
 
 	case factsBackendHTTP:
-		// The master local-only switch always wins over the hosted opt-in.
+		// The master kill switch always wins over the hosted opt-in; the opt-in
+		// itself is the resolved target (mirrors publish).
 		if brainNoEgressMode() {
-			return nil, "", "", fmt.Errorf("no_egress: hosted fact sync is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it or use --facts-backend=local-gitmeta")
+			return nil, "", "", fmt.Errorf("no_egress: hosted memory sync is disabled while %s is set; unset it or use --memories-backend=local-gitmeta", noEgressToggleName())
 		}
-		// Hosted egress is opt-in and fails closed (mirrors publish).
-		if !envBool(envBrainAllowHosted) {
-			return nil, "", "", fmt.Errorf("hosted_sync_disabled: the http fact backend is opt-in and off by default; set %s=1 to enable it, or use --facts-backend=local-gitmeta", envBrainAllowHosted)
+		// Flag > env > connected binding; validation (repo-id segment, URL
+		// scheme floor) happens inside, before the backend is built.
+		target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "memories sync", syncOpts.repoID, syncOpts.apiURL, syncOpts.token)
+		if err != nil {
+			return nil, "", "", err
 		}
-		repoID := publishFlagOrEnv(syncOpts.repoID, envRepoID)
-		if repoID == "" {
-			return nil, "", "", fmt.Errorf("facts sync: target repo id is required for the http backend; set --repo-id or %s", envRepoID)
-		}
-		baseURL := publishFlagOrEnv(syncOpts.apiURL, envAPIBaseURL)
-		if baseURL == "" {
-			return nil, "", "", fmt.Errorf("facts sync: API base URL is required for the http backend; set --api-url or %s", envAPIBaseURL)
-		}
-		// The fact-set advance carries this member's facts and the bearer token, so
-		// the target must clear the scheme floor before the backend is built.
-		baseURL, urlErr := apiurl.Validate(baseURL)
-		if urlErr != nil {
-			return nil, "", "", fmt.Errorf("facts sync: %w", urlErr)
-		}
-		token := publishFlagOrEnv(syncOpts.token, envAPIToken)
-		if token == "" {
-			return nil, "", "", fmt.Errorf("facts sync: API token is required for the http backend; set --token or %s", envAPIToken)
-		}
-		return &factsync.HTTPServer{BaseURL: baseURL, Token: token}, repoID, "http (" + strings.TrimRight(baseURL, "/") + ")", nil
+		return &factsync.HTTPServer{BaseURL: target.baseURL, Token: target.token}, target.repoID, "http (" + strings.TrimRight(target.baseURL, "/") + ")", nil
 
 	default:
-		return nil, "", "", fmt.Errorf("unknown --facts-backend %q (want %q or %q)", backend, factsBackendLocalGitmeta, factsBackendHTTP)
+		return nil, "", "", fmt.Errorf("unknown --memories-backend %q (want %q or %q)", backend, factsBackendLocalGitmeta, factsBackendHTTP)
 	}
 }
 

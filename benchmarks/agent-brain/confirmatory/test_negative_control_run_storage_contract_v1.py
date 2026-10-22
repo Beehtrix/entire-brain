@@ -94,7 +94,7 @@ class NegativeControlRunStorageContractV1Test(unittest.TestCase):
         raw = ARTIFACT_PATH.read_bytes()
         self.assertEqual(
             hashlib.sha256(raw).hexdigest(),
-            "a1effd9ea44f5e13bffc516d1854cdad52936d2afbcbad7534b28b7ed81da671",
+            "dfeeb3d11ce6fd77e650c099a3b5a7b7f3ee58f9de75e7ffb064b0facf0da34d",
         )
         self.assertEqual(raw, storage._render(self.artifact))
         rebuilt = storage.build_contract()
@@ -111,7 +111,7 @@ class NegativeControlRunStorageContractV1Test(unittest.TestCase):
         )
         self.assertEqual(
             self.artifact["contract_sha256"],
-            "a563d6f7ed1deaeb40676dd567f2d23fbd7f827ca2719aeb83f7e4973af4f852",
+            "62469aa0dcc1f680584f0ad7981eb797838e9c9128c740ddaad1f5deb520be5d",
         )
         self.assertNotEqual(self.artifact["contract_sha256"], "0" * 64)
 

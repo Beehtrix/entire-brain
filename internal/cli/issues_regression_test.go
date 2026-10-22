@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,29 +14,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type issueDisconnectEmbedder struct{ run func() }
-
-func (*issueDisconnectEmbedder) ID() string                    { return "disconnect-test" }
-func (*issueDisconnectEmbedder) Dim() int                      { return 2 }
-func (*issueDisconnectEmbedder) Embed(string) []float32        { return []float32{1, 0} }
-func (e *issueDisconnectEmbedder) EmbedQuery(string) []float32 { e.run(); return []float32{1, 0} }
-
 func TestIssueRankingRejectsConcurrentDisconnect(t *testing.T) {
 	for _, purge := range []bool{false, true} {
 		t.Run(fmt.Sprint(purge), func(t *testing.T) {
 			dir := t.TempDir()
 			seedIssueTest(t, dir)
-			e := &issueDisconnectEmbedder{run: func() {
+			original := beforeIssueRankingCurrencyCheck
+			beforeIssueRankingCurrencyCheck = func() {
 				if err := issueStore(dir).Disconnect(issueTestProject, purge); err != nil {
 					t.Fatal(err)
 				}
-			}}
-			hits, err := retrieveIssues(dir, "retry", 5, modeHybrid, e)
+			}
+			t.Cleanup(func() { beforeIssueRankingCurrencyCheck = original })
+			hits, err := retrieveIssues(dir, "retry", 5)
 			if err != nil || len(hits) != 0 {
 				t.Fatalf("disconnected evidence returned: %d, %v", len(hits), err)
-			}
-			if _, err := os.Stat(filepath.Join(dir, "issues", "derived", "vectors.json")); !os.IsNotExist(err) {
-				t.Fatalf("disconnected evidence republished in vector cache: %v", err)
 			}
 		})
 	}

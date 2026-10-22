@@ -9,6 +9,7 @@ import json
 import math
 import pathlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -315,25 +316,82 @@ class ProtocolCheckTest(unittest.TestCase):
 
     def test_preparation_artifacts_are_consistent(self) -> None:
         # The integration verification is an immutable historical receipt.  This
-        # workstream intentionally changes nine of its recorded source files, so
-        # the live validator must fail closed on exactly those stale bindings
-        # rather than silently rewriting the receipt.
+        # workstream changes nine recorded source files, and dependency updates
+        # change the pinned package manifest and lock. The live validator must fail
+        # closed on exactly those stale bindings rather than silently rewriting the
+        # receipt.
         self.assertEqual(
             CHECK.validate(freeze=False),
             [
+                "engine runtime pin package_manifest hash is stale",
+                "engine runtime pin package_lock hash is stale",
                 "source_artifacts[0]: content hash mismatch: benchmarks/agent-brain/run.py",
                 "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",
                 "source_artifacts[8]: content hash mismatch: internal/cli/facts_eligibility_test.go",
                 "source_artifacts[9]: content hash mismatch: internal/cli/facts_read_cmd.go",
-                "source_artifacts[11]: content hash mismatch: internal/cli/embed_rank.go",
-                "source_artifacts[12]: content hash mismatch: internal/cli/embed_store.go",
-                "source_artifacts[13]: content hash mismatch: internal/cli/embed_vec_cgo.go",
+                # The semantic-retrieval removal (trail #278) deleted the next
+                # four recorded sources outright, so the stale bindings now
+                # fail as missing files rather than hash mismatches.
+                "source_artifacts[10]: file does not exist: internal/cli/facts_retrieval_identity_test.go",
+                "source_artifacts[11]: file does not exist: internal/cli/embed_rank.go",
+                "source_artifacts[12]: file does not exist: internal/cli/embed_store.go",
+                "source_artifacts[13]: file does not exist: internal/cli/embed_vec_cgo.go",
                 "source_artifacts[15]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
                 "source_artifacts[17]: content hash mismatch: benchmarks/agent-brain/analysis/confirmatory.py",
                 "analyzer files[3]: content hash mismatch: benchmarks/agent-brain/analysis/evidence.py",
                 "cannot derive power-analysis.json: calibration file does not exist: benchmarks/agent-brain/evidence/replay-lab-clean/panel-p01-clean-proof-claude-20260618T195058Z/records.ndjson",
             ],
         )
+
+    def test_production_engine_binding_rejects_package_lock_byte_drift(self) -> None:
+        pins = CHECK.load(CHECK.ENGINE_PINS)
+        matrix = CHECK.load(HERE / "engine-matrix.json")
+        # Runtime pins bind these historical bytes, not the binary source revision.
+        runtime_revisions = {
+            "server_script": "6b093786e98c41dd0269420d549a34c35a615f2d",
+            "package_manifest": "41e595152896c391f634350568dafb12ac9f84e7",
+            "package_lock": "41e595152896c391f634350568dafb12ac9f84e7",
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            repo = pathlib.Path(temp)
+            for stem, revision in runtime_revisions.items():
+                relative = pins["runtime"][f"{stem}_repo_path"]
+                target = repo / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(
+                    subprocess.check_output(
+                        ["git", "show", f"{revision}:{relative}"],
+                        cwd=CHECK.REPO,
+                    )
+                )
+                self.assertEqual(self._sha(target), pins["runtime"][f"{stem}_sha256"])
+
+            def errors() -> list[str]:
+                return CHECK.validate_engine_verification(
+                    matrix,
+                    {"status": "pass", "evidence": "missing.json"},
+                    here=repo,
+                    repo=repo,
+                    pin_repo=repo,
+                    require_production=True,
+                )
+
+            # Only runtime files are copied: git provenance and evidence remain absent.
+            control = errors()
+            self.assertEqual(
+                control,
+                [
+                    "engine binary source commit is unavailable",
+                    "engine binary source tree differs from commit",
+                    "engine pass evidence is missing",
+                ],
+            )
+            lock = repo / pins["runtime"]["package_lock_repo_path"]
+            lock.write_bytes(lock.read_bytes() + b"\n")
+            self.assertEqual(
+                errors(),
+                control[:2] + ["engine runtime pin package_lock hash is stale"] + control[2:],
+            )
 
     def test_freeze_is_fail_closed_after_dependencies_pass(self) -> None:
         errors = CHECK.validate(freeze=True)

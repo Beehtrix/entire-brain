@@ -79,6 +79,17 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
+	// AgentsUnwired reports that `init-agents` has not been run: the guide or
+	// the managed pointer in AGENTS.md / CLAUDE.md is absent, so no agent has
+	// been told this brain exists.
+	//
+	// This is the product's worst failure mode and it is SILENT -- setup
+	// succeeds, every source reads healthy, and the brain is simply never
+	// consulted. These fields are for the text renderer; JSON and MCP receive
+	// the same diagnostic through the status report's existing warnings field.
+	AgentsUnwired bool `json:"-"`
+	// AgentsMissing names what is absent, so the line can say which half.
+	AgentsMissing []string `json:"-"`
 	// json:"-" for the same published-contract reason as WatchPlan.
 	Paused bool `json:"-"`
 }
@@ -158,7 +169,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 	if watchPlanErr != nil {
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
-	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir))
+	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir), componentRunTimes(storage.BrainDir))
 	onboarding.Paused = backgroundPaused(opts.Env)
 	return onboarding
 }
@@ -174,7 +185,38 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 // a component as built while every query against it failed. The record loses
 // only to a source rebuilt since (generated at or after the record), which is
 // how the line goes back to "built" without anyone clearing state by hand.
-func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord) []brainStatusComponent {
+// componentRunTimes collects, per instant-phase component that publishes one,
+// the moment its subsystem last completed a run. It is what lets a recorded
+// failure age out instead of being reported forever.
+//
+// Only components whose own layer records a run time appear here. Extending it
+// is how another component joins the rule; until then it keeps the previous
+// behaviour, which errs toward still reporting the failure.
+func componentRunTimes(brainDir string) map[string]time.Time {
+	runs := map[string]time.Time{}
+	if run, ok, err := lastPatternRunChecked(brainDir); err == nil && ok {
+		if at, parseErr := time.Parse(time.RFC3339, run.At); parseErr == nil {
+			runs[brainComponentPatterns] = at.UTC()
+		}
+	}
+	return runs
+}
+
+// componentRebuiltSince reports whether a component's own subsystem produced a
+// successful run at or after the moment a failure was recorded for it.
+//
+// Absent or zero means "this component publishes no run time", which is
+// deliberately NOT treated as a rebuild: reporting a failure that has since
+// been fixed is annoying, but hiding one that has not been is worse.
+func componentRebuiltSince(runs map[string]time.Time, name string, recordedAt time.Time) bool {
+	at, ok := runs[name]
+	if !ok || at.IsZero() {
+		return false
+	}
+	return !at.Before(recordedAt)
+}
+
+func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord, componentRuns map[string]time.Time) []brainStatusComponent {
 	failures := map[string]setupComponent{}
 	for _, component := range record.Components {
 		if component.failed() {
@@ -239,14 +281,29 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord)
 			continue
 		}
 		state := "built"
-		if component.failed() {
+		detail, hint := component.Detail, component.Hint
+		// The same staleness rule the five above get. It used to apply only to
+		// manifest-backed sources, so a failure recorded here was reported
+		// FOREVER, however many successful rebuilds happened afterwards. On a
+		// real machine that left `patterns` reading "failed" for four days
+		// over a manifest field that no longer existed anywhere, while
+		// `brain patterns status` read the artifacts directly and said
+		// "current" -- two surfaces, opposite verdicts, same moment.
+		//
+		// A component is only still failed if its subsystem has not produced a
+		// successful run since the failure was recorded. A component that
+		// publishes no run time keeps the old behaviour rather than being
+		// assumed healthy: silence is not success.
+		if component.failed() && !componentRebuiltSince(componentRuns, component.Name, record.UpdatedAt) {
 			state = "failed"
+		} else if component.failed() {
+			detail, hint = "", ""
 		}
 		components = append(components, brainStatusComponent{
 			Name:   component.Name,
 			State:  state,
-			Detail: component.Detail,
-			Hint:   component.Hint,
+			Detail: detail,
+			Hint:   hint,
 		})
 	}
 	return components
@@ -339,6 +396,15 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		return
 	}
 	fmt.Fprintln(out, "\nOnboarding")
+	// FIRST, because it decides whether any of the rest is ever read. A brain
+	// no agent knows about is healthy on every other line and useless in
+	// practice, and nothing else in this report would say so.
+	if onboarding.AgentsUnwired {
+		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s init-agents` so your agent uses this brain\n", brainCmd)
+		if len(onboarding.AgentsMissing) > 0 {
+			fmt.Fprintf(out, "          missing: %s\n", strings.Join(onboarding.AgentsMissing, ", "))
+		}
+	}
 	line := fmt.Sprintf("  facts: %d/%d sessions distilled", onboarding.Facts.Distilled, onboarding.Facts.Sessions)
 	switch {
 	case onboarding.Facts.Running:

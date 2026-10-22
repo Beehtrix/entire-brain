@@ -27,6 +27,41 @@ func Sort(records []Record) {
 // text and paths) therefore collapse for free, which is what makes re-distilling
 // a turn idempotent. It returns the updated set; the input slice may be reused.
 //
+// DedupByID collapses records that repeat an id into one record per id,
+// keeping first position and folding each repeat in through Upsert's merge
+// rules (anchor union, newest UpdatedAt, kind/author fill), so nothing a
+// duplicate carried is dropped. It returns the collapsed set and how many
+// records were folded away. An id is defined to identify exactly one record;
+// a store that violates that (e.g. after a writer concatenated two copies of
+// itself) is repaired losslessly by this pass.
+//
+// Lifecycle is folded one-way: when any copy says superseded or retracted,
+// the survivor does too, whatever order the file held them in. A heal must
+// never revive a fact a later write retired — retraction is a privacy
+// surface — so active never wins over non-active. Between differing
+// non-active copies the first stands; the remaining fields follow Upsert's
+// ordinary first-copy-wins policy, the same one every live writer applies.
+func DedupByID(records []Record) ([]Record, int) {
+	index := make(map[string]int, len(records))
+	out := make([]Record, 0, len(records))
+	folded := 0
+	for _, rec := range records {
+		i, ok := index[rec.ID]
+		if !ok {
+			index[rec.ID] = len(out)
+			out = append(out, rec)
+			continue
+		}
+		Upsert(out[i:i+1], rec)
+		if out[i].Status == StatusActive && rec.Status != StatusActive && rec.Status != "" {
+			out[i].Status = rec.Status
+			out[i].SupersededBy = rec.SupersededBy
+		}
+		folded++
+	}
+	return out, folded
+}
+
 // Upsert deliberately does not implement merge/supersede across *different*
 // ids: that is the agent's judgment during distillation, handled separately.
 func Upsert(records []Record, incoming Record) []Record {

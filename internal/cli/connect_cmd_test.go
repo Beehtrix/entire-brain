@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -34,23 +35,26 @@ func runConnectCommand(t *testing.T, opts Options, args ...string) (string, stri
 func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	whereamiCalls := 0
+	placementCalls := 0
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			whereamiCalls++
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			placementCalls++
 		}
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 
-	_, _, err := runConnectCommand(t, opts,
+	out, _, err := runConnectCommand(t, opts,
 		"--repo-id", "01M2Q9WATHXVM46CD8Y4D3AX8W",
 		"--api-url", "https://cell.api.example.com/api/v1")
-	if err != nil {
-		t.Fatal(err)
+	// This runner cannot mint a token, so the first sync does not run and
+	// connect reports that instead of claiming success (COR-2202). The binding
+	// below must be written regardless.
+	if err == nil || !strings.Contains(err.Error(), "first sync did not run") {
+		t.Fatalf("want the first-sync failure, got err=%v stdout=%q", err, out)
 	}
-	if whereamiCalls != 0 {
-		t.Fatalf("explicit flags must bypass whereami entirely, got %d calls", whereamiCalls)
+	if placementCalls != 0 {
+		t.Fatalf("explicit flags must bypass placement resolution entirely, got %d calls", placementCalls)
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
@@ -68,19 +72,21 @@ func TestConnectWithExplicitFlagsWritesBindingWithoutShellOut(t *testing.T) {
 	}
 }
 
-func TestConnectResolvesViaWhereami(t *testing.T) {
+func TestConnectResolvesViaRepoView(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
-		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "whereami" {
-			return []byte(`{"repo_id":"01AAAAAAAAAAAAAAAAAAAAAAAA","api_url":"https://eu.api.example.com/api/v1","jurisdiction":"eu"}` + "\nUpdate available! 1 -> 2\n"), nil, nil
+		if name == "entire" && len(args) >= 2 && args[0] == "repo" && args[1] == "view" {
+			return []byte(`{"repoId":"01AAAAAAAAAAAAAAAAAAAAAAAA","apiUrl":"https://eu.api.example.com/api/v1","name":"test/repo"}` + "\nUpdate available! 1 -> 2\n"), nil, nil
 		}
 		return nil, nil, errors.New("not available")
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 
-	if _, _, err := runConnectCommand(t, opts); err != nil {
-		t.Fatal(err)
+	// Placement resolves, but this runner cannot mint a token for the sync, so
+	// connect reports the failed first sync; the binding must still be written.
+	if _, _, err := runConnectCommand(t, opts); err == nil || !strings.Contains(err.Error(), "first sync did not run") {
+		t.Fatalf("want the first-sync failure, got %v", err)
 	}
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
@@ -96,7 +102,7 @@ func TestConnectResolvesViaWhereami(t *testing.T) {
 	}
 }
 
-func TestConnectWhereamiUnavailableIsCleanError(t *testing.T) {
+func TestConnectPlacementUnavailableIsCleanError(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -106,7 +112,7 @@ func TestConnectWhereamiUnavailableIsCleanError(t *testing.T) {
 
 	_, _, err := runConnectCommand(t, opts)
 	if err == nil {
-		t.Fatal("whereami failure without flags must error")
+		t.Fatal("placement-resolution failure without flags must error")
 	}
 	if !strings.Contains(err.Error(), "--repo-id") {
 		t.Fatalf("error must point at the explicit flags, got: %v", err)
@@ -117,6 +123,47 @@ func TestConnectWhereamiUnavailableIsCleanError(t *testing.T) {
 	}
 	if _, present, _ := readHostedRepoBinding(storage.BrainDir); present {
 		t.Fatal("no binding may be written on failure")
+	}
+}
+
+func TestConnectPlacementErrorKeepsHostMessageAndFlagsHint(t *testing.T) {
+	// COR-2207: the failure the user reads must carry the host CLI's message
+	// alone — no argv echo, no "Using context" banner — with the explicit-flags
+	// hint as its own line instead of a dangling "; pass ..." clause.
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	hostMessage := `no repo matching "sandbox-audit/brain-sbx" visible from your login (GitHub repos you could onboard: ` + "`entire repo mirror list --available`" + `)`
+	stderr := "Using context 'auth.example.invalid'.\n" + hostMessage + "\n"
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) > 0 && args[0] == "version" {
+			return []byte("Entire CLI 0.12.0\n"), nil, nil
+		}
+		if name == "entire" && len(args) > 0 && args[0] == "repo" {
+			return nil, []byte(stderr), fmt.Errorf("entire [repo view --json]: exit status 1: %s", stderr)
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	_, _, err := runConnectCommand(t, opts)
+	if err == nil {
+		t.Fatal("placement-resolution failure without flags must error")
+	}
+	want := "connect: " + hostMessage + "\nOr pass --repo-id and --api-url explicitly"
+	if err.Error() != want {
+		t.Fatalf("error must be the host message plus the flags hint, got:\n%s\nwant:\n%s", err.Error(), want)
+	}
+}
+
+func TestPlacementFailureErrorWithoutStderrNamesTheCommand(t *testing.T) {
+	err := placementFailureError(fmt.Errorf("entire [repo view --json]: %w", errors.New("exit status 1")), nil)
+	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	bannerOnly := []byte("Using context 'auth.example.invalid'.\n")
+	err = placementFailureError(errors.New("exit status 1"), bannerOnly)
+	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
+		t.Fatalf("banner-only stderr must fall back to the command, got %q, want %q", got, want)
 	}
 }
 
@@ -146,8 +193,8 @@ func TestConnectRejectsInvalidAPIURL(t *testing.T) {
 func TestConnectRunsInitialPull(t *testing.T) {
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()
@@ -160,10 +207,20 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	})
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
 
-	if _, _, err := runConnectCommand(t, opts,
-		"--repo-id", "repo1", "--api-url", srv.URL); err != nil {
+	out, _, err := runConnectCommand(t, opts,
+		"--repo-id", "repo1", "--api-url", srv.URL)
+	if err != nil {
 		t.Fatal(err)
 	}
+	for _, want := range []string{
+		"Connected: repo repo1 is now syncing memories",
+		"sync periodically, at session end, and on git push",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output must contain %q, got:\n%s", want, out)
+		}
+	}
+	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
 	if err != nil {
 		t.Fatal(err)
@@ -183,26 +240,82 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	}
 }
 
-func TestResolveWhereamiBoundsTheShellOut(t *testing.T) {
+func TestResolveHostedPlacementBoundsTheShellOut(t *testing.T) {
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if _, ok := ctx.Deadline(); !ok {
-			t.Error("the whereami shell-out must carry a deadline")
+			t.Error("the placement shell-out must carry a deadline")
 		}
-		return []byte(`{"repo_id":"r","api_url":"https://cell.api.example.com"}`), nil, nil
+		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
 	})
-	if _, err := resolveWhereami(context.Background(), runner, "/repo"); err != nil {
+	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
+func TestCheckHostCLIVersion(t *testing.T) {
+	runnerReporting := func(version string) CommandRunner {
+		return commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+			return []byte(version), nil, nil
+		})
+	}
+	cases := []struct {
+		name    string
+		runner  CommandRunner
+		min     string
+		wantErr bool
+	}{
+		{"too old is refused", runnerReporting("Entire CLI 0.11.3\nGo version: go1.27.1\n"), "0.12.0", true},
+		{"too old with commit suffix is refused", runnerReporting("Entire CLI 0.11.3 (abc1234)\n"), "0.12.0", true},
+		{"new enough with commit suffix passes", runnerReporting("Entire CLI 0.12.0 (abc1234)\n"), "0.12.0", false},
+		{"prerelease of the minimum passes", runnerReporting("Entire CLI 0.12.0-nightly.20261020\n"), "0.12.0", false},
+		{"pseudo-version above the minimum passes", runnerReporting("Entire CLI v0.12.1-0.20261020123456-abcdef123456\n"), "0.12.0", false},
+		{"prerelease of an older release is refused", runnerReporting("Entire CLI 0.11.3-nightly.1\n"), "0.12.0", true},
+		{"unset minimum disables the gate", runnerReporting("Entire CLI 0.11.3\n"), "", false},
+		{"minimum passes", runnerReporting("Entire CLI 0.12.0\n"), "0.12.0", false},
+		{"newer passes", runnerReporting("Entire CLI 0.13.1\n"), "0.12.0", false},
+		{"dev build passes", runnerReporting("Entire CLI dev\n"), "0.12.0", false},
+		{"missing CLI passes", commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+			return nil, nil, errors.New("not found")
+		}), "0.12.0", false},
+	}
+	for _, tc := range cases {
+		err := checkHostCLIVersion(context.Background(), tc.runner, "/repo", tc.min)
+		if (err != nil) != tc.wantErr {
+			t.Errorf("%s: got err=%v, want error=%v", tc.name, err, tc.wantErr)
+		}
+	}
+}
+
+func TestResolveHostedPlacementRefusesAnOldHostCLI(t *testing.T) {
+	prev := minHostCLIVersion
+	minHostCLIVersion = "0.12.0"
+	t.Cleanup(func() { minHostCLIVersion = prev })
+	repoViewCalled := false
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if len(args) > 0 && args[0] == "version" {
+			return []byte("Entire CLI 0.11.3\n"), nil, nil
+		}
+		repoViewCalled = true
+		return []byte(`{"repoId":"r","apiUrl":"https://cell.api.example.com"}`), nil, nil
+	})
+	if _, err := resolveHostedPlacement(context.Background(), runner, "/repo"); err == nil {
+		t.Fatal("placement on a host CLI older than minHostCLIVersion must fail with upgrade guidance")
+	} else if !strings.Contains(err.Error(), "upgrade") {
+		t.Fatalf("error must tell the user to upgrade, got %v", err)
+	}
+	if repoViewCalled {
+		t.Fatal("repo view must not run once the version gate refused")
+	}
+}
+
+func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 	// A connected repo stays re-connectable without flags even before the host
-	// CLI ships whereami: connect falls back to the stored binding, so the
-	// blind-spot note's remedy ("run entire brain connect") always pulls.
+	// CLI ships repo view placement: connect falls back to the stored binding,
+	// so the blind-spot note's remedy ("run entire brain connect") always pulls.
 	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
 	remoteFact := hostedSyncTestFact("team fact via reconnect", now)
-	fake := &hostedFake{ref: "facts-remote", authors: map[string]string{remoteFact.ID: "teammate"}}
-	fake.data = encodeFactsNDJSON(t, []factRecord{remoteFact})
+	fake := &hostedFake{}
+	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	srv := newHostedFakeServer(t, fake)
 
 	repoDir := t.TempDir()
@@ -223,7 +336,7 @@ func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
 	}
 
 	if _, _, err := runConnectCommand(t, opts); err != nil {
-		t.Fatalf("connect on an already-connected repo must not require whereami, got %v", err)
+		t.Fatalf("connect on an already-connected repo must not require placement resolution, got %v", err)
 	}
 	local, err := loadFacts(storage.BrainDir, "main")
 	if err != nil {
@@ -237,5 +350,134 @@ func TestConnectReusesTheExistingBindingWhenWhereamiUnavailable(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("reconnect must pull, got %d local records", len(local))
+	}
+}
+
+func TestConnectClearsOptOut(t *testing.T) {
+	// Re-joining after a disconnect must clear the opt-out, and the opted-out
+	// binding's kept coordinates must serve as the no-flag fallback.
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL, OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := runConnectCommand(t, opts); err != nil {
+		t.Fatal(err)
+	}
+	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	if err != nil || !present {
+		t.Fatalf("binding must be present: present=%v err=%v", present, err)
+	}
+	if binding.OptedOut {
+		t.Fatal("connect must clear the opt-out")
+	}
+	if binding.RepoID != "repo1" || binding.BaseURL != srv.URL {
+		t.Fatalf("connect must rebind the kept coordinates, got %+v", binding)
+	}
+}
+
+// Connect's headline must reflect the first sync's outcome (COR-2202): a
+// failed pull means nothing syncs yet, so the command must not claim "now
+// syncing memories" and must exit non-zero — while still recording the
+// binding, which is durable intent and makes a plain re-run the retry.
+func TestConnectReportsFirstSyncFailure(t *testing.T) {
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{denyFeed: true}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	out, errOut, err := runConnectCommand(t, opts, "--repo-id", "repo1", "--api-url", srv.URL)
+	if err == nil {
+		t.Fatalf("connect must fail when the first sync fails; stdout=%q stderr=%q", out, errOut)
+	}
+	if strings.Contains(out, "now syncing") {
+		t.Fatalf("failed sync must not claim success: %q", out)
+	}
+	storage, storageErr := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if storageErr != nil {
+		t.Fatal(storageErr)
+	}
+	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+		t.Fatalf("binding must survive a failed first sync: present=%v err=%v", present, readErr)
+	}
+}
+
+// Under the kill switch the binding is still recorded (the environment only
+// subtracts), but the output must say nothing will sync instead of claiming
+// "now syncing memories".
+func TestConnectUnderNoEgressSaysNothingSyncs(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+
+	out, _, err := runConnectCommand(t, opts, "--repo-id", "repo1", "--api-url", "https://cell.api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "now syncing") || !strings.Contains(out, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("no-egress connect must name the kill switch, not claim syncing: %q", out)
+	}
+	storage, storageErr := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if storageErr != nil {
+		t.Fatal(storageErr)
+	}
+	if _, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr != nil || !present {
+		t.Fatalf("binding must be recorded under no-egress: present=%v err=%v", present, readErr)
+	}
+}
+
+// Re-running connect on an already-connected repo acknowledges the existing
+// connection instead of announcing a new one.
+func TestConnectAcknowledgesExistingConnection(t *testing.T) {
+	repoDir := t.TempDir()
+	env := connectTestEnv(t, repoDir)
+	fake := &hostedFake{}
+	srv := newHostedFakeServer(t, fake)
+	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
+			return []byte(fakeJWT + "\n"), nil, nil
+		}
+		return nil, nil, errors.New("not available")
+	})
+	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
+	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, _, err := runConnectCommand(t, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "Already connected") {
+		t.Fatalf("re-connect must acknowledge the existing connection: %q", out)
 	}
 }

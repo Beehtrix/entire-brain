@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -47,7 +50,7 @@ const hookFailureTailBytes = 4096
 func newHookCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hook",
-		Short: "Agent-harness hook surface: surface relevant facts at the moment of action",
+		Short: "Agent-harness hook surface: surface relevant memories at the moment of action",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -156,8 +159,8 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 					syncBranches = []string{resolvedBranch, distillDefaultBranch}
 				}
 				for _, syncBranch := range syncBranches {
-					if err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted fact sync failed (local brain unaffected): %v\n", err)
+					if _, err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted memory sync failed (local brain unaffected): %v\n", err)
 					}
 				}
 			}
@@ -199,29 +202,82 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 
 func newHookPreEditCommand(opts Options) *cobra.Command {
 	var (
-		file    string
-		branch  string
-		budget  int
-		jsonOut bool
+		file       string
+		branch     string
+		budget     int
+		jsonOut    bool
+		claudeHook bool
 	)
 	cmd := &cobra.Command{
-		Use:   "pre-edit --file <path>",
-		Short: "Facts locus-anchored to a file about to be edited (silent when none)",
-		Args:  cobra.NoArgs,
+		Use:   "pre-edit [--file <path> | --claude-hook]",
+		Short: "Memories locus-anchored to a file about to be edited (silent when none)",
+		Long: `pre-edit surfaces the memories anchored to a file an agent is about to change.
+
+--file names the file directly, for hand-testing and for harnesses that pass
+arguments. --claude-hook is the wired spelling: Claude Code delivers a
+PreToolUse event as JSON on stdin and only reads a JSON envelope back, so the
+flag reads the path from the event and replies in the shape the host parses.
+Plain stdout is NOT added to the agent's context for PreToolUse, which is why
+the text emission alone could never have reached an agent. ` + setupBrainBinaryName + ` init-agents
+wires it.`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Read the event when asked to, and also when no --file was given
+			// and stdin is a pipe: a harness that invokes the bare verb then
+			// still works instead of failing on a missing flag.
+			//
+			// A terminal stdin is never read, on EITHER path. --claude-hook used
+			// to bypass this guard, so hand-running the exact command the docs
+			// suggest -- the flag's own documented testing route -- blocked for
+			// ever on a read that would never return. Say so instead.
+			if claudeHook && !stdinIsPipe(cmd.InOrStdin()) && strings.TrimSpace(file) == "" {
+				return fmt.Errorf("--claude-hook reads the host's PreToolUse event from stdin, and stdin is a terminal here; pipe an event in, or pass --file <path> to check one file by hand")
+			}
+			// Only read when the answer is still missing. Keying this on
+			// claudeHook as well meant `--file X --claude-hook` read the event
+			// anyway and then discarded it, because the inner guard refuses to
+			// overwrite a --file that was given. On a pipe that does not reach
+			// EOF -- one inherited from a parent that has not closed it -- that
+			// read blocks for up to maxClaudeHookEventBytes, which is the
+			// hand-run hang the check above this one exists to prevent.
+			if strings.TrimSpace(file) == "" && stdinIsPipe(cmd.InOrStdin()) {
+				if path, ok := decodeClaudeHookEventPath(cmd.InOrStdin()); ok {
+					file = path
+				}
+			}
 			if strings.TrimSpace(file) == "" {
+				// An event that names no path at all (a Bash call reaching a
+				// loose matcher, say) is the hook contract's silent-honest-empty
+				// case, not misuse. Misuse is still an error, so hand-testing
+				// stays debuggable.
+				if claudeHook {
+					return nil
+				}
 				return fmt.Errorf("--file is required")
 			}
 			facts, target, ok := hookLoadFacts(cmd, opts, branch)
 			if !ok {
 				return nil // no brain / no facts: silence, never an error
 			}
+			if filepath.IsAbs(file) {
+				repoRel, err := filepath.Rel(target.repoDir, file)
+				if err != nil || repoRel == ".." || strings.HasPrefix(repoRel, ".."+string(filepath.Separator)) {
+					return nil
+				}
+				file = repoRel
+			}
 			rel := filepath.ToSlash(file)
 			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 			// The stem ("distill_cmd") matches facts that name the file without
 			// its extension or talk about its symbols' shared prefix.
 			hits := factsRelevantToChange([]string{rel, stem}, nil, facts, 8)
-			kept, err := hookEmit(cmd, hits, budget, jsonOut)
+			var kept []factRecord
+			var err error
+			if claudeHook {
+				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget)
+			} else {
+				kept, err = hookEmit(cmd, hits, budget, jsonOut)
+			}
 			if err == nil {
 				hookRecordServed(cmd, opts, target, "hook-pre-edit", rel, kept)
 			}
@@ -229,10 +285,95 @@ func newHookPreEditCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&file, "file", "", "Path of the file about to be edited (repo-relative or absolute)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose facts to consult (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
+	cmd.Flags().BoolVar(&claudeHook, "claude-hook", false, "Read a Claude Code PreToolUse event on stdin and reply with its hook envelope")
 	return cmd
+}
+
+// claudeHookEvent is the subset of Claude Code's PreToolUse payload this hook
+// needs. Every other field is ignored rather than rejected: the host owns the
+// shape and adds to it, and a hook that failed on an unknown key would break
+// the harness on the next release.
+type claudeHookEvent struct {
+	ToolInput struct {
+		FilePath string `json:"file_path"`
+		// NotebookEdit names its target differently; a hook wired to a matcher
+		// that includes it would otherwise see every notebook edit as pathless.
+		NotebookPath string `json:"notebook_path"`
+	} `json:"tool_input"`
+}
+
+// decodeClaudeHookEventPath reads one PreToolUse event and returns the path the
+// tool is about to write. Malformed input is "no path", never an error — the
+// hook contract is that a data problem is silence.
+func decodeClaudeHookEventPath(r io.Reader) (string, bool) {
+	if r == nil {
+		return "", false
+	}
+	data, err := io.ReadAll(io.LimitReader(r, maxClaudeHookEventBytes))
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return "", false
+	}
+	var event claudeHookEvent
+	if err := json.Unmarshal(data, &event); err != nil {
+		return "", false
+	}
+	for _, candidate := range []string{event.ToolInput.FilePath, event.ToolInput.NotebookPath} {
+		if path := strings.TrimSpace(candidate); path != "" {
+			return path, true
+		}
+	}
+	return "", false
+}
+
+// maxClaudeHookEventBytes bounds the event read. The payload is small, but a
+// hook must not be the thing that runs the machine out of memory.
+const maxClaudeHookEventBytes = 1 << 20
+
+// stdinIsPipe reports whether stdin carries piped input. A character device is
+// a terminal, and reading one blocks forever — the difference between a hook
+// that no-ops when hand-run and one that hangs the shell.
+func stdinIsPipe(r io.Reader) bool {
+	file, ok := r.(*os.File)
+	if !ok {
+		// A test buffer or any other reader: readable without blocking.
+		return true
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice == 0
+}
+
+// hookEmitClaudeEnvelope writes the ONE stdout shape Claude Code feeds back into
+// the agent's context for PreToolUse. Plain lines on stdout are discarded by the
+// host at exit 0, so the text emission — the only one this verb had — could
+// never reach an agent no matter how it was wired.
+//
+// It keeps the rest of the hook contract exactly: nothing at all when no fact
+// cleared the bar (an empty envelope is noise), the same budget, and no
+// permissionDecision, because surfacing a fact must never block an edit.
+func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) ([]factRecord, error) {
+	kept := hookKeepWithinBudget(hits, budget)
+	if len(kept) == 0 {
+		return nil, nil
+	}
+	lines := make([]string, 0, len(kept)+1)
+	lines = append(lines, "Memories this project recorded about this file:")
+	for _, f := range kept {
+		lines = append(lines, fmt.Sprintf("- [%s] %s", factKindOrInferred(f), f.Text))
+	}
+	type specific struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	}
+	envelope := struct {
+		HookSpecificOutput specific `json:"hookSpecificOutput"`
+	}{specific{HookEventName: "PreToolUse", AdditionalContext: strings.Join(lines, "\n")}}
+	return kept, writeJSON(cmd, envelope)
 }
 
 func newHookPostFailureCommand(opts Options) *cobra.Command {
@@ -271,7 +412,7 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 		},
 	}
 	cmd.Flags().StringVar(&command, "command", "", "The command that failed (added to the match query)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose facts to consult (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch whose memories to consult (default: current)")
 	cmd.Flags().IntVar(&budget, "budget", hookDefaultBudgetTokens, "Token budget for the emission")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit JSON instead of text lines")
 	return cmd
@@ -376,9 +517,13 @@ func hookMatchFailure(facts []factRecord, query string) []factRecord {
 // it alone exceeds the budget — an empty emission for a real match would be a
 // false negative, the worse failure mode. It returns the facts actually
 // emitted so the caller can leave serve receipts for exactly those.
-func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) ([]factRecord, error) {
+// hookKeepWithinBudget is the budget rule itself, shared by every emission
+// shape so a new one cannot quietly get a different cap. At least one fact
+// survives when any matched, even if it alone exceeds the budget — an empty
+// emission for a real match would be a false negative, the worse failure mode.
+func hookKeepWithinBudget(hits []factRecord, budget int) []factRecord {
 	if len(hits) == 0 {
-		return nil, nil
+		return nil
 	}
 	if budget <= 0 {
 		budget = hookDefaultBudgetTokens
@@ -392,6 +537,14 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 		}
 		kept = append(kept, f)
 		spent += cost
+	}
+	return kept
+}
+
+func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) ([]factRecord, error) {
+	kept := hookKeepWithinBudget(hits, budget)
+	if len(kept) == 0 {
+		return nil, nil
 	}
 	if jsonOut {
 		type hookFact struct {
@@ -413,4 +566,79 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 			fmt.Fprintf(out, "[%s] %s\n", factKindOrInferred(f), f.Text)
 		}
 	})
+}
+
+// A Claude Code PreToolUse hook receives its payload as JSON on STDIN. It does
+// NOT receive a CLAUDE_FILE_PATH environment variable; no such variable exists.
+// Measured against Claude Code 2.1.288 by wiring a hook that dumped its stdin
+// and environment:
+//
+//	stdin: {"hook_event_name":"PreToolUse","tool_name":"Write",
+//	        "tool_input":{"file_path":"/abs/path","content":"…"},
+//	        "cwd":"…","session_id":"…","tool_use_id":"…"}
+//	env:   CLAUDE_PROJECT_DIR, CLAUDE_PID, CLAUDE_EFFORT, CLAUDE_TRANSCRIPT_PATH,
+//	       CLAUDE_CODE_ENTRYPOINT, … and no CLAUDE_FILE_PATH
+//
+// The first wiring of this hook passed `--file "$CLAUDE_FILE_PATH"`, which
+// expanded to the empty string on every edit, so the hook errored out every
+// time and served nothing. It was a no-op that looked installed.
+type agentHookPayload struct {
+	HookEventName string `json:"hook_event_name"`
+	ToolName      string `json:"tool_name"`
+	ToolInput     struct {
+		FilePath string `json:"file_path"`
+		// NotebookEdit uses notebook_path rather than file_path.
+		NotebookPath string `json:"notebook_path"`
+	} `json:"tool_input"`
+}
+
+// hookStdinWouldBlock reports whether reading this reader would wait on a
+// person: it is the process's real stdin, and that stdin is a terminal.
+//
+// A harness always redirects stdin, so this is false for every real hook
+// invocation and true only for someone running the verb by hand.
+func hookStdinWouldBlock(in io.Reader) bool {
+	return in == os.Stdin && stdinIsTerminal()
+}
+
+// hookFileFromStdin reads a harness hook payload and returns the path of the
+// file about to be edited.
+//
+// Every failure is a silent empty string, never an error. The hook's contract
+// is that a data problem is silence: a hook that fails breaks the harness it is
+// wired into, and an edit must never be blocked because the brain could not
+// parse something. The caller decides whether an empty result is fatal, which
+// keeps `--file` hand-testing debuggable.
+func hookFileFromStdin(in io.Reader) (path string, sawInput bool) {
+	if in == nil {
+		return "", false
+	}
+	// A hook payload is small; cap the read so a non-hook stdin (a piped file,
+	// a terminal left open) cannot hang or balloon.
+	const maxPayloadBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(in, maxPayloadBytes+1))
+	if len(data) > maxPayloadBytes {
+		return "", true
+	}
+	if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+		return "", false
+	}
+	// sawInput is true from here on, and that distinction is the whole point.
+	// Something INVOKED us with a payload. If we cannot make sense of it, the
+	// answer is silence and exit 0, never an error: this runs as a PreToolUse
+	// hook on every edit, and a hook that reports an error on every edit is a
+	// hook that gets deleted from the settings within a day -- the same
+	// doctrine that makes an empty fact set silent rather than loud.
+	//
+	// An error is reserved for the case where NOTHING supplied a path: no
+	// stdin and no --file. That is a human hand-testing the verb wrong, and
+	// they need to be told.
+	var payload agentHookPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", true
+	}
+	if p := strings.TrimSpace(payload.ToolInput.FilePath); p != "" {
+		return p, true
+	}
+	return strings.TrimSpace(payload.ToolInput.NotebookPath), true
 }

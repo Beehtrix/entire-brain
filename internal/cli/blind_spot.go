@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -93,17 +94,39 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	if note := otherBranchBlindSpot(brainDir, branch); note != "" {
 		return note
 	}
+	// An import with --overwrite replaced the fact layer wholesale, so facts
+	// remembered here before it are gone. Every note below this point talks
+	// about distillation coverage, which would send the reader to re-distill --
+	// and re-distilling cannot bring back what an import replaced. Ordered
+	// after the integrity and branch checks: a lost store or a wrong branch is
+	// still the more precise answer when either applies.
+	importedAt, imported := lastBundleImportAt(brainDir)
 	last, undigested, ok := distillCoverage(manifest)
+	// Only while the import is still the most recent thing that happened. It
+	// stays TRUE forever -- those facts really are gone -- but it stops being
+	// the most useful answer once work has been distilled since, and returning
+	// it unconditionally masked coverage information permanently. Raised as a
+	// finding, and correct.
+	if imported && (!ok || importedAt.After(last)) {
+		return fmt.Sprintf("note: a bundle import on %s replaced this brain's memory layer with the bundle's, so memories recorded here before then are no longer present; this empty result is not evidence of absence", importedAt.Format("2006-01-02"))
+	}
+	// Past that point the coverage note leads, but the import is still named:
+	// re-distilling cannot bring back what the import replaced, and a reader
+	// sent to distill without being told that would try it and find nothing.
+	suffix := ""
+	if imported {
+		suffix = fmt.Sprintf(" (a bundle import on %s replaced the fact layer; anything recorded before then is gone whatever distillation reports)", importedAt.Format("2006-01-02"))
+	}
 	if !ok {
 		if manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `entire brain distill`", len(manifest.Sources.Sessions.Sessions))
+			return fmt.Sprintf("note: distillation coverage is unknown for %d captured session(s); run `"+brainInvocation(os.LookupEnv, "distill")+"`", len(manifest.Sources.Sessions.Sessions)) + suffix
 		}
-		return "note: no distillation timestamp is recorded; run `entire brain refresh`, then `distill`"
+		return "note: no distillation timestamp is recorded; run `" + brainInvocation(os.LookupEnv, "refresh") + "`, then `distill`" + suffix
 	}
 	if undigested > 0 {
-		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested)
+		return fmt.Sprintf("note: last distillation %s; %d session(s) captured since; coverage of older sessions is unknown", last.Format("2006-01-02"), undigested) + suffix
 	}
-	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02"))
+	return fmt.Sprintf("note: last distillation %s; complete session coverage is unknown, so this empty result is not evidence of absence", last.Format("2006-01-02")) + suffix
 }
 
 // otherBranchBlindSpot reports active facts held on branches other than the one
@@ -147,7 +170,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if len(shown) > 3 {
 		shown, suffix = shown[:3], ", ..."
 	}
-	return fmt.Sprintf("note: no matching facts on %s, but %d active fact(s) on %d other branch(es): %s%s — retry with --branch",
+	return fmt.Sprintf("note: no matching memories on %s, but %d active memory(ies) on %d other branch(es): %s%s — retry with --branch",
 		branch, total, len(names), strings.Join(shown, ", "), suffix)
 }
 
@@ -165,17 +188,87 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 // mattered most. An agent reads that empty array as "the brain knows nothing
 // about this" and writes the tool off, when the true answer is "there is no
 // brain here yet". brain_code already refuses this state out loud ("semantic
-// index missing; run `entire brain index`"); the text retrieval surface stayed
-// silent about it.
+// index missing", naming the refresh command that builds one); the text
+// retrieval surface stayed silent about it.
 //
 // Same mechanism as every other line in this file: one `note:` string, carried
 // by the existing blind_spot field on JSON responses and printed under the
 // "no results" line on text ones. Nothing new is introduced.
 func noBrainBlindSpot(loadErr error) string {
 	if loadErr != nil {
-		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `entire brain status` for the reason"
+		return "note: this repository's brain could not be read, so this empty result is not evidence of absence; run `" + brainInvocation(os.LookupEnv, "status") + "` for the reason"
 	}
-	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `entire brain setup`"
+	return "note: no brain has been built for this repository, so nothing is indexed here and this empty result is not evidence of absence; run `" + brainInvocation(os.LookupEnv, "setup") + "`"
+}
+
+// briefBranchBlindSpot explains an empty fact set on the CURRENT branch when
+// other branches hold facts, and names them.
+//
+// This is the trap in its most damaging form. Facts are stored per branch, so
+// `brain brief` on a feature branch reports "0 facts" while the brain is full
+// — and the brief is step 1 of the shipped agent guide, so this is the FIRST
+// thing an agent sees. Nothing in the packet said why, which reads as "this
+// brain knows nothing about your project" rather than "you are on a branch
+// that has none".
+//
+// Measured on this repository: `recall "distill"` on a feature branch returns
+// "no facts", and the same query with `--branch main` returns a fact. An agent
+// given the empty answer has no way to discover the second half.
+//
+// recall and query reach emptyResultBlindSpot for this; brief did not, despite
+// that function's own comment claiming to cover every retrieval surface.
+func briefBranchBlindSpot(brainDir, branch string) string {
+	if brainDir == "" {
+		return ""
+	}
+	byBranch, err := loadAllFactBranches(brainDir)
+	if err != nil || len(byBranch) == 0 {
+		return ""
+	}
+	// ACTIVE facts only. A branch whose facts are all retracted or superseded
+	// holds nothing retrievable, so naming it sends the reader to re-run their
+	// query somewhere it will also come back empty -- a false lead dressed as
+	// a remedy, which is worse than the silence this note replaces.
+	//
+	// MERGE NOTE: PR #318 adds otherBranchBlindSpot to this file, doing the
+	// same job for the retrieval surfaces. The two are deliberately
+	// behaviourally IDENTICAL in what they count (active facts on other
+	// branches) and differ only in phrasing for their surface. Whichever of
+	// #318 and #331 lands second should collapse this into a call to that
+	// function with brief's wording -- a pure refactor, no behaviour change.
+	// They diverged on exactly this active-vs-any check until it was fixed
+	// here, which is the state that would have made the collapse dangerous.
+	others := make([]string, 0, len(byBranch))
+	for name, facts := range byBranch {
+		if name == branch {
+			continue
+		}
+		active := 0
+		for _, fact := range facts {
+			if fact.Status == factStatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		others = append(others, name)
+	}
+	if len(others) == 0 {
+		return ""
+	}
+	sort.Strings(others)
+	// Name at most three: the point is that the facts are reachable, and a
+	// long list of branches buries that in a surface that is already dense.
+	shown := others
+	suffix := ""
+	if len(shown) > 3 {
+		suffix = fmt.Sprintf(" (and %d more)", len(shown)-3)
+		shown = shown[:3]
+	}
+	return fmt.Sprintf(
+		"no memories on branch %q, but %d branch(es) hold memories: %s%s — memories are stored per branch; retry with `--branch %s`",
+		branch, len(others), strings.Join(shown, ", "), suffix, shown[0])
 }
 
 // otherBranchSessionBlindSpot reports captured sessions held on branches other
@@ -247,7 +340,7 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 		return ""
 	}
 	binding, connected, err := readHostedRepoBinding(brainDir)
-	if err != nil || !connected {
+	if err != nil || !connected || binding.OptedOut {
 		return ""
 	}
 	if checkHostedFactsBinding(brainDir, branch, binding.RepoID, binding.BaseURL) == nil {
@@ -256,5 +349,5 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 	// The remedy must be a command that PULLS: `facts sync` only publishes
 	// (and would write the marker that silences this note without fetching
 	// anything); connect runs the full sync-and-pull.
-	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run 'entire brain connect' or wait for the next daemon tick", branch)
+	return fmt.Sprintf("note: this repository is connected to a hosted brain but branch %q has not synced with it; run '"+brainInvocation(os.LookupEnv, "connect")+"' or wait for the next daemon tick", branch)
 }

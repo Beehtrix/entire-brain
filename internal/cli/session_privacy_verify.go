@@ -3,8 +3,10 @@ package cli
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -139,7 +141,10 @@ func validatePrivacySQLiteSnapshot(path, rel string) error {
 	return nil
 }
 
-const privacyVectorVerifyMaxRows = 2_000_000
+// A var so the ceiling regression test can exercise the bound without
+// scanning two million rows; production never changes it.
+var privacyVectorVerifyMaxRows = 2_000_000
+
 const privacySQLiteSnapshotMaxBytes int64 = 16 << 30
 
 type privacySQLiteSnapshotSource struct {
@@ -474,7 +479,7 @@ func requirePrivacyDerivedRead(brainDir string) error {
 		return err
 	}
 	if !allowed {
-		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `entire brain privacy purge <session-id>`", memoryErrPrivacyDirty)
+		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", memoryErrPrivacyDirty)
 	}
 	return nil
 }
@@ -510,7 +515,7 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if !report.Clean {
-				return fmt.Errorf("privacy verify found %d violations; re-run `entire brain privacy purge <session-id>` (idempotent) or `entire brain refresh` to rebuild", len(report.Findings))
+				return fmt.Errorf("privacy verify found %d violations; re-run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` (idempotent) or `"+brainInvocation(os.LookupEnv, "refresh")+"` to rebuild", len(report.Findings))
 			}
 			return nil
 		},
@@ -529,8 +534,52 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
+	manifestForStorage, err := loadBrainManifest(brainDir)
+	if err != nil {
+		return report, err
+	}
+	if checkpointBackedSessions(manifestForStorage) {
+		inventory, err := collectHistorySessionInventoryMode(context.Background(), brainDir, true)
+		if err != nil && !errors.Is(err, errHistorySessionsRootMissing) {
+			return report, err
+		}
+		if inventory != nil {
+			defer inventory.Close()
+			for _, file := range inventory.files {
+				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run " + brainInvocation(os.LookupEnv, "refresh") + " sessions"})
+			}
+		}
+		store := newTranscriptStore(ExecRunner{}, brainDir)
+		guard, err := store.guardNow()
+		if err != nil {
+			return report, err
+		}
+		for id := range stones.Excluded {
+			if !guard.blocksSession(id) {
+				report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: id, Artifact: "transcript_read_gate", Detail: "tombstone is not enforced by transcript store"})
+			}
+		}
+		// Exercise the same gate used by actual reads. A random storage error
+		// is not evidence of privacy enforcement: require the tombstone refusal.
+		for rel, id := range guard.paths {
+			_, finish, err := store.Open(context.Background(), rel)
+			if finish != nil {
+				_ = finish()
+			}
+			if err == nil || !strings.Contains(err.Error(), "is tombstoned") {
+				report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: id, Artifact: "transcript_read_gate", Detail: "transcript read did not attest tombstone: " + rel})
+			}
+		}
+	}
 	if len(stones.Excluded) == 0 {
-		report.Clean = true
+		_, finalState, err := loadSessionTombstonesChecked(brainDir)
+		if err != nil {
+			return report, err
+		}
+		if finalState.Identity != tombstoneState.Identity {
+			return report, fmt.Errorf("%s: session tombstones changed during privacy verification", memoryErrPrivacyDirty)
+		}
+		report.Clean = len(report.Findings) == 0
 		return report, nil
 	}
 	manifest, err := loadBrainManifest(brainDir)
@@ -604,13 +653,11 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	var activeIndex historyIndex
 	if source != nil {
 		index, err := loadBrainHistoryIndex(brainDir, source)
 		if err != nil {
 			return report, err
 		}
-		activeIndex = index
 		for _, record := range index.Records {
 			if _, tombstoned := stones.Excluded[record.SessionID]; tombstoned && record.SessionID != "" {
 				add(record.SessionID, "history_index", "record "+record.ID)
@@ -814,34 +861,17 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		report.Findings = append(report.Findings, corpusFindings...)
 	}
-	vectorRels := []struct {
-		rel        string
-		hiddenKind func(string) bool
-	}{
-		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)), hiddenKind: historyGeneralRankingHiddenKind},
-		{rel: filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)), hiddenKind: conversationSemanticHiddenKind},
-	}
-	for _, vectorStore := range vectorRels {
-		if !currentArtifacts[vectorStore.rel] {
+	// Semantic retrieval was removed (trail #278): no writer can rebuild or
+	// re-validate a vector store, so any surviving legacy store is itself a
+	// finding — its rows predate the removal and may retain purged sessions.
+	for _, rel := range []string{
+		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+	} {
+		if !currentArtifacts[rel] {
 			continue
 		}
-		if source == nil {
-			// The store is newer than the newest tombstone, but the manifest
-			// declares no history source, so there is no active index to
-			// attribute its rows against. Skipping it (the previous behavior)
-			// still published Clean = true for a store whose membership was
-			// never checked, and requirePrivacyDerivedRead then allowed every
-			// retrieval and pattern mutation to proceed against it. An
-			// un-attributable store is a finding, not a pass.
-			add("", vectorStore.rel, "vector store is newer than the newest tombstone but the manifest declares no history source, so its rows cannot be attributed; rebuild the history projection then re-verify")
-			continue
-		}
-		wanted, _ := vectorEligibleRecordIDs(activeIndex, vectorStore.hiddenKind)
-		findings, inspectErr := inspectPrivacyVectorIDsSnapshot(sqliteSnapshots[vectorStore.rel], vectorStore.rel, wanted, newestID)
-		if inspectErr != nil {
-			return report, inspectErr
-		}
-		report.Findings = append(report.Findings, findings...)
+		add("", rel, "legacy semantic vector store survives after the semantic-retrieval removal; delete it (its rows cannot be attributed and may retain purged sessions)")
 	}
 	// Hosted-provider egress receipts retain content-free session identity and
 	// digest metadata. They are still session-linked records and must disappear

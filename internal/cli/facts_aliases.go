@@ -28,6 +28,7 @@ const (
 	factStatusActive     = factmerge.StatusActive
 	factStatusSuperseded = factmerge.StatusSuperseded
 	factStatusRetracted  = factmerge.StatusRetracted
+	factStatusCandidate  = factmerge.StatusCandidate
 
 	factActionNew       = factmerge.ActionNew
 	factActionMerge     = factmerge.ActionMerge
@@ -49,6 +50,8 @@ func factRecordID(text string, sortedPaths []string) string {
 	return factmerge.RecordID(text, sortedPaths)
 }
 
+func factTextOverlap(a, b string) float64 { return factmerge.TextOverlap(a, b) }
+
 func validFactPath(path string) bool { return factmerge.ValidPath(path) }
 
 func normalizeFactPaths(paths []string) []string { return factmerge.NormalizePaths(paths) }
@@ -57,6 +60,10 @@ func validFactKind(kind string) bool { return factmerge.ValidFactKind(kind) }
 
 func upsertFact(records []factRecord, incoming factRecord) []factRecord {
 	return factmerge.Upsert(records, incoming)
+}
+
+func dedupFactRecords(records []factRecord) ([]factRecord, int) {
+	return factmerge.DedupByID(records)
 }
 
 func sortFactRecords(records []factRecord) { factmerge.Sort(records) }

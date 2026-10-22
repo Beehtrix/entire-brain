@@ -29,7 +29,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_statement_coverage_reuses_windows_shards_without_a_second_suite(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("\n  coverage-windows:", workflow)
-        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  test-cgo:\n", 1)[0]
+        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  phase1-semantic:\n", 1)[0]
         coverage_commands = [line.strip() for line in windows.splitlines() if "tools/coverage/run.py" in line]
         self.assertEqual(len(coverage_commands), 1)
         self.assertIn("--race --binary-only", coverage_commands[0])

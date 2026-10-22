@@ -17,6 +17,7 @@ import (
 	"os"
 	pathpkg "path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"unicode"
 
 	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +48,15 @@ const (
 	// semanticSchemaVersion is the newest provider schema this build knows how
 	// to ingest in full. A newer minor is still accepted (ADR 0001: minors are
 	// additive) but warns, because facts added after this version are dropped.
-	semanticSchemaVersion               = "1.1"
+	//
+	// 1.2 added identity_revision (consumed: internal/entityindex keys every
+	// stored delta by it and re-migrates when it changes). 1.3 added
+	// completeness.health (consumed: carried verbatim as the Completeness raw
+	// message and persisted on the manifest) and the partial-failure language
+	// field above. Leaving this at 1.1 fired provider_schema_newer_minor on
+	// EVERY index against a current entire-graph, telling users facts were
+	// dropped when they were not.
+	semanticSchemaVersion               = "1.3"
 	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
@@ -60,7 +70,6 @@ const (
 	// aborts promptly. Both are configurable via flags.
 	semanticSnapshotTimeout           = 30 * time.Minute
 	semanticSnapshotInactivityTimeout = 5 * time.Minute
-	semanticIndexLockTimeout          = 10 * time.Second
 
 	// semanticWorktreeModeName is the worktree_mode value recorded for an index
 	// built from dirty worktree content rather than committed HEAD. The two are
@@ -68,6 +77,10 @@ const (
 	// it by name.
 	semanticWorktreeModeName = "worktree"
 )
+
+// A var so lock-contention tests can fail fast instead of waiting out the
+// production retry window, matching the maxDocumentTranscriptBytes seam.
+var semanticIndexLockTimeout = 10 * time.Second
 
 var (
 	semanticBundleMaxEntry int64 = 128 * 1024 * 1024
@@ -177,6 +190,11 @@ type semanticWarning struct {
 	Code     string `json:"code"`
 	Severity string `json:"severity"`
 	Path     string `json:"path,omitempty"`
+	// Language is schema 1.3's optional partial-failure classification. The
+	// provider sets it when a source fails before any file record exists, so
+	// it is the ONLY signal of what failed in that case: Path is empty there.
+	// Dropping it left those failures unattributable to any language.
+	Language string `json:"language,omitempty"`
 	Effect   string `json:"effect,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 }
@@ -281,6 +299,22 @@ type semanticIndexOptions struct {
 	force       bool
 	graphBinary string
 	skipGraph   bool
+	// localCommit and localTree are brain's OWN `git rev-parse HEAD` and
+	// `HEAD^{tree}`, used only to stamp a snapshot header the provider could
+	// not stamp itself. entire-graph refuses git metadata subprocesses in a
+	// partial clone -- correctly, since a promisor remote can fetch over the
+	// network and it runs --no-network -- and returns an empty commit and
+	// tree, which made brain discard an index it had already parsed in full.
+	//
+	// They are withdrawn for a dirty --worktree index: see runSemanticIndex.
+	// What is indexed there is the working tree, which does not hash to
+	// HEAD^{tree}, and the validator skips the tree check in that mode -- so a
+	// stamp would write a wrong content identity that nothing could catch.
+	//
+	// These are facts rather than options, and they live here only because the
+	// stream path already threads this struct end to end.
+	localCommit string
+	localTree   string
 	// Compatibility aliases for callers created before the graph-provider
 	// command rename. New code should use graphBinary and skipGraph.
 	semBinary      string
@@ -318,6 +352,20 @@ func (o semanticIndexOptions) reportPhase(phase string) {
 	if o.progress != nil {
 		o.progress(phase)
 	}
+}
+
+// semanticIndexMissingError is the single wording of "there is no semantic
+// index here", used by every surface that discovers one is missing.
+//
+// It exists because the remedy was wrong in all nine of them: they told the
+// reader to run "entire brain index", and there is no "index" verb at the root
+// -- the binary answers: unknown command "index". A reader who hit this error
+// was told to fix it with a command that could not run, which is worse than
+// saying nothing. The remedy is now built from the registered verb and the
+// spelling of this binary the reader actually reached, so it is runnable as
+// printed. TestEveryCommandPrintedInSourceResolves holds that.
+func semanticIndexMissingError() error {
+	return fmt.Errorf("semantic index missing; run `%s`", brainInvocation(os.LookupEnv, semanticIndexVerb))
 }
 
 type semanticResetOptions struct {
@@ -567,12 +615,40 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 	}
 	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
-	dirty, err := worktreeDirtyWithIgnore(ctx, opts.Runner, repoDir, ignore)
+	// The GATE reads worktreeGateIgnore, not the `ignore` the indexer uses
+	// below. They are deliberately different sets: Entire-authored config does
+	// not block the install, and it stays in the indexed corpus. See
+	// entireAuthoredGatePaths.
+	gateIgnore, err := worktreeGateIgnore(repoDir)
+	if err != nil {
+		return err
+	}
+	dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)
 	if err != nil {
 		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
 	}
+	// ...and withdrawn again for a dirty --worktree index, because then they
+	// are not true of what was indexed.
+	//
+	// The stamp exists to fill in an identity the provider refused to compute;
+	// it must not invent one. In worktree mode the content indexed is the
+	// WORKING TREE, which by definition does not hash to HEAD^{tree}, and
+	// validateLiveSemanticHeader deliberately skips the tree comparison there
+	// (allowWorktreeTree) -- so a wrong tree would be written down and nothing
+	// downstream could catch it. Every later consumer treats tree as the
+	// content identity of the snapshot.
+	//
+	// Stamping the commit alone is not the answer either: a header with one
+	// and not the other is what the stamp's own contract calls a provider that
+	// answered inconsistently. So in this one case the snapshot stays
+	// identity-less and is refused -- with the provider's reason attached, so
+	// the reader learns it is a partial clone rather than a mystery.
+	if indexOpts.worktree && dirty {
+		indexOpts.localCommit = ""
+		indexOpts.localTree = ""
+	}
 	if dirty && !indexOpts.worktree {
-		return errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content without --worktree")
+		return dirtyWorktreeRefusal("index", dirtyPaths)
 	}
 	worktreeHashBefore := ""
 	if indexOpts.worktree {
@@ -711,7 +787,7 @@ func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, ind
 		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
 			return err
 		}
-		if err := validateLiveSemanticHeader(header, head, tree, indexOpts.worktree && dirty); err != nil {
+		if err := validateLiveSemanticHeader(header, head, tree, repoDir, indexOpts.worktree && dirty); err != nil {
 			return err
 		}
 		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
@@ -887,7 +963,7 @@ func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, ta
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	source := manifest.Sources.Semantic
 	// Repair is meant to regenerate a missing/corrupt generation from the
@@ -1200,6 +1276,22 @@ func stringValue(data map[string]any, key string) string {
 	return s
 }
 
+// errSemanticProviderAbsent marks a semantic failure whose cause is the graph
+// provider not being installed or launchable at all — binary missing, host CLI
+// without the graph plugin — as opposed to a provider that ran and
+// misbehaved. Refresh degrades this class instead of aborting: the graph
+// provider is strongly encouraged but never required, and every other brain
+// source builds without it. A provider that is PRESENT and fails stays fatal.
+var errSemanticProviderAbsent = errors.New("semantic provider is not installed")
+
+type semanticProviderAbsentError struct{ err error }
+
+func (e semanticProviderAbsentError) Error() string { return e.err.Error() }
+func (e semanticProviderAbsentError) Unwrap() error { return e.err }
+func (e semanticProviderAbsentError) Is(target error) bool {
+	return target == errSemanticProviderAbsent
+}
+
 // semanticDoctorFailureError turns a failed no-egress verification into an
 // error that names the actual root cause instead of a single generic
 // "no-egress status is not verified" claim. runSemanticDoctor already
@@ -1223,14 +1315,19 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 	}
 	switch code {
 	case "provider_doctor_failed":
+		var err error
 		switch {
 		case semanticDetailMeansBinaryNotFound(detail):
-			return fmt.Errorf("%s: graph binary %q was not found: %s (install it, or point --graph-binary at the entire-graph binary to use)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q was not found: %s; install the provider with `entire plugin install graph`", code, graphBinary, detail)
 		case semanticDetailMeansBinaryNotExecutable(detail):
-			return fmt.Errorf("%s: graph binary %q could not be run: %s (check its permissions, or point --graph-binary at a working entire-graph binary)", code, graphBinary, detail)
+			err = fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
-			return fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
 		}
+		if semanticDetailMeansProviderAbsent(detail) {
+			return semanticProviderAbsentError{err}
+		}
+		return err
 	case "provider_doctor_timeout":
 		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
 	case "provider_doctor_malformed":
@@ -1292,77 +1389,65 @@ func semanticProviderUnverifiedError(graphBinary string, warnings []semanticWarn
 	if summary := semanticProviderDetailSummary(detail); summary != "" {
 		message += ": " + summary
 	}
-	if semanticProviderMissing(detail) {
-		binary := strings.TrimSpace(graphBinary)
-		if binary == "" {
-			binary = entireBinaryName
-		}
-		message += fmt.Sprintf(
-			"; the entire-graph semantic provider is not installed (%s has no `graph` command)"+
-				" -- install it with `scripts/install.sh` from the entire-brain checkout"+
-				" (it builds and registers entire-graph from the sibling clone),"+
-				" then re-run `%s setup`", binary, setupCommandPrefix(os.LookupEnv))
+	binary := strings.TrimSpace(graphBinary)
+	if binary == "" {
+		binary = entireBinaryName
+	}
+	// One decision, shared with the entity index, about BOTH what the remedy
+	// is and whether to say it. The guard this replaces lived here only, so
+	// the entity index stacked a duplicate on hosts that name the install
+	// command themselves -- and it tested the DETAIL, which is wrong in the
+	// other direction: the message is a summary of the detail, and the
+	// summary is what cuts the host's remedy line, so a multi-line detail
+	// suppressed a sentence the reader never got. See MissingSuffix.
+	message += providerdetail.MissingSuffix(message, detail, binary, os.LookupEnv)
+	if providerdetail.Missing(detail) && semanticDetailMeansProviderAbsent(detail) {
+		return semanticProviderAbsentError{errors.New(message)}
 	}
 	return errors.New(message)
 }
 
 // semanticProviderDetailSummary reduces a subprocess failure to one printable
-// line.
-//
-// A CLI answers an unknown command by dumping its ENTIRE usage text -- sixty
-// lines of command groups and flags -- to stderr, and that text arrives here as
-// the error detail. Printed whole it buries the one sentence that matters
-// inside setup's failure line, its summary block, `status` and `doctor` alike.
-// The line the CLI marks with "Error:" is that sentence; the first line is the
-// fallback for tools that do not mark one. Detection still runs against the
-// FULL detail, so shortening what is shown never changes what is recognised.
+// line. The rule lives in internal/providerdetail because the entity index
+// fails from the same cause and must report it identically; see that package.
 func semanticProviderDetailSummary(detail string) string {
-	detail = strings.TrimSpace(detail)
-	if detail == "" {
-		return ""
-	}
-	lines := strings.Split(detail, "\n")
-	summary := strings.TrimSpace(lines[0])
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if after, ok := strings.CutPrefix(line, "Error:"); ok {
-			summary = strings.TrimSpace(after)
-			break
-		}
-	}
-	summary = strings.TrimSuffix(strings.TrimSpace(summary), "Usage:")
-	summary = strings.TrimSpace(summary)
-	const maxProviderDetail = 200
-	if runes := []rune(summary); len(runes) > maxProviderDetail {
-		summary = strings.TrimSpace(string(runes[:maxProviderDetail])) + "..."
-	}
-	return summary
+	return providerdetail.Summary(detail)
 }
 
-// semanticProviderMissing recognises the provider-absent shape of a doctor
-// failure -- the host CLI rejecting an unknown `graph` command, or the binary
-// not being on PATH at all -- as opposed to a provider that ran and reported
-// something. Matching on text is unavoidable here: the failure is another
-// process's exit status plus its stderr, and there is no typed error to switch
-// on across a process boundary.
-func semanticProviderMissing(detail string) bool {
+// semanticDetailMeansProviderAbsent decides the FATALITY class of a doctor
+// failure: an ABSENT provider degrades the refresh's semantic stage, a
+// present-and-broken one aborts it. Absence has exactly two shapes. Either
+// the doctor process never launched — the command runner stamps "exit status"
+// into the detail whenever the binary ran, so no stamp plus a not-found or
+// not-executable detail is a launch failure — or the binary RAN and reported
+// the graph plugin missing by name. Generic "no such file or directory" text
+// from a provider that ran is its own stderr talking about something else
+// (e.g. a helper file it could not open) and must stay fatal; only
+// semanticProviderMissing, which routes MESSAGES, may match that loosely.
+func semanticDetailMeansProviderAbsent(detail string) bool {
 	text := strings.ToLower(detail)
-	if text == "" {
-		return false
+	if !strings.Contains(text, "exit status") {
+		return semanticDetailMeansBinaryNotFound(detail) || semanticDetailMeansBinaryNotExecutable(detail)
 	}
 	for _, marker := range []string{
 		`unknown command "graph"`,
 		"unknown command 'graph'",
 		"unknown command graph",
-		"executable file not found",
-		"no such file or directory",
-		"command not found",
+		"plugin is not installed",
 	} {
 		if strings.Contains(text, marker) {
 			return true
 		}
 	}
 	return false
+}
+
+// semanticProviderMissing recognises the provider-absent shape of a doctor
+// failure. Shared with the entity index for the same reason, and matched
+// against the FULL detail so summarising what is shown cannot change what is
+// recognised.
+func semanticProviderMissing(detail string) bool {
+	return providerdetail.Missing(detail)
 }
 
 func boolValue(data map[string]any, key string) bool {
@@ -1399,15 +1484,15 @@ func semanticSnapshotRejectsIgnoreFile(err error) bool {
 //	validateSemanticProviderRepoKey   the spelling the provider stamped
 //	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
 //	validateImportedBundle            (another brain's bundle, an older snapshot)
-func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allowWorktreeTree bool) error {
+func validateLiveSemanticHeader(header semanticHeader, commit, tree, repoDir string, allowWorktreeTree bool) error {
 	if header.Commit == "" {
-		return errors.New("semantic snapshot header missing commit")
+		return fmt.Errorf("semantic snapshot header missing commit%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.Tree == "" {
-		return errors.New("semantic snapshot header missing tree")
+		return fmt.Errorf("semantic snapshot header missing tree%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.RepoKey == "" {
-		return errors.New("semantic snapshot header missing repo_key")
+		return fmt.Errorf("semantic snapshot header missing repo_key%s", semanticProviderRefusalContext(header, repoDir))
 	}
 	if header.Commit != "" && commit != "" && header.Commit != commit {
 		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
@@ -1416,6 +1501,55 @@ func validateLiveSemanticHeader(header semanticHeader, commit, tree string, allo
 		return fmt.Errorf("semantic snapshot tree %q does not match HEAD tree %q", header.Tree, tree)
 	}
 	return nil
+}
+
+// semanticProviderRefusalContext renders the provider's own explanation for an
+// identity-less snapshot, for appending to an otherwise bare refusal.
+//
+// A snapshot with no commit is almost never the provider malfunctioning: it is
+// the provider declining to run git and SAYING SO. The canonical case is a
+// promisor remote -- Entire's own `filtered_fetches: true` writes one -- which
+// makes entire-graph refuse git subprocesses to keep its no-egress guarantee
+// and fall back to a filesystem walk. It reports that as E_NO_GIT_HEAD, naming
+// the cause and the remedy.
+//
+// mergeSemanticSummary has already folded the trailing summary record into the
+// header by the time this runs, so those warnings are in hand. Reporting only
+// "header missing commit" throws away the one sentence that tells the reader
+// what to do, and turns a self-describing refusal into a mystery. That cost
+// four wrong hypotheses and an instrumented bisect to rediscover something the
+// provider had already printed.
+func semanticProviderRefusalContext(header semanticHeader, repoDir string) string {
+	best := ""
+	for _, w := range append(append([]semanticWarning(nil), header.Warnings...), header.PartialFailures...) {
+		detail := strings.TrimSpace(w.Detail)
+		if detail == "" {
+			detail = strings.TrimSpace(w.Effect)
+		}
+		if detail == "" {
+			continue
+		}
+		// This runs BEFORE sanitizeSemanticWarnings does -- validation is the
+		// gate the snapshot has not passed yet -- so the text here is exactly
+		// what the provider wrote, host paths and all. The error is printed,
+		// and the component detail built from it is recorded and can travel
+		// in a bundle, so it is redacted here rather than trusted to a later
+		// pass that this path never reaches.
+		detail = redactSemanticPathsInText(detail, repoDir)
+		line := w.Code + ": " + detail
+		// E_NO_GIT_HEAD is the one that names why identity is absent; prefer it
+		// over the worktree-fallback warning that merely reports the symptom.
+		if w.Code == "E_NO_GIT_HEAD" {
+			return "; the provider reported " + line
+		}
+		if best == "" {
+			best = line
+		}
+	}
+	if best == "" {
+		return ""
+	}
+	return "; the provider reported " + best
 }
 
 func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (semanticHeader, semanticCounts, []byte, error) {
@@ -1431,8 +1565,7 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot header: %w", err)
 	}
 	header.RepoRoot = ""
-	header.Warnings = ignore.FilterWarnings(header.Warnings)
-	header.PartialFailures = ignore.FilterWarnings(header.PartialFailures)
+	header.Warnings, header.PartialFailures = ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
 	header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
 	header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
 	headerLine, marshalErr := json.Marshal(header)
@@ -1520,8 +1653,9 @@ func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (sem
 			if err := json.Unmarshal(recordRaw, &summary); err != nil {
 				return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)
 			}
-			summary.Warnings = sanitizeSemanticWarnings(ignore.FilterWarnings(summary.Warnings), repoDir)
-			summary.PartialFailures = sanitizeSemanticWarnings(ignore.FilterWarnings(summary.PartialFailures), repoDir)
+			keptWarnings, keptFailures := ignore.filterIgnoredWarningLists(summary.Warnings, summary.PartialFailures)
+			summary.Warnings = sanitizeSemanticWarnings(keptWarnings, repoDir)
+			summary.PartialFailures = sanitizeSemanticWarnings(keptFailures, repoDir)
 			mergeSemanticSummary(&header, &summary)
 			encoded, marshalErr := json.Marshal(summary)
 			if marshalErr != nil {
@@ -1779,9 +1913,12 @@ func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 		Code:     "provider_schema_newer_minor",
 		Severity: "warning",
 		Effect:   "additive semantic facts introduced after " + semanticSchemaVersion + " may not have been ingested",
+		// Kept under statusCauseWidth: this Detail is rendered inside the
+		// one-line status cause, and the longer wording was cut mid-word
+		// ("...so the snapshot is usabl") in the short report.
 		Detail: fmt.Sprintf(
-			"semantic provider emitted schema_version %q but this build reads %s; minors are additive, so the snapshot is usable, but upgrade entire-brain to ingest everything %q carries",
-			version, semanticSchemaVersion, version),
+			"provider schema_version %q is newer than this build's %s; minors are additive, so the snapshot is usable -- upgrade to ingest everything",
+			version, semanticSchemaVersion),
 	}
 }
 
@@ -2239,6 +2376,14 @@ func writeSemanticSnapshotManifest(brainDir, snapshotID string, source *semantic
 
 type brainIgnore struct {
 	patterns []string
+	// repoDir is kept so warning text carrying ABSOLUTE paths can be matched.
+	// Provider warnings are built from raw subprocess output (Detail is
+	// serr.Error()), so the paths in them are absolute, while every pattern in
+	// .brainignore is repo-relative. Without the root to relativise against,
+	// Ignored("/abs/repo/secret/x.go") is false for the pattern "secret/" and
+	// the warning is never withheld. Empty is valid and simply disables the
+	// relativising step.
+	repoDir string
 }
 
 func (i brainIgnore) gitPathspecExclusions() []string {
@@ -2270,11 +2415,11 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 	data, err := os.ReadFile(filepath.Join(repoDir, ".brainignore"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return brainIgnore{}, nil
+			return brainIgnore{repoDir: repoDir}, nil
 		}
-		return brainIgnore{}, fmt.Errorf("read .brainignore: %w", err)
+		return brainIgnore{repoDir: repoDir}, fmt.Errorf("read .brainignore: %w", err)
 	}
-	var ignore brainIgnore
+	ignore := brainIgnore{repoDir: repoDir}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -2283,6 +2428,85 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 		ignore.patterns = append(ignore.patterns, filepath.ToSlash(line))
 	}
 	return ignore, nil
+}
+
+// entireAuthoredGatePaths are the files ENTIRE'S OWN installers write into a
+// repository. `entire graph init-agents` creates AGENTS.md, CLAUDE.md and
+// .claude/settings.json; brain itself writes .brainignore. So a user who runs
+// the documented install sequence arrives at the next command with a tree that
+// Entire dirtied, and BOTH components refuse it:
+//
+//	$ entire graph init-agents
+//	$ entire brain setup
+//	seed:     dirty_worktree: refusing to seed uncommitted content without --worktree
+//	semantic: dirty_worktree: refusing to index uncommitted content without --worktree
+//
+// The first person to report this blamed themselves ("could be me"). It was
+// not them: the install dirtied the tree the install then refused.
+//
+// The list is not invented here. The five runtime-state entries are exactly
+// this repository's own .brainignore stanza headed "Local agent/editor runtime
+// state", which is the maintainers' existing line between agent runtime state
+// and source; copying it is what keeps this set principled instead of a guess.
+// AGENTS.md, CLAUDE.md and .brainignore are added because they are Entire's
+// output too and a fresh repo has no .brainignore for them to be listed in.
+//
+// The writers live across the whole product, not just this repo, which is why
+// "nothing in entire-brain writes it" is the wrong test for membership:
+// entire-graph's init-agents writes AGENTS.md, CLAUDE.md and
+// .claude/settings.json; the cli writes .codex/hooks.json for
+// `entire enable --agent codex` (cmd/entire/cli/agent/codex/hook_root.go);
+// brain writes .brainignore. One install flow, one user, several repos.
+//
+// This list is GATE-ONLY, and that is the whole design. brainIgnore.Ignored is
+// the INDEXING filter — filterSemanticSnapshot, the snapshot stream, the file
+// walks and semantic coverage all run through it — so putting AGENTS.md and
+// CLAUDE.md in the shared list would DELETE them from the indexed doc corpus.
+// That is a regression wearing a fix's clothes: the .brainignore stanza above
+// deliberately does NOT list AGENTS.md or CLAUDE.md, because maintainers put
+// those two on the indexed side on purpose. They stay indexed. Only the dirty
+// GATE learns to ignore them.
+//
+// The justification for the gate is narrow: the gate exists to stop seeding
+// uncommitted SOURCE into an index attributed to a commit. Config that Entire
+// wrote is not source. Indexing it is fine; blocking the install on it is not.
+// A user's own hand-edits to AGENTS.md/CLAUDE.md stop blocking too, which is
+// the same call made once.
+//
+// .entire/* needs no entry: brainIgnore.Ignored already exempts it by segment.
+var entireAuthoredGatePaths = []string{
+	"AGENTS.md",
+	"CLAUDE.md",
+	".brainignore",
+	// Verbatim from .brainignore, "Local agent/editor runtime state".
+	".claude/settings.json",
+	".claude/skills/",
+	".codex/config.toml",
+	".codex/hooks.json",
+	".codex/skills/",
+}
+
+// worktreeGateIgnore is loadBrainIgnore plus entireAuthoredGatePaths, for the
+// dirty-worktree GATE only. A user's own .brainignore still applies in full:
+// the built-ins are ADDED to the user's patterns, never substituted for them.
+func worktreeGateIgnore(repoDir string) (brainIgnore, error) {
+	ignore, err := loadBrainIgnore(repoDir)
+	if err != nil {
+		return brainIgnore{}, err
+	}
+	return ignore.withGatePaths(entireAuthoredGatePaths), nil
+}
+
+// withGatePaths returns a COPY carrying extra patterns. It never appends into
+// the receiver's slice: brainIgnore values are passed by value but share the
+// backing array, so an in-place append could publish gate-only patterns into an
+// indexing ignore that happened to have spare capacity — the exact leak this
+// whole seam exists to prevent.
+func (i brainIgnore) withGatePaths(paths []string) brainIgnore {
+	merged := make([]string, 0, len(i.patterns)+len(paths))
+	merged = append(merged, i.patterns...)
+	merged = append(merged, paths...)
+	return brainIgnore{patterns: merged}
 }
 
 func semanticProviderIgnoreFiles(repoDir string) ([]string, error) {
@@ -2377,18 +2601,91 @@ func pathHasSegment(path, segment string) bool {
 	return false
 }
 
+// FilterWarnings drops the warnings whose subject is a path the ignore rules
+// cover. It is the raw filter; production call sites use
+// FilterWarningsReported so the count of withheld warnings is not lost.
 func (i brainIgnore) FilterWarnings(warnings []semanticWarning) []semanticWarning {
+	filtered, _ := i.filterWarningsCounted(warnings)
+	return filtered
+}
+
+// warningsHiddenCode is the notice FilterWarningsReported appends when the
+// ignore rules withheld anything.
+const warningsHiddenCode = "warnings_hidden_by_brainignore"
+
+// FilterWarningsReported filters and then says how much it removed.
+//
+// Silence here is the actual hazard. The filter runs over the provider's own
+// warning and partial-failure lists, so an over-broad ignore rule does not just
+// hide a path: it turns a degraded index into a report with an empty warning
+// list, which every reader downstream renders as "clean". A count costs one
+// record and makes the omission visible.
+// filterIgnoredWarningLists filters a header's two warning lists together and
+// discloses, in the warnings list only, how much each one lost.
+//
+// Disclosure has to live in exactly one place and be accurate about what it
+// covers. Appending a notice to each list separately put "N provider
+// warning(s) were withheld" inside PartialFailures, where it is wrong twice
+// over: a withheld-count notice is not a partial failure, and the entries it
+// was counting there were failures, not warnings. Partial failures being
+// hidden is the more serious of the two, so it is named explicitly rather than
+// folded into one total.
+func (i brainIgnore) filterIgnoredWarningLists(warnings, partialFailures []semanticWarning) ([]semanticWarning, []semanticWarning) {
+	keptWarnings, droppedWarnings := i.filterWarningsCounted(warnings)
+	keptFailures, droppedFailures := i.filterWarningsCounted(partialFailures)
+	if droppedWarnings+droppedFailures == 0 {
+		return keptWarnings, keptFailures
+	}
+
+	var detail string
+	switch {
+	case droppedFailures == 0:
+		detail = fmt.Sprintf("%d provider warning(s) named ignored paths and were withheld by brainignore rules", droppedWarnings)
+	case droppedWarnings == 0:
+		detail = fmt.Sprintf("%d partial indexing failure(s) named ignored paths and were withheld by brainignore rules", droppedFailures)
+	default:
+		detail = fmt.Sprintf("%d provider warning(s) and %d partial indexing failure(s) named ignored paths and were withheld by brainignore rules",
+			droppedWarnings, droppedFailures)
+	}
+	// The notice carries no path token of its own, so re-filtering an already
+	// filtered snapshot cannot swallow it.
+	return append(keptWarnings, semanticWarning{
+		Code:     warningsHiddenCode,
+		Severity: "warning",
+		Effect:   "this warning list is incomplete",
+		Detail:   detail,
+	}), keptFailures
+}
+
+func (i brainIgnore) FilterWarningsReported(warnings []semanticWarning) []semanticWarning {
+	filtered, dropped := i.filterWarningsCounted(warnings)
+	if dropped == 0 {
+		return filtered
+	}
+	// The notice carries no path token of its own, so re-filtering an already
+	// filtered snapshot cannot swallow it.
+	return append(filtered, semanticWarning{
+		Code:     warningsHiddenCode,
+		Severity: "warning",
+		Effect:   "this warning list is incomplete",
+		Detail:   fmt.Sprintf("%d provider warning(s) named ignored paths and were withheld by brainignore rules", dropped),
+	})
+}
+
+func (i brainIgnore) filterWarningsCounted(warnings []semanticWarning) ([]semanticWarning, int) {
 	if len(warnings) == 0 {
-		return nil
+		return nil, 0
 	}
 	filtered := make([]semanticWarning, 0, len(warnings))
+	dropped := 0
 	for _, warning := range warnings {
 		if i.Ignored(warning.Path) || i.MentionsIgnoredPath(warning.Detail) || i.MentionsIgnoredPath(warning.Effect) {
+			dropped++
 			continue
 		}
 		filtered = append(filtered, warning)
 	}
-	return filtered
+	return filtered, dropped
 }
 
 func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []semanticWarning {
@@ -2398,6 +2695,7 @@ func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []sema
 	sanitized := make([]semanticWarning, 0, len(warnings))
 	for _, warning := range warnings {
 		warning.Path = sanitizeSemanticWarningPath(warning.Path)
+		warning.Language = sanitizeSemanticWarningLanguage(warning.Language)
 		warning.Effect = sanitizeSemanticWarningText(warning.Effect, repoDir)
 		warning.Detail = sanitizeSemanticWarningText(warning.Detail, repoDir)
 		sanitized = append(sanitized, warning)
@@ -2426,6 +2724,82 @@ func sanitizeSemanticWarningPath(path string) string {
 	return clean
 }
 
+// sanitizeSemanticWarningLanguage clamps schema 1.3's language tag.
+//
+// Path and the two text fields are sanitized because they are provider-
+// supplied and end up in the manifest, which ships in a bundle. Language
+// arrived with 1.3 and went straight through -- the same untrusted string
+// from the same untrusted process, reaching the same shared artifact, with
+// no check at all.
+//
+// It is clamped rather than redacted because a language tag is an identifier,
+// not prose: there is no legitimate value with a space, a slash or a quote in
+// it, so anything outside that shape is not a language tag and the honest
+// thing to record is that this failure had no language, which is exactly what
+// the field already means when a provider omits it.
+func sanitizeSemanticWarningLanguage(language string) string {
+	const maxLanguageLen = 32
+	if language == "" || len(language) > maxLanguageLen {
+		return ""
+	}
+	for i := 0; i < len(language); i++ {
+		ch := language[i]
+		switch {
+		case ch >= 'a' && ch <= 'z', ch >= 'A' && ch <= 'Z', ch >= '0' && ch <= '9':
+		case ch == '+' || ch == '#' || ch == '-' || ch == '_' || ch == '.':
+		default:
+			return ""
+		}
+	}
+	return language
+}
+
+// redactSemanticPathsInText removes the paths from provider text and keeps
+// the sentence they were in.
+//
+// sanitizeSemanticWarningText is all-or-nothing on purpose: a warning body is
+// data nobody reads unless something has already gone wrong, so collapsing
+// the whole string to <redacted> costs nothing and cannot leak. A refusal
+// REASON is the opposite. It is the one sentence that tells the reader what
+// happened and what to do, and <redacted> turns a self-describing refusal
+// back into the mystery that cost four wrong hypotheses and an instrumented
+// bisect -- the exact failure semanticProviderRefusalContext exists to end.
+//
+// So the paths go and the words stay: the repo's own directory becomes
+// <repo>, every other absolute path becomes <path>. What a path means is
+// decided by the same scanner the all-or-nothing sanitizer uses, so the two
+// cannot disagree about what counts as one.
+func redactSemanticPathsInText(text, repoDir string) string {
+	if text == "" {
+		return ""
+	}
+	if repoDir != "" {
+		text = strings.ReplaceAll(text, repoDir, "<repo>")
+		if slashed := filepath.ToSlash(repoDir); slashed != repoDir {
+			text = strings.ReplaceAll(text, slashed, "<repo>")
+		}
+	}
+	text = replaceAbsolutePathSpans(text, unixAbsolutePathSpans)
+	return replaceAbsolutePathSpans(text, windowsDrivePathSpans)
+}
+
+// replaceAbsolutePathSpans swaps every span the finder reports for <path>.
+func replaceAbsolutePathSpans(text string, find func(string) [][2]int) string {
+	spans := find(text)
+	if len(spans) == 0 {
+		return text
+	}
+	var b strings.Builder
+	prev := 0
+	for _, span := range spans {
+		b.WriteString(text[prev:span[0]])
+		b.WriteString("<path>")
+		prev = span[1]
+	}
+	b.WriteString(text[prev:])
+	return b.String()
+}
+
 func sanitizeSemanticWarningText(text, repoDir string) string {
 	if text == "" {
 		return ""
@@ -2446,6 +2820,17 @@ func sanitizeSemanticWarningText(text, repoDir string) string {
 }
 
 func containsWindowsDrivePathText(text string) bool {
+	return len(windowsDrivePathSpans(text)) > 0
+}
+
+// windowsDrivePathSpans reports every drive-letter path in text as a
+// half-open [start, end) byte range.
+//
+// This is the single definition of what a Windows path IS: the all-or-nothing
+// sanitizer asks whether there is one, the refusal redactor asks where they
+// are, and neither gets to hold its own opinion.
+func windowsDrivePathSpans(text string) [][2]int {
+	var spans [][2]int
 	for i := 0; i+2 < len(text); i++ {
 		if !isASCIIAlpha(text[i]) || text[i+1] != ':' {
 			continue
@@ -2454,14 +2839,31 @@ func containsWindowsDrivePathText(text string) bool {
 			continue
 		}
 		next := text[i+2]
-		if next == '\\' || next == '/' || !isPathBoundary(next) {
-			return true
+		if next != '\\' && next != '/' && isPathBoundary(next) {
+			continue
 		}
+		end := i + 2
+		for end < len(text) && !isPathBoundary(text[end]) {
+			end++
+		}
+		spans = append(spans, [2]int{i, end})
+		i = end - 1
 	}
-	return false
+	return spans
 }
 
 func containsUnixAbsolutePathText(text string) bool {
+	return len(unixAbsolutePathSpans(text)) > 0
+}
+
+// unixAbsolutePathSpans reports every absolute POSIX path in text as a
+// half-open [start, end) byte range. See windowsDrivePathSpans: one
+// definition, two questions.
+//
+// Trailing "." and ":" are left OUTSIDE the span, so a path at the end of a
+// sentence keeps its full stop.
+func unixAbsolutePathSpans(text string) [][2]int {
+	var spans [][2]int
 	for i := 0; i < len(text); i++ {
 		if text[i] != '/' {
 			continue
@@ -2480,11 +2882,13 @@ func containsUnixAbsolutePathText(text string) bool {
 			end++
 		}
 		candidate := strings.TrimRight(text[i:end], ".:")
-		if looksLikeUnixAbsolutePath(candidate) {
-			return true
+		if !looksLikeUnixAbsolutePath(candidate) {
+			continue
 		}
+		spans = append(spans, [2]int{i, i + len(candidate)})
+		i = end - 1
 	}
-	return false
+	return spans
 }
 
 func looksLikeUnixAbsolutePath(candidate string) bool {
@@ -2516,18 +2920,166 @@ func isPathBoundary(ch byte) bool {
 	}
 }
 
+// MentionsIgnoredPath reports whether free-form warning text NAMES a path the
+// ignore rules cover. Every candidate is parsed out as a path token and matched
+// with Ignored; the text is never substring-matched against a pattern.
+//
+// Substring matching was the bug. `.brainignore` holds repository-relative
+// patterns, and warning Detail at this point in the pipeline still holds the
+// provider's absolute paths (sanitizeSemanticWarnings has not run yet), so a
+// pattern like `entire-brain` — the checkout's own directory name, and the
+// first line of this repository's own .brainignore — is a substring of EVERY
+// absolute path under it. Every index warning matched and was discarded, and
+// status then reported a clean index over files it had silently failed to
+// parse.
 func (i brainIgnore) MentionsIgnoredPath(text string) bool {
-	text = filepath.ToSlash(text)
-	if text == "" {
-		return false
-	}
-	for _, pattern := range append([]string{".env", ".pem", ".key"}, i.patterns...) {
-		pattern = strings.Trim(filepath.ToSlash(pattern), "/")
-		if pattern != "" && strings.Contains(text, pattern) {
+	for _, token := range brainIgnorePathTokens(text) {
+		if i.Ignored(i.relativiseToRepo(token)) {
 			return true
 		}
 	}
 	return false
+}
+
+// relativiseToRepo turns an absolute path inside the repo into the
+// repo-relative form .brainignore patterns are written in. A path outside the
+// repo, or a path already relative, is returned unchanged -- an outside path
+// genuinely is not covered by this repo's ignore rules.
+//
+// The symlink-evaluated root is tried as well: on macOS a temp dir reached as
+// /var/... resolves to /private/var/..., and provider output can carry either.
+func (i brainIgnore) relativiseToRepo(token string) string {
+	if i.repoDir == "" || !absolutePathToken(token) {
+		return token
+	}
+	roots := []string{i.repoDir}
+	if resolved, err := filepath.EvalSymlinks(i.repoDir); err == nil && resolved != i.repoDir {
+		roots = append(roots, resolved)
+	}
+	for _, root := range roots {
+		prefix := filepath.ToSlash(root)
+		if !strings.HasSuffix(prefix, "/") {
+			prefix += "/"
+		}
+		if rel, ok := cutPathPrefix(token, prefix); ok && rel != "" {
+			return rel
+		}
+	}
+	return token
+}
+
+// absolutePathToken recognises an absolute path in the slash-normalised form
+// brainIgnorePathTokens produces. A Windows path is absolute as "C:/x" and as
+// "//host/share/x", neither of which starts with a single slash -- checking for
+// "/" alone silently disabled ignore matching for every absolute provider
+// warning on Windows, which CI caught and a Unix-only test could not.
+func absolutePathToken(token string) bool {
+	if strings.HasPrefix(token, "/") {
+		return true
+	}
+	if len(token) >= 3 && token[1] == ':' && token[2] == '/' {
+		c := token[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return false
+}
+
+// cutPathPrefix strips a path prefix, folding case where the filesystem does.
+// Windows and macOS both commonly compare paths case-insensitively, so a
+// provider that reports "C:/Repo/secret/x.go" against a root recorded as
+// "C:/repo" must still match.
+func cutPathPrefix(token, prefix string) (string, bool) {
+	if rel, ok := strings.CutPrefix(token, prefix); ok {
+		return rel, true
+	}
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		return "", false
+	}
+	if len(token) < len(prefix) || !strings.EqualFold(token[:len(prefix)], prefix) {
+		return "", false
+	}
+	return token[len(prefix):], true
+}
+
+// brainIgnorePathTokens extracts the path-shaped words from prose.
+//
+// A token is split on the characters that cannot occur inside a path in a
+// sentence, stripped of trailing sentence punctuation, and kept only when it
+// still looks like a path (it contains a separator or a dot). Trailing-only
+// trimming is deliberate: `.env` is a filename, not a sentence fragment.
+func brainIgnorePathTokens(text string) []string {
+	if text == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(filepath.ToSlash(text), func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\n', '\r', '"', '\'', '`', '(', ')', '[', ']', '{', '}', '<', '>', '|', ',', ';', '=':
+			return true
+		default:
+			return false
+		}
+	})
+	tokens := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimRight(field, ".,;:!?")
+		if field == "" || field == "." || field == ".." || field == "/" {
+			continue
+		}
+		if !strings.ContainsAny(field, "/.") {
+			continue
+		}
+		tokens = append(tokens, field)
+		// A compiler or parser error names its location as
+		// "<path>:<line>:<col>", and TrimRight above only removes a TRAILING
+		// colon -- so ".env:3:5" survives as one token and matches no
+		// exact-file pattern: Ignored() compares against ".env", and
+		// ".env:3:5" is not equal to it, does not contain "/.env" and does not
+		// end in ".env".
+		//
+		// That is the shape the warnings this filter exists to withhold
+		// actually take, and such an error routinely quotes the offending
+		// SOURCE LINE -- so a parse failure in an ignored .env, .pem, .key or
+		// a user's own secrets pattern was written into the snapshot warnings
+		// and printed by `brain status`. Measured before this fix:
+		// "/repo/.env" was withheld and "/repo/.env:3:5" was not.
+		//
+		// The bare path is offered as an ADDITIONAL token rather than
+		// replacing the original, so a file whose name genuinely ends in
+		// digits after a colon still matches its own pattern.
+		if trimmed := trimPathPositionSuffix(field); trimmed != field && trimmed != "" {
+			tokens = append(tokens, trimmed)
+		}
+	}
+	return tokens
+}
+
+// trimPathPositionSuffix removes trailing ":<digits>" groups, the
+// "<path>:<line>:<col>" form every compiler, linter and parser uses.
+//
+// Only digits are stripped, and only from the end: a path containing a colon
+// followed by anything else is left alone, because that colon may be part of
+// the name.
+func trimPathPositionSuffix(token string) string {
+	for {
+		idx := strings.LastIndexByte(token, ':')
+		// A position suffix needs a non-empty path before its colon. Keep
+		// leading-colon tokens intact rather than reducing them to no path.
+		if idx <= 0 || idx == len(token)-1 {
+			return token
+		}
+		suffix := token[idx+1:]
+		allDigits := true
+		for _, r := range suffix {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if !allDigits {
+			return token
+		}
+		token = token[:idx]
+	}
 }
 
 func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
@@ -2538,8 +3090,28 @@ func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args .
 	return strings.TrimSpace(string(stdout)), nil
 }
 
+// worktreeDirty answers the GATE question — "is there uncommitted work here
+// that a HEAD-attributed index must not absorb?" — so it reads the gate ignore,
+// not the indexing one.
+//
+// Its other three callers were checked rather than inherited by accident, and
+// all three want the same answer:
+//
+//   - verifySemanticWorktreeStable compares this result against a dirtyBefore
+//     captured by the same gate. If the two used different ignore sets, an
+//     install that merely rewrote .claude/settings.json mid-index would report
+//     "worktree dirtiness changed during semantic indexing" — a failure invented
+//     by the mismatch itself. Consistency here is not optional.
+//   - semanticStaleReport feeds the `worktree` axis a reader sees in `status`.
+//     It must not print "dirty" about a tree the gate calls clean, or the
+//     remedy mapping in status_render.go names a command the state does not
+//     need.
+//   - semanticRefreshNeeded (refresh.go) turns dirty into "rebuild". Left on the
+//     indexing ignore it would queue a rebuild for an Entire-authored config
+//     edit and then have the rebuild refuse it — which is the reported bug,
+//     one layer up.
 func worktreeDirty(ctx context.Context, runner CommandRunner, repoDir string) (bool, error) {
-	ignore, err := loadBrainIgnore(repoDir)
+	ignore, err := worktreeGateIgnore(repoDir)
 	if err != nil {
 		return false, err
 	}
@@ -2547,11 +3119,143 @@ func worktreeDirty(ctx context.Context, runner CommandRunner, repoDir string) (b
 }
 
 func worktreeDirtyWithIgnore(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore) (bool, error) {
+	dirty, _, err := worktreeDirtyDetail(ctx, runner, repoDir, ignore)
+	return dirty, err
+}
+
+// worktreeDirtyDetail answers "is it dirty" and "which paths" from ONE git
+// status. The refusal has to name the offending files, and re-running status to
+// find out would let the answer change between the two calls.
+func worktreeDirtyDetail(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore) (bool, []string, error) {
 	stdout, err := gitStatusPorcelainAll(ctx, runner, repoDir)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	return strings.TrimSpace(string(filterWorktreeStatus(stdout, ignore))) != "", nil
+	filtered := filterWorktreeStatus(stdout, ignore)
+	if strings.TrimSpace(string(filtered)) == "" {
+		return false, nil, nil
+	}
+	return true, worktreeStatusPathList(filtered), nil
+}
+
+// worktreeStatusPathList flattens already-filtered porcelain lines into the
+// distinct paths behind them, in status order.
+func worktreeStatusPathList(status []byte) []string {
+	var paths []string
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(status), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		for _, path := range worktreeStatusPaths(line) {
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths
+}
+
+// dirtyWorktreeRefusal builds the message both gates raise. It used to name a
+// flag and nothing else — not which files were in the way, and not what to do
+// instead — so a reader could clear one offending file, hit the second gate,
+// and still be told only "--worktree".
+//
+// The dirtyWorktreeErrorCode+":" prefix is a MACHINE CONTRACT and is preserved
+// exactly: setupIsDirtyWorktree (setup.go) matches on it to attach the hint,
+// and watch's recovery path keys on it to continue instead of dying. The prose
+// after the prefix is free to change; the prefix is not.
+
+// dirtyWorktreeRefusalPathLimit bounds the list in a refusal. The point is to
+// show the reader WHICH files blocked them, not to reproduce `git status`: a
+// tree with 250 dirty files is exactly the case this message exists for, and
+// pasting 250 paths into an error is how it stops being read.
+const dirtyWorktreeRefusalPathLimit = 5
+
+// worktreeDirtyPaths lists the paths that make the worktree dirty, with
+// .brainignore already applied -- the same filter the gate itself uses, so the
+// refusal names only files that actually blocked it and never one the reader
+// has already excluded.
+func worktreeDirtyPaths(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore) ([]string, error) {
+	stdout, err := gitStatusPorcelainAll(ctx, runner, repoDir)
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	seen := map[string]struct{}{}
+	for _, line := range strings.Split(string(filterWorktreeStatus(stdout, ignore)), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		for _, path := range worktreeStatusPaths(line) {
+			if path == "" {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}
+
+// dirtyWorktreeRefusal is the one wording of both dirty-tree refusals.
+//
+// They used to offer a single way out -- "without --worktree" -- and --worktree
+// is the wrong hatch for the reader who hits this most often: it INDEXES the
+// uncommitted files rather than getting them out of the way. .brainignore is
+// the hatch that fits, the gate already loads and honours it (loadBrainIgnore,
+// worktreeDirtyWithIgnore), and it appeared in zero error strings and zero
+// README lines. A user with ~250 dirty research files was stuck on exactly
+// this, with the answer sitting unmentioned in the code that refused them.
+//
+// The blocking paths are named for the same reason: "the worktree is dirty" is
+// not actionable when the reader cannot see which files are meant.
+func dirtyWorktreeRefusal(verb string, paths []string) error {
+	// Both halves of this message were earned separately and both are kept:
+	// naming .brainignore is the only escape hatch that was documented nowhere,
+	// and the COUNT tells a reader whether they are looking at two stray files
+	// or two hundred -- which decides which of the three ways out they want.
+	message := fmt.Sprintf(
+		"%s: refusing to %s uncommitted content without --worktree; commit or stash them, list them in .brainignore to keep them out of the brain, or pass --worktree to %s them as they are",
+		dirtyWorktreeErrorCode, verb, verb)
+	if len(paths) > 0 {
+		shown := paths
+		extra := 0
+		if len(shown) > dirtyWorktreeRefusalPathLimit {
+			extra = len(shown) - dirtyWorktreeRefusalPathLimit
+			shown = shown[:dirtyWorktreeRefusalPathLimit]
+		}
+		// Singular on purpose: "1 uncommitted paths" is how a reader learns the
+		// tool is not paying attention.
+		noun := "paths"
+		if len(paths) == 1 {
+			noun = "path"
+		}
+		message += fmt.Sprintf("; %d uncommitted %s: %s", len(paths), noun, strings.Join(shown, ", "))
+		if extra > 0 {
+			message += fmt.Sprintf(" (and %d more)", extra)
+		}
+	}
+	return errors.New(message)
+}
+
+// dirtyWorktreeRefusalFor builds the refusal with the blocking paths named.
+// The lookup is best effort on purpose: we are already failing, and a git error
+// raised while composing the message must not replace the message itself.
+func dirtyWorktreeRefusalFor(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore, verb string) error {
+	paths, err := worktreeDirtyPaths(ctx, runner, repoDir, ignore)
+	if err != nil {
+		paths = nil
+	}
+	return dirtyWorktreeRefusal(verb, paths)
 }
 
 func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, repoDir string, worktreeMode, dirtyBefore bool, hashBefore string) error {
@@ -2574,6 +3278,39 @@ func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, rep
 	}
 	if hashBefore != hashAfter {
 		return errors.New("worktree_changed: worktree content changed during semantic indexing")
+	}
+	return nil
+}
+
+// verifySemanticHeadStable re-resolves HEAD after the provider has run and
+// refuses the index when it no longer matches what brain resolved before the
+// run.
+//
+// Only the locally-stamped path needs this. Everywhere else the provider
+// stamps its own commit and validateLiveSemanticHeader compares it against the
+// pre-run value, so a HEAD that moved is already fatal. When brain supplies the
+// provenance it is comparing its own value with itself, so without this check
+// the snapshot would be published carrying a commit the indexed content does
+// not belong to -- and would say, in the disclosure warning, that the commit
+// had been verified unchanged.
+//
+// Refusing is the right outcome rather than restamping with the new HEAD: the
+// content that was actually indexed is a mixture of both, so neither commit
+// describes it.
+func verifySemanticHeadStable(ctx context.Context, runner CommandRunner, repoDir, commitBefore, treeBefore string) error {
+	commitAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD after semantic index: %w", err)
+	}
+	treeAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return fmt.Errorf("recheck HEAD tree after semantic index: %w", err)
+	}
+	if commitAfter != commitBefore {
+		return fmt.Errorf("head_changed: HEAD moved from %s to %s during semantic indexing", commitBefore, commitAfter)
+	}
+	if treeAfter != treeBefore {
+		return fmt.Errorf("head_changed: HEAD tree moved from %s to %s during semantic indexing", treeBefore, treeAfter)
 	}
 	return nil
 }
@@ -2632,7 +3369,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--", ".")
 		args = append(args, exclusions...)
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, err := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if err == nil {
 		return stdout, nil
 	}
@@ -2641,7 +3378,7 @@ func gitDiffBinary(ctx context.Context, runner CommandRunner, repoDir string, ca
 		args = append(args, "--cached")
 	}
 	args = append(args, "--binary", "HEAD")
-	stdout, _, fallbackErr := runner.Run(ctx, repoDir, "git", args...)
+	stdout, _, fallbackErr := runGitWithScratchIndex(ctx, runner, repoDir, args...)
 	if fallbackErr != nil {
 		return nil, err
 	}
@@ -2799,6 +3536,18 @@ type staleAxis struct {
 	Detail  string `json:"detail,omitempty"`
 	Current string `json:"current,omitempty"`
 	Indexed string `json:"indexed,omitempty"`
+	// Remedy is the next step, when one exists. Additive, so existing readers
+	// are unaffected.
+	//
+	// The dirty-worktree remedy used to live inside Detail. Moving it out
+	// stopped the short status printing it twice, and left the JSON carrying
+	// a cause with no way out: the text renderer re-attached it, and an agent
+	// or a script reading `status --json` -- which is how the MCP surface and
+	// every automated consumer read this -- got only the diagnosis. A field
+	// is the fix rather than putting it back in Detail, because a renderer
+	// that wants the cause without the remedy can still have it, and the two
+	// surfaces now read the same value instead of one of them re-deriving it.
+	Remedy string `json:"remedy,omitempty"`
 }
 
 type brainBlindSpot struct {
@@ -2848,13 +3597,25 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if unknownPaths > 0 {
 		spots = append(spots, brainBlindSpot{
 			Code:   "E_PATH_UNAVAILABLE",
-			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `entire brain refresh` to locate them", unknownPaths),
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+brainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
 		})
 	}
 	return spots, nil
 }
 
+func semanticArtifactPresence(brainDir, rel string) staleAxis {
+	if err := verifyDeclaredBrainFile(brainDir, rel); err != nil {
+		return staleAxis{State: "unsafe", Detail: err.Error()}
+	}
+	return staleAxis{State: "present", Detail: rel + "; integrity not checked"}
+}
+
 func semanticStaleReport(ctx context.Context, opts Options, target string) (staleReport, error) {
+	return semanticFreshnessReport(ctx, opts, target, true)
+}
+
+// Status checks availability and freshness; doctor and retrieval retain content validation.
+func semanticFreshnessReport(ctx context.Context, opts Options, target string, audit bool) (staleReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return staleReport{}, err
@@ -2882,6 +3643,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
 	} else if err := rejectSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(source.SnapshotPath)); err != nil {
 		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
+	} else if !audit {
+		axes["snapshot"] = semanticArtifactPresence(storage.BrainDir, source.SnapshotPath)
 	} else {
 		snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(source.SnapshotPath))
 		snapshotHeader, snapshotCounts, snapshotErr := verifiedSnapshotSummary(snapshotPath, storage.Key)
@@ -2902,6 +3665,8 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
+		} else if !audit {
+			axes["store"] = semanticArtifactPresence(storage.BrainDir, source.StorePath)
 		} else if err := verifiedSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
 			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
 		} else {
@@ -2913,7 +3678,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
 	currentWorktreeHash := ""
 	var currentWorktreeHashErr error
-	if dirty && source.WorktreeHash != "" {
+	if audit && dirty && source.WorktreeHash != "" {
 		currentWorktreeHash, currentWorktreeHashErr = worktreeFingerprint(ctx, opts.Runner, repoDir)
 	}
 	if headErr != nil {
@@ -2934,7 +3699,15 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 	case dirtyErr != nil:
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
 	case dirty && source.WorktreeMode != "worktree":
-		axes["worktree"] = staleAxis{State: "dirty-unindexed", Detail: "semantic index is based on committed HEAD"}
+		axes["worktree"] = staleAxis{
+			State:  dirtyUnindexedAxisState,
+			Detail: "semantic index is based on committed HEAD",
+			Remedy: setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+		}
+	case !audit && dirty && source.WorktreeHash == "":
+		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree semantic snapshot has no verifiable fingerprint; refresh again with --worktree"}
+	case !audit && dirty:
+		axes["worktree"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents"}
 	case currentWorktreeHashErr != nil:
 		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + currentWorktreeHashErr.Error()}
 	case dirty && source.WorktreeHash != "" && source.WorktreeHash != currentWorktreeHash:
@@ -2961,11 +3734,15 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
 	} else {
 		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
-		revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
-		if identityErr != nil {
-			axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
-		} else if revision != source.IdentityRevision {
-			axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run entire brain refresh"}
+		if audit {
+			revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
+			if identityErr != nil {
+				axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
+			} else if revision != source.IdentityRevision {
+				axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run " + brainInvocation(os.LookupEnv, "refresh")}
+			}
+		} else {
+			axes["provider"] = staleAxis{State: "recorded", Detail: source.Provider + " " + source.ProviderVersion + "; live provider not probed"}
 		}
 	}
 	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
@@ -3230,7 +4007,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	snapshotPath, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
 	if err != nil {
@@ -3240,11 +4017,15 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return err
 	}
 	var results []semanticRecord
+	// Kept for the empty-result inventory below: explaining WHICH empty this is
+	// needs the store that was actually searched.
+	storePathForInventory := ""
 	if manifest.Sources.Semantic.StorePath != "" {
 		storePath, err := validateSemanticDeclaredStore(storage.BrainDir, manifest.Sources.Semantic)
 		if err != nil {
 			return err
 		}
+		storePathForInventory = storePath
 		results, err = findSemanticSymbolsInSQLite(storePath, query, queryOpts.limit, queryOpts.offset)
 		if err != nil {
 			return err
@@ -3278,7 +4059,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
 	}
 	if len(results) == 0 {
-		printSemanticNoMatch(cmd, "symbols", query)
+		printSemanticNoSymbolMatch(cmd, storePathForInventory, query)
 		return nil
 	}
 	for _, result := range results {
@@ -3301,6 +4082,89 @@ func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
 	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index for %q\n", kind, query)
 }
 
+// printSemanticNoSymbolMatch adds the one thing the bare message cannot say:
+// WHICH of the indistinguishable cases this is.
+//
+// The comment above names three — no such symbol, index never built, command
+// broken — and there is a fourth it misses: the index holds no symbols OF THAT
+// KIND. Go package-level consts and vars are not extracted at all, so
+// `search-graph defaultDistillTimeout` returns the same empty line as a typo
+// does, and the honest reading ("constants are not in here") is unavailable.
+//
+// This cost real time: given that line for a symbol I could see in the source,
+// I concluded the search was broken and spent an hour on a false root cause.
+// An inventory of what the index DOES hold answers it in one line.
+func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
+	printSemanticNoMatch(cmd, "symbols", query)
+	// Snapshot-backed searches have no SQLite inventory to inspect. A missing
+	// inventory does not imply that the searched snapshot has no symbols.
+	if storePath == "" {
+		return
+	}
+	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
+	if total == 0 {
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, "refresh")+" --semantic`")
+		return
+	}
+	shown := strings.Join(kinds, ", ")
+	if distinctKinds > len(kinds) {
+		// Say that the list is partial. Six of twenty kinds presented as the
+		// whole set is the same misdirection as an under-reported total.
+		shown = fmt.Sprintf("%s (%d of %d kinds)", shown, len(kinds), distinctKinds)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"note: the index holds %d symbols of kinds %s; Go consts and vars are not extracted, so a constant name finds nothing here\n",
+		total, shown)
+}
+
+// semanticIndexKindInventory reports what the store actually contains. Every
+// failure is a zero inventory rather than an error: this runs only to explain
+// an empty result, and must never turn one into a command failure.
+func semanticIndexKindInventory(storePath string) (total int, distinctKinds int, kinds []string) {
+	if storePath == "" {
+		return 0, 0, nil
+	}
+	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	if err != nil {
+		return 0, 0, nil
+	}
+	defer db.Close()
+	// The TOTAL comes from its own count, not from summing the displayed rows.
+	//
+	// Summing the LIMIT 6 groups is a partial sum: with more than six distinct
+	// kinds it under-reports, and this note exists precisely to give an agent
+	// an accurate picture after an empty result. A too-low total risks the same
+	// false root cause the note was written to prevent -- which is the mistake
+	// that prompted writing it.
+	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
+		return 0, 0, nil
+	}
+
+	// And the KIND COUNT is its own query too, so a truncated list can say so
+	// rather than presenting six of twenty as if that were all of them.
+	if err := db.QueryRow(`SELECT count(DISTINCT kind) FROM symbols`).Scan(&distinctKinds); err != nil {
+		return total, 0, nil
+	}
+
+	rows, err := db.Query(`SELECT kind, count(*) c FROM symbols GROUP BY kind ORDER BY c DESC LIMIT 6`)
+	if err != nil {
+		return total, distinctKinds, nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k string
+		var c int
+		if err := rows.Scan(&k, &c); err != nil {
+			return total, distinctKinds, nil
+		}
+		kinds = append(kinds, k)
+	}
+	if rows.Err() != nil {
+		return total, distinctKinds, nil
+	}
+	return total, distinctKinds, kinds
+}
+
 func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, contextOpts semanticContextOptions, query string) error {
 	if contextOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
@@ -3321,7 +4185,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3407,7 +4271,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3474,7 +4338,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3566,7 +4430,7 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -3632,7 +4496,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -5015,7 +5879,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 	if err != nil {
 		return nil, err
 	}
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--name-status", "-M", "-C", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--name-status", "-M", "-C", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("list changed files: %w", err)
 	}
@@ -5059,7 +5923,7 @@ func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir str
 }
 
 func changedSemanticRanges(ctx context.Context, runner CommandRunner, repoDir string, indexedWorktree bool) ([]semanticChangedRange, error) {
-	diffOutput, _, err := runner.Run(ctx, repoDir, "git", "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
+	diffOutput, _, err := runGitWithScratchIndex(ctx, runner, repoDir, "diff", "--unified=0", "--no-ext-diff", "--no-color", "--no-prefix", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("inspect changed lines: %w", err)
 	}
@@ -5898,7 +6762,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain index`")
+		return semanticIndexMissingError()
 	}
 	if manifest.Sources.Semantic.WorktreeMode == "worktree" || manifest.Sources.Semantic.DirtyWorktree || manifest.Sources.Semantic.WorktreeHash != "" {
 		return errors.New("semantic bundle export does not support worktree-backed semantic indexes; refresh a clean semantic index first")
@@ -5936,11 +6800,46 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// Decide the contents BEFORE opening the output, so a layer that cannot be
 	// read fails the export instead of producing a short bundle.
 	bundleSources := &brainSources{Semantic: sanitizeSemanticSourceForExport(manifest.Sources.Semantic, repoDir)}
+	bundleBranches := append([]exportBranch(nil), manifest.Branches...)
 	included := []string{bundleLayerSemantic}
 	var omitted, sessionFamily []string
 	layerFiles := map[string][]string{}
 	var layerOrder []string
 	for _, layer := range brainBundleLayers {
+		if layer.name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+			if !includeSessions {
+				sessionFamily = append(sessionFamily, layer.name)
+				continue
+			}
+			guard, err := loadSessionReadGuard(storage.BrainDir, manifest)
+			if err != nil {
+				return err
+			}
+			source := *manifest.Sources.Sessions
+			source.TranscriptStorage = ""
+			// Excluded sessions remain in the local catalog for later inclusion,
+			// but neither their catalog entries nor their bytes belong in a bundle.
+			// The transcript store rechecks privacy when reading each kept entry.
+			source.Sessions = guardExportSessions(guard, source.Sessions)
+			source.OldestSessionAt = oldestSessionAt(source.Sessions)
+			source.LatestCheckpointID = latestCheckpointID(source.Sessions)
+			branchDirs := make(map[string]string)
+			for _, branch := range manifest.Branches {
+				branchDirs[branch.Branch] = branch.Directory
+			}
+			for _, branch := range source.Branches {
+				branchDirs[branch.Branch] = branch.Directory
+			}
+			source.Branches = summarizeBranchExports(source.Sessions, branchDirs, source.DefaultBranch)
+			bundleBranches = source.Branches
+			bundleSources.Sessions = &source
+			for _, session := range source.Sessions {
+				layerFiles[layer.name] = append(layerFiles[layer.name], session.TranscriptPath)
+			}
+			layerOrder = append(layerOrder, layer.name)
+			included = append(included, layer.name)
+			continue
+		}
 		paths, err := collectBrainBundleLayerPaths(storage.BrainDir, layer)
 		if err != nil {
 			return err
@@ -5995,7 +6894,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		// sanitizeSemanticSourceForExport redacting exactly such paths out of
 		// warnings. Putting the host path back in the header would undo that.
 		// repo_key, which is already exported, is the portable identity.
-		Branches: append([]exportBranch(nil), manifest.Branches...),
+		Branches: bundleBranches,
 		Sources:  bundleSources,
 	}); err != nil {
 		_ = f.Close()
@@ -6019,8 +6918,16 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
+	transcriptStore := newTranscriptStore(opts.Runner, storage.BrainDir)
 	for _, name := range layerOrder {
 		for _, rel := range layerFiles[name] {
+			if name == bundleLayerSessions && checkpointBackedSessions(manifest) {
+				if err := addTranscriptBundlePath(ctx, tw, transcriptStore, rel, opts.Now()); err != nil {
+					_ = f.Close()
+					return err
+				}
+				continue
+			}
 			if err := addBundlePath(tw, storage.BrainDir, rel); err != nil {
 				_ = f.Close()
 				return err
@@ -6048,6 +6955,19 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	sort.Strings(included)
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "exported bundle: %s\nsha256: %s\n", output, checksum)
+	// --sha256 is REQUIRED on import, and the digest is only printed here, so a
+	// reader who keeps the archive and not this output cannot import it without
+	// recomputing the hash. Print the whole command rather than the ingredient.
+	// The path is quoted because this line is meant to be copy-pasted: an
+	// --output with a space in it produced a command that ran against the
+	// wrong path. The label above is prose, not a command, so it is not quoted.
+	//
+	// shellQuotedRepoDir is the package's existing single-quoter; its name says
+	// repo dir but it quotes any path, and adding a third one for this would be
+	// worse than reusing it. output is a required flag, so its empty-input
+	// fallback is not reachable here.
+	fmt.Fprintf(out, "import it with: %s bundle import %s --sha256 %s\n",
+		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), shellQuotedRepoDir(output), checksum)
 	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
 	if len(sessionFamily) > 0 {
 		sort.Strings(sessionFamily)
@@ -6717,7 +7637,36 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 		return err
 	}
 	if len(conflicts) > 0 && !overwrite {
-		return fmt.Errorf("bundle import would overwrite brain layers this brain already has (%s); re-run with --overwrite to accept that, or import into a brain without them", strings.Join(conflicts, ", "))
+		// "import into a brain without them" named a state a real receiver is
+		// never in: a brain that has run `setup` always holds seed and docs, so
+		// the only reachable choice is to accept the replacement or not make it.
+		return bundleImportConflictError(conflicts)
+	}
+	if len(conflicts) > 0 {
+		// The loss is silent otherwise: the layers are replaced, and the next
+		// empty `recall` blames distillation coverage rather than this import.
+		fmt.Fprintf(cmd.OutOrStdout(), "replacing this brain's %s with the bundle's; anything recorded here and absent from the bundle is no longer retrievable\n", strings.Join(conflicts, ", "))
+	}
+	// Record the import BEFORE replacing anything. Written afterwards, a failed
+	// audit write leaves the facts already destroyed with no trace that an
+	// import did it, and the empty `recall` that follows goes back to blaming
+	// distillation coverage -- the exact defect this entry exists to prevent.
+	// An entry for an import that then fails part way is the honest record:
+	// layers may already have been touched, and the reader needs to know.
+	// Record WHICH layers this import REPLACES -- `conflicts`, the layers
+	// present on BOTH sides -- not the layers the bundle happens to carry.
+	//
+	// This has been raised twice as "it should record what was imported". It
+	// must not. The note this feeds says "facts recorded here before then are
+	// no longer present", which is only true if this brain HELD facts and the
+	// import overwrote them. Recording the bundle's contents instead would fire
+	// that note at a brain that never had facts, telling a reader their
+	// remembered facts are gone when nothing was lost -- and telling them so in
+	// preference to the distillation advice that would actually have helped.
+	//
+	// Pinned by TestAnImportIntoABrainWithNoFactsExplainsNothing.
+	if err := appendSemanticAuditLayers(storage.BrainDir, "bundle_import", archive, sum, conflicts); err != nil {
+		return err
 	}
 	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -6768,9 +7717,6 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 			return err
 		}
 	}
-	if err := appendSemanticAudit(storage.BrainDir, "bundle_import", archive, sum); err != nil {
-		return err
-	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
 	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(append([]string{bundleLayerSemantic}, restored...), ", "))
@@ -6800,7 +7746,15 @@ func brainBundleLayerConflicts(brainDir, bundleRoot string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(existing) > 0 {
+		occupied := len(existing) > 0
+		if layer.name == bundleLayerSessions && !occupied {
+			manifest, err := loadBrainManifest(brainDir)
+			if err != nil {
+				return nil, err
+			}
+			occupied = manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0
+		}
+		if occupied {
 			conflicts = append(conflicts, layer.name)
 		}
 	}
@@ -7612,12 +8566,88 @@ func bundleEntryPathAllowed(clean, cleanSlash string) bool {
 	return false
 }
 
+// bundleImportConflictError refuses an import that would replace layers.
+//
+// The old wording ended "or import into a brain without them", naming a state
+// a real receiver is never in: `setup` always writes seed and docs, so by the
+// time anyone has a brain to import into, the empty-brain path is gone. What
+// was missing is the part that matters -- what accepting costs.
+func bundleImportConflictError(conflicts []string) error {
+	// Kept under statusCauseWidth (140): this error is recorded as a freshness
+	// axis detail, and a 402-character cause was clipped mid-sentence in every
+	// surface that shows one. The consequence a reader must not miss is that
+	// --overwrite DROPS what is here and absent from the bundle; the rest was
+	// explanation that the flag's own help carries.
+	return fmt.Errorf("bundle import would replace existing brain layers (%s); with --overwrite, anything here the bundle lacks stops being retrievable", strings.Join(conflicts, ", "))
+}
+
+// lastBundleImportAt reports when a bundle last replaced layers in this brain.
+//
+// An import with --overwrite replaces the fact layer wholesale, so facts the
+// reader remembered here before it are simply gone. Without this the next empty
+// recall blames distillation coverage and sends them to re-distill, which
+// cannot bring back what an import replaced.
+//
+// Best effort by design: the audit log is local operational state and may be
+// absent, truncated or partly unreadable. A malformed line is skipped rather
+// than failing the caller, because a missing explanation must never turn a
+// working recall into an error.
+func lastBundleImportAt(brainDir string) (time.Time, bool) {
+	data, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	if err != nil {
+		return time.Time{}, false
+	}
+	var newest time.Time
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Action      string   `json:"action"`
+			GeneratedAt string   `json:"generated_at"`
+			Layers      []string `json:"layers"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil || entry.Action != "bundle_import" {
+			continue
+		}
+		// Only an import that replaced the FACT layer explains a missing fact.
+		// An entry with no layers predates this field: treat it as unknown and
+		// skip, rather than asserting something the record does not say.
+		if !slices.Contains(entry.Layers, bundleLayerFacts) {
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, entry.GeneratedAt)
+		if err != nil {
+			continue
+		}
+		if at.After(newest) {
+			newest = at
+		}
+	}
+	return newest, !newest.IsZero()
+}
+
 func appendSemanticAudit(brainDir, action, path, checksum string) error {
-	entry := map[string]string{
+	return appendSemanticAuditLayers(brainDir, action, path, checksum, nil)
+}
+
+// appendSemanticAuditLayers records which layers an action replaced.
+//
+// Without this an import of docs alone and an import that destroyed the fact
+// layer were indistinguishable in the log, so the empty-recall note read every
+// bundle_import as proof the facts had been replaced. A note that explains an
+// empty result with something that did not happen is worse than the
+// distillation advice it set out to correct.
+func appendSemanticAuditLayers(brainDir, action, path, checksum string, layers []string) error {
+	entry := map[string]any{
 		"action":       action,
 		"path":         path,
 		"sha256":       checksum,
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
+	}
+	if len(layers) > 0 {
+		entry["layers"] = layers
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {

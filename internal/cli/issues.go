@@ -251,18 +251,18 @@ func issueUnified(s issues.Snapshot) unifiedResult {
 	return r
 }
 
-var errIssueSemanticUnavailable = errors.New("issue semantic retrieval unavailable: a local embedder with usable vectors is required; use search/query for lexical recall")
+// beforeIssueRankingCurrencyCheck runs after ranking and before the currency
+// re-read below. Tests use it to disconnect a project mid-query.
+var beforeIssueRankingCurrencyCheck = func() {}
 
-// Issue text must never be sent to a remote embedding provider by an offline
-// query. The bundled implementation uses the existing Embedder abstraction.
-func localIssueEmbedder() Embedder { return defaultEmbedder() }
-func retrieveIssues(brainDir, query string, limit int, mode retrievalMode, e Embedder) ([]unifiedResult, error) {
+// retrieveIssues ranks cached issue evidence with the same BM25 lexical
+// ranking as every other source: semantic retrieval was removed in trail
+// #278, so vsearch and --semantic alias to this ranking. Queries never reach
+// Linear or any embedding provider.
+func retrieveIssues(brainDir, query string, limit int) ([]unifiedResult, error) {
 	records, err := issueStore(brainDir).Records()
 	if err != nil {
 		return nil, err
-	}
-	if mode == modeVector && e == nil {
-		return nil, errIssueSemanticUnavailable
 	}
 	if len(records) == 0 {
 		return nil, nil
@@ -282,48 +282,38 @@ func retrieveIssues(brainDir, query string, limit int, mode retrievalMode, e Emb
 		stamp = stamp*17 + int64(c)
 	}
 	idx.GeneratedAt = time.Unix(0, stamp)
-	var lists [][]unifiedResult
-	if mode != modeVector {
-		var ranked []scoredDocRecord
-		var ok bool
-		_ = withBrainWriteLock(brainDir, func() error {
-			current, err := issueStore(brainDir).Records()
-			if err != nil {
-				return err
-			}
-			if len(current) != len(records) {
+	var ranked []scoredDocRecord
+	var ok bool
+	_ = withBrainWriteLock(brainDir, func() error {
+		current, err := issueStore(brainDir).Records()
+		if err != nil {
+			return err
+		}
+		if len(current) != len(records) {
+			return nil
+		}
+		for i := range records {
+			if records[i].Ref != current[i].Ref {
 				return nil
 			}
-			for i := range records {
-				if records[i].Ref != current[i].Ref {
-					return nil
-				}
-			}
-			if err := rejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
-				return err
-			}
-			ranked, ok = rankDocsViaFTS(filepath.Join(brainDir, "issues", "derived"), idx, query, len(records))
-			return nil
-		})
-		if !ok {
-			ranked = rankDocsLexical(idx, query, len(records))
 		}
-		var list []unifiedResult
-		for _, hit := range ranked {
-			list = append(list, issueUnified(byID[hit.Record.ID]))
+		if err := rejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
+			return err
 		}
-		lists = append(lists, list)
+		ranked, ok = rankDocsViaFTS(filepath.Join(brainDir, "issues", "derived"), idx, query, len(records))
+		return nil
+	})
+	if !ok {
+		ranked = rankDocsLexical(idx, query, len(records))
 	}
-	if mode != modeLexical && e != nil {
-		list, ok := issueVectors(brainDir, records, query, e)
-		if !ok && mode == modeVector {
-			return nil, errIssueSemanticUnavailable
-		}
-		lists = append(lists, list)
+	var list []unifiedResult
+	for _, hit := range ranked {
+		list = append(list, issueUnified(byID[hit.Record.ID]))
 	}
-	merged := rrfMergeUnified(lists, len(records))
-	// Ranking (especially embedding) can overlap a disconnect. Never return
-	// candidates that ceased to be current and visible while ranking ran.
+	merged := rrfMergeUnified([][]unifiedResult{list}, len(records))
+	beforeIssueRankingCurrencyCheck()
+	// Ranking can overlap a disconnect. Never return candidates that ceased
+	// to be current and visible while ranking ran.
 	current, err := issueStore(brainDir).Records()
 	if err != nil {
 		return nil, err
@@ -360,79 +350,6 @@ func boundedIssueText(s string, n int) string {
 	return text + "… [use snapshot with get for full evidence]"
 }
 
-type issueVectorCache struct {
-	Model   string               `json:"model"`
-	Dim     int                  `json:"dim"`
-	Vectors map[string][]float32 `json:"vectors"`
-}
-
-func issueVectors(brainDir string, records []issues.Snapshot, query string, e Embedder) ([]unifiedResult, bool) {
-	q := embedQueryWith(e, query)
-	if e.Dim() <= 0 || len(q) != e.Dim() || !vectorHasMagnitude(q) {
-		return nil, false
-	}
-	path := filepath.Join(brainDir, "issues", "derived", "vectors.json")
-	cache := issueVectorCache{}
-	raw, _ := issueStore(brainDir).Read(path)
-	_ = json.Unmarshal(raw, &cache)
-	if cache.Model != e.ID() || cache.Dim != e.Dim() {
-		cache = issueVectorCache{Model: e.ID(), Dim: e.Dim()}
-	}
-	if cache.Vectors == nil {
-		cache.Vectors = map[string][]float32{}
-	}
-	present := map[string][]float32{}
-	var out []unifiedResult
-	for _, r := range records {
-		key := r.Key() + "@" + r.Hash
-		v := cache.Vectors[key]
-		if len(v) != len(q) || !vectorHasMagnitude(v) {
-			v = e.Embed(boundedIssueText(r.Title+"\n"+issueUnified(r).Text, 16000))
-		}
-		if len(v) != len(q) || !vectorHasMagnitude(v) {
-			continue
-		}
-		present[key] = v
-		u := issueUnified(r)
-		u.Score = cosineFloat32(q, v)
-		if u.Score > 0 {
-			out = append(out, u)
-		}
-	}
-	cache.Vectors = present
-	_ = withBrainWriteLock(brainDir, func() error {
-		// A query that began before disconnect/purge must not republish purged
-		// content in a derived cache after the purge returns.
-		current, err := issueStore(brainDir).Records()
-		if err != nil {
-			return err
-		}
-		allowed := map[string]bool{}
-		for _, r := range current {
-			allowed[r.Key()+"@"+r.Hash] = true
-		}
-		for key := range cache.Vectors {
-			if !allowed[key] {
-				delete(cache.Vectors, key)
-			}
-		}
-		if len(cache.Vectors) == 0 {
-			return nil
-		}
-		b, err := json.Marshal(cache)
-		if err != nil {
-			return err
-		}
-		return writeBrainRelativeFileAtomic(brainDir, "issues/derived/vectors.json", b, 0600)
-	})
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Score == out[j].Score {
-			return out[i].ID < out[j].ID
-		}
-		return out[i].Score > out[j].Score
-	})
-	return out, true
-}
 func issueBriefEvidence(brainDir, task, requested string, limit int) (string, []unifiedResult, error) {
 	var pinned *unifiedResult
 	if requested != "" {
@@ -455,7 +372,7 @@ func issueBriefEvidence(brainDir, task, requested string, limit int) (string, []
 			task = id
 		}
 	}
-	hits, err := retrieveIssues(brainDir, task, min(limit, 3), modeLexical, nil)
+	hits, err := retrieveIssues(brainDir, task, min(limit, 3))
 	if err != nil {
 		return task, nil, err
 	}

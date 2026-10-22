@@ -365,6 +365,12 @@ func TestMemoryLifecycleProjectionOwnershipTakeoverRejectsStaleSettlement(t *tes
 }
 
 func TestMemoryLifecycleAbstractCancellationSettlesDurably(t *testing.T) {
+	// The cancellation request lands after the provider starts, so the lane
+	// only notices it on the next poll tick; the production 5s interval is
+	// pure wait here.
+	prevPoll := memoryAbstractCancellationPollInterval
+	memoryAbstractCancellationPollInterval = 10 * time.Millisecond
+	t.Cleanup(func() { memoryAbstractCancellationPollInterval = prevPoll })
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 9, 18, 14, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)
@@ -711,11 +717,6 @@ func TestMemoryLifecycleDefensiveHelpersAndCorruptInputs(t *testing.T) {
 	if now := memoryClockNow(nil); now.Location() != time.UTC || time.Since(now) > time.Minute {
 		t.Fatalf("nil clock=%v", now)
 	}
-	t.Setenv("ENTIRE_BRAIN_EMBEDDER", "")
-	if pending, err := syncMemoryProjectionVectors(context.Background(), t.TempDir(), time.Now().UTC()); err != nil || pending {
-		t.Fatalf("unset vector sync pending=%t err=%v", pending, err)
-	}
-
 	brainDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
@@ -811,6 +812,9 @@ func TestMemoryLifecycleNotifyWarningsAndExactJobIssue(t *testing.T) {
 	originalLaunch := memoryWorkerLaunch
 	memoryWorkerLaunch = func(string) error { return os.ErrPermission }
 	t.Cleanup(func() { memoryWorkerLaunch = originalLaunch })
+	originalPushLaunch := memoryPushWorkLaunch
+	memoryPushWorkLaunch = func(string, string) error { return nil }
+	t.Cleanup(func() { memoryPushWorkLaunch = originalPushLaunch })
 	textOut, err := execute(t, newMemoryNotifyCommand(opts), "--event", "session_end", "--session", "text-session")
 	if err != nil || !strings.Contains(textOut, "recorded session_end hint") {
 		t.Fatalf("notify text=%q err=%v", textOut, err)

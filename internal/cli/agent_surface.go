@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -73,14 +74,17 @@ type brainShowOptions struct {
 // blind spots — the former `stale` and `semantic-audit` commands), and live
 // workspace state.
 type brainStatusReport struct {
-	IssueSource *issues.Status        `json:"issue_source,omitempty"`
-	GeneratedAt time.Time             `json:"generated_at"`
-	Repo        brainStatusRepo       `json:"repo"`
-	Brain       brainStatusBrain      `json:"brain"`
-	Sources     brainStatusSources    `json:"sources"`
-	Facts       *brainStatusFacts     `json:"facts,omitempty"`
-	Semantic    *brainStatusSemantic  `json:"semantic,omitempty"`
-	Retrieval   *brainStatusRetrieval `json:"retrieval,omitempty"`
+	IssueSource *issues.Status `json:"issue_source,omitempty"`
+	GeneratedAt time.Time      `json:"generated_at"`
+	// Integrity distinguishes a freshness overview from a deep store audit.
+	Integrity string                `json:"integrity,omitempty"`
+	Repo      brainStatusRepo       `json:"repo"`
+	Brain     brainStatusBrain      `json:"brain"`
+	Sources   brainStatusSources    `json:"sources"`
+	Facts     *brainStatusFacts     `json:"facts,omitempty"`
+	Hosted    *brainStatusHosted    `json:"hosted,omitempty"`
+	Semantic  *brainStatusSemantic  `json:"semantic,omitempty"`
+	Retrieval *brainStatusRetrieval `json:"retrieval,omitempty"`
 	// Onboarding is the `setup` progress projection: fact-backfill counters,
 	// background watcher health, and instant-phase component freshness. It
 	// answers "is the thing setup started still working?" on the surface people
@@ -408,7 +412,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "status [path]",
 		Short: "Show brain coverage, freshness, and workspace state",
-		Long:  "Summarize the brain: sources, facts, semantic coverage/freshness/blind spots, and live workspace state",
+		Long:  "Summarize recorded sources, freshness, background activity, and live workspace state without scanning index contents. Use doctor for deep integrity checks.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := agentSurfaceTarget(opts, args)
@@ -416,7 +420,7 @@ func newAgentStatusCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVar(&statusOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include coverage histograms, staged-file classifications, and changed-symbol records")
+	cmd.Flags().BoolVar(&statusOpts.details, "details", false, "Include staged, unstaged, and untracked file classifications (does not audit index contents)")
 	cmd.Flags().BoolVar(&statusOpts.verbose, "verbose", false, "Print the full report (coverage, freshness axes, blind spots, live state) instead of the short summary")
 	cmd.Flags().StringVar(&statusOpts.failOn, "fail-on", semanticAuditFailOnNone, "Return nonzero after emitting the report when the selected gate trips: release, unsafe, degraded, blind-spots, none")
 	return cmd
@@ -523,7 +527,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	// brain over an empty repository. `dash` already draws the distinction;
 	// `overview`, the command the guide tells an agent to run FIRST, did not.
 	if !anySource(status.Sources) && (status.Manifest == nil || status.Manifest.GeneratedAt.IsZero()) {
-		report.Warnings = append(report.Warnings, "brain not built yet — run `entire brain refresh`; every count in this report is absence of data, not absence of findings")
+		report.Warnings = append(report.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
 	}
 	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
@@ -775,7 +779,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&briefOpts.issue, "issue", "", "Pin cached issue by identifier, URL or UUID; refresh via the agent host first")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
-	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for facts; use lexical ranking only")
+	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for memories; use lexical ranking only")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
 	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
@@ -999,7 +1003,31 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	hintPositionalSymbol(cmd)
 	return cmd
+}
+
+// hintPositionalSymbol turns cobra's bare "unknown flag: --symbol" into an
+// answer.
+//
+// The published guide documents `inspect impact --symbol ValidateToken`. There
+// is no such flag -- the symbol is positional here and on the sibling commands
+// -- so anyone following the docs gets a flag error with nothing to act on,
+// and no reason to suspect the page rather than their own typing.
+//
+// The flag is deliberately NOT added. `inspect context` and `inspect tests`
+// take their symbol positionally too, so accepting --symbol on one of the
+// three would make this the inconsistent one and bend a working interface
+// around a typo. Naming the right form costs nothing and unblocks the reader
+// in one line; the page is corrected separately.
+func hintPositionalSymbol(cmd *cobra.Command) {
+	cmd.SetFlagErrorFunc(func(c *cobra.Command, err error) error {
+		if err == nil || !strings.Contains(err.Error(), "--symbol") {
+			return err
+		}
+		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
+			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+	})
 }
 
 func newInspectChangesCommand(opts Options) *cobra.Command {
@@ -1081,15 +1109,9 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	if err != nil {
 		return err
 	}
-	populateBrainStatusVerification(ctx, opts, &report)
+	populateBrainStatusSemanticSummary(ctx, opts, &report)
 	if statusOpts.compact && !statusOpts.details {
-		// MCP owns the explicitly compact transport. The CLI remains backward
-		// compatible and emits the established detailed JSON by default.
-		populateBrainStatusSemanticSummary(ctx, opts, &report)
 		report = brainStatusCompactReport(report)
-	} else {
-		populateBrainStatusSemanticDetail(ctx, opts, &report)
-		populateBrainStatusLiveDetail(&report)
 	}
 	if statusOpts.json {
 		if err := writeJSON(cmd, report); err != nil {
@@ -1104,9 +1126,8 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 	return nil
 }
 
-// populateBrainStatusSemanticSummary fills trust-critical status data without
-// scanning the semantic store: manifest counts/warnings and current blind spots.
-// It is the default CLI/MCP preflight payload.
+// populateBrainStatusSemanticSummary reports recorded counts, warnings and blind
+// spots without scanning the semantic store.
 func populateBrainStatusSemanticSummary(ctx context.Context, opts Options, report *brainStatusReport) {
 	if report.Semantic == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil {
 		return
@@ -1126,41 +1147,6 @@ func populateBrainStatusSemanticSummary(ctx context.Context, opts Options, repor
 	} else {
 		report.Semantic.BlindSpots = spots
 	}
-}
-
-// populateBrainStatusSemanticDetail adds the store-backed coverage histograms
-// requested by --details / MCP details=true. Summary counts and blind spots are
-// populated first so the detailed response is a strict superset of the default.
-func populateBrainStatusSemanticDetail(ctx context.Context, opts Options, report *brainStatusReport) {
-	populateBrainStatusSemanticSummary(ctx, opts, report)
-	if report.Semantic == nil || report.Semantic.Coverage == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil {
-		return
-	}
-	source := report.Manifest.Sources.Semantic
-	var freshness staleReport
-	if report.Semantic.Freshness != nil {
-		freshness = *report.Semantic.Freshness
-	}
-	if coverage, err := semanticAuditStoreCoverage(report.Brain.Path, source, freshness); err != nil {
-		report.Warnings = append(report.Warnings, "semantic coverage unavailable: "+err.Error())
-	} else {
-		report.Semantic.Coverage.FileLanguages = coverage.FileLanguages
-		report.Semantic.Coverage.Languages = coverage.Languages
-		report.Semantic.Coverage.SymbolKinds = coverage.SymbolKinds
-		report.Semantic.Coverage.RelationTypes = coverage.RelationTypes
-	}
-}
-
-func populateBrainStatusLiveDetail(report *brainStatusReport) {
-	if report == nil || report.Manifest == nil || report.Manifest.Sources == nil || report.Manifest.Sources.Semantic == nil || len(report.Live.ChangedFiles) == 0 {
-		return
-	}
-	symbols, err := semanticSymbolsForFiles(report.Brain.Path, report.Manifest.Sources.Semantic, report.Live.ChangedFiles, 20)
-	if err != nil {
-		report.Live.Warnings = append(report.Live.Warnings, "changed symbol hints unavailable: "+err.Error())
-		return
-	}
-	report.Live.ChangedSymbolHints = symbols
 }
 
 func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
@@ -1218,6 +1204,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	brainCmd := setupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
+	if report.Integrity == "not_checked" {
+		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
+	}
 	if !verbose {
 		renderBrainStatusShort(out, render, report, brainCmd)
 		return
@@ -1236,6 +1225,9 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	fmt.Fprintf(out, "  sources: seed=%t sessions=%t semantic=%t history=%t facts=%t docs=%t\n",
 		report.Sources.Seed, report.Sources.Sessions, report.Sources.Semantic, report.Sources.History, report.Sources.Facts, report.Sources.Docs)
+	if h := report.Hosted; h != nil {
+		fmt.Fprintf(out, "\n%s\n", hostedStatusLine(h))
+	}
 	if f := report.Facts; f != nil {
 		fmt.Fprintln(out, "\nFacts")
 		fmt.Fprintf(out, "  counts: %d (%d distilled, %d authored, %d superseded) across %d branch(es); %d proposals pending\n",
@@ -1249,8 +1241,24 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 			}
 		}
 		if v := f.Verification; v != nil {
-			fmt.Fprintf(out, "  verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+			fmt.Fprintf(out, "  verification: %d memories, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 				v.Facts, v.Verified, v.Stale, v.Orphaned, v.UnverifiableHere)
+		} else if f.Facts > 0 {
+			// Verification left status because it walks git history per anchor
+			// commit and made status unusable in a hook (24s to 2.4s on a
+			// 961-fact brain). Say where it went: a line that silently stops
+			// appearing tells the reader verification PASSED, which is the
+			// silent-degradation class this change set exists to remove.
+			//
+			// It went to `verify` and `doctor`, NOT behind --details. This line
+			// said --details, and main then settled the question the other way
+			// -- see TestBrainStatusDetailsDoesNotVerifyFacts, which pins that
+			// --details runs no walk. So the remedy named here sent every
+			// reader to a flag that does nothing, which is worse than the
+			// missing line it replaced: a wrong instruction costs a run to
+			// disprove, and then there is still no answer.
+			fmt.Fprintf(out, "  verification: not run (`%s verify`, or `%s doctor`; it walks git history)\n",
+				brainCmd, brainCmd)
 		}
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
@@ -1515,19 +1523,17 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
 		}
 	} else {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `entire brain refresh`")
+		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
 		freshOverlay := loadFreshHistoryOverlay(status.Brain.Path, source)
 		historyInputCount := source.Records + len(freshOverlay.overlay)
-		historyEmbedder := defaultEmbedder()
-		fusionEnabled := historySemanticEmbedder(historyEmbedder) != nil
 		var scoredHistory []scoredHistoryRecord
 		var rankedHistoryIndex *historyIndex
 		var historyErr error
 
-		if !fusionEnabled {
+		{
 			directStarted := profile.start()
 			var used bool
 			derivedCorrupt := false
@@ -1587,32 +1593,6 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 					}
 				}
 			}
-		} else {
-			// The validated semantic arm can return arbitrary record IDs, so it
-			// deliberately keeps the full index mapping rather than hydrating only
-			// the lexical top-k payload window.
-			indexLoadStarted := profile.start()
-			var index historyIndex
-			index, historyErr = loadBrainHistoryIndex(status.Brain.Path, source)
-			rankedHistoryIndex = &index
-			if profile != nil {
-				historyErrors := 0
-				if historyErr != nil {
-					historyErrors = 1
-				}
-				profile.finishStage(&profile.History.IndexLoad, indexLoadStarted, 1, len(index.Records), historyErrors)
-			}
-			if historyErr == nil {
-				rankStarted := profile.start()
-				if fused, ok := rankHistoryFused(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder); ok {
-					scoredHistory = fused
-				} else {
-					scoredHistory = rankHistoryRecordsScored(index, "history", task, briefOpts.limit, 0)
-				}
-				if profile != nil {
-					profile.finishStage(&profile.History.IndexedRank, rankStarted, len(index.Records)+len(freshOverlay.overlay), len(scoredHistory), 0)
-				}
-			}
 		}
 		if historyErr != nil {
 			report.Warnings = append(report.Warnings, "history context unavailable: "+historyErr.Error())
@@ -1629,10 +1609,11 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
-					// Reuse the truth already loaded by the fused or legacy arm.
+					// Reuse the truth already loaded by the legacy arm.
 					freshOverlay.index = *rankedHistoryIndex
 					scoredHistory = rankFreshHistory(freshOverlay, "history", task, briefOpts.limit, briefGuardPred, func(index historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-						return rankHistoryFusedFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyEmbedder, eligible)
+						lex, complete, ok := rankHistoryViaFTSFiltered(status.Brain.Path, index, "history", task, briefOpts.limit, historyFTSRelevanceCutoff, eligible)
+						return lex, ok && complete
 					})
 				} else {
 					// A validated payload ranking does not need JSON truth. Apply
@@ -1667,7 +1648,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
-		report.Warnings = append(report.Warnings, "history index missing; run `entire brain refresh`")
+		report.Warnings = append(report.Warnings, "history index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	// Facts recorded outside any repository reach the brief — the surface the
 	// agent guide mandates as the first call of every task. Loaded before the
@@ -1679,7 +1660,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	var briefGlobalFacts []factRecord
 	var briefGlobalIDs map[string]bool
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
-		report.Warnings = append(report.Warnings, "global facts unavailable: "+globalErr.Error())
+		report.Warnings = append(report.Warnings, "global memories unavailable: "+globalErr.Error())
 	} else {
 		briefGlobalFacts = globalFacts
 	}
@@ -1709,60 +1690,35 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			profile.finishStage(&profile.Facts.Load, factsLoadStarted, 1, len(facts), factsLoadErrors)
 		}
 		if factsErr != nil {
-			report.Warnings = append(report.Warnings, "facts unavailable: "+factsErr.Error())
+			report.Warnings = append(report.Warnings, "memories unavailable: "+factsErr.Error())
 		} else {
+			// An empty fact set on THIS branch while other branches hold facts
+			// is the single most misleading thing the brief can report: it is
+			// step 1 of the shipped guide, so it is the first thing an agent
+			// sees, and silence reads as "this brain knows nothing".
+			hasActiveFacts := false
+			for _, fact := range facts {
+				if fact.Status == factStatusActive {
+					hasActiveFacts = true
+					break
+				}
+			}
+			if !hasActiveFacts {
+				if note := briefBranchBlindSpot(status.Brain.Path, branch); note != "" {
+					report.Warnings = append(report.Warnings, note)
+				}
+			}
 			if len(briefGlobalFacts) > 0 {
 				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
 			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
 			facts = guardFactRecords(briefPrivacyGuard, facts)
-			// Semantic rerank on by default; nil reranker (embedder
-			// unavailable or --no-semantic) falls back to lexical ranking. The
-			// disk-backed cache avoids re-embedding the branch each brief.
-			var rr *semanticReranker
-			if !briefOpts.noSemantic {
-				if e := defaultEmbedder(); e != nil {
-					if profile != nil {
-						e = &brainBriefProfilingEmbedder{Embedder: e, profile: &profile.Facts.Embed}
-					}
-					cacheLoadStarted := profile.start()
-					rr = newSemanticRerankerForBranch(e, status.Brain.Path, branch)
-					// Global facts rank here but belong to no single repository,
-					// so they must not be filed under this one's cache key.
-					rr.markForeign(briefGlobalIDs)
-					if profile != nil {
-						profile.finishStage(&profile.Facts.VectorCacheLoad, cacheLoadStarted, 1, rr.loaded, 0)
-					}
-				}
-			}
-			embedBefore := int64(0)
-			if profile != nil {
-				embedBefore = profile.Facts.Embed.DurationNS
-			}
 			factsRankStarted := profile.start()
-			report.Facts = rankFactsFused(facts, task, brainBriefFactsCount(briefOpts.limit), false, rr)
+			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 			report.GlobalFactIDs = sortedGlobalFactIDs(report.Facts, briefGlobalIDs)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
-				embedDuringRank := profile.Facts.Embed.DurationNS - embedBefore
-				if embedDuringRank > 0 {
-					// Rank is exclusive compute time; embed calls are reported in
-					// their own nested stage rather than double-counted here.
-					profile.Facts.Rank.DurationNS = max(0, profile.Facts.Rank.DurationNS-embedDuringRank)
-				}
-			}
-			if rr != nil {
-				rr.retain(facts) // keep every present fact's vector; prune only departed facts
-				flushStarted := profile.start()
-				flushErr := rr.flush() // best-effort cache persist
-				if profile != nil {
-					flushErrors := 0
-					if flushErr != nil {
-						flushErrors = 1
-					}
-					profile.finishStage(&profile.Facts.CacheFlush, flushStarted, len(facts), len(rr.cache), flushErrors)
-				}
 			}
 			receiptBranch = branch
 			receiptSurface = briefOpts.surface
@@ -1788,7 +1744,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	likelyFilesStarted := profile.start()
 	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, factsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
 	if len(report.GlobalFactIDs) > 0 {
-		report.Guidance = append(report.Guidance, "Facts from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
+		report.Guidance = append(report.Guidance, "Memories from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
 	}
 	// A non-current semantic index is still useful for intent and graph shape,
 	// but its repository loci must cross the live worktree boundary before the
@@ -1970,7 +1926,7 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 				break
 			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "fact [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
+		fmt.Fprintf(cmd.OutOrStdout(), "memory [%s]%s %s\n", strings.Join(fact.Paths, ","), marker, fact.Text)
 		if gone := report.FactsLocusDrift[fact.ID]; len(gone) > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 		}
@@ -4503,7 +4459,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `entire brain refresh index`")
+		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -4528,14 +4484,13 @@ func buildBrainStatusReport(ctx context.Context, opts Options, target string) (b
 	return buildBrainStatusReportWithAvailability(ctx, opts, target, false)
 }
 
-// buildAvailableBrainStatusReport is the health-only variant used by status
-// and brain_status. Other read surfaces retain the strict loader so a damaged
-// or forward-version manifest cannot be mistaken for an empty Brain.
+// buildAvailableBrainStatusReport is the lightweight overview used by status
+// and brain_status. Other read surfaces retain strict artifact validation.
 func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target string) (brainStatusReport, error) {
 	return buildBrainStatusReportWithAvailability(ctx, opts, target, true)
 }
 
-func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, partialHealth bool) (brainStatusReport, error) {
+func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, lightweight bool) (brainStatusReport, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
@@ -4551,15 +4506,16 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	manifestState := "current"
 	manifestSchema := brainManifestSchemaVersion
 	var manifest *exportManifest
-	var memoryHealth map[string]any
 	var healthIssues []memoryHealthIssue
-	if partialHealth {
-		snapshot := memoryReadOnlyHealth(storage.BrainDir, generatedAt)
-		manifest = snapshot.Manifest
-		manifestState = snapshot.ManifestHealth.State
-		manifestSchema = snapshot.ManifestHealth.SchemaVersion
-		memoryHealth = snapshot.Payload
-		healthIssues = snapshot.Issues
+	if lightweight {
+		var health memoryManifestHealth
+		var issue *memoryHealthIssue
+		manifest, health, issue = inspectBrainManifestHealth(storage.BrainDir)
+		manifestState = health.State
+		manifestSchema = health.SchemaVersion
+		if issue != nil {
+			healthIssues = append(healthIssues, *issue)
+		}
 	} else {
 		manifest, err = loadBrainManifest(storage.BrainDir)
 		if err != nil {
@@ -4577,7 +4533,6 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			ManifestState:   manifestState,
 		},
 		Manifest: manifest,
-		Memory:   memoryHealth,
 		Issues:   healthIssues,
 	}
 	issueStatus, issueStatusErr := issueStore(storage.BrainDir).Status(generatedAt)
@@ -4585,6 +4540,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Warnings = append(report.Warnings, "issue source unavailable: "+issueStatusErr.Error())
 	} else if issueStatus.Binding.Workspace != "" {
 		report.IssueSource = &issueStatus
+	}
+	if lightweight {
+		report.Integrity = "not_checked"
 	}
 	if manifest != nil && !manifest.GeneratedAt.IsZero() {
 		report.Brain.GeneratedAt = manifest.GeneratedAt.Format(time.RFC3339)
@@ -4605,18 +4563,26 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Branches:   len(f.Branches),
 				Proposals:  f.Proposals,
 			}
-			// The counts above come from the manifest, not from disk. The
-			// manifest is a claim, and a store that can no longer produce what
-			// it claims — a branch whose facts.ndjson is gone, a line that will
-			// not parse, or a file that simply yields fewer facts than declared
-			// — still reported the declared number on every surface while
-			// recall returned less. Cross-check it, and say so when it fails,
-			// instead of letting the counts imply a store that can be read.
-			integrity := inspectFactStore(storage.BrainDir, f)
-			report.Facts.MissingBranches = integrity.Missing
-			if !integrity.OK() {
-				report.Facts.Integrity = &integrity
-				report.Warnings = append(report.Warnings, integrity.Warning())
+			if lightweight {
+				report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
+				if len(report.Facts.MissingBranches) > 0 {
+					report.Warnings = append(report.Warnings, missingFactStoreWarning(report.Facts.MissingBranches))
+				}
+				for _, branch := range f.Branches {
+					if branch == "" {
+						continue
+					}
+					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v", branch, err))
+					}
+				}
+			} else {
+				integrity := inspectFactStore(storage.BrainDir, f)
+				report.Facts.MissingBranches = integrity.Missing
+				if !integrity.OK() {
+					report.Facts.Integrity = &integrity
+					report.Warnings = append(report.Warnings, integrity.Warning())
+				}
 			}
 		}
 		if sem := manifest.Sources.Semantic; sem != nil {
@@ -4633,6 +4599,15 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		report.Sources.Docs = manifest.Sources.Docs != nil
 	}
+	var factBranches []string
+	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
+		factBranches = manifest.Sources.Facts.Branches
+	}
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches)
+	report.Hosted = hosted
+	if hostedWarning != "" {
+		report.Warnings = append(report.Warnings, hostedWarning)
+	}
 	live, liveErr := brainLiveStateReport(ctx, opts.Runner, repoDir, manifest)
 	if liveErr != nil {
 		report.Warnings = append(report.Warnings, "live state unavailable: "+liveErr.Error())
@@ -4640,13 +4615,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		report.Live = live
 	}
 	if manifest != nil && manifest.Sources != nil && (manifest.Sources.Seed != nil || manifest.Sources.Docs != nil) {
-		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live)
+		report.Retrieval = buildBrainRetrievalStatus(ctx, opts.Runner, storage.BrainDir, repoDir, manifest, report.Live, !lightweight)
 		if report.Retrieval != nil {
-			report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
+			if lightweight && manifest.Sources.History != nil {
+				h := manifest.Sources.History
+				report.Retrieval.Conversation = &brainStatusConversation{Exchanges: h.Exchanges, IncompleteExchanges: h.IncompleteExchanges, VectorState: "not_checked"}
+			} else {
+				report.Retrieval.Conversation = buildConversationStatus(report.Brain.Path, manifest)
+			}
 		}
 	}
 	if report.Semantic != nil {
-		freshness, freshnessErr := semanticStaleReport(ctx, opts, repoDir)
+		freshness, freshnessErr := semanticFreshnessReport(ctx, opts, repoDir, !lightweight)
 		if freshnessErr != nil {
 			report.Warnings = append(report.Warnings, "freshness unavailable: "+freshnessErr.Error())
 		} else {
@@ -4657,6 +4637,18 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// is inspected rather than reported missing.
 	recordedSetupOpts, _, _ := setupOptionsFromRecord(filepath.Dir(storage.HeadPath))
 	onboarding := buildBrainOnboardingStatus(ctx, opts, storage, manifest, recordedSetupOpts)
+	// The repo root from the REPORT, not opts.Env: the latter is empty on the
+	// ordinary `status` path, which is why the first version of this check
+	// never fired. report.Repo.Root is the resolved root this status is about.
+	if root := strings.TrimSpace(report.Repo.Root); root != "" {
+		if wired, missing := agentsetup.AgentsWired(root); !wired {
+			onboarding.AgentsUnwired = true
+			onboarding.AgentsMissing = missing
+			// Keep the published JSON shape while exposing the same repair
+			// diagnostic to CLI JSON and MCP consumers through warnings.
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" init-agents so your agent uses this brain")
+		}
+	}
 	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
@@ -4666,11 +4658,11 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	return report, nil
 }
 
-func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState) *brainStatusRetrieval {
+func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainDir, repoDir string, manifest *exportManifest, live brainLiveState, audit bool) *brainStatusRetrieval {
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run entire brain refresh --agent none"}
+		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		seed := manifest.Sources.Seed
 		report.SeedCommit = seed.Commit
@@ -4679,15 +4671,30 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case live.Head == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run entire brain refresh --agent none", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
-			axes["seed"] = staleAxis{State: "dirty-unindexed", Detail: "seed and docs are based on committed HEAD; refresh with --worktree to include current changes", Current: live.Head, Indexed: seed.Commit}
+			// CAUSE only, no remedy. This axis is rendered as the `Cause`
+			// line directly under the status verdict, which prints the one
+			// remedy a dirty tree has (setupDirtyWorktreeHint). While this
+			// string also carried "refresh with --worktree to include current
+			// changes", the two appeared together on one screen: the verdict
+			// said commit or stash, the next line said index the uncommitted
+			// content instead.
+			axes["seed"] = staleAxis{
+				State:   dirtyUnindexedAxisState,
+				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
+				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Current: live.Head,
+				Indexed: seed.Commit,
+			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
 			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+		case !audit:
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {
@@ -4700,7 +4707,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		}
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil {
-		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run entire brain refresh --agent none"}
+		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		docs := manifest.Sources.Docs
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
@@ -4714,7 +4721,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			detail := "docs index declared in the manifest but unreadable: " + err.Error()
 			if os.IsNotExist(err) {
 				state = "missing"
-				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run entire brain refresh --agent none"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"
 			}
 			axes["docs"] = staleAxis{State: state, Detail: detail}
 		} else if docs.GeneratedAt.IsZero() {
@@ -4722,7 +4729,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		} else if manifest.Sources.Seed == nil {
 			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
-			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run entire brain refresh --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {
 			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
 		}
@@ -4744,38 +4751,16 @@ func buildConversationStatus(brainDir string, manifest *exportManifest) *brainSt
 		Exchanges:           history.Exchanges,
 		IncompleteExchanges: history.IncompleteExchanges,
 	}
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
-		status.VectorState = "disabled"
-		return status
-	}
-	e := historySemanticEmbedder(defaultEmbedder())
-	if e == nil {
-		status.VectorState = "gate_closed"
-		return status
-	}
-	store, ok := newConversationVectorStore(brainDir, conversationVectorModelID(e.ID()), e.Dim())
-	if !ok {
-		status.VectorState = "unavailable_build"
-		return status
-	}
-	ids, ok := store.ids()
-	state := memoryProjectionVectorState(brainDir, e)
-	if !ok {
-		if state == "current" {
-			state = "degraded" // progress claims a store that cannot be opened
-		}
-		status.VectorState = state
-		status.VectorModelID = e.ID()
-		return status
-	}
-	if state == "absent" {
-		state = "stale" // an untracked store is not proof of current inputs
-	}
-	status.VectorState = state
-	status.VectorModelID = e.ID()
-	status.Vectors = len(ids)
+	// Semantic retrieval was removed (trail #278); the conversation vector arm
+	// no longer exists and its state is permanently "removed".
+	status.VectorState = "removed"
 	return status
 }
+
+// dirtyUnindexedAxisState is the one spelling of the axis state that means the
+// working tree has uncommitted changes the index does not carry. Named so the
+// producer and the renderer that attaches the remedy cannot drift on a literal.
+const dirtyUnindexedAxisState = "dirty-unindexed"
 
 func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 	keys := make([]string, 0, len(axes))
@@ -4788,6 +4773,13 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 		line := "    " + key + ": " + axis.State
 		if axis.Detail != "" {
 			line += " (" + axis.Detail + ")"
+		}
+		// The remedy comes from the axis now, not from this renderer asking
+		// the same question again. Re-deriving it here meant the JSON report
+		// carried a cause with no next step -- which is what an agent and
+		// every script read -- while only the text surface was whole.
+		if axis.Remedy != "" {
+			line += " — " + axis.Remedy
 		}
 		fmt.Fprintln(out, line)
 	}
@@ -4826,7 +4818,25 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	}
 	live.Staged, live.Unstaged, live.Untracked = parseBrainLiveStatus(status)
 	live.Dirty = len(live.Staged)+len(live.Unstaged)+len(live.Untracked) > 0
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff", "--shortstat", "HEAD"); err == nil {
+	// `git diff --shortstat HEAD` REFRESHES THE INDEX as a side effect, which
+	// takes `.git/index.lock` and makes a concurrent human or agent git command
+	// fail (issue #326). --no-optional-locks does not suppress that particular
+	// refresh -- measured, see gitHardenConfig -- so the only fix is to stop
+	// calling the porcelain. `diff-index` is the plumbing `git diff <commit>`
+	// is built on and never refreshes.
+	//
+	// -M is load-bearing. `git diff` gets rename detection from diff.renames,
+	// whose default is true; plumbing reads only the basic diff config and so
+	// gets none. Without -M a rename is counted as a whole-file delete plus a
+	// whole-file add, changing BOTH the file count and the insertion/deletion
+	// counts (measured: " 3 files changed, 6 insertions(+), 5 deletions(-)"
+	// against the porcelain's " 2 files changed, 1 insertion(+)" on the same
+	// worktree). With -M the output is byte-identical to the porcelain on git
+	// 2.54.0, including against a stat-dirty-but-identical file -- the
+	// --shortstat path reads content, so such a file is dropped from both.
+	// (The raw `diff-index --name-status` path does NOT read content and would
+	// report it, which is why this swap is safe only for stat output.)
+	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())
@@ -5580,11 +5590,12 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	if !fGuard.empty() {
 		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
 	}
-	// rankFreshHistory keeps the FTS/fused arm on the on-disk long-term index
+	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
 	// merged index here rebuilt or misresolved the BM25 store).
 	scored := rankFreshHistory(fresh, "history", query, candidateLimit, fGuardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
-		return rankHistoryFusedFiltered(brainDir, longTerm, "history", query, candidateLimit, defaultEmbedder(), eligible)
+		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, "history", query, candidateLimit, historyFTSRelevanceCutoff, eligible)
+		return lex, ok && complete
 	})
 	records := make([]historyRecord, 0, len(scored))
 	for _, item := range scored {

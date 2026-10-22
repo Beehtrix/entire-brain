@@ -286,29 +286,6 @@ func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "indexed %d history records: %s\n", source.Records, filepath.Join(storage.BrainDir, filepath.FromSlash(source.IndexPath)))
-	// History vectors ride the history stage (standalone here, and the same
-	// sequence inside the full `refresh`): only under the ENTIRE_BRAIN_EMBEDDER
-	// opt-in, see history_vec.go for the gate and sizing rationale.
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) != "" {
-		e := historySemanticEmbedder(defaultEmbedder())
-		store, storeOK := historyVectorStoreFor(storage.BrainDir, e)
-		switch {
-		case e == nil:
-			fmt.Fprintln(cmd.OutOrStdout(), "history vectors: skipped (embed server unavailable)")
-		case !storeOK:
-			fmt.Fprintln(cmd.OutOrStdout(), "history vectors: skipped (requires the brain_cgo build)")
-		default:
-			_ = store // availability was checked above; the guarded writer reopens it.
-			vectors, serr := syncMemoryProjectionVectorsFully(ctx, storage.BrainDir, opts.Now().UTC(), e, func(progress memoryVectorSyncPass) {
-				fmt.Fprintf(cmd.ErrOrStderr(), "history vectors: %d new %s embedded\n", progress.HistoryAdded, pluralUnit("record", progress.HistoryAdded))
-			})
-			if serr != nil {
-				return serr
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "history vectors: %d embedded, %d pruned (%d total)\n", vectors.HistoryAdded, vectors.HistoryDropped, vectors.HistoryTotal)
-			fmt.Fprintf(cmd.OutOrStdout(), "conversation vectors: %d embedded, %d pruned (%d total)\n", vectors.ConversationAdded, vectors.ConversationDrop, vectors.ConversationTotal)
-		}
-	}
 	return nil
 }
 
@@ -1058,7 +1035,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
 			// prepare path, so without the same empty-Brain branch it would
 			// swallow that function's actionable guidance.
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `entire brain refresh sessions` first")
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1189,7 +1166,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
-			return index, nil, historyScanCache{}, errors.New("session history missing; run `entire brain refresh sessions` first")
+			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return index, nil, historyScanCache{}, err
 	}
@@ -1388,6 +1365,10 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 // second in-memory copy.
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
 	beforeHistoryProjectionContentDigest(file.Rel)
+	if inventory.store != nil {
+		_, digest, err := readHistorySessionInventoryFile(ctx, inventory, file)
+		return digest, err
+	}
 	if file.Size > maxDocumentTranscriptBytes {
 		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
 	}
@@ -1439,6 +1420,17 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 }
 
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
+	if inventory.store != nil {
+		data, err := inventory.store.Read(ctx, file.Rel)
+		if err != nil {
+			return nil, "", err
+		}
+		if err := inventory.validateFileMembership(ctx, file); err != nil {
+			return nil, "", err
+		}
+		sum := sha256.Sum256(data)
+		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
+	}
 	if file.Size > maxDocumentTranscriptBytes {
 		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
 	}
@@ -1763,6 +1755,7 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 		return sessionSourceFingerprintAbsent
 	}
 	type fingerprintSession struct {
+		SessionIndex     int    `json:"session_index,omitempty"`
 		SessionID        string `json:"session_id"`
 		LatestCheckpoint string `json:"latest_checkpoint_id"`
 		Branch           string `json:"branch,omitempty"`
@@ -1783,6 +1776,7 @@ func sessionSourceFingerprint(source *sessionSourceManifest) string {
 	}
 	for _, session := range source.Sessions {
 		payload.Sessions = append(payload.Sessions, fingerprintSession{
+			SessionIndex:     session.SessionIndex,
 			SessionID:        session.SessionID,
 			LatestCheckpoint: session.LatestCheckpoint,
 			Branch:           session.Branch,
@@ -3017,11 +3011,11 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 // generations.
 func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) ([]byte, string, bool, error) {
 	if source == nil || source.IndexPath == "" {
-		return nil, "", false, errors.New("history index missing; run `entire brain refresh`")
+		return nil, "", false, errors.New("history index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`")
 	}
 	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
 	if generationAddressed && source.IndexDigest == "" {
-		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `entire brain refresh`", memoryErrMigrationRequired)
+		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+brainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
@@ -3126,7 +3120,7 @@ func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySou
 
 func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
-		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `entire brain refresh history` to rebuild it", len(data), source.IndexBytes)
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+brainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
 	}
 	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
 		return historyIndex{}, errors.New("history index checksum does not match manifest")

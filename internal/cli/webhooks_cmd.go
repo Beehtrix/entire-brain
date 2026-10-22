@@ -34,7 +34,7 @@ brain.
 Fact text is not sent. Events carry the fact id, kind and taxonomy paths; set
 ` + webhookIncludeTextEnv + `=1 to include the text as well.
 
-ENTIRE_BRAIN_NO_EGRESS and ENTIRE_BRAIN_LOCAL_ONLY disable webhooks outright,
+ENTIRE_BRAIN_NO_EGRESS disables webhooks outright,
 whatever else is configured.`),
 	}
 	cmd.AddCommand(newWebhookStatusCommand(opts), newWebhookTestCommand(opts), newWebhookEventsCommand())
@@ -69,7 +69,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 				// what actually silenced this — sends them to fix the wrong thing.
 				switch {
 				case brainNoEgressMode():
-					fmt.Fprintf(out, "  unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY to allow them\n")
+					fmt.Fprintf(out, "  unset %s to allow them\n", noEgressToggleName())
 				case strings.TrimSpace(os.Getenv(webhookURLEnv)) != "":
 					fmt.Fprintf(out, "  %s is set to %q; correct it and try again\n",
 						webhookURLEnv, strings.TrimSpace(os.Getenv(webhookURLEnv)))

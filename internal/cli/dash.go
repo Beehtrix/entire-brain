@@ -54,7 +54,7 @@ loaded snapshot.`,
 	}
 	cmd.Flags().StringVar(&flags.theme, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
 	cmd.Flags().StringVar(&flags.tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic, search")
-	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose facts to load (default: current branch)")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose memories to load (default: current branch)")
 	cmd.Flags().IntVar(&flags.limit, "limit", dashDefaultLimit, "Max entries loaded per tab (0 = no cap)")
 	cmd.Flags().BoolVar(&flags.json, "json", false, "Emit the loaded snapshot as JSON instead of opening the dashboard")
 	cmd.Flags().BoolVar(&flags.plain, "plain", false, "Print a plain text summary instead of opening the dashboard")
@@ -107,7 +107,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		})
 	}
 	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab,
-		dashTerminalWriter(cmd.OutOrStdout(), privacyPolicy))
+		dashTerminalWriter(cmd.OutOrStdout(), privacyPolicy), brainSourceReader(ctx, opts.Runner, brainDir))
 }
 
 // dashTerminalWriter is the stream the dashboard program renders to: every
@@ -307,7 +307,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	if manifest != nil && manifest.GeneratedAt.IsZero() && !anySource(present) {
-		home.Warnings = append(home.Warnings, "brain not built yet — run `entire brain refresh`")
+		home.Warnings = append(home.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	return home
 }
@@ -676,5 +676,24 @@ func sortFreshnessAxes(axes []tui.FreshnessAxis) {
 		for j := i; j > 0 && axes[j-1].Name > axes[j].Name; j-- {
 			axes[j-1], axes[j] = axes[j], axes[j-1]
 		}
+	}
+}
+
+// brainSourceReader keeps virtual transcript addresses out of the OS opener.
+// Reads happen only on demand and use the same fresh privacy gate as retrieval;
+// the TUI holds bytes in memory and never leaves temporary transcript files.
+func brainSourceReader(ctx context.Context, runner CommandRunner, brainDir string) tui.SourceReader {
+	store := newTranscriptStore(runner, brainDir)
+	return func(target string) (string, bool, error) {
+		rel, err := filepath.Rel(brainDir, target)
+		if err != nil {
+			return "", false, nil
+		}
+		rel = filepath.ToSlash(rel)
+		if !strings.HasPrefix(rel, "sessions/") {
+			return "", false, nil
+		}
+		data, err := store.Read(ctx, rel)
+		return string(data), true, err
 	}
 }

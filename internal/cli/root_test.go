@@ -61,7 +61,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		// Commands are organized into use-case groups instead of one flat list.
 		"Set up the brain & agents:",
 		"Search & explore the brain:",
-		"Durable facts & patterns:",
+		"Durable memories & patterns:",
 		"Code & semantic index:",
 		"Brain state & maintenance:",
 		"Workspaces & sharing:",
@@ -82,7 +82,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 	wantGroups := []string{
 		"Set up the brain & agents:",
 		"Search & explore the brain:",
-		"Durable facts & patterns:",
+		"Durable memories & patterns:",
 		"Code & semantic index:",
 		"Brain state & maintenance:",
 		"Workspaces & sharing:",
@@ -133,7 +133,7 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 		}
 		// Include previously hidden machine surfaces as well as the newly
 		// hidden developer paths. All-help must not mutate dispatch visibility.
-		for _, path := range []string{"bench", "bench semantic", "bench scale", "facts eval", "facts eval-gen", "facts eval-compare", "facts reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
+		for _, path := range []string{"bench", "bench semantic", "bench scale", "memories eval", "memories eval-gen", "memories eval-compare", "memories reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
 			if !strings.Contains(out, "\n  "+path+" ") {
 				t.Errorf("all-help missing %q", path)
 			}
@@ -147,9 +147,9 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 		}
 	}
 	for family, hidden := range map[string][]string{
-		"facts":   {"eval", "eval-gen", "eval-compare", "reclassify"},
-		"inspect": {"graph-schema"},
-		"docs":    {"formats"},
+		"memories": {"eval", "eval-gen", "eval-compare", "reclassify"},
+		"inspect":  {"graph-schema"},
+		"docs":     {"formats"},
 	} {
 		out, err := execute(t, NewRootCommand(Options{Version: "test"}), family, "--help")
 		if err != nil {
@@ -205,38 +205,38 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 	if start < 0 || end <= start {
 		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
 	}
-	for _, family := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
+	for _, family := range []string{"memories import", "memories sync", "memories proposals", "memories gc", "memories vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
 		if !strings.Contains(out[start:end], "\n  "+family+" ") {
 			t.Errorf("operations group missing %q", family)
 		}
 	}
-	factsStart := strings.Index(out, "Durable facts & patterns:")
+	factsStart := strings.Index(out, "Durable memories & patterns:")
 	factsEnd := strings.Index(out, "Code & semantic index:")
 	if factsStart < 0 || factsEnd <= factsStart {
 		t.Fatalf("missing durable facts group before code:\n%s", out)
 	}
-	for _, verb := range []string{"recall", "remember", "distill", "facts", "verify", "patterns"} {
+	for _, verb := range []string{"recall", "remember", "distill", "memories", "verify", "patterns"} {
 		if !strings.Contains(out[factsStart:factsEnd], "\n  "+verb+" ") {
 			t.Errorf("durable facts group missing everyday verb %q", verb)
 		}
 	}
-	for _, path := range []string{"facts import", "facts sync", "facts proposals", "facts gc", "facts vitality"} {
+	for _, path := range []string{"memories import", "memories sync", "memories proposals", "memories gc", "memories vitality"} {
 		if strings.Contains(out[factsStart:factsEnd], "\n  "+path+" ") {
 			t.Errorf("fact operator path %q should appear only in operations", path)
 		}
 	}
-	for _, absent := range []string{"facts", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts eval", "facts eval-gen", "facts eval-compare", "facts reclassify"} {
+	for _, absent := range []string{"memories", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories eval", "memories eval-gen", "memories eval-compare", "memories reclassify"} {
 		if strings.Contains(out[start:end], "\n  "+absent+"  ") {
 			t.Errorf("operations group should not list %q", absent)
 		}
 	}
-	for _, path := range []string{"memory migrate", "entities migrate", "facts status", "facts tree", "facts map", "facts retract", "facts review", "facts promote", "facts import", "facts sync", "facts proposals", "facts gc", "facts vitality", "docs extract"} {
+	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories import", "memories sync", "memories proposals", "memories gc", "memories vitality", "docs extract"} {
 		root := NewRootCommand(Options{Version: "test"})
 		c, _, err := root.Find(strings.Fields(path))
 		if err != nil || c.Hidden || c.Parent().Hidden {
 			t.Fatalf("command path %q is not visible: %v", path, err)
 		}
-		if strings.HasPrefix(path, "facts ") && (c.Parent().Name() != "facts" || c.Parent().GroupID != "facts") {
+		if strings.HasPrefix(path, "memories ") && (c.Parent().Name() != "memories" || c.Parent().GroupID != "facts") {
 			t.Fatalf("%q should remain registered under the everyday facts family", path)
 		}
 		args := append(strings.Fields(path), "--help")
@@ -290,7 +290,11 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
 	// report a host-environment error, which is none of this test's business.
-	out := doctorReportText(t, Options{Version: "test-version"})
+	//
+	// --verbose: a resolved plugin directory that is fine is not a finding, so
+	// the short report does not print it. The full report is where the paths
+	// doctor read live, and where this test reads them from.
+	out := doctorReportText(t, Options{Version: "test-version"}, "--verbose")
 	// A plugin directory that has not been created yet is the normal state of
 	// a fresh install, not a finding: what doctor owes the reader here is the
 	// PATH it resolved from the XDG fallback, and the promise that it did not
@@ -326,7 +330,9 @@ func TestDoctorDoesNotCreateOrProbePluginDataDir(t *testing.T) {
 	}
 
 	// About the must-not-create-or-probe invariant, not about the exit code.
-	out := doctorReportText(t, opts)
+	// --verbose for the same reason as TestDoctorUsesXDGFallbacks: a healthy
+	// directory is not a finding, and the full report is what names the paths.
+	out := doctorReportText(t, opts, "--verbose")
 	// filepath.Join, not dirs+"/data": doctor reports the cleaned path, so on
 	// Windows the finding reads `...\001\data` while the raw env value keeps the
 	// forward slash it was given. The sibling XDG test above already joins.

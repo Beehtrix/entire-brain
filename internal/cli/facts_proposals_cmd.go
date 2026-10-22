@@ -2,12 +2,12 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/hostedbrain"
 )
@@ -18,11 +18,11 @@ import (
 // low-confidence, on-disk proposals) and shares its verbs: list, show, apply, reject.
 //
 // Hosted egress is opt-in and off by default, exactly like `publish` (ADR-P1-A, no
-// implicit egress): a network call happens only when BOTH gates are satisfied — the
-// user explicitly runs one of these commands, AND ENTIRE_BRAIN_ALLOW_HOSTED is truthy.
-// The master local-only switch (ENTIRE_BRAIN_NO_EGRESS / ENTIRE_BRAIN_LOCAL_ONLY)
-// always wins. Every gate is checked BEFORE any resolution or HTTP request, so a
-// refusal is guaranteed egress-free and the default behaviour stays strictly local.
+// implicit egress): a network call happens only when the user explicitly runs one
+// of these commands with a target — the connected binding by default, else
+// explicit flags (COR-2143). The master kill switch (ENTIRE_BRAIN_NO_EGRESS)
+// always wins. Every gate is checked BEFORE any HTTP request, so a refusal is
+// guaranteed egress-free and the default behaviour stays strictly local.
 
 // factsProposalsOptions bundles the flag state shared by every `facts proposals` verb.
 type factsProposalsOptions struct {
@@ -62,12 +62,13 @@ superseded, never deleted); rejecting it keeps both facts active and clears the
 conflict cross-link. Either way the resolved fact set and the shrunken open set are
 pushed under compare-and-swap, so every member converges.
 
-This surface is HOSTED and opt-in: nothing leaves your machine unless you both run
-one of these commands AND set ` + envBrainAllowHosted + `=1. Use ` + "`facts review`" + ` for this
-member's own local, low-confidence proposals — that path is fully offline.
+This surface is HOSTED and opt-in: nothing leaves your machine unless you run
+one of these commands with a target — the connected binding by default, or an
+explicit one. Use ` + "`memories review`" + ` for this member's own local, low-confidence
+proposals — that path is fully offline.
 
-The target repo, API base URL, and bearer token resolve from --repo-id /` + " " + envRepoID + `,
---api-url / ` + envAPIBaseURL + `, and --token / ` + envAPIToken + `.`,
+The target resolves flag > env > connected binding: --repo-id /` + " " + envRepoID + `,
+--api-url / ` + envAPIBaseURL + `, --token / ` + envAPIToken + `.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// `--json` is a promise that this invocation answers in JSON. The
@@ -80,7 +81,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 			// --json surface already uses (see wrapJSONErrorRendering), and
 			// exit nonzero. Without --json the human help is unchanged.
 			if pOpts.jsonOut {
-				return fmt.Errorf("facts proposals requires a subcommand: %s", strings.Join(commandSubcommandNames(cmd), ", "))
+				return fmt.Errorf("memories proposals requires a subcommand: %s", strings.Join(commandSubcommandNames(cmd), ", "))
 			}
 			return cmd.Help()
 		},
@@ -103,7 +104,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 		},
 		&cobra.Command{
 			Use:   "show <proposal>",
-			Short: "Show one open proposal (by id, unambiguous id prefix, or candidate fact id)",
+			Short: "Show one open proposal (by id, unambiguous id prefix, or candidate memory id)",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return runFactsProposalsShow(cmd, opts, pOpts, args[0])
@@ -119,7 +120,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 		},
 		&cobra.Command{
 			Use:   "reject <proposal>",
-			Short: "Reject a proposal: keep both facts active and clear the conflict link",
+			Short: "Reject a proposal: keep both memories active and clear the conflict link",
 			Args:  cobra.ExactArgs(1),
 			RunE: func(cmd *cobra.Command, args []string) error {
 				return runFactsProposalsResolve(cmd, opts, pOpts, args[0], factsync.Reject)
@@ -152,7 +153,7 @@ The target repo, API base URL, and bearer token resolve from --repo-id /` + " " 
 				fmt.Fprintf(cmd.OutOrStdout(), "  invalid id: %q (derived: %q)\n", p.ID, factsync.ProposalID(p.Proposal))
 			}
 			if !repairApply && len(result.Invalid) > 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "Review these entries, then use repair --apply --if-ref %q to remove them. Facts are unchanged.\n", result.Ref)
+				fmt.Fprintf(cmd.OutOrStdout(), "Review these entries, then use repair --apply --if-ref %q to remove them. Memories are unchanged.\n", result.Ref)
 			}
 			return nil
 		}}
@@ -170,40 +171,35 @@ type hostedProposalTarget struct {
 	baseURL string
 }
 
-// resolveHostedProposalTarget enforces the two-gate opt-in and resolves the hosted
+// resolveHostedProposalTarget enforces the egress gates and resolves the hosted
 // target. It performs NO network call, so every refusal below is egress-free.
 func resolveHostedProposalTarget(ctx context.Context, opts Options, pOpts factsProposalsOptions) (hostedProposalTarget, error) {
-	// The master local-only switch always wins over the hosted opt-in.
+	// The master kill switch always wins over the hosted opt-in; the opt-in
+	// itself is the resolved target (mirrors publish).
 	if brainNoEgressMode() {
-		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while ENTIRE_BRAIN_NO_EGRESS or ENTIRE_BRAIN_LOCAL_ONLY is set; unset it, or use 'facts review' for this member's local proposals")
-	}
-	// Gate 2: the explicit hosted opt-in must be truthy; anything else fails closed.
-	if !envBool(envBrainAllowHosted) {
-		return hostedProposalTarget{}, fmt.Errorf("hosted_proposals_disabled: the hosted cross-member proposal queue is opt-in and off by default; nothing was sent. Set %s=1 to enable it, or use 'facts review' for this member's local proposals", envBrainAllowHosted)
+		return hostedProposalTarget{}, fmt.Errorf("no_egress: hosted proposal review is disabled while %s is set; unset it, or use 'memories review' for this member's local proposals", noEgressToggleName())
 	}
 
-	repoID := publishFlagOrEnv(pOpts.repoID, envRepoID)
-	if repoID == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: target repo id is required; set --repo-id or %s", envRepoID)
+	// The binding default needs the repo's brain dir; this surface also works
+	// from a checkout without one, so a failed resolution only disables the
+	// default — explicit flags still carry the command.
+	var brainDir, repoDir string
+	if dir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); err == nil && local {
+		repoDir = dir
+		if storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, dir); err == nil {
+			brainDir = storage.BrainDir
+		}
 	}
-	baseURL := publishFlagOrEnv(pOpts.apiURL, envAPIBaseURL)
-	if baseURL == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API base URL is required; set --api-url or %s", envAPIBaseURL)
-	}
-	baseURL, urlErr := apiurl.Validate(baseURL)
-	if urlErr != nil {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: %w", urlErr)
-	}
-	token := publishFlagOrEnv(pOpts.token, envAPIToken)
-	if token == "" {
-		return hostedProposalTarget{}, fmt.Errorf("facts proposals: API token is required; set --token or %s", envAPIToken)
+	target, err := resolveManualHostedTarget(ctx, opts, brainDir, repoDir, "memories proposals", pOpts.repoID, pOpts.apiURL, pOpts.token)
+	if err != nil {
+		return hostedProposalTarget{}, err
 	}
 
 	return hostedProposalTarget{
-		client:  &hostedbrain.Client{BaseURL: baseURL, Token: token},
-		repoID:  repoID,
+		client:  &hostedbrain.Client{BaseURL: target.baseURL, Token: target.token},
+		repoID:  target.repoID,
 		branch:  resolveProposalsBranch(ctx, opts, pOpts.branch),
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: strings.TrimRight(target.baseURL, "/"),
 	}, nil
 }
 
@@ -234,7 +230,11 @@ func runFactsProposalsList(cmd *cobra.Command, opts Options, pOpts factsProposal
 		return err
 	}
 	proposals, err := target.client.ListProposals(ctx, target.repoID, target.branch)
-	if err != nil {
+	// A backend that predates the queue (404/501 on the collection) means no
+	// open proposals can exist there — an answer for `list`, not a transport
+	// failure to dump on the reader (COR-2204).
+	queueUnsupported := errors.Is(err, factsync.ErrProposalQueueUnsupported)
+	if err != nil && !queueUnsupported {
 		return err
 	}
 	if pOpts.jsonOut {
@@ -242,12 +242,17 @@ func runFactsProposalsList(cmd *cobra.Command, opts Options, pOpts factsProposal
 			proposals = []factsync.OpenProposal{}
 		}
 		return writeJSON(cmd, map[string]any{
-			"branch":    target.branch,
-			"repo_id":   target.repoID,
-			"host":      target.baseURL,
-			"open":      len(proposals),
-			"proposals": proposals,
+			"branch":          target.branch,
+			"repo_id":         target.repoID,
+			"host":            target.baseURL,
+			"open":            len(proposals),
+			"proposals":       proposals,
+			"queue_supported": !queueUnsupported,
 		})
+	}
+	if queueUnsupported {
+		fmt.Fprintf(cmd.OutOrStdout(), "no open cross-member proposals on %s (this server does not serve the proposal queue)\n", target.branch)
+		return nil
 	}
 	out := cmd.OutOrStdout()
 	if len(proposals) == 0 {
@@ -258,7 +263,7 @@ func runFactsProposalsList(cmd *cobra.Command, opts Options, pOpts factsProposal
 	for _, p := range proposals {
 		fmt.Fprintf(out, "  %s  %s\n", p.ID, describeProposal(p))
 	}
-	fmt.Fprintf(out, "resolve with: facts proposals apply|reject <proposal>\n")
+	fmt.Fprintf(out, "resolve with: memories proposals apply|reject <proposal>\n")
 	return nil
 }
 
@@ -268,7 +273,7 @@ func runFactsProposalsShow(cmd *cobra.Command, opts Options, pOpts factsProposal
 	if err != nil {
 		return err
 	}
-	// Resolve the caller's reference (id, prefix, or candidate fact id) against the
+	// Resolve the caller's reference (id, prefix, or candidate memory id) against the
 	// open set, then fetch the canonical record by its exact id.
 	open, err := target.client.ListProposals(ctx, target.repoID, target.branch)
 	if err != nil {
@@ -335,13 +340,13 @@ func runFactsProposalsResolve(cmd *cobra.Command, opts Options, pOpts factsPropo
 	}
 	out := cmd.OutOrStdout()
 	verb := "applied"
-	detail := "candidate merged/superseded target; the losing fact is retained"
+	detail := "candidate merged/superseded target; the losing memory is retained"
 	if decision == factsync.Reject {
 		verb = "rejected"
-		detail = "both facts stay active; conflict link cleared"
+		detail = "both memories stay active; conflict link cleared"
 	}
 	fmt.Fprintf(out, "%s %s on %s (%s)\n", verb, res.Proposal.ID, target.branch, detail)
-	fmt.Fprintf(out, "  facts head: %s (%d attempt(s))\n", refOrNone(res.FactsRef), res.Attempts)
+	fmt.Fprintf(out, "  memories head: %s (%d attempt(s))\n", refOrNone(res.FactsRef), res.Attempts)
 	fmt.Fprintf(out, "  %d open proposal(s) remain\n", res.Remaining)
 	return nil
 }

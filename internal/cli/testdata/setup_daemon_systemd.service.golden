@@ -1,3 +1,4 @@
+# io.entire.unit-revision 2
 [Unit]
 Description=Entire brain watcher (deterministic refresh is free; agent steps are gated)
 Documentation=https://github.com/entireio/entire-brain

@@ -131,10 +131,10 @@ func TestDaemonUnitIsStaleWhenSomethingMaterialChanged(t *testing.T) {
 }
 
 // `setup` decides what to do about the service with inspect() and then acts
-// with install(), and install() on darwin is `launchctl unload` followed by
-// `launchctl load` with the service DOWN in between. Two repos onboarding at
-// once is the ordinary case; unserialized, one run's load lands between the
-// other's unload and load and the loser reports "daemon install failed" for a
+// with install(), and install() on darwin is `launchctl bootout` followed by
+// `launchctl bootstrap` with the service DOWN in between. Two repos onboarding at
+// once is the ordinary case; unserialized, one run's bootstrap lands between the
+// other's bootout and bootstrap and the loser reports "daemon install failed" for a
 // watcher that is in fact running.
 func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 	f := newSetupTestFixture(t)
@@ -174,7 +174,7 @@ func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 				return daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath}
 			},
 			install: func(context.Context, daemonPlan) error {
-				// The unload/load pair: the window the service is down.
+				// The bootout/bootstrap pair: the window the service is down.
 				record(racer, "install")
 				yield()
 				return nil
@@ -191,7 +191,7 @@ func TestConcurrentSetupsDoNotInterleaveTheDaemonRegistration(t *testing.T) {
 			defer wg.Done()
 			<-start
 			report := setupReport{}
-			runSetupDaemon(context.Background(), newRefreshProgress(io.Discard), f.env, stepsFor(racer), plan, &report, "entire-brain")
+			runSetupDaemon(context.Background(), nil, f.env, stepsFor(racer), plan, &report, "entire-brain")
 		}(i)
 	}
 	close(start)
@@ -374,7 +374,7 @@ func TestSupervisedWatchMaintainsItsLogEvenWithNothingToWatch(t *testing.T) {
 	passes := 0
 	if err := supervisedWatchLoop(context.Background(), io.Discard, f.env, base,
 		func(string, watchCommandOptions, *int) error { passes++; return nil },
-		func() { maintained++ }); err != nil {
+		func() { maintained++ }, nil); err != nil {
 		t.Fatalf("supervised loop: %v", err)
 	}
 	if passes != 0 {
@@ -508,7 +508,7 @@ func TestARerunRefreshesTheUnitFileWithoutTouchingTheService(t *testing.T) {
 		install: func(context.Context, daemonPlan) error { installs++; return nil },
 	}
 	report := setupReport{}
-	runSetupDaemon(context.Background(), newRefreshProgress(io.Discard), f.env, steps, plan, &report, "entire-brain")
+	runSetupDaemon(context.Background(), nil, f.env, steps, plan, &report, "entire-brain")
 
 	if installs != 0 {
 		t.Fatalf("a running, current watcher must never be reloaded; install ran %d times", installs)

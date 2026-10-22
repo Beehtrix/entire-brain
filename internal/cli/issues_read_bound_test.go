@@ -9,7 +9,7 @@ import (
 )
 
 func TestIssueStoreReadRejectsOversizedState(t *testing.T) {
-	for _, rel := range []string{"issues/state.json", "issues/derived/vectors.json"} {
+	for _, rel := range []string{"issues/state.json"} {
 		t.Run(rel, func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, rel)

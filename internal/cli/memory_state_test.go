@@ -127,8 +127,8 @@ func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testi
 	}
 
 	out, err = execute(t, newMemoryReconcileCommand(opts))
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "reconcile completed schema_version=1") || !strings.Contains(out, "reconcile enqueued 1 jobs") {
-		t.Fatalf("plain reconcile receipt: err=%v\n%s", err, out)
+	if err != nil || strings.Contains(out, "{") || strings.Contains(out, "schema_version=") || !strings.Contains(out, "reconcile enqueued 1 jobs") {
+		t.Fatalf("plain reconcile output: err=%v\n%s", err, out)
 	}
 	if jobs := loadMemoryJobs(brainDir); len(jobs) != 1 || jobs[0].State != memoryJobStatePending {
 		t.Fatalf("reconcile jobs = %+v", jobs)
@@ -1242,7 +1242,7 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 		t.Fatalf("repeat retry receipt=%+v err=%v\n%s", mutation, err, out)
 	}
 	out, err = execute(t, NewRootCommand(opts), "memory", "cancel", "--session-ref", ref, "--dry-run")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "cancel completed") || !strings.Contains(out, "dry_run=true") || !strings.Contains(out, "jobs_eligible=2") {
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "cancel dry-run:") || !strings.Contains(out, "2 eligible") {
 		t.Fatalf("cancel dry-run text: err=%v\n%s", err, out)
 	}
 	for _, job := range loadMemoryJobs(storage.BrainDir) {

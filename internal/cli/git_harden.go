@@ -1,6 +1,14 @@
 package cli
 
-import "slices"
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+)
 
 // git resolves several configuration keys to *commands it executes*, and it
 // honours them from the per-repository .git/config — plus the in-tree
@@ -72,10 +80,121 @@ import "slices"
 // ls-files, worktree, gc, clone or commit.
 const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
 
+// realGitHooksDir resolves the hooks directory git would use WITHOUT the pin
+// above. It lives here, beside the pin, because it is the sanctioned way to
+// read around it: `rev-parse --git-path hooks` and plain config reads through
+// the hardened runner always answer the sentinel, and the next caller must
+// not have to rediscover that. `git config --get-all` lists values in
+// ascending precedence with the pinned entry guaranteed last (command-line
+// config wins), so the last value that is not the sentinel is the user's
+// effective core.hooksPath — whatever mechanism injected it. None means the
+// default, <git-common-dir>/hooks; the common dir so linked worktrees share
+// one hooks directory, exactly as git does. A relative value resolves against
+// the worktree, matching git (see the pin's comment on why that matters).
+// The second return reports whether the resolved directory belongs to THIS
+// repository (under its worktree or its git common dir). A shared
+// core.hooksPath — a global ~/.githooks, say — resolves for every repository
+// at once, and a caller that installs or removes files there acts on repos it
+// was never asked about.
+func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, bool, error) {
+	commonOut, err := gitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", false, fmt.Errorf("resolve git dir: %w", err)
+	}
+	commonDir := strings.TrimSpace(commonOut)
+	if !filepath.IsAbs(commonDir) {
+		commonDir = filepath.Join(repoDir, commonDir)
+	}
+
+	dir := filepath.Join(commonDir, "hooks")
+	// The pin guarantees at least one value, so a failure here is a real
+	// error, never "key unset".
+	valuesOut, err := gitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
+	if err != nil {
+		return "", false, fmt.Errorf("resolve core.hooksPath: %w", err)
+	}
+	for _, value := range strings.Split(valuesOut, "\n") {
+		value = strings.TrimSpace(value)
+		if value == "" || value == gitHooksDisabledPath {
+			continue
+		}
+		resolved, resolveErr := resolveHooksPathValue(value, repoDir)
+		if resolveErr != nil {
+			return "", false, resolveErr
+		}
+		dir = resolved
+	}
+	inRepo := dirWithin(dir, repoDir) || dirWithin(dir, commonDir)
+	return dir, inRepo, nil
+}
+
+// dirWithin reports whether path sits at or below root, lexically.
+func dirWithin(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+// resolveHooksPathValue resolves one core.hooksPath value the way git does:
+// a leading ~ expands to the home directory, an absolute path stands, and a
+// relative path resolves against the worktree. A ~user form is refused rather
+// than misresolved — installing a hook into the wrong directory is worse than
+// an install that reports why it did nothing.
+func resolveHooksPathValue(value, repoDir string) (string, error) {
+	switch {
+	case value == "~" || strings.HasPrefix(value, "~/"):
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("expand core.hooksPath %q: %w", value, err)
+		}
+		return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(value, "~"), "/")), nil
+	case strings.HasPrefix(value, "~"):
+		return "", fmt.Errorf("core.hooksPath %q uses ~user expansion, which this plugin does not resolve", value)
+	case filepath.IsAbs(value):
+		return value, nil
+	default:
+		return filepath.Join(repoDir, value), nil
+	}
+}
+
 var (
 	// gitHardenConfig applies to every git invocation. Verified accepted by
 	// every subcommand this binary runs, including clone.
+	//
+	// --no-optional-locks is the one entry that is a git-LEVEL FLAG rather than
+	// a -c pair. ORDER MATTERS: it must precede the subcommand, which is why it
+	// lives at the head of this slice -- both consumers (hardenedGitArgs below,
+	// and enumerateRepoFilterDrivers in git_harden_filters.go, the only git
+	// spawn that does not go through hardenedGitArgs) splice the whole slice in
+	// ahead of the subcommand. Placed after the subcommand git parses it as a
+	// subcommand option and dies.
+	//
+	// It is here because two agents in one repository is the NORMAL case for
+	// this product: a read-only inspection that opportunistically takes
+	// `.git/index.lock` makes the concurrent human or agent git command fail
+	// with "Unable to create '.git/index.lock': File exists" (issue #326).
+	// git's own definition of an optional lock is exactly the refresh this
+	// binary never needs -- suppressing it changes no output, only the write.
+	//
+	// Measured on git 2.54.0 by hashing .git/index either side of the command,
+	// against a worktree holding a stat-dirty-but-identical file:
+	//
+	//   - `git status --porcelain` REWRITES the index without the flag and does
+	//     NOT with it.
+	//   - `git diff <commit>` rewrites it EITHER WAY: cmd_diff runs its own
+	//     refresh that the optional-lock setting does not gate. So the flag is
+	//     necessary but NOT sufficient, and the one diff that exists purely to
+	//     report a stat moved to the `diff-index` plumbing as well; see
+	//     brainLiveStateReport in agent_surface.go.
+	//   - Write commands are unaffected, because only OPTIONAL locks are
+	//     suppressed: init, add, commit, config, clone, fetch and
+	//     `worktree add` were each run with the flag and completed normally. No
+	//     call site therefore needs to opt out, and none can: there is
+	//     deliberately no escape hatch at this chokepoint.
 	gitHardenConfig = []string{
+		"--no-optional-locks",
 		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=" + gitHooksDisabledPath,
 	}
@@ -101,11 +220,13 @@ var (
 )
 
 // hardenedGitArgs rewrites a git argument list so repo-local configuration
-// cannot turn a read into an execution. It is applied at the single point where
-// this binary actually spawns git (see runner.go), which is what keeps it
-// unbypassable: every call site in every package — including
-// internal/entityindex, which receives ExecRunner straight through — is covered
-// without each one having to remember.
+// cannot turn a read into an execution. It is applied through
+// hardenedGitInvocation (runner.go), the single assembly point behind every
+// git spawn in this binary — the buffered runner, the streaming runner, and
+// the cat-file batch child — which is what keeps it unbypassable: every call
+// site in every package — including internal/entityindex, which receives
+// ExecRunner straight through — is covered without each one having to
+// remember.
 //
 // Flags are inserted immediately after the subcommand so they land before any
 // `--` pathspec separator, and are skipped when the caller already passed them.
@@ -166,4 +287,101 @@ func gitSubcommandIndex(args []string) int {
 		}
 	}
 	return -1
+}
+
+// A porcelain `git diff <commit>` refreshes the index as part of its own work,
+// and --no-optional-locks does NOT gate that refresh. Measured on git 2.54.0,
+// each trial from an identical stat-dirty index, restored in between:
+//
+//	git diff --name-status -M -C HEAD                      REWRITES the index
+//	git --no-optional-locks diff --name-status -M -C HEAD   REWRITES the index
+//	git --no-optional-locks diff-index --name-status …      leaves it alone
+//
+// So the hardening flag closes `git status` and leaves the diffs open, which
+// matters because changedSemanticFiles runs inside `brain brief` -- the exact
+// command issue #326 reports colliding with a concurrent git.
+//
+// Switching those diffs to plumbing would fix the lock and change the answer:
+// diff-index against an unrefreshed index reports a stat-dirty file (mtime
+// touched, content identical) as modified. On the same fixture that cost one
+// spurious path, which here means re-indexing a file that did not change.
+//
+// Pointing GIT_INDEX_FILE at a COPY gets both: git refreshes the copy to its
+// heart's content, the real index is never opened for write, and the output is
+// byte-identical to porcelain because it is porcelain, run against the same
+// index contents.
+const gitScratchIndexPrefix = "entire-brain-index"
+
+// runGitWithScratchIndex runs a git command whose index refresh must not touch
+// the repository's real index.
+//
+// A runner without the environment capability falls back to running the
+// command as-is. That is today's behaviour -- the lock is taken, as it is on
+// main -- rather than an error: a brief that fails outright would be a worse
+// regression than a brief that occasionally contends, and every such runner in
+// this repo is a test fake.
+func runGitWithScratchIndex(ctx context.Context, runner CommandRunner, repoDir string, args ...string) ([]byte, []byte, error) {
+	envRunner, ok := runner.(EnvironmentCommandRunner)
+	if !ok {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	realIndex, _, err := runner.Run(ctx, repoDir, "git", "rev-parse", "--git-path", "index")
+	if err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	indexPath := strings.TrimSpace(string(realIndex))
+	if indexPath == "" {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	if !filepath.IsAbs(indexPath) {
+		indexPath = filepath.Join(repoDir, indexPath)
+	}
+	index, err := os.Open(indexPath)
+	if err != nil {
+		// No index yet (a repo with no commits): nothing to protect.
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	// Git replaces its index atomically. Read the content and timestamp from
+	// the same descriptor so a concurrent replacement cannot mix generations.
+	info, statErr := index.Stat()
+	contents, readErr := io.ReadAll(index)
+	index.Close()
+	if statErr != nil || readErr != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	dir, err := os.MkdirTemp("", gitScratchIndexPrefix)
+	if err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	defer os.RemoveAll(dir)
+
+	scratch := filepath.Join(dir, "index")
+	if err := os.WriteFile(scratch, contents, 0o600); err != nil {
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+
+	// The copy must carry the ORIGINAL's mtime, not its own.
+	//
+	// git decides whether a cached stat entry can be trusted by comparing the
+	// file's mtime against THE INDEX FILE'S OWN mtime: an entry whose file was
+	// modified in the same second the index was written is "racily clean" and
+	// git re-reads its content instead of believing the cache. A fresh copy has
+	// a newer mtime than every tracked file, so every entry looks safely older
+	// than the index and git trusts the cache -- and a file edited in that same
+	// second, especially one whose size did not change, is reported as
+	// UNCHANGED.
+	//
+	// That is worse than the lock contention this function exists to avoid: it
+	// silently loses a worktree edit. Caught by an existing hardening test whose
+	// fixture overwrites a 12-byte file with 12 different bytes immediately
+	// after committing it -- exactly the racy window.
+	mtime := info.ModTime()
+	if err := os.Chtimes(scratch, mtime, mtime); err != nil {
+		// Without the original mtime the copy is not a faithful stand-in,
+		// so take the lock rather than risk a wrong answer.
+		return runner.Run(ctx, repoDir, "git", args...)
+	}
+	return envRunner.RunWithEnv(ctx, repoDir, map[string]string{"GIT_INDEX_FILE": scratch}, "git", args...)
 }

@@ -134,27 +134,11 @@ func finalizeMemoryOperationReceipt(receipt *memoryOperationReceipt, now time.Ti
 	}
 }
 
-// renderMemoryOperationReceiptText is the plain-output counterpart to the
-// JSON receipt. Keep it content-free but complete enough for operators and
-// scripts to retain the same operation identity and per-artifact transitions.
-func renderMemoryOperationReceiptText(out io.Writer, receipt memoryOperationReceipt, status string) {
-	fmt.Fprintf(out, "%s %s schema_version=%d operation_id=%s dry_run=%v error_code=%s started_at=%s finished_at=%s artifacts=%d jobs=%d\n",
-		receipt.Operation, status, receipt.SchemaVersion, receipt.OperationID, receipt.DryRun, receipt.ErrorCode,
-		receipt.StartedAt.UTC().Format(time.RFC3339Nano), receipt.FinishedAt.UTC().Format(time.RFC3339Nano), len(receipt.Artifacts), len(receipt.JobIDs))
-	if receipt.SessionRef != "" {
-		fmt.Fprintf(out, "selected session_ref=%q\n", receipt.SessionRef)
-	}
-	for _, jobID := range receipt.JobIDs {
-		fmt.Fprintf(out, "selected job_id=%q\n", jobID)
-	}
-	for _, artifact := range receipt.Artifacts {
-		fmt.Fprintf(out, "artifact path=%q prior_state=%q new_state=%q\n", artifact.Path, artifact.PriorState, artifact.NewState)
-	}
-}
-
 // finishMemoryOperationFailure closes and emits the one failure receipt for an
 // operation after its receipt identity exists. The original failure remains
 // the command error; an output failure is joined instead of replacing it.
+// The receipt is machine telemetry and belongs to --json alone (COR-2205); on
+// the plain surface the returned error is the whole report.
 func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationReceipt, jsonOut bool, now time.Time, cause error) error {
 	if cause == nil {
 		cause = fmt.Errorf("%s: memory operation failed", memoryErrStateCorrupt)
@@ -163,16 +147,10 @@ func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationRe
 	if receipt.ErrorCode == "" {
 		receipt.ErrorCode = memoryErrorCode(cause)
 	}
-	var emitErr error
 	if jsonOut {
-		emitErr = writeJSON(cmd, receipt)
-	} else {
-		emitErr = writeText(cmd, func(out io.Writer) {
-			renderMemoryOperationReceiptText(out, *receipt, "failed")
-		})
-	}
-	if emitErr != nil {
-		return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
+		if emitErr := writeJSON(cmd, receipt); emitErr != nil {
+			return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
+		}
 	}
 	return cause
 }
@@ -204,7 +182,7 @@ func emitMemoryOperationSuccess(
 				renderText(out, *receipt)
 				return
 			}
-			renderMemoryOperationReceiptText(out, *receipt, "completed")
+			fmt.Fprintf(out, "%s completed\n", receipt.Operation)
 		})
 	}
 	if emitErr == nil {
@@ -501,7 +479,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(verifyErr)
 				}
 				if !postVerify.Clean {
-					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `entire brain privacy purge <session-id>` and retry repair", memoryErrPrivacyDirty, len(postVerify.Findings)))
+					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", memoryErrPrivacyDirty, len(postVerify.Findings)))
 				}
 				verify = postVerify
 				postManifest, manifestErr := loadBrainManifest(brainDir)
@@ -541,7 +519,6 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					"rebuilt": needsRebuild && !dryRun,
 				}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				if !needsRebuild {
 					fmt.Fprintln(out, "repair: projections verify clean and current; nothing to do")
 					return
@@ -612,7 +589,6 @@ func newMemoryRebuildCommand(opts Options) *cobra.Command {
 				planMemoryProjectionRefreshStates(&receipt.Artifacts)
 			}
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), nil, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				mode := "rebuilt"
 				if dryRun {
 					mode = "dry-run: would rebuild"
@@ -1018,7 +994,6 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 				return map[string]any{"receipt": receipt, "findings": findings, "remaining_findings": remaining, "migrated": migrated}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				if len(findings) == 0 {
 					fmt.Fprintln(out, "migrate: every derived schema is current")
 					return
@@ -1265,9 +1240,6 @@ func memoryInstallHealth(brainDir string) map[string]any {
 	historyDir := inspectMemoryInstallDirectory(brainDir, historyDirName)
 	providerEgress := memoryProviderEgressHealth(brainDir)
 	buildProfile := "pure_go"
-	if brainCGOBuild {
-		buildProfile = "cgo_vector"
-	}
 	hostAdapter := memoryHostAdapterHealth{
 		State:               "not_observable",
 		Authority:           "entire-cli",
@@ -1595,7 +1567,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		Path:                   exportManifestFileName,
 		State:                  "absent",
 		SupportedSchemaVersion: brainManifestSchemaVersion,
-		RecommendedAction:      "run `entire brain refresh` to create the canonical manifest",
+		RecommendedAction:      "run `" + brainInvocation(os.LookupEnv, "refresh") + "` to create the canonical manifest",
 	}
 	manifest, version, droppedUnknownFields, present, err := readBrainManifestFile(brainDir, true)
 	if !present && err == nil {
@@ -1622,7 +1594,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 			// and there is nothing to upgrade INTO -- the way out is to rebuild
 			// it from the canonical sources it was derived from.
 			if version < brainManifestMinSchemaVersion {
-				health.RecommendedAction = "run `entire brain refresh --force` to rebuild the manifest from canonical sources"
+				health.RecommendedAction = "run `" + brainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild the manifest from canonical sources"
 			} else {
 				health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
 			}
@@ -1641,7 +1613,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		// refresh rebuild it from canonical sources.
 		// State stays "current" on purpose: the manifest is present, usable and
 		// this build's supported schema, and callers switch on that string.
-		health.RecommendedAction = "written by a different build and read-only; run `entire brain refresh --force` to rebuild it from canonical sources"
+		health.RecommendedAction = "written by a different build and read-only; run `" + brainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild it from canonical sources"
 	}
 	return manifest, health, nil
 }
@@ -2004,7 +1976,7 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 		logHealth["path"] = filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel))
 		payload["worker_log"] = logHealth
 	} else {
-		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": memoryErrorCode(err), "action": "inspect the content-free worker log path"}
+		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": memoryErrorCode(err), "action": "inspect the worker log path; it holds event names and bounded, redacted reasons"}
 	}
 	payload["vector_progress"] = memoryVectorProgressHealth(brainDir, source)
 	return payload
@@ -2060,7 +2032,7 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 	}
 	if manifestHealth.State == "absent" {
 		canonical["state"] = "manifest_absent"
-		canonical["action"] = "run `entire brain refresh` to capture canonical sessions"
+		canonical["action"] = "run `" + brainInvocation(os.LookupEnv, "refresh") + "` to capture canonical sessions"
 	} else if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions := manifest.Sources.Sessions
 		canonical["state"] = "available"
@@ -2069,7 +2041,7 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		canonical["latest_checkpoint_id"] = sessions.LatestCheckpointID
 	} else if manifest != nil {
 		canonical["state"] = "absent"
-		canonical["action"] = "run `entire brain refresh` (sessions stage)"
+		canonical["action"] = "run `" + brainInvocation(os.LookupEnv, "refresh") + "` (sessions stage)"
 	} else {
 		canonical["error_code"] = manifestHealth.ErrorCode
 		canonical["action"] = manifestHealth.RecommendedAction

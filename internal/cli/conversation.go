@@ -71,7 +71,7 @@ func conversationSourceStaleCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceStale,
 		Message: "The source transcript is missing or changed since indexing; showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `entire brain refresh` to re-index, then fetch this id again.",
+		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index, then fetch this id again.",
 	}
 }
 
@@ -89,7 +89,7 @@ func conversationSourceUnreadableCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceUnreadable,
 		Message: "The source transcript could not be re-parsed (malformed or unreadable); showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `entire brain refresh` to re-index; if the state persists, inspect the transcript for corruption.",
+		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index; if the state persists, inspect the transcript for corruption.",
 	}
 }
 
@@ -611,7 +611,7 @@ func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must remain under sessions/"}
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path is unsafe", Err: err}
 	}
 	return filepath.Join(brainDir, clean), nil
@@ -648,7 +648,7 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 		}
 		return conversationExpansion{}, err
 	}
-	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, record.Path)
+	f, finish, err := transcriptStoreFor(brainDir).Open(ctx, record.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return conversationExpansion{}, errConversationSourceStale

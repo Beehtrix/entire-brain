@@ -475,7 +475,11 @@ func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.
 	}
 }
 
-func TestDiscoverCheckpointsRejectsIncompleteZeroResult(t *testing.T) {
+// An incomplete inventory with zero readable IDs is the never-checkpointed
+// state, not a fault: it must succeed empty exactly like the no-egress path
+// does (COR-2203). The empty-export refusal in runExport remains the guard for
+// brains that already hold sessions.
+func TestDiscoverCheckpointsTreatsIncompleteZeroResultAsEmpty(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
 			stdout: `[]`,
@@ -483,10 +487,17 @@ func TestDiscoverCheckpointsRejectsIncompleteZeroResult(t *testing.T) {
 		},
 	}}
 	checkpoints, warnings, err := discoverCheckpoints(context.Background(), runner, "/repo", "entire-test", exportScopeAll, 0)
-	if err == nil || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) || len(checkpoints) != 0 {
+	if err != nil || len(checkpoints) != 0 {
 		t.Fatalf("incomplete zero result = checkpoints:%+v warnings:%v err:%v", checkpoints, warnings, err)
 	}
-	if strings.Contains(strings.Join(warnings, "\n"), "complete routed checkpoint list") {
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, errCheckpointCatalogEmpty.Error()) {
+		t.Fatalf("empty result did not carry the no-checkpoints warning: %v", warnings)
+	}
+	if !hasCheckpointScopeIncompleteWarning(warnings) {
+		t.Fatalf("incomplete scope was not surfaced as a warning: %v", warnings)
+	}
+	if strings.Contains(joined, "complete routed checkpoint list") {
 		t.Fatalf("incomplete scope was described as complete: %v", warnings)
 	}
 }
@@ -937,7 +948,7 @@ func TestCheckpointRootSummaryRejectsDuplicatePathOwnership(t *testing.T) {
 			if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 				t.Fatal(err)
 			}
-			written, _, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
+			written, _, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs)
 			if err != nil || len(written) != 1 || written[0].LatestCheckpoint != goodID {
 				t.Fatalf("written sessions = %+v err=%v", written, err)
 			}
@@ -987,7 +998,7 @@ func TestWriteSnapshotTranscriptsSkipsUnreadableSibling(t *testing.T) {
 	if err := ensureExportDirectories(outputDir, branchDirs); err != nil {
 		t.Fatal(err)
 	}
-	written, warnings, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs, nil)
+	written, warnings, _, err := writeSnapshotSessionTranscripts(context.Background(), runner, snapshot, outputDir, sessions, branchDirs)
 	if err != nil || len(written) != 1 || written[0].LatestCheckpoint != goodID {
 		t.Fatalf("partial transcript write = written:%+v warnings:%v err:%v", written, warnings, err)
 	}
@@ -2064,161 +2075,91 @@ func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
 	}
 }
 
-func TestReuseTranscriptFromCursorRejectsSymlinkedTranscript(t *testing.T) {
+func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 	outputDir := t.TempDir()
 	relPath := filepath.Join(exportSessionsDirectory, "main", "session.jsonl")
-	if err := os.MkdirAll(filepath.Join(outputDir, exportSessionsDirectory, "main"), 0o700); err != nil {
-		t.Fatalf("create transcript dir: %v", err)
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(outputDir, relPath)), 0700); err != nil {
+		t.Fatal(err)
 	}
-	outsidePath := filepath.Join(t.TempDir(), "outside.jsonl")
-	if err := os.WriteFile(outsidePath, []byte("outside\n"), 0o600); err != nil {
-		t.Fatalf("write outside transcript: %v", err)
+	outside := filepath.Join(t.TempDir(), "outside.jsonl")
+	if err := os.WriteFile(outside, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.Symlink(outsidePath, filepath.Join(outputDir, relPath)); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
+	if err := os.Symlink(outside, filepath.Join(outputDir, relPath)); err != nil {
+		t.Skip(err)
 	}
-	session := exportSession{Branch: "main", SessionID: "sess1", LatestCheckpoint: "cp1"}
-	cursor := &exportCursor{Sessions: map[string]exportCursorSession{
-		selectedSessionKey(session.Branch, session.SessionID): {
-			LatestCheckpoint: session.LatestCheckpoint,
-			TranscriptMode:   "raw",
-			TranscriptPath:   filepath.ToSlash(relPath),
-		},
-	}}
-
-	if reuseTranscriptFromCursor(outputDir, cursor, session, relPath, "raw") {
-		t.Fatal("expected cursor reuse to reject symlinked transcript")
+	if inventory, err := planTranscriptCacheSweep(context.Background(), ExecRunner{}, outputDir, ""); err == nil {
+		if inventory != nil {
+			inventory.Close()
+		}
+		t.Fatal("migration must reject symlink")
+	}
+	if data, err := os.ReadFile(outside); err != nil || string(data) != "outside" {
+		t.Fatal("migration touched external file")
 	}
 }
 
 func TestExportDefaultUsesBrainAndCursor(t *testing.T) {
-	repoDir := t.TempDir()
-	dataDir := filepath.Join(t.TempDir(), "data")
-	stateDir := filepath.Join(t.TempDir(), "state")
-
-	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "remote", "get-url", "origin"): {
-			stdout: "https://github.com/entireio/cli.git\n",
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
-			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
-			stdout: `{
-  "checkpoint_id": "aaa111aaa111",
-  "checkpoints_count": 1,
-  "session_count": 1,
-  "sessions": [
-    {
-      "index": 0,
-      "session_id": "session-one",
-      "agent": "Codex",
-      "created_at": "2026-01-01T00:00:00Z"
-    }
-  ]
-}`,
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--transcript", "--session-index", "0", "aaa111aaa111"): {
-			stdout: "{\"type\":\"message\",\"text\":\"session one\"}\n",
-		},
-	}}
-
-	cmd := NewRootCommand(Options{
-		Version: "test-version",
-		Env: EntireEnv{
-			RepoRoot:       repoDir,
-			PluginDataDir:  dataDir,
-			PluginStateDir: stateDir,
-		},
-		Runner: runner,
-		Now: func() time.Time {
-			return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-		},
-	})
-
-	out, err := execute(t, cmd, "refresh", "sessions", "--entire-binary", "entire-test")
+	repoDir, runner := compactV1Fixture(t, true)
+	runner.responses[fakeCommandKey("git", "cat-file", "-t", v1MainRef+":aa/a111aaa111/0/transcript.jsonl")] = fakeCommandResponse{stdout: "blob\n"}
+	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "https://github.com/entireio/cli.git\n"}
+	opts := Options{Version: "test", Runner: runner, Env: EntireEnv{RepoRoot: repoDir, PluginDataDir: t.TempDir(), PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir()}, Now: func() time.Time { return time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC) }}
+	storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
 	if err != nil {
-		t.Fatalf("export: %v\n%s", err, out)
+		t.Fatal(err)
 	}
+	for pass := 0; pass < 2; pass++ {
+		out, err := execute(t, NewRootCommand(opts), "refresh", "sessions", "--entire-binary", "entire-test")
+		if err != nil {
+			t.Fatalf("export: %v\n%s", err, out)
+		}
+		if !strings.Contains(out, "output: "+storage.BrainDir) {
+			t.Fatal(out)
+		}
+		manifest, err := loadBrainManifest(storage.BrainDir)
+		if err != nil || !checkpointBackedSessions(manifest) {
+			t.Fatalf("manifest: %+v %v", manifest, err)
+		}
+		if _, err := os.Stat(storage.HeadPath); err != nil {
+			t.Fatal(err)
+		}
+		if pass == 0 {
+			for _, rel := range []string{"sessions/main/stale.json", "sessions/branches/feature/stale.jsonl"} {
+				if err := writeTranscriptFile(storage.BrainDir, rel, []byte("stale")); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	for _, rel := range []string{"sessions/main/stale.json", "sessions/branches/feature/stale.jsonl"} {
+		if _, err := os.Stat(filepath.Join(storage.BrainDir, rel)); !os.IsNotExist(err) {
+			t.Fatalf("cache remains: %s %v", rel, err)
+		}
+	}
+	for _, call := range runner.calls {
+		// Checking an object's type establishes local availability without
+		// reading its transcript payload.
+		if len(call.args) > 1 && call.args[0] == "cat-file" && call.args[1] == "-t" {
+			if call.env[gitNoLazyFetchEnv] != "1" {
+				t.Fatal("availability check may fetch missing objects")
+			}
+			continue
+		}
+		if strings.Contains(strings.Join(call.args, " "), "full.jsonl") || strings.Contains(strings.Join(call.args, " "), "transcript.jsonl") {
+			t.Fatalf("persistent export read transcript bytes: %+v", call)
+		}
+	}
+}
 
-	brain, err := brainDirForKey(EntireEnv{PluginDataDir: dataDir}, "gh/entireio/cli")
-	if err != nil {
-		t.Fatalf("brain dir: %v", err)
-	}
-	cursor, err := headPathForKey(EntireEnv{PluginStateDir: stateDir}, "gh/entireio/cli")
-	if err != nil {
-		t.Fatalf("head path: %v", err)
-	}
-	if !strings.Contains(out, "output: "+brain) {
-		t.Fatalf("export did not use brain dir:\n%s", out)
-	}
-	if _, err := os.Stat(filepath.Join(brain, exportManifestFileName)); err != nil {
-		t.Fatalf("manifest not written to brain: %v", err)
-	}
-	if _, err := os.Stat(cursor); err != nil {
-		t.Fatalf("head not written to state dir: %v", err)
-	}
-	for _, stale := range []string{
-		filepath.Join(brain, exportSessionsDirectory, "main", "stale.json"),
-		filepath.Join(brain, exportSessionsDirectory, "main", "stale.jsonl"),
-	} {
-		if err := os.MkdirAll(filepath.Dir(stale), 0o700); err != nil {
-			t.Fatalf("create stale dir: %v", err)
-		}
-		if err := os.WriteFile(stale, []byte("stale"), 0o600); err != nil {
-			t.Fatalf("write stale transcript: %v", err)
-		}
-	}
-
-	secondRunner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("git", "remote", "get-url", "origin"): {
-			stdout: "https://github.com/entireio/cli.git\n",
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
-			stdout: `[{"checkpoint_id":"aaa111aaa111","date":"2026-01-01T00:00:00Z","is_logs_only":true}]`,
-		},
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "aaa111aaa111"): {
-			stdout: `{
-  "checkpoint_id": "aaa111aaa111",
-  "checkpoints_count": 1,
-  "session_count": 1,
-  "sessions": [
-    {
-      "index": 0,
-      "session_id": "session-one",
-      "agent": "Codex",
-      "created_at": "2026-01-01T00:00:00Z"
-    }
-  ]
-}`,
-		},
-	}}
-	cmd = NewRootCommand(Options{
-		Version: "test-version",
-		Env: EntireEnv{
-			RepoRoot:       repoDir,
-			PluginDataDir:  dataDir,
-			PluginStateDir: stateDir,
-		},
-		Runner: secondRunner,
-		Now: func() time.Time {
-			return time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
-		},
-	})
-	if _, err := execute(t, cmd, "refresh", "sessions", "--entire-binary", "entire-test"); err != nil {
-		t.Fatalf("second export should reuse cursor transcript: %v", err)
-	}
-	for _, call := range secondRunner.calls {
-		if len(call.args) > 2 && call.args[0] == "checkpoint" && call.args[1] == "explain" && call.args[2] == "--transcript" {
-			t.Fatalf("second export pulled unchanged transcript despite cursor: %+v", secondRunner.calls)
-		}
-	}
-	for _, stale := range []string{
-		filepath.Join(brain, exportSessionsDirectory, "main", "stale.json"),
-		filepath.Join(brain, exportSessionsDirectory, "main", "stale.jsonl"),
-	} {
-		if _, err := os.Stat(stale); !os.IsNotExist(err) {
-			t.Fatalf("stale transcript still exists after persistent export: %s", stale)
-		}
-	}
+// usefulExportWarnings is the reader-facing list alone.
+//
+// It lives here because nothing in the product wants it: every production
+// caller needs the suppressed slice and the raw total as well, and takes all
+// three from usefulExportWarningsDetailed. Keeping a one-line wrapper in
+// export.go for the convenience of three assertions put a symbol with no
+// production caller into production code, and gave it a doc comment
+// describing a disclosure line it has never appended.
+func usefulExportWarnings(warnings []string, debug bool) []string {
+	useful, _, _ := usefulExportWarningsDetailed(warnings, debug)
+	return useful
 }

@@ -122,33 +122,26 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if !strings.Contains(integrity.Warning(), "5 declared, 4 readable") {
 			t.Fatalf("warning does not carry both counts: %q", integrity.Warning())
 		}
-		if !strings.Contains(integrity.Warning(), "entire brain refresh") {
+		if !strings.Contains(integrity.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("warning does not name the repair command: %q", integrity.Warning())
 		}
 	})
 
-	// status: the identity line must not print the declared number alone, and
-	// the report must carry the defect for JSON/MCP readers.
+	// Status labels manifest counts as declared; doctor owns reconciliation.
 	t.Run("status", func(t *testing.T) {
 		report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
 		if err != nil {
 			t.Fatalf("status report: %v", err)
 		}
-		if report.Facts == nil || report.Facts.Integrity == nil {
-			t.Fatalf("status facts carries no integrity verdict: %+v", report.Facts)
-		}
-		if report.Facts.Readable() != 4 {
-			t.Fatalf("status facts readable = %d, want 4", report.Facts.Readable())
-		}
-		if !warningsMention(report.Warnings, "4 readable") {
-			t.Fatalf("status warnings do not name the loss: %v", report.Warnings)
+		if report.Facts == nil || report.Facts.Integrity != nil || report.Integrity != "not_checked" {
+			t.Fatalf("status must not reconcile store contents: %+v", report)
 		}
 		statusOut, err := execute(t, NewRootCommand(opts), "status")
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "5 facts declared, 4 readable") {
-			t.Fatalf("status identity line still reports the declared count as observed:\n%s", statusOut)
+		if !strings.Contains(statusOut, "memories: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
+			t.Fatalf("status must distinguish declared counts from observations:\n%s", statusOut)
 		}
 	})
 
@@ -286,7 +279,7 @@ func TestFactStoreIntegrityDetectsFactLineWithoutID(t *testing.T) {
 	if integrity.Readable != 4 || integrity.Unusable != 1 {
 		t.Fatalf("readable/unusable = %d/%d, want 4/1", integrity.Readable, integrity.Unusable)
 	}
-	if !strings.Contains(integrity.Warning(), "carry no fact id") {
+	if !strings.Contains(integrity.Warning(), "carry no memory id") {
 		t.Fatalf("warning does not name the missing id: %q", integrity.Warning())
 	}
 
@@ -349,7 +342,7 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 	// Every mode names a repair.
 	for _, mode := range []factStoreDefectMode{factStoreDefectLossy, factStoreDefectUnreadable, factStoreDefectMissing, factStoreDefectStale, factStoreDefectDuplicated} {
 		got := factStoreIntegrity{Mode: mode, Declared: 5, Readable: 4, Distinct: 3, Missing: []string{"feature"}, DuplicateIDs: []string{"fact:aaaa"}}
-		if !strings.Contains(got.Warning(), "entire brain refresh") {
+		if !strings.Contains(got.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("mode %q does not name the repair command: %q", mode, got.Warning())
 		}
 	}
@@ -383,8 +376,8 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "5 facts") || strings.Contains(statusOut, "declared") {
-		t.Fatalf("intact store changed the status identity line:\n%s", statusOut)
+	if !strings.Contains(statusOut, "memories: 5 declared") {
+		t.Fatalf("status must label unverified manifest counts:\n%s", statusOut)
 	}
 
 	checks, _ := brainDoctorReadOnlyReport(context.Background(), opts, repoDir)
@@ -521,7 +514,7 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 		if !strings.Contains(integrity.Warning(), standin) {
 			t.Fatalf("warning does not name the colliding id: %q", integrity.Warning())
 		}
-		if !strings.Contains(integrity.Warning(), "entire brain refresh") {
+		if !strings.Contains(integrity.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("warning does not name the repair command: %q", integrity.Warning())
 		}
 		// The stale wording is the one thing this must never say: `refresh`
@@ -550,11 +543,8 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status report: %v", err)
 		}
-		if report.Facts == nil || report.Facts.Integrity == nil {
-			t.Fatalf("status facts carries no integrity verdict: %+v", report.Facts)
-		}
-		if !warningsMention(report.Warnings, "not unique") {
-			t.Fatalf("status warnings do not name the collision: %v", report.Warnings)
+		if report.Facts == nil || report.Facts.Integrity != nil || report.Integrity != "not_checked" {
+			t.Fatalf("status must not scan for duplicate fact IDs: %+v", report)
 		}
 	})
 
@@ -688,7 +678,7 @@ func TestFactStoreIntegrityAppendedDuplicateIsNotAStaleManifest(t *testing.T) {
 	if strings.Contains(got.Warning(), "the manifest is behind the store") {
 		t.Fatalf("a colliding store was still told to just refresh: %q", got.Warning())
 	}
-	if !strings.Contains(got.Warning(), factsRepairHint) {
+	if !strings.Contains(got.Warning(), factsRepairHint()) {
 		t.Fatalf("warning does not name the repair: %q", got.Warning())
 	}
 }
@@ -754,7 +744,7 @@ func TestFactStoreIntegrityShortAndCollidedReportsBoth(t *testing.T) {
 	if !strings.Contains(got.Warning(), "5 declared, 4 readable") {
 		t.Fatalf("lossy lost its own words: %q", got.Warning())
 	}
-	if !strings.Contains(got.Warning(), "repeat a fact id") {
+	if !strings.Contains(got.Warning(), "repeat a memory id") {
 		t.Fatalf("a store that is short AND collided reported only the shortfall: %q", got.Warning())
 	}
 }

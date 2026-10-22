@@ -245,6 +245,34 @@ func TestErrorBodyReadingLeavesTheDialClassifierAlone(t *testing.T) {
 	}
 }
 
+// A body that only echoes the status text must not render it twice (COR-2210:
+// "unexpected status 403 Forbidden: Forbidden; pull-only"). The echo is dropped;
+// what the server said beyond it survives.
+func TestFactsyncDoesNotRepeatTheStatusText(t *testing.T) {
+	srv := statusServer(t, http.StatusForbidden, `{"title":"Forbidden","detail":"Forbidden; pull-only"}`)
+	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
+	_, err := h.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n"))
+	if err == nil {
+		t.Fatal("Advance(403) produced no error")
+	}
+	if strings.Contains(err.Error(), "Forbidden: Forbidden") {
+		t.Fatalf("Advance(403) = %q; the status text is rendered twice", err)
+	}
+	if !strings.Contains(err.Error(), "403 Forbidden: pull-only") {
+		t.Fatalf("Advance(403) = %q; the server's extra detail was dropped", err)
+	}
+
+	pure := statusServer(t, http.StatusForbidden, `{"title":"Forbidden"}`)
+	h2 := &HTTPServer{BaseURL: pure.URL, Token: "tok"}
+	_, err = h2.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n"))
+	if err == nil {
+		t.Fatal("Advance(403, pure echo) produced no error")
+	}
+	if !strings.HasSuffix(err.Error(), "403 Forbidden") {
+		t.Fatalf("Advance(403, pure echo) = %q; want the status rendered exactly once, last", err)
+	}
+}
+
 // A refusal with nothing to add must not grow a dangling separator.
 func TestSilentRefusalKeepsACleanMessage(t *testing.T) {
 	srv := statusServer(t, http.StatusBadRequest, "")

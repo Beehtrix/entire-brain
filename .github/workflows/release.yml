@@ -32,18 +32,18 @@ jobs:
     name: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # Official current-main v7.0.0 bundle with the repeated-DOCTYPE parser fix.
         with:
           go-version: "1.27.x"
 
-      # Brain is pure Go on the default build tags: the SQLite driver and the
-      # embedder both have purego implementations, and the cgo stack sits behind
-      # `brain_cgo`. So every target cross-compiles from one runner, and the
-      # released binaries need no C toolchain on the user's machine either.
+      # Brain is pure Go: modernc sqlite is the only driver (the brain_cgo
+      # variant was removed with semantic retrieval, trail #278). Every target
+      # cross-compiles from one runner, and released binaries need no C
+      # toolchain on the user's machine. This guard keeps it that way.
       - name: Verify the default build needs no cgo
         run: |
           set -euo pipefail
@@ -102,7 +102,7 @@ jobs:
           (cd dist && sha256sum * > checksums.txt)
           ls -la dist
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-dist
           path: dist/
@@ -118,11 +118,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-dist
           path: dist

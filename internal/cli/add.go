@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -52,7 +53,7 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		return fmt.Errorf("invalid_repo_url: %q must not start with '-'", repoURL)
 	}
 	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS/ENTIRE_BRAIN_LOCAL_ONLY to allow it")
+		return fmt.Errorf("no_egress: add requires cloning or fetching repository history; unset ENTIRE_BRAIN_NO_EGRESS to allow it")
 	}
 	dest := filepath.Join(flags.dir, name)
 
@@ -67,7 +68,7 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		fmt.Fprintf(out, "clone: %s -> %s\n", repoURL, dest)
 		// "--" ends option parsing so a repo URL can never be read as a git flag.
 		if _, stderr, err := opts.Runner.Run(ctx, "", "git", "clone", "--quiet", "--", repoURL, dest); err != nil {
-			return fmt.Errorf("clone_failed: %v: %s", err, strings.TrimSpace(string(stderr)))
+			return fmt.Errorf("clone_failed: %s", cloneFailureMessage(repoURL, stderr, err))
 		}
 	}
 
@@ -86,17 +87,85 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 
 	// 3. Build the brain.
 	if !flags.build {
-		fmt.Fprintf(out, "added %s at %s (clone only; build with `ENTIRE_REPO_ROOT=%s entire brain refresh`)\n", name, dest, absDest)
+		fmt.Fprintf(out, "added %s at %s (clone only; build with `ENTIRE_REPO_ROOT=%s "+brainInvocation(os.LookupEnv, "refresh")+"`)\n", name, dest, absDest)
 		return nil
 	}
 	if err := buildClonedBrain(ctx, cmd, flags, absDest); err != nil {
 		// The clone is kept on disk; surface a non-zero exit so scripts/CI don't
 		// treat a failed build as success, with manual-build guidance.
-		fmt.Fprintf(errOut, "cloned to %s, but the brain build failed; build it manually:\n  ENTIRE_REPO_ROOT=%s entire brain refresh\n", dest, absDest)
+		fmt.Fprintf(errOut, "cloned to %s, but the brain build failed; build it manually:\n  ENTIRE_REPO_ROOT=%s "+brainInvocation(os.LookupEnv, "refresh")+"\n", dest, absDest)
 		return fmt.Errorf("brain_build_failed: %w", err)
 	}
-	fmt.Fprintf(out, "added %s at %s — brain built. Explore it with `entire brain dash` (or `status`) from %s.\n", name, dest, dest)
+	fmt.Fprintf(out, "added %s at %s — brain built. Explore it with `"+brainInvocation(os.LookupEnv, "dash")+"` (or `status`) from %s.\n", name, dest, dest)
 	return nil
+}
+
+// cloneFailureMessage reduces a failed `git clone` to one human-readable line.
+// The runner error already embeds the git argv and stderr, so formatting it
+// verbatim dumped the argv and printed stderr twice (COR-2206); the message is
+// built from stderr alone, falling back to the root cause when stderr is empty.
+func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
+	lower := strings.ToLower(string(stderr))
+	// Only genuine repo-missing or auth-denied signals classify. "repository ...
+	// not found" covers git's own fatal line, which quotes the URL between the
+	// two words; both words must sit on ONE line, or unrelated lines combine
+	// (e.g. "git-upload-pack: command not found" plus the "Could not read from
+	// remote repository." footer). "permission denied (publickey" is SSH auth
+	// specifically — bare "permission denied" also appears in local failures
+	// (e.g. creating the work tree dir), and git's "correct access rights"
+	// footer accompanies most SSH transport failures (host key, connection
+	// refused), so neither classifies.
+	repoNotFound := false
+	for _, line := range strings.Split(lower, "\n") {
+		if strings.Contains(line, "repository") && strings.Contains(line, "not found") {
+			repoNotFound = true
+			break
+		}
+	}
+	notFoundOrNoAccess := repoNotFound ||
+		strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "could not read username") ||
+		strings.Contains(lower, "permission denied (publickey")
+	if notFoundOrNoAccess {
+		return repoURL + ": repository not found (or no access)"
+	}
+	seen := map[string]bool{}
+	var lines, specific []string
+	for _, line := range strings.Split(strings.TrimSpace(string(stderr)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+		if !genericCloneFooterLine(line) {
+			specific = append(specific, line)
+		}
+	}
+	// Prefer the cause-bearing lines; the footer only survives when it is all
+	// git printed.
+	if len(specific) > 0 {
+		lines = specific
+	}
+	if len(lines) == 0 {
+		// The runner wraps the exec error under argv-bearing text; unwrap to the
+		// root (e.g. "exit status 128") to keep the argv off the human surface.
+		for root := errors.Unwrap(err); root != nil; root = errors.Unwrap(root) {
+			err = root
+		}
+		return fmt.Sprintf("%s: %v", repoURL, err)
+	}
+	return repoURL + ": " + strings.Join(lines, "; ")
+}
+
+// genericCloneFooterLine reports whether a stderr line is part of the advice
+// footer git appends to most SSH transport failures. The footer carries no
+// cause, so it must not crowd out the specific error line above it.
+func genericCloneFooterLine(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "make sure you have the correct access rights") ||
+		strings.Contains(lower, "and the repository exists") ||
+		strings.Contains(lower, "could not read from remote repository")
 }
 
 // buildClonedBrain builds the cloned repo's brain by running `refresh` with the

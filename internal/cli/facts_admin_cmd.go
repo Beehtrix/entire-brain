@@ -15,9 +15,10 @@ const defaultFactRetention = 30 * 24 * time.Hour
 
 func newFactsCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "facts",
-		Short: "Review, promote, and garbage-collect durable facts",
-		Args:  cobra.NoArgs,
+		Use:     "memories",
+		Aliases: []string{"facts"},
+		Short:   "Review, promote, and garbage-collect durable memories",
+		Args:    cobra.NoArgs,
 	}
 	cmd.AddCommand(newFactsTreeCommand(opts))
 	cmd.AddCommand(newFactsFilesCommand(opts))
@@ -47,8 +48,8 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 		global  bool
 	)
 	cmd := &cobra.Command{
-		Use:   "retract <fact-id>",
-		Short: "Mark a fact as retracted (no longer true); pruned later by gc",
+		Use:   "retract <memory-id>",
+		Short: "Mark a memory as retracted (no longer true); pruned later by gc",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			factID := args[0]
@@ -62,7 +63,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// stuck with a wrong one is worse, not better.
 			if global {
 				if strings.TrimSpace(branch) != "" {
-					return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
 				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
 			} else {
@@ -84,9 +85,9 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				found, didChange := retractFact(facts, factID, now)
 				if !found {
 					if global {
-						return fmt.Errorf("no global fact %s", factID)
+						return fmt.Errorf("no global memory %s", factID)
 					}
-					return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
+					return fmt.Errorf("no memory %s on %s", factID, resolvedBranch)
 				}
 				changed = didChange
 				if !changed {
@@ -124,16 +125,16 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				where = "globally"
 			}
 			if changed {
-				fmt.Fprintf(cmd.OutOrStdout(), "retracted %s %s (run `facts gc --force` to prune)\n", factID, where)
+				fmt.Fprintf(cmd.OutOrStdout(), "retracted %s %s (run `memories gc --force` to prune)\n", factID, where)
 			} else {
 				fmt.Fprintf(cmd.OutOrStdout(), "%s %s was already retracted\n", factID, where)
 			}
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the fact belongs to (default: current branch)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result as JSON")
-	cmd.Flags().BoolVar(&global, "global", false, "Retract a global fact rather than one of this repository's")
+	cmd.Flags().BoolVar(&global, "global", false, "Retract a global memory rather than one of this repository's")
 	return cmd
 }
 
@@ -150,7 +151,7 @@ func newFactsReviewCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "review",
-		Short: "Resolve queued low-confidence merge/supersede proposals",
+		Short: "Resolve queued merge/supersede proposals",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -162,10 +163,10 @@ func newFactsReviewCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to review (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "List pending proposals as JSON")
-	cmd.Flags().StringVar(&apply, "apply", "", "Apply the proposal for this candidate fact id")
-	cmd.Flags().StringVar(&reject, "reject", "", "Reject the proposal for this candidate fact id")
+	cmd.Flags().StringVar(&apply, "apply", "", "Apply the proposal for this candidate memory id")
+	cmd.Flags().StringVar(&reject, "reject", "", "Reject the proposed merge/supersede and keep the candidate as a separate active memory")
 	cmd.Flags().BoolVar(&applyAll, "apply-all", false, "Apply every pending proposal")
-	cmd.Flags().BoolVar(&rejectAll, "reject-all", false, "Reject every pending proposal")
+	cmd.Flags().BoolVar(&rejectAll, "reject-all", false, "Reject every pending merge/supersede and keep the candidates as separate active memories")
 	return cmd
 }
 
@@ -279,19 +280,27 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 				if act.applyAll || act.rejectAll {
 					// Bulk settle: skip the shared ones rather than fail the whole
 					// batch, so the private backlog still clears in one command.
-					fmt.Fprintf(cmd.ErrOrStderr(), "skip shared proposal %s: settle it with 'facts proposals %s %s' so every member sees the same outcome\n",
+					fmt.Fprintf(cmd.ErrOrStderr(), "skip shared proposal %s: settle it with 'memories proposals %s %s' so every member sees the same outcome\n",
 						p.CandidateID, bulkDecisionVerb(act), p.CandidateID)
 					deferred++
 					keep = append(keep, p)
 					continue
 				}
-				return fmt.Errorf("proposal %s is shared with the team: settle it with 'facts proposals %s %s' instead, so the hosted queue and every member's facts agree (a local-only decision would be overridden by the next sync)",
+				return fmt.Errorf("proposal %s is shared with the team: settle it with 'memories proposals %s %s' instead, so the hosted queue and every member's memories agree (a local-only decision would be overridden by the next sync)",
 					p.CandidateID, targetedDecisionVerb(act), p.CandidateID)
 			}
 			switch {
 			case applyThis:
-				updated, applyErr := applyProposal(facts, p, now)
+				updated, applyErr := applyDistillReviewProposal(facts, p, now)
 				if applyErr != nil {
+					if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
+						// A staged target may need review first. Never drop the only
+						// way to resolve this unpublished candidate.
+						fmt.Fprintf(cmd.ErrOrStderr(), "keep pending proposal %s: %v; resolve its target first or reject to keep the candidate separately\n", p.CandidateID, applyErr)
+						keep = append(keep, p)
+						deferred++
+						continue
+					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
 					resolved++ // drop the stale proposal
 					continue
@@ -299,16 +308,22 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 				facts = updated
 				resolved++
 			case rejectThis:
+				// Explicit rejection means keep the candidate as a separate fact.
+				if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
+					facts[ci].Status = factStatusActive
+					facts[ci].UpdatedAt = now
+				}
 				facts = rejectProposal(facts, p)
 				resolved++
 			default:
 				keep = append(keep, p)
 			}
 		}
+		remaining = len(keep)
 		if resolved == 0 {
 			if deferred > 0 {
-				// Everything asked for is shared; the interlock already explained
-				// where to settle it. Not an error — nothing was left unhandled.
+				// Warnings explain how to resolve these deferred proposals.
+				// Leave their records and queue intact.
 				return nil
 			}
 			return fmt.Errorf("no proposal matched")
@@ -319,25 +334,41 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err := writeFactProposals(brainDir, branch, keep); err != nil {
 			return err
 		}
-		remaining = len(keep)
 		return updateFactSourceManifestLocked(brainDir, now)
 	}); err != nil {
 		return err
 	}
 	if deferred > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining (%d shared, settle with 'facts proposals')\n", resolved, branch, remaining, deferred)
+		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining (%d deferred; see warnings)\n", resolved, branch, remaining, deferred)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining\n", resolved, branch, remaining)
 	}
 	return nil
 }
 
+// Only local private review can publish a staged distill candidate. The shared
+// settlement engine still requires active records on both sides.
+func applyDistillReviewProposal(facts []factRecord, p factProposal, now time.Time) ([]factRecord, error) {
+	ci := indexOfFact(facts, p.CandidateID)
+	if ci < 0 || facts[ci].Status != factStatusCandidate {
+		return applyProposal(facts, p, now)
+	}
+	// Work on a copy so a rejected/stale apply cannot accidentally publish it.
+	ready := cloneDistillFacts(facts)
+	ready[ci].Status = factStatusActive
+	updated, err := applyProposal(ready, p, now)
+	if err != nil {
+		return facts, err
+	}
+	return updated, nil
+}
+
 func printProposalContext(cmd *cobra.Command, facts []factRecord, p factProposal) {
 	if i := indexOfFact(facts, p.CandidateID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  candidate: %s\n", truncateString(facts[i].Text, 100))
+		fmt.Fprintf(cmd.OutOrStdout(), "  candidate (%s): %s\n", facts[i].Status, facts[i].Text)
 	}
 	if i := indexOfFact(facts, p.TargetID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  target:    %s\n", truncateString(facts[i].Text, 100))
+		fmt.Fprintf(cmd.OutOrStdout(), "  target (%s): %s\n", facts[i].Status, facts[i].Text)
 	}
 }
 
@@ -352,7 +383,7 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "promote",
-		Short: "Carry a branch's active facts into another branch",
+		Short: "Carry a branch's active memories into another branch",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(from) == "" {
@@ -385,7 +416,7 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 			return runFactsPromote(cmd, opts, brainDir, from, target, strategy, jsonOut)
 		},
 	}
-	cmd.Flags().StringVar(&from, "from", "", "Source branch to promote facts from (required)")
+	cmd.Flags().StringVar(&from, "from", "", "Source branch to promote memories from (required)")
 	cmd.Flags().StringVar(&into, "into", "", "Target branch (default: current branch)")
 	cmd.Flags().StringVar(&strategy, "strategy", "keep-both", "Conflict strategy: keep-both, prefer-source, or prefer-target")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the result summary as JSON")
@@ -421,13 +452,13 @@ func factsBranchIsReal(ctx context.Context, opts Options, repoDir, brainDir, bra
 // facts — "nothing to promote" is a distinct, stateable outcome, not a success.
 func validateFactsPromoteEndpoints(ctx context.Context, opts Options, repoDir, brainDir, from, into string) error {
 	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, from) {
-		return fmt.Errorf("--from %q is not a branch: git does not know it and this brain holds no facts for it", from)
+		return fmt.Errorf("--from %q is not a branch: git does not know it and this brain holds no memories for it", from)
 	}
 	if !factBranchStoreExists(brainDir, from) {
-		return fmt.Errorf("--from %q has no facts to promote", from)
+		return fmt.Errorf("--from %q has no memories to promote", from)
 	}
 	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, into) {
-		return fmt.Errorf("--into %q is not a branch: git does not know it and this brain holds no facts for it; promoting into it would strand a fact store no branch can reach", into)
+		return fmt.Errorf("--into %q is not a branch: git does not know it and this brain holds no memories for it; promoting into it would strand a memory store no branch can reach", into)
 	}
 	return nil
 }
@@ -464,7 +495,7 @@ func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, str
 	if jsonOut {
 		return writeJSON(cmd, summary)
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d fact(s) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, proposalCount)
+	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d memory(ies) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, proposalCount)
 	return nil
 }
 
@@ -480,7 +511,7 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "gc",
-		Short: "Prune retracted and old superseded facts; report orphans",
+		Short: "Prune retracted and old superseded memories; report orphans",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var (
@@ -494,7 +525,7 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 			// the same lifecycle as repository ones is not kept.
 			if global {
 				if strings.TrimSpace(branch) != "" {
-					return fmt.Errorf("--global and --branch cannot be combined: a global fact is not on a branch")
+					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
 				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
 			} else {
@@ -506,10 +537,10 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 			return runFactsGC(cmd, opts, brainDir, resolvedBranch, force, retain, jsonOut)
 		},
 	}
-	cmd.Flags().BoolVar(&global, "global", false, "Prune the global fact store rather than this repository's")
+	cmd.Flags().BoolVar(&global, "global", false, "Prune the global memory store rather than this repository's")
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to gc (default: current branch)")
 	cmd.Flags().BoolVar(&force, "force", false, "Actually prune (default: dry-run reporting what would be pruned)")
-	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded facts updated within this window")
+	cmd.Flags().DurationVar(&retain, "retain", defaultFactRetention, "Retain superseded memories updated within this window")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the gc summary as JSON")
 	return cmd
 }
@@ -523,7 +554,7 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
 		Use:    "reclassify",
-		Short:  "Backfill the deterministic KIND onto facts missing one (no agent)",
+		Short:  "Backfill the deterministic KIND onto memories missing one (no agent)",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -534,7 +565,7 @@ func newFactsReclassifyCommand(opts Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to reclassify (default: current branch)")
-	cmd.Flags().BoolVar(&force, "force", false, "Recompute every fact's kind (default: only fill facts missing a valid kind)")
+	cmd.Flags().BoolVar(&force, "force", false, "Recompute every memory's kind (default: only fill memories missing a valid kind)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the reclassify summary as JSON")
 	return cmd
 }
@@ -577,7 +608,7 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 	if jsonOut {
 		return writeJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d fact(s) on %s\n", changed, len(facts), branch)
+	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies) on %s\n", changed, len(facts), branch)
 	for _, kind := range []string{factKindDecision, factKindInvariant, factKindGotcha, factKindPreference, factKindConvention} {
 		if byKind[kind] > 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "  %-11s %d\n", kind, byKind[kind])
@@ -596,7 +627,7 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 	gen.minFacts = 2
 	cmd := &cobra.Command{
 		Use:   "outline",
-		Short: "Generate the synthesized hierarchical fact outline (agent rollup summaries)",
+		Short: "Generate the synthesized hierarchical memory outline (agent rollup summaries)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -632,9 +663,11 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&gen.model, "model", "", "Override the agent model (pairs with --effort for a cheap run)")
 	cmd.Flags().StringVar(&gen.effort, "effort", "", "Override the reasoning effort for codex/claude-code")
 	cmd.Flags().IntVar(&gen.budget, "budget", 0, "Max agent summary calls this run (0 = unlimited)")
-	cmd.Flags().IntVar(&gen.minFacts, "min-facts", 2, "Skip nodes whose subtree has fewer facts than this")
+	cmd.Flags().IntVar(&gen.minFacts, "min-memories", 2, "Skip nodes whose subtree has fewer memories than this")
 	cmd.Flags().BoolVar(&gen.force, "force", false, "Re-summarize every node, ignoring unchanged fingerprints")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit the outline summary as JSON")
+	// --min-facts predates the facts→memories rename; keep it working.
+	legacyFlagAlias(cmd.Flags(), "min-facts", "min-memories")
 	return cmd
 }
 
@@ -647,7 +680,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "map",
-		Short: "Render the synthesized fact outline (summaries + structure) with progressive disclosure",
+		Short: "Render the synthesized memory outline (summaries + structure) with progressive disclosure",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -690,7 +723,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			var b strings.Builder
 			renderFactOutline(&b, outline, node, depth)
 			if b.Len() == 0 {
-				fmt.Fprintf(cmd.OutOrStdout(), "no facts on %s\n", resolvedBranch)
+				fmt.Fprintf(cmd.OutOrStdout(), "no memories on %s\n", resolvedBranch)
 				return integrityErr
 			}
 			fmt.Fprint(cmd.OutOrStdout(), b.String())
@@ -752,7 +785,7 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 	if force {
 		verb = "pruned"
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "%s %d fact(s) on %s (%d retracted/old-superseded); %d taxonomy-orphaned fact(s) reported (kept); %d remaining\n",
+	fmt.Fprintf(cmd.OutOrStdout(), "%s %d memory(ies) on %s (%d retracted/old-superseded); %d taxonomy-orphaned memory(ies) reported (kept); %d remaining\n",
 		verb, len(result.Pruned), branch, len(result.Pruned), len(result.Orphans), len(result.Kept))
 	if !force && len(result.Pruned) > 0 {
 		fmt.Fprintln(cmd.OutOrStdout(), "re-run with --force to apply")

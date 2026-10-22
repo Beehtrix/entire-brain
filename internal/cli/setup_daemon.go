@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -44,7 +45,7 @@ const (
 	// $HOME alone is not enough: a sandboxed process that still sees the real
 	// home would write a plist into it.
 	//
-	// It redirects the FILE AND NOTHING ELSE. `launchctl load -w <path>` and
+	// It redirects the FILE AND NOTHING ELSE. `launchctl bootstrap <path>` and
 	// `systemctl --user enable --now` act on the caller's live session whatever
 	// directory the unit was read from, so a run that sets only this variable
 	// still registers a real, KeepAlive, restart-forever job on the developer's
@@ -143,6 +144,35 @@ func launchdLabel(name string) string {
 	return "io.entire." + strings.TrimPrefix(name, "entire-") + "." + hex.EncodeToString(sum[:4])
 }
 
+// launchdGUIDomain is the per-user domain the agent is registered in. The
+// modern launchctl verbs (bootout/bootstrap/enable) address services by domain,
+// unlike the legacy load/unload they replaced.
+func launchdGUIDomain() string {
+	return "gui/" + strconv.Itoa(os.Getuid())
+}
+
+// daemonScopeSuffix distinguishes a daemon installed into an OVERRIDDEN unit
+// directory from the real one.
+//
+// The label used to be derived from the daemon NAME alone, which is constant,
+// so every environment on a machine rendered the same label. The plist PATH was
+// isolated by ENTIRE_BRAIN_DAEMON_DIR and the LABEL was not, so `launchctl
+// bootstrap` of a throwaway unit REPLACED the real registration and repointed
+// it at a scratch binary in a directory about to be deleted. That happened
+// twice here in one day; the second time it took a bootout/bootstrap to undo.
+//
+// Only an overridden directory gets a suffix. The default must keep rendering
+// the label it always has, or every existing install is orphaned on upgrade --
+// a migration this cannot justify when the whole point is not breaking things.
+func daemonScopeSuffix(unitDir string) string {
+	unitDir = strings.TrimSpace(unitDir)
+	if unitDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(unitDir))
+	return "." + hex.EncodeToString(sum[:4])
+}
+
 // systemdUnitName is the daemon name with the unit suffix; systemd unit names
 // are already plain identifiers, so no transformation is needed.
 func systemdUnitName(name string) string { return name + ".service" }
@@ -181,7 +211,7 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 			return daemonPlan{}, fmt.Errorf("cannot resolve home directory for the launchd agent")
 		}
 		plan.Manager = daemonManagerLaunchd
-		plan.Label = launchdLabel(spec.Name)
+		plan.Label = launchdLabel(spec.Name) + daemonScopeSuffix(unitDir)
 		root := unitDir
 		if root == "" {
 			root = daemonPathJoin(home, "Library", "LaunchAgents")
@@ -201,7 +231,11 @@ func planBrainWatchDaemon(goos, home, configHome, unitDir string, spec daemonSpe
 			root = daemonPathJoin(root, "systemd", "user")
 		}
 		plan.Manager = daemonManagerSystemd
-		plan.Label = systemdUnitName(spec.Name)
+		// Same hazard as launchd: the unit NAME is constant, so a throwaway
+		// install into an overridden directory would otherwise collide with
+		// the real unit. Fixing one platform and not the other is how the two
+		// halves drift apart.
+		plan.Label = systemdUnitName(spec.Name + strings.ReplaceAll(daemonScopeSuffix(unitDir), ".", "-"))
 		plan.UnitPath = daemonPathJoin(root, plan.Label)
 		plan.Contents = renderSystemdUnit(spec)
 	default:
@@ -229,10 +263,21 @@ func xmlEscape(value string) string {
 	return buf.String()
 }
 
+// daemonUnitRevision is rendered into both unit formats as a comment the
+// service manager ignores. Bumping it changes the unit's bytes, which makes
+// inspectDaemon report every older install as not current, which makes the
+// next `setup` reinstall (bootout + bootstrap) it — the only path that replaces
+// a RUNNING daemon built before the binary-replacement probe existed. Without
+// the bump, a pre-probe daemon wedged on a newer build's manifest stays
+// "already running" to setup forever (COR-2174). Bump it again whenever a
+// running older daemon must be forced through one reinstall.
+const daemonUnitRevision = 2
+
 func renderLaunchdPlist(label string, spec daemonSpec) string {
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
+	fmt.Fprintf(&b, "<!-- io.entire.unit-revision %d -->\n", daemonUnitRevision)
 	b.WriteString(`<plist version="1.0">` + "\n")
 	b.WriteString("<dict>\n")
 	fmt.Fprintf(&b, "  <key>Label</key>\n  <string>%s</string>\n", xmlEscape(label))
@@ -304,6 +349,7 @@ func unitValueSafe(value string) bool {
 
 func renderSystemdUnit(spec daemonSpec) string {
 	var b strings.Builder
+	fmt.Fprintf(&b, "# io.entire.unit-revision %d\n", daemonUnitRevision)
 	b.WriteString("[Unit]\n")
 	b.WriteString("Description=Entire brain watcher (deterministic refresh is free; agent steps are gated)\n")
 	b.WriteString("Documentation=https://github.com/entireio/entire-brain\n")
@@ -396,13 +442,13 @@ const setupDaemonLockName = "daemon-install.lock"
 //
 // `setup` decides what to do about the daemon with inspect() and then acts with
 // install()/uninstall(), and install() on darwin is not one call but two
-// (`launchctl unload` then `launchctl load -w`) with the service DOWN in
+// (`launchctl bootout` then `launchctl bootstrap`) with the service DOWN in
 // between. None of that was serialized, while the watch plan written moments
 // earlier — the far less dangerous file — already was. Two repos onboarding at
 // once is the ordinary case this whole file was rewritten for, and interleaving
-// two unload/load pairs against one label means one run's `load` can land
-// between the other's `unload` and `load`: the second then fails with "service
-// already loaded" and `setup` reports "daemon install failed" for a watcher
+// two bootout/bootstrap pairs against one label means one run's `bootstrap` can
+// land between the other's `bootout` and `bootstrap`: the second then fails with
+// "service already bootstrapped" and `setup` reports "daemon install failed" for a watcher
 // that is in fact running. Every process now observes the service, changes it
 // and re-observes it as one atomic step.
 //
@@ -481,10 +527,19 @@ func daemonRunning(ctx context.Context, runner CommandRunner, plan daemonPlan) (
 	}
 	switch plan.Manager {
 	case daemonManagerLaunchd:
-		if _, _, err := runner.Run(ctx, "", "launchctl", "list", plan.Label); err != nil {
+		stdout, _, err := runner.Run(ctx, "", "launchctl", "list", plan.Label)
+		if err != nil {
 			return false, ""
 		}
-		return true, ""
+		// A registered job lists successfully even when its process is dead —
+		// including the spawn-failed state a replaced ad-hoc-signed binary
+		// leaves behind. Only a live job carries a PID entry; equating
+		// registration with running is what let `status` say "daemon ✓ running"
+		// while every spawn had failed (COR-2174).
+		if bytes.Contains(stdout, []byte(`"PID"`)) {
+			return true, ""
+		}
+		return false, "registered but not running"
 	case daemonManagerSystemd:
 		stdout, _, err := runner.Run(ctx, "", "systemctl", "--user", "is-active", plan.Label)
 		// systemctl exits nonzero for every inactive state, so the stdout word
@@ -527,7 +582,7 @@ func refreshDaemonUnitBytes(plan daemonPlan) error {
 
 // installDaemon writes the unit and (re)loads it. It is idempotent by
 // construction: the file write is unconditional-but-identical when nothing
-// changed, and the unload-then-load pair leaves exactly one job registered no
+// changed, and the bootout-then-bootstrap pair leaves exactly one job registered no
 // matter how many times setup runs.
 func installDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) error {
 	if !plan.supported() {
@@ -552,11 +607,20 @@ func installDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) e
 	}
 	switch plan.Manager {
 	case daemonManagerLaunchd:
-		// Unload first so a re-run replaces a stale job instead of failing with
-		// "service already loaded" — this is the idempotence hinge on darwin.
-		_, _, _ = runner.Run(ctx, "", "launchctl", "unload", plan.UnitPath)
-		if _, stderr, err := runner.Run(ctx, "", "launchctl", "load", "-w", plan.UnitPath); err != nil {
-			return fmt.Errorf("launchctl load: %w: %s", err, strings.TrimSpace(string(stderr)))
+		domain := launchdGUIDomain()
+		// Bootout first so a re-run replaces a stale job instead of failing with
+		// "service already bootstrapped" — this is the idempotence hinge on
+		// darwin. bootout + bootstrap rather than the legacy unload + load:
+		// launchd pins the cdhash of an ad-hoc-signed service binary at
+		// registration, and a fresh bootstrap is the sequence verified to
+		// re-record it after the binary is rebuilt (COR-2174; `kickstart -k`
+		// left the job in "spawn failed, needs LWCR update").
+		_, _, _ = runner.Run(ctx, "", "launchctl", "bootout", domain, plan.UnitPath)
+		// A previous build's `unload -w` recorded the label as disabled, and
+		// bootstrap — unlike `load -w` — does not override that.
+		_, _, _ = runner.Run(ctx, "", "launchctl", "enable", domain+"/"+plan.Label)
+		if _, stderr, err := runner.Run(ctx, "", "launchctl", "bootstrap", domain, plan.UnitPath); err != nil {
+			return fmt.Errorf("launchctl bootstrap: %w: %s", err, strings.TrimSpace(string(stderr)))
 		}
 	case daemonManagerSystemd:
 		if _, stderr, err := runner.Run(ctx, "", "systemctl", "--user", "daemon-reload"); err != nil {
@@ -583,9 +647,22 @@ func uninstallDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan)
 	if runner != nil && !plan.NoRegister {
 		switch plan.Manager {
 		case daemonManagerLaunchd:
-			if _, stderr, err := runner.Run(ctx, "", "launchctl", "unload", "-w", plan.UnitPath); err != nil {
-				return fmt.Errorf("launchctl unload: %w: %s", err, strings.TrimSpace(string(stderr)))
+			domain := launchdGUIDomain()
+			if _, stderr, err := runner.Run(ctx, "", "launchctl", "bootout", domain, plan.UnitPath); err != nil {
+				// bootout also fails when the job simply is not registered —
+				// after a manual bootout, or a unit written but never loaded.
+				// Absence is exactly what uninstall wants, so only a job that
+				// is STILL registered turns the failure into an error; exit
+				// codes and messages vary across macOS versions, so the job's
+				// continued existence is the one portable signal.
+				if _, _, listErr := runner.Run(ctx, "", "launchctl", "list", plan.Label); listErr == nil {
+					return fmt.Errorf("launchctl bootout: %w: %s", err, strings.TrimSpace(string(stderr)))
+				}
 			}
+			// `unload -w` used to record the decline; keep that half: the label
+			// stays disabled so nothing resurrects it before the next install's
+			// explicit `enable`.
+			_, _, _ = runner.Run(ctx, "", "launchctl", "disable", domain+"/"+plan.Label)
 		case daemonManagerSystemd:
 			if _, stderr, err := runner.Run(ctx, "", "systemctl", "--user", "disable", "--now", plan.Label); err != nil {
 				return fmt.Errorf("systemctl disable --now: %w: %s", err, strings.TrimSpace(string(stderr)))

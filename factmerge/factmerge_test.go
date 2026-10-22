@@ -600,3 +600,33 @@ func TestNDJSONParseSkipsBlankAndReportsMalformed(t *testing.T) {
 		t.Fatalf("expected *ParseError at line 2, got %v", err)
 	}
 }
+
+// A heal over diverged copies must never revive a retracted or superseded
+// fact: retraction is a privacy surface and lifecycle moves one way. Order in
+// the damaged file must not matter.
+func TestDedupByIDNeverRevivesNonActiveCopies(t *testing.T) {
+	base := Record{ID: "fact:x", Paths: []string{"a.b.c"}, Text: "t", Branch: "main", Status: StatusActive}
+	retired := base
+	retired.Status = StatusSuperseded
+	retired.SupersededBy = "fact:y"
+
+	for name, order := range map[string][]Record{
+		"active-first":  {base, retired},
+		"retired-first": {retired, base},
+	} {
+		out, folded := DedupByID(order)
+		if folded != 1 || len(out) != 1 {
+			t.Fatalf("%s: out=%d folded=%d, want 1/1", name, len(out), folded)
+		}
+		if out[0].Status != StatusSuperseded || out[0].SupersededBy != "fact:y" {
+			t.Fatalf("%s: healed record revived: status=%q superseded_by=%q", name, out[0].Status, out[0].SupersededBy)
+		}
+	}
+
+	// Identical active copies stay active — the one-way rule only ever
+	// retires, it never invents a lifecycle move.
+	out, folded := DedupByID([]Record{base, base})
+	if folded != 1 || len(out) != 1 || out[0].Status != StatusActive {
+		t.Fatalf("identical copies: out=%+v folded=%d", out, folded)
+	}
+}

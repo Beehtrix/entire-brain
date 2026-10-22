@@ -66,6 +66,16 @@ func TestUnsyncedNoteReturnsAfterReconnectingToADifferentTarget(t *testing.T) {
 	}
 }
 
+func TestUnsyncedNoteSilentAfterDisconnect(t *testing.T) {
+	brainDir := t.TempDir()
+	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com", OptedOut: true}); err != nil {
+		t.Fatal(err)
+	}
+	if note := unsyncedHostedFactsBlindSpot(brainDir, "main"); note != "" {
+		t.Fatalf("an opted-out repo must not be nagged to sync, got %q", note)
+	}
+}
+
 func TestUnsyncedNoteIgnoresAnEmptyBranch(t *testing.T) {
 	brainDir := t.TempDir()
 	if err := writeHostedRepoBinding(brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "https://api.example.com"}); err != nil {

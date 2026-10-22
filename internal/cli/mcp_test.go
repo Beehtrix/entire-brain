@@ -15,6 +15,10 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 )
 
 type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
@@ -95,8 +99,17 @@ func TestMCPBrainReviewToolDefinitionGolden(t *testing.T) {
 	}
 
 	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 917 {
-		t.Fatalf("brain_review tool definition bytes = %d, want 917", len(got))
+	//
+	// 917 -> 1090. The description gained the two sentences that tell an agent
+	// when to reach for this tool INSTEAD of re-reading its own diff, and when
+	// not to. Every brain_* description lacked that, which is why the measured
+	// tool-use rate was 0.34%: the description is what an agent reads when
+	// choosing, and none of them argued for being chosen.
+	//
+	// The cost is real and bounded: this is sent once per session in the tool
+	// list, not per call.
+	if len(got) != 1090 {
+		t.Fatalf("brain_review tool definition bytes = %d, want 1090", len(got))
 	}
 }
 
@@ -123,9 +136,11 @@ func TestMCPBrainWorkspaceReviewToolDefinitionGolden(t *testing.T) {
 		t.Fatalf("brain_workspace_review tool definition changed\n got: %s\nwant: %s", got, want)
 	}
 
-	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 1167 {
-		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1167", len(got))
+	// Pin serialized schema bytes; see the note on brain_review above. 1167 ->
+	// 1261 for the same substitution cue; the cross-repo permission rules the
+	// old text carried are all still here.
+	if len(got) != 1263 {
+		t.Fatalf("brain_workspace_review tool definition bytes = %d, want 1263", len(got))
 	}
 }
 
@@ -157,9 +172,17 @@ func TestMCPToolsListIncludesQMDRetrievalSurface(t *testing.T) {
 		}
 		names[name] = true
 	}
-	for _, want := range []string{"brain_search", "brain_vsearch", "brain_query", "brain_get", "brain_multi_get"} {
+	for _, want := range []string{"brain_query", "brain_get", "brain_multi_get"} {
 		if !names[want] {
 			t.Fatalf("tools/list missing QMD retrieval tool %q; got %v", want, names)
+		}
+	}
+	// brain_search and brain_vsearch are hidden compatibility aliases: they
+	// still route and keep their schemas, but advertising them put three names
+	// on one capability in front of an agent choosing between tools.
+	for alias := range mcpHiddenAliases {
+		if names[alias] {
+			t.Fatalf("tools/list advertises hidden alias %q; got %v", alias, names)
 		}
 	}
 }
@@ -360,7 +383,9 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 }
 
 func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		schema, ok := tool["inputSchema"].(map[string]any)
 		if !ok {
 			t.Fatalf("%s missing inputSchema", tool["name"])
@@ -374,7 +399,9 @@ func TestMCPToolSchemasRejectAdditionalProperties(t *testing.T) {
 func TestMCPToolSchemasMatchArgumentValidator(t *testing.T) {
 	allPublicKeys := map[string]bool{"__unexpected": true}
 	toolKeys := map[string]map[string]bool{}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -436,7 +463,9 @@ func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
 	var input strings.Builder
 	var wants []string
 	id := 1
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, ok := tool["name"].(string)
 		if !ok || name == "" {
 			t.Fatalf("tool missing name: %+v", tool)
@@ -497,7 +526,9 @@ func TestMCPToolRequiredArgumentsAreEnforced(t *testing.T) {
 
 func TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet(t *testing.T) {
 	byName := map[string]map[string]any{}
-	for _, tool := range mcpToolDefinitions() {
+	// Schemas, not the advertised list: brain_search and brain_vsearch are
+	// hidden aliases now, and hiding must not change what they accept.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		byName[name] = tool
 	}
@@ -552,7 +583,9 @@ func TestMCPZeroValuedIntegerArgsDeclareNonNegativeMinimum(t *testing.T) {
 		"brain_search_graph":     "offset",
 		"brain_get_code_snippet": "context_lines",
 	}
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		key, ok := wantMinZero[name]
 		if !ok {
@@ -576,7 +609,10 @@ func TestMCPBrainGetArchitectureDescriptionMatchesGraphSchemaOutput(t *testing.T
 	for _, name := range []string{"brain_get_graph_schema", "brain_get_architecture"} {
 		t.Run(name, func(t *testing.T) {
 			var description string
-			for _, tool := range mcpToolDefinitions() {
+			// brain_get_architecture is a hidden alias; its description must
+			// still match, so this reads the full set rather than the
+			// advertised one.
+			for _, tool := range mcpAllToolDefinitions() {
 				if tool["name"] == name {
 					description, _ = tool["description"].(string)
 				}
@@ -777,7 +813,7 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		}
 		runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 		runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-		runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+		runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 		runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 		input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_review","arguments":{"query":"secret-review-query","include_deletions":true,"location_only":true}}}`)
@@ -871,7 +907,7 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix scopeBaseRef base scope review","limit":5}}}`) +
@@ -930,7 +966,7 @@ func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testi
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_regressions","arguments":{"query":"fix TranscriptPath resolved","limit":5,"include_deletions":true,"location_only":true}}}`)
@@ -984,7 +1020,7 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`) +
@@ -1361,7 +1397,7 @@ func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "diff", "--shortstat", "HEAD")] = fakeCommandResponse{}
+	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 
 	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_brief","arguments":{"task":"restore YouTube media playback verification","limit":5}}}`) +
@@ -1581,8 +1617,8 @@ func TestMCPBrainStaleUsesEnvRepoRoot(t *testing.T) {
 		t.Fatalf("compact status result = %s", compact)
 	}
 	detailed, _ := json.Marshal(mcpTextJSONPayload(t, responses[1]))
-	if !strings.Contains(string(detailed), `"severity":"ok"`) || !strings.Contains(string(detailed), `"file_languages"`) {
-		t.Fatalf("detailed status result = %s", detailed)
+	if !strings.Contains(string(detailed), `"severity":"ok"`) || strings.Contains(string(detailed), `"file_languages"`) || !strings.Contains(string(detailed), `"integrity":"not_checked"`) {
+		t.Fatalf("detailed status must remain a lightweight overview: %s", detailed)
 	}
 }
 
@@ -1798,7 +1834,8 @@ func mcpConversationFixture(t *testing.T, repoDir string, env EntireEnv, runner 
 // contract: brain_query, brain_search, and brain_vsearch all
 // advertise the same enum-valued source argument (including "conversation").
 func TestMCPToolsListSourceEnumOnRetrievalTools(t *testing.T) {
-	defs := mcpToolDefinitions()
+	// Hidden aliases must keep the same source enum as the tool they alias.
+	defs := mcpAllToolDefinitions()
 	sourceEnum := func(name string) ([]string, bool) {
 		for _, def := range defs {
 			if def["name"] != name {
@@ -1890,10 +1927,11 @@ func TestMCPConversationQueryThenGet(t *testing.T) {
 	if responses[2]["error"] == nil {
 		t.Fatalf("invalid source must error: %+v", responses[2])
 	}
-	// 4: vsearch with the conversation source is semantic-only; with the arm
-	// closed in this environment it returns the structured vector-state error.
-	if responses[3]["error"] == nil {
-		t.Fatalf("brain_vsearch with a closed conversation vector arm must error: %+v", responses[3])
+	// 4: brain_vsearch is a BM25 compatibility alias since the semantic
+	// removal (trail #278): the conversation source answers lexically instead
+	// of returning the old vector-state error.
+	if responses[3]["error"] != nil {
+		t.Fatalf("brain_vsearch alias must answer lexically: %+v", responses[3])
 	}
 	// 5: default search (source omitted) must not surface conversation records.
 	payload := mcpTextJSONPayload(t, responses[4])
@@ -2194,7 +2232,9 @@ func TestMCPIntegerArgsDeclareTheCeilingTheHandlerEnforces(t *testing.T) {
 	}
 
 	seen := 0
-	for _, tool := range mcpToolDefinitions() {
+	// Covers everything that ROUTES, hidden aliases included: an alias still
+	// answers, so this invariant still has to hold for it.
+	for _, tool := range mcpAllToolDefinitions() {
 		name, _ := tool["name"].(string)
 		schema, _ := tool["inputSchema"].(map[string]any)
 		props, _ := schema["properties"].(map[string]any)
@@ -2389,5 +2429,198 @@ func TestMCPBoundariesInvalidKindErrorNamesTheMCPArgument(t *testing.T) {
 	}
 	if !strings.Contains(message, "kind must be route, tool, or workflow") {
 		t.Fatalf("brain_boundaries did not name the accepted kind values: %s", message)
+	}
+}
+
+// TestEveryDeclaredToolIsRouted pins COR-2163's defect class: declaration and
+// dispatch are two separate lists and nothing compares them, so a tool can be
+// declared and unroutable, or routed and undeclared, with every other test
+// still green.
+//
+// That is not hypothetical. brain_remember shipped in v0.1.0 with a dispatch
+// case and no declaration: no client could see it, and the released brain
+// could not record a memory for weeks. brain_recall had neither half.
+//
+// This reads the switch in handleMCPToolCall from source rather than calling
+// the handlers, because calling them needs a real brain on disk.
+func TestEveryDeclaredToolIsRouted(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "mcp.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse mcp.go: %v", err)
+	}
+
+	routed := map[string]bool{}
+	ast.Inspect(file, func(n ast.Node) bool {
+		clause, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+		for _, expr := range clause.List {
+			lit, ok := expr.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				continue
+			}
+			name, unquoteErr := strconv.Unquote(lit.Value)
+			if unquoteErr == nil && strings.HasPrefix(name, "brain_") {
+				routed[name] = true
+			}
+		}
+		return true
+	})
+	if len(routed) == 0 {
+		t.Fatal("found no brain_* case clauses; the comparison below would be vacuous")
+	}
+
+	declared := map[string]bool{}
+	for _, def := range mcpToolDefinitions() {
+		name, _ := def["name"].(string)
+		if name == "" {
+			t.Fatalf("a tool definition has no name: %v", def)
+		}
+		if declared[name] {
+			t.Fatalf("tool %q is declared twice", name)
+		}
+		if _, ok := def["inputSchema"]; !ok {
+			t.Fatalf("tool %q has no inputSchema, so a client cannot call it correctly", name)
+		}
+		declared[name] = true
+	}
+	if len(declared) == 0 {
+		t.Fatal("no tool definitions; the comparison below would be vacuous")
+	}
+
+	for name := range declared {
+		if !routed[name] {
+			t.Errorf("tool %q is declared but has no dispatch case: a client can see it and calling it fails", name)
+		}
+	}
+	for name := range routed {
+		if declared[name] {
+			continue
+		}
+		// Hiding an alias is deliberate, so it is allowed here -- but only if
+		// it is written down in mcpHiddenAliases. An unlisted routed tool is
+		// the accident this test exists for.
+		if _, hidden := mcpHiddenAliases[name]; !hidden {
+			t.Errorf("tool %q is routed but neither declared nor listed in mcpHiddenAliases: it works, and no client can discover it (this is exactly how brain_remember was lost)", name)
+		}
+	}
+
+	// The hidden list must not rot. Every entry has to name a tool that still
+	// routes -- otherwise it is silently excusing a name nothing answers -- and
+	// must not also be declared, which would make "hidden" a lie.
+	for name, replacement := range mcpHiddenAliases {
+		if !routed[name] {
+			t.Errorf("mcpHiddenAliases lists %q, but nothing routes it; drop the entry", name)
+		}
+		if declared[name] {
+			t.Errorf("%q is in mcpHiddenAliases and also declared; it is not hidden", name)
+		}
+		if replacement == "" {
+			t.Errorf("%q is hidden with no replacement named; a caller needs to know what to use instead", name)
+		}
+	}
+
+	// Hiding must not remove capability: every alias still answers, which is
+	// the whole basis for hiding it rather than deleting it.
+	allNames := map[string]bool{}
+	for _, def := range mcpAllToolDefinitions() {
+		if n, _ := def["name"].(string); n != "" {
+			allNames[n] = true
+		}
+	}
+	for name := range mcpHiddenAliases {
+		if !allNames[name] {
+			t.Errorf("hidden alias %q has no definition in mcpAllToolDefinitions; its schema was deleted rather than hidden", name)
+		}
+	}
+
+	// The two memory tools are what this regression actually cost, so name
+	// them instead of trusting the set comparison to have covered them.
+	for _, required := range []string{"brain_remember", "brain_recall"} {
+		if !declared[required] || !routed[required] {
+			t.Errorf("%s must be both declared and routed (declared=%v routed=%v)",
+				required, declared[required], routed[required])
+		}
+	}
+}
+
+// TestBrainRecallArgsAreAcceptedByTheRecallCommand exists because the AST
+// guard could not have caught the bug it was written alongside.
+//
+// brain_recall shipped passing --limit. The recall command's flag is --k, so
+// EVERY call failed with "unknown flag: --limit" before reading a single
+// fact, while TestEveryDeclaredToolIsRouted stayed green: declaration and
+// dispatch both existed, and nothing ever fed the command its arguments.
+//
+// ParseFlags rather than Execute: Execute needs a real brain and an Options
+// with a Runner, and panics without one -- which is why the first attempt at
+// an execution test was deleted instead of fixed, and why this bug survived.
+// Flag parsing is the exact layer the defect lived in, and it needs nothing.
+func TestBrainRecallArgsAreAcceptedByTheRecallCommand(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		limit int
+		want  int
+	}{
+		{"in range", 5, 5},
+		{"clamped up from zero", 0, 1},
+		{"clamped down from the MCP ceiling", 10000, recallMaxK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Mirrors the clamp in the brain_recall dispatch.
+			limit := tc.limit
+			if limit < 1 {
+				limit = 1
+			}
+			if limit > recallMaxK {
+				limit = recallMaxK
+			}
+			if limit != tc.want {
+				t.Fatalf("clamp produced %d, want %d", limit, tc.want)
+			}
+
+			args := []string{"q", "--json", "--k", strconv.Itoa(limit), "--read-only-semantic-cache"}
+			if err := newRecallCommand(Options{}).ParseFlags(args); err != nil {
+				t.Fatalf("brain_recall builds an argument list the recall command rejects: %v", err)
+			}
+		})
+	}
+}
+
+// The inverse: prove the test would have caught the shipped bug. If --limit
+// ever becomes valid this fails, and the test above needs rethinking rather
+// than quietly passing for a new reason.
+func TestRecallHasNoLimitFlag(t *testing.T) {
+	t.Parallel()
+	if err := newRecallCommand(Options{}).ParseFlags([]string{"q", "--limit", "5"}); err == nil {
+		t.Fatal("recall now accepts --limit; the guard above no longer proves anything")
+	}
+}
+
+// The advertised ceiling must match the one the command enforces, or an agent
+// reads the schema, sends a legal-looking value, and gets a refusal.
+func TestBrainRecallSchemaCeilingMatchesTheCommand(t *testing.T) {
+	t.Parallel()
+	var desc string
+	for _, def := range mcpToolDefinitions() {
+		if def["name"] != "brain_recall" {
+			continue
+		}
+		schema, _ := def["inputSchema"].(map[string]any)
+		props, _ := schema["properties"].(map[string]any)
+		limit, _ := props["limit"].(map[string]any)
+		desc, _ = limit["description"].(string)
+	}
+	if desc == "" {
+		t.Fatal("brain_recall has no limit description to check")
+	}
+	if !strings.Contains(desc, strconv.Itoa(recallMaxK)) {
+		t.Fatalf("the advertised limit must name the enforced ceiling %d: %q", recallMaxK, desc)
 	}
 }

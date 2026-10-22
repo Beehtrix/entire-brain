@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"io"
 	"os"
 	"path/filepath"
@@ -1449,8 +1450,34 @@ func TestSemanticIndexRedactsBrainignoredWarningsFromHeaderAndManifest(t *testin
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
-	if len(manifest.Sources.Semantic.Warnings) != 1 || manifest.Sources.Semantic.Warnings[0].Path == "secret/config.go" {
-		t.Fatalf("manifest warnings were not redacted: %+v", manifest.Sources.Semantic.Warnings)
+	// The property is that no ignored path leaks -- the count was only ever a
+	// proxy for it, and the proxy broke when a withheld-count notice was added.
+	// Assert the real thing, which is strictly stronger: nothing anywhere in
+	// the warnings names the ignored file.
+	for _, w := range manifest.Sources.Semantic.Warnings {
+		if w.Path == "secret/config.go" ||
+			strings.Contains(w.Detail, "secret/config.go") ||
+			strings.Contains(w.Effect, "secret/config.go") {
+			t.Fatalf("an ignored path leaked into the manifest warnings: %+v", w)
+		}
+	}
+	// Exactly one provider warning survives the ignore rules...
+	var provider, withheldNotice int
+	for _, w := range manifest.Sources.Semantic.Warnings {
+		if w.Code == "warnings_hidden_by_brainignore" {
+			withheldNotice++
+			continue
+		}
+		provider++
+	}
+	if provider != 1 {
+		t.Fatalf("want 1 surviving provider warning, got %d: %+v", provider, manifest.Sources.Semantic.Warnings)
+	}
+	// ...and the fact that something WAS withheld is disclosed. Dropping
+	// warnings silently is what made an incomplete index read as a clean one.
+	if withheldNotice != 1 {
+		t.Fatalf("withholding a warning must be disclosed exactly once, got %d notices: %+v",
+			withheldNotice, manifest.Sources.Semantic.Warnings)
 	}
 	if len(manifest.Sources.Semantic.PartialFailures) != 0 {
 		t.Fatalf("manifest partial failures were not redacted: %+v", manifest.Sources.Semantic.PartialFailures)
@@ -4714,6 +4741,19 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 		t.Fatalf("acquire semantic test lock: %v", err)
 	}
 	t.Cleanup(unlock)
+	// Every caller either asserts fast lock-contention failure or never
+	// contends, so the lowered timeout is always safe and never forgotten.
+	shortSemanticLockTimeout(t)
+}
+
+// shortSemanticLockTimeout makes lock contention fail in milliseconds instead
+// of the production window. The retry loop still runs: the override stays a
+// multiple of fileLockRetryInterval. Not safe in parallel tests.
+func shortSemanticLockTimeout(t *testing.T) {
+	t.Helper()
+	prev := semanticIndexLockTimeout
+	semanticIndexLockTimeout = 5 * fileLockRetryInterval
+	t.Cleanup(func() { semanticIndexLockTimeout = prev })
 }
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {
@@ -5094,5 +5134,32 @@ func TestCompletenessLevelFromStats(t *testing.T) {
 	}
 	if got := completenessLevelFromStats([]byte(`not json`)); got != "" {
 		t.Errorf("bad json: got %q, want empty", got)
+	}
+}
+
+// TestUnverifiedErrorDoesNotRepeatTheHostsOwnRemedy is the identity_remedy
+// test's twin on the semantic side. Both call sites must reach the same
+// answer for the same stderr; asserting that on one of them proves half.
+func TestUnverifiedErrorDoesNotRepeatTheHostsOwnRemedy(t *testing.T) {
+	t.Parallel()
+	bare := `unknown command "graph" for "entire"`
+
+	got := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: bare}}).Error()
+	if !strings.Contains(got, providerdetail.InstallGraphCommand) {
+		t.Fatalf("a bare missing-provider failure must still name the install command:\n%s", got)
+	}
+
+	// The single-line case the summary KEEPS: this is the one that can tell
+	// the shared decision from an unconditional append.
+	oneLine := `unknown command "graph"; run ` + "`" + providerdetail.InstallGraphCommand + "`"
+	kept := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: oneLine}}).Error()
+	if n := strings.Count(kept, providerdetail.InstallGraphCommand); n != 1 {
+		t.Fatalf("the message already names the remedy; it appears %d times:\n%s", n, kept)
+	}
+
+	multi := bare + "\n\nDid you mean to run `" + providerdetail.InstallGraphCommand + "`?"
+	summarised := semanticProviderUnverifiedError("entire", []semanticWarning{{Code: "E_X", Detail: multi}}).Error()
+	if n := strings.Count(summarised, providerdetail.InstallGraphCommand); n != 1 {
+		t.Fatalf("the summary dropped the host's copy, so exactly one of ours is owed; got %d:\n%s", n, summarised)
 	}
 }

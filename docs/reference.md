@@ -279,7 +279,7 @@ them:
   own when no agent CLI is available.
 - **The watcher is installed as a persistent background service, by default,
   without asking.** On macOS that is a launchd agent with `RunAtLoad` and
-  `KeepAlive` loaded through `launchctl load -w`; on Linux a systemd user unit
+  `KeepAlive` registered through `launchctl bootstrap`; on Linux a systemd user unit
   with `Restart=always`, enabled with `systemctl --user enable --now`. It
   survives logout and reboot, and its gated distill step calls an agent, so it
   is a **recurring** spend, not a one-off. There is no confirmation prompt
@@ -398,16 +398,20 @@ which every one of the eight instant components builds:
 
 ```
 Brain ready in 3.6s
-  instant     + sessions  + seed  + history  + docs  + semantic  + patterns  + entities  + memory  (3.6s)
+  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
 ```
 
 `Brain ready (degraded)` still exists, and when you do see it, read it as
 information rather than as failure: setup exits 0, the brain is queryable, and
 the summary names the component that did not build with a hint under it. What
-actually produces it is the uncommitted worktree above, a machine with no
-`entire graph` provider (`x semantic index: provider_doctor_failed: …`, fixed by
-`scripts/install.sh`), or a checkpoint inventory Entire cannot read
-(`x session export`).
+actually produces it is a machine with no `entire graph` provider
+(`x semantic index: provider_doctor_failed: …`, fixed by `scripts/install.sh`),
+or a checkpoint inventory Entire cannot read (`x session export`).
+
+The uncommitted worktree above is the one case that does NOT: it refuses both
+`seed baseline` and `semantic index`, which are the two sources a query reads,
+so the headline is `Brain set up, but not queryable` and names what is missing.
+The exit code is still 0 and everything else setup built is kept.
 
 `x semantic index: repo key mismatch` used to belong on that list, and no longer
 does. `entire-brain` and `entire-graph` name the same repository differently —
@@ -492,7 +496,7 @@ It is safe on a real machine. Every path the binary can write is redirected into
 `ENTIRE_PLUGIN_*_DIR` directories, and `ENTIRE_BRAIN_DAEMON_DIR`. It also sets
 `ENTIRE_BRAIN_DAEMON_NO_REGISTER=1`, and **both of those last two are needed**:
 `ENTIRE_BRAIN_DAEMON_DIR` moves the plist / systemd unit *file*, while
-`launchctl load -w` and `systemctl --user enable --now` act on your live session
+`launchctl bootstrap` and `systemctl --user enable --now` act on your live session
 whatever directory the file came from. Set only the directory — as a CI job or a
 smoke test naturally would — and a "sandboxed" run still registers a real,
 restart-forever agent on the machine. `ENTIRE_BRAIN_DAEMON_NO_REGISTER` is the
@@ -754,6 +758,26 @@ full buffer), so partial short-term coverage always consolidates promptly. You
 can run `entire brain refresh delta` by hand any time you want immediate
 recall of just-captured work.
 
+Persistent session refresh stores metadata in the manifest and reads transcript
+bytes from local Git checkpoint refs when needed. It does not maintain a second
+transcript cache. The first refresh after upgrading removes old cached files
+only after proving that active transcripts can be recovered byte-for-byte from
+local checkpoints; unavailable or different checkpoint content leaves the cache
+intact and reports an error. Sync missing checkpoint refs before retrying.
+`refresh sessions --output <directory>` and `bundle export --include-sessions`
+still materialize transcripts into standalone artifacts. Manifest transcript
+paths in a persistent brain are evidence addresses, not files on disk. Refresh
+records the shared Git directory so removing the exporting linked worktree
+does not break reads. Routed and branch-scoped refreshes require the selected
+session checkpoints to be available locally. Bundle import treats a nonempty
+session catalog as occupied even without transcript files; replacing it requires
+`--overwrite`.
+
+Distillation caches checkpoint identity, transcript mode, and extraction settings,
+including a preprocessing version. Unchanged sessions need no transcript reads.
+Older content-based cache entries are checked once and upgraded without another
+agent call when their input and settings still match.
+
 If you also want generated seed summaries, run refresh with an agent instead of
 the deterministic seed path (`entire brain refresh --agent auto --seed-model
 gpt-5.4-mini --seed-effort low`). Seed synthesis orients an agent on the
@@ -788,8 +812,8 @@ shelling out to the CLI. The normal first call is `brain_brief`, then targeted
 follow-ups:
 
 - `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` for a compact freshness/coverage preflight; set
-  `details: true` for the full status JSON contract
+- `brain_status` for a lightweight freshness/recorded-coverage overview; set
+  `details: true` for file classifications, not a deep audit
 - `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
   unsafe. Its seed and docs include the current worktree by default, it never
   exports checkpoint sessions, and it is capped at 60 seconds; set
@@ -848,14 +872,37 @@ entire brain inspect tests "<symbol-or-id>" --json
 entire brain inspect regressions "<task or invariant>" --location-only --json
 ```
 
-`status` without `--json` prints a SHORT human report: the brain's identity,
-the onboarding block (fact-backfill progress, watcher health, instant-phase
-components) and a one-line health verdict. `status --verbose` prints the full
-text report — coverage histograms, freshness axes, blind spots, live state —
-with repeated warnings collapsed to one line per reason; `entire brain doctor`
-lists the skipped files in full. `status --json` is unchanged by either flag.
+`status` is a lightweight overview, like `git status`: recorded inventory,
+current freshness, working-tree changes, and background activity. It checks
+artifact presence and safe paths, but does not scan index contents, verify fact
+anchors, build coverage histograms, or run SQLite integrity checks. Counts come
+from the manifest, not a recount of stored records. Known build failures and
+blind spots remain visible.
 
-`status --json` preserves the full status contract. Check
+The default text report is short; `--verbose` shows freshness axes, recorded
+warnings, and live state. `--json` changes presentation, not inspection depth;
+`--details` is still accepted but never enables an audit. JSON explicitly reports
+`integrity: "not_checked"`; semantic artifact axes say `present`, not verified
+`ok`, and the provider identity is recorded rather than probed live. Deep
+`memory`, fact `verification`/content-integrity results, coverage histograms, and
+changed-symbol hints are no longer computed by status. MCP `brain_status` and
+`brain_index_status` use the same boundary; `details: true` includes file
+classifications only. Status does not fingerprint working-tree contents: dirty
+semantic and seed snapshots report `degraded` with content matching explicitly
+not verified, even after `refresh --worktree`. Known missing fingerprints, HEAD
+mismatches, and committed-only indexes still report their specific freshness
+problems. Doctor and strict retrieval/overview retain content fingerprint checks.
+
+Use `entire brain doctor` for deep diagnostics: artifact integrity, manifest/store
+count reconciliation, current-branch fact-anchor verification, history/memory
+health, provider compatibility, coverage histograms, and detailed blind spots.
+Doctor JSON exposes store-backed breakdowns under `semantic_coverage`.
+`entire brain verify`
+provides individual fact-verification results. Neither command repairs state.
+Status `--fail-on` gates freshness/blind spots, not integrity; use doctor's gate
+when an integrity audit is required.
+
+Check
 `semantic.freshness.severity` before graph inspection and
 `retrieval.freshness.severity` before query/get. A semantic-only
 `refresh index` does not rebuild seed/docs: use `entire brain refresh --agent
@@ -903,7 +950,10 @@ entrypoints, commands, key documents, and recent decisions.
 For interactive human exploration instead of scripted queries, `entire brain
 dash` opens a terminal dashboard over facts, sessions, history, and semantic
 records, and `entire brain viz` opens a local, no-egress browser view of the
-semantic call graph. Both are read-only and make no agent calls.
+semantic call graph. Both are read-only and make no agent calls. In the dashboard,
+`o` opens transcript sources in the detail pane on demand, including sources
+linked from facts, history, and search results. `esc` returns to the entry.
+Transcript reads honor current exclusions and create no temporary files.
 
 ### Keep the brain fresh
 
@@ -1034,7 +1084,7 @@ calls.
 ### Navigate code by meaning
 
 When a task depends on structure rather than text, use the semantic tools:
-`brain_code`/`brain_search_code` to find candidate symbols, then `brain_context`,
+`brain_code` to find candidate symbols, then `brain_context`,
 `brain_impact`, and `brain_tests`. This is where `entire-graph` matters — it is the
 local parser/provider that gives the brain the graph the agent queries. Semantic
 depth is language-dependent: parser-backed extraction covers the semantic
@@ -1190,11 +1240,12 @@ entire brain status --json --details
 
 `facts eval-compare` runs a paired t-test with Holm correction and rejects
 non-proof or mismatched relevance sources unless `--allow-proxy-comparison` is
-explicit. Treat the `semantic` section of `status --json --details` as audit
-evidence for the reported provider output (`status --fail-on release` is the
-compact CI gate form), not a global coverage claim; public semantic claims
-should name the covered languages, relation types, freshness state, and
-benchmark records behind them.
+explicit. `status --json --details` reports recorded inventory and freshness,
+not integrity-audit evidence. Use `doctor --json` for deep checks and coverage
+breakdowns, and `status --fail-on release` for the freshness/blind-spot gate.
+Neither establishes global coverage; public semantic claims should name the
+covered languages, relation types, freshness state, and benchmark records behind
+them.
 
 ### Tune retrieval
 
@@ -1471,8 +1522,8 @@ over an empty key — which would verify for anyone who guessed the key was empt
   still recorded and a warning goes to stderr. There is no retry queue: this is
   a notification channel, not a delivery guarantee. Treat a missed event as
   possible and re-read state through `/v1/facts` or the CLI when it matters.
-- **`ENTIRE_BRAIN_NO_EGRESS` and `ENTIRE_BRAIN_LOCAL_ONLY` win.** Either one
-  silences webhooks whatever else is configured.
+- **`ENTIRE_BRAIN_NO_EGRESS` wins.** It silences webhooks whatever else is
+  configured (as does its deprecated alias `ENTIRE_BRAIN_LOCAL_ONLY`).
 
 ## Privacy And Egress
 
@@ -1494,7 +1545,8 @@ model or by fetching over the network:
 - judged evaluation commands
 - `publish` uploads the serialized local brain (manifest, semantic snapshots,
   branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring both the command and `ENTIRE_BRAIN_ALLOW_HOSTED=1`
+  requiring the command plus a target — the connected binding by default, else
+  explicit `--repo-id`/`--api-url`/`--token`
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the
@@ -1504,7 +1556,7 @@ model or by fetching over the network:
   See [Webhooks](#webhooks).
 
 Use `--agent none`, `--dry-run`, local loopback Ollama, or
-`ENTIRE_BRAIN_NO_EGRESS=1` / `ENTIRE_BRAIN_LOCAL_ONLY=1` when the repo must stay
+`ENTIRE_BRAIN_NO_EGRESS=1` when the repo must stay
 strictly local. No-egress mode enforces locality for no-agent, dry-run, and
 loopback-Ollama paths by validating URLs, redirects, and resolved dial targets. A
 custom `--agent command` runner is a trusted local command and is not enforceably
@@ -1515,15 +1567,18 @@ To keep specific sessions out of the brain's projections, use
 `entire brain privacy list|exclude|include|purge`. `exclude` tombstones a
 session so every derived layer (history records, conversation exchanges,
 pattern episodes and corpus, FTS, vector stores, caches) skips it on rebuild
-while keeping the exported transcript; `purge` additionally deletes the
-exported transcript copy and the derived stores, removes durable facts whose
+and the transcript read path refuses it. Legacy brains and bundles may retain
+a materialized transcript after exclusion; `purge` additionally deletes that
+copy and the derived stores, removes durable facts whose
 only provenance is the purged session (facts corroborated by other sessions
 keep their remaining anchors), filters its pattern episodes, and clears its
 distill-cache entries (`--dry-run` reports exactly what would be removed
 first). Skill-memory (your accept/decline curation) is never touched.
 `privacy verify` proves excluded/purged sessions are absent from every
 inspectable projection and from their lifecycle jobs, cancellation markers,
-optional abstracts, and metadata-only egress receipts (exit non-zero with named
+optional abstracts, and metadata-only egress receipts. In a checkpoint-backed
+brain it also checks the transcript read gate and reports stray materialized
+transcript files (exit non-zero with named
 violations otherwise; a re-purge repairs them), and `privacy retention
 --max-age <dur> [--branch b]
 [--purge] [--dry-run]` applies an age-based policy in one command. The full
@@ -1575,7 +1630,7 @@ required for normal use.
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
-| `ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY` | (unset) | Strict local-only mode; enforces locality for no-agent, dry-run, and loopback-Ollama paths. |
+| `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
 | `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish, facts sync, and the hosted proposal queue otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 | `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |

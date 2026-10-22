@@ -28,12 +28,12 @@ const (
 )
 
 var (
-	errVerifyIssues       = errors.New("verification found stale or orphaned facts")
-	errVerifyStrictIssues = errors.New("verification found unverifiable-here facts")
+	errVerifyIssues       = errors.New("verification found stale or orphaned memories")
+	errVerifyStrictIssues = errors.New("verification found unverifiable-here memories")
 	// errVerifyStoreIncomplete is the verdict for a corpus that is short: the
 	// facts verify cannot read are neither verified nor orphaned, they are
 	// gone, and reporting them as "0 orphaned" was the defect.
-	errVerifyStoreIncomplete = errors.New("verification incomplete: the fact store cannot produce every fact the manifest declares")
+	errVerifyStoreIncomplete = errors.New("verification incomplete: the memory store cannot produce every memory the manifest declares")
 )
 
 type verifyCommandOptions struct {
@@ -44,9 +44,8 @@ type verifyCommandOptions struct {
 	failOnUnverifiable bool
 	strict             bool // alias flag for failOnUnverifiable; OR'd in at run time
 	// sample verifies only the `limit` most recently updated facts in
-	// no-target mode. Set by hot-path callers (brain status): full
-	// verification shells two git subprocesses per distinct commit anchor,
-	// which is `verify`'s job, not a status check's.
+	// no-target mode. Full verification can shell out per distinct commit
+	// anchor, so status never invokes it; doctor and verify own that work.
 	sample bool
 }
 
@@ -132,8 +131,8 @@ type verifyContext struct {
 func newVerifyCommand(opts Options) *cobra.Command {
 	verifyOpts := verifyCommandOptions{limit: 10}
 	cmd := &cobra.Command{
-		Use:   "verify [<fact-id | query>]",
-		Short: "Verify durable fact anchors against local retained sources",
+		Use:   "verify [<memory-id | query>]",
+		Short: "Verify durable memory anchors against local retained sources",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := ""
@@ -143,12 +142,12 @@ func newVerifyCommand(opts Options) *cobra.Command {
 			return runVerify(cmd.Context(), cmd, opts, verifyOpts, target)
 		},
 	}
-	cmd.Flags().StringVar(&verifyOpts.branch, "branch", "", "Branch to verify facts from (default: current branch)")
-	cmd.Flags().IntVar(&verifyOpts.limit, "limit", 10, "Maximum facts to verify for query mode")
-	cmd.Flags().BoolVar(&verifyOpts.all, "all", false, "Include superseded and retracted facts")
+	cmd.Flags().StringVar(&verifyOpts.branch, "branch", "", "Branch to verify memories from (default: current branch)")
+	cmd.Flags().IntVar(&verifyOpts.limit, "limit", 10, "Maximum memories to verify for query mode")
+	cmd.Flags().BoolVar(&verifyOpts.all, "all", false, "Include superseded and retracted memories")
 	cmd.Flags().BoolVar(&verifyOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().BoolVar(&verifyOpts.strict, "strict", false, "Alias for --fail-on-unverifiable")
-	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "fail-on-unverifiable", false, "Return nonzero when any matched fact is unverifiable-here (stale/orphaned always fail)")
+	cmd.Flags().BoolVar(&verifyOpts.failOnUnverifiable, "fail-on-unverifiable", false, "Return nonzero when any matched memory is unverifiable-here (stale/orphaned always fail)")
 	return cmd
 }
 
@@ -268,7 +267,7 @@ func selectFactsForVerify(facts []factRecord, target string, opts verifyCommandO
 	if strings.HasPrefix(target, "fact:") {
 		i := indexOfFact(facts, target)
 		if i < 0 {
-			return nil, "", fmt.Errorf("no fact %s", target)
+			return nil, "", fmt.Errorf("no memory %s", target)
 		}
 		return []factRecord{facts[i]}, "", nil
 	}
@@ -304,7 +303,7 @@ func (v *verifyContext) verifyFact(fact factRecord) verifyFactResult {
 	}
 	if len(fact.Provenance) == 0 {
 		result.Verdict = verifyVerdictUnverifiableHere
-		result.Reason = "fact has no retained source anchor"
+		result.Reason = "memory has no retained source anchor"
 		return result
 	}
 	// NO RECORD-LEVEL ORIGIN GATE. Both of the ones that used to live here
@@ -419,8 +418,8 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 			result.Reason = "commit anchor is missing locally"
 			return result
 		}
-		result.addCheck(verifyCheck{Name: "retained_source", Verdict: verifyVerdictUnverifiableHere, Reason: "authored fact has no retained source anchor"})
-		result.Reason = "authored fact has no retained source anchor"
+		result.addCheck(verifyCheck{Name: "retained_source", Verdict: verifyVerdictUnverifiableHere, Reason: "authored memory has no retained source anchor"})
+		result.Reason = "authored memory has no retained source anchor"
 		return result
 	}
 
@@ -713,7 +712,7 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotForVerify(v.ctx, v.opts.Runner, v.repoDir)
+	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, true, checkpointBranchDestinations{}, nil)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)
@@ -782,7 +781,11 @@ func (v *verifyContext) snapshotSourceTranscriptPath(snapshot *checkpointSnapsho
 	return "", ""
 }
 
-func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRunner, repoDir string) (*checkpointSnapshot, []string, error) {
+// loadLocalCheckpointSnapshotLocalOnly resolves the local checkpoint union
+// for READERS: backend selection follows the configured primary, and the
+// snapshot never touches the network. Discovery completeness is the caller's
+// problem — a reader resolves checkpoints it already knows by id.
+func loadLocalCheckpointSnapshotLocalOnly(ctx context.Context, runner CommandRunner, repoDir string, raw bool, branchDestinations checkpointBranchDestinations, cache *checkpointMetadataCache) (*checkpointSnapshot, []string, error) {
 	settings, settingsErr := readEntireSettings(repoDir)
 	primary, configured, primaryErr := configuredCheckpointPrimary(repoDir, settings)
 	if primaryErr != nil {
@@ -794,7 +797,7 @@ func loadLocalCheckpointSnapshotForVerify(ctx context.Context, runner CommandRun
 	if settingsErr != nil && !errors.Is(settingsErr, os.ErrNotExist) && !configured {
 		return nil, nil, fmt.Errorf("%w: checkpoint settings are malformed or unreadable: %v", errCheckpointSnapshotUnavailable, settingsErr)
 	}
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, true, 0, checkpointBranchDestinations{}, nil, nil, true)
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, 0, branchDestinations, nil, cache, true)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -906,36 +909,18 @@ func verificationSummaryForBranch(ctx context.Context, opts Options, repoDir, br
 	if err != nil {
 		return verifySummary{}, err
 	}
-	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{limit: 10, sample: true}, "")
+	// Verify every active fact: sampling and inclusion of retired facts are separate options.
+	report, err := buildVerifyReport(ctx, opts, repoDir, brainDir, storage.Key, branch, verifyCommandOptions{}, "")
 	if err != nil {
 		return verifySummary{}, err
 	}
 	return report.Summary, nil
 }
 
-func populateBrainStatusVerification(ctx context.Context, opts Options, report *brainStatusReport) {
-	if report == nil || !report.Sources.Facts {
-		return
-	}
-	branch := report.Live.Branch
-	if branch == "" {
-		branch = distillDefaultBranch
-	}
-	summary, err := verificationSummaryForBranch(ctx, opts, report.Repo.Root, report.Brain.Path, branch)
-	if err != nil {
-		report.Warnings = append(report.Warnings, "fact verification unavailable: "+err.Error())
-		return
-	}
-	if report.Facts == nil {
-		report.Facts = &brainStatusFacts{}
-	}
-	report.Facts.Verification = &summary
-}
-
 func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 	out := cmd.OutOrStdout()
 	s := report.Summary
-	fmt.Fprintf(out, "verification: %d facts, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
+	fmt.Fprintf(out, "verification: %d memories, %d verified, %d stale, %d orphaned, %d unverifiable-here\n",
 		s.Facts, s.Verified, s.Stale, s.Orphaned, s.UnverifiableHere)
 	// The summary above describes only the facts the store could still
 	// produce. If it could not produce everything the manifest declares, that
@@ -943,7 +928,7 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 	// rather than leaving "0 orphaned" to stand as the answer.
 	if report.StoreIntegrity != nil {
 		fmt.Fprintf(out, "store integrity: %s\n", report.StoreIntegrity.Warning())
-		fmt.Fprintf(out, "  the counts above cover only the %d fact(s) still readable\n", report.StoreIntegrity.Readable)
+		fmt.Fprintf(out, "  the counts above cover only the %d memory(ies) still readable\n", report.StoreIntegrity.Readable)
 	}
 	for _, result := range report.Results {
 		fmt.Fprintf(out, "%s %s [%s]\n  %s\n", result.Verdict, result.Fact.ID, strings.Join(result.Fact.Paths, ","), result.Fact.Text)

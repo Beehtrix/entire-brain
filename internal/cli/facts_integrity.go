@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
@@ -204,7 +205,9 @@ func factStoreIDList(ids []string) string {
 // factsRepairHint is the repair for a store that lost content. Rebuilding the
 // manifest alone would only re-baseline the loss, so the fact commands' own
 // wording — refresh, then re-distill — is what gets named.
-const factsRepairHint = "run `entire brain refresh` and re-distill"
+func factsRepairHint() string {
+	return "run `" + brainInvocation(os.LookupEnv, "refresh") + "` and re-distill"
+}
 
 // Warning renders the single caller-facing line, or "" when the store is
 // intact. Each mode keeps its own words.
@@ -213,40 +216,40 @@ func (r factStoreIntegrity) Warning() string {
 	case factStoreDefectMissing:
 		return missingFactStoreWarning(r.Missing)
 	case factStoreDefectUnreadable:
-		where := "fact store"
+		where := "memory store"
 		if len(r.Unreadable) > 0 {
-			where = "fact store for " + strings.Join(r.Unreadable, ", ")
+			where = "memory store for " + strings.Join(r.Unreadable, ", ")
 		}
 		return fmt.Sprintf(
-			"%s is corrupt: %s; the %d fact(s) the manifest declares cannot be recalled — %s",
-			where, r.ParseError, r.Declared, factsRepairHint,
+			"%s is corrupt: %s; the %d memory(ies) the manifest declares cannot be recalled — %s",
+			where, r.ParseError, r.Declared, factsRepairHint(),
 		)
 	case factStoreDefectLossy:
 		detail := fmt.Sprintf(
-			"fact count does not match the manifest: %d declared, %d readable",
+			"memory count does not match the manifest: %d declared, %d readable",
 			r.Declared, r.Readable,
 		)
 		if lost := r.Lost(); lost > 0 {
 			detail += fmt.Sprintf(" (%d lost)", lost)
 		}
 		if r.Unusable > 0 {
-			detail += fmt.Sprintf("; %d stored line(s) carry no fact id", r.Unusable)
+			detail += fmt.Sprintf("; %d stored line(s) carry no memory id", r.Unusable)
 		}
 		// A store can be BOTH short and collided. Reporting only the shortfall
 		// would understate the damage — the overwritten fact is gone too, and
 		// it is not one of the ones the arithmetic accounted for.
 		if overwritten := r.Overwritten(); overwritten > 0 {
-			detail += fmt.Sprintf("; %d more record(s) repeat a fact id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
+			detail += fmt.Sprintf("; %d more record(s) repeat a memory id (%s)", overwritten, factStoreIDList(r.DuplicateIDs))
 		}
-		return detail + " — " + factsRepairHint
+		return detail + " — " + factsRepairHint()
 	case factStoreDefectDuplicated:
 		return fmt.Sprintf(
-			"fact ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one fact, so each repeat stands where another fact used to be and that fact can no longer be recalled; the manifest's %d were counted, not read — %s",
-			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint,
+			"memory ids are not unique: %d stored record(s) repeat an id the branch already holds (%s); an id identifies exactly one memory, so each repeat stands where another memory used to be and that memory can no longer be recalled; the manifest's %d were counted, not read — %s",
+			r.Overwritten(), factStoreIDList(r.DuplicateIDs), r.Declared, factsRepairHint(),
 		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
-			"fact count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `entire brain refresh`",
+			"memory count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `"+brainInvocation(os.LookupEnv, "refresh")+"`",
 			r.Declared, r.Readable,
 		)
 	default:
@@ -286,7 +289,7 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 		report.Mode = factStoreDefectUnreadable
 		return report
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byFile, err := loadFactStoreFiles(brainDir)
 	if err != nil {
 		report.ParseError = err.Error()
 		for _, broken := range unreadableFactBranchStores(brainDir, source) {
@@ -296,12 +299,15 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 		return report
 	}
 	duplicated := map[string]struct{}{}
-	for _, records := range byBranch {
-		// One `seen` per branch, never one for the whole brain: see the file
-		// header on why a brain-wide id set would fire on every `facts
-		// promote`. byBranch is keyed by the branch recorded ON each record,
-		// which is what every writer sets to the store it writes into, so this
-		// is the same set `loadFacts` hands to recall for that branch.
+	for _, records := range byFile {
+		// One `seen` per store FILE, never one for the whole brain: a file is
+		// the set `loadFacts` hands to recall, so a repeat within one file is
+		// the only shape that shadows a memory. The same id across files is
+		// ordinary: `facts promote` copies a record into another branch's
+		// store, and the hosted pull mirrors the repo feed into the current
+		// branch's store. Bucketing by the branch recorded on each record
+		// conflated those mirrors into one bucket and reported them as
+		// corruption (COR-2220).
 		seen := make(map[string]struct{}, len(records))
 		for _, record := range records {
 			if !isFactRecord(record) {
@@ -364,7 +370,7 @@ func inspectBrainFactStore(brainDir string) factStoreIntegrity {
 // printed — hiding the survivors helps nobody — but the command exits nonzero
 // so a script cannot read the output as complete, matching how a corrupt
 // history index already behaves.
-var errFactStoreIncomplete = errors.New("fact store cannot produce every fact the manifest declares")
+var errFactStoreIncomplete = errors.New("memory store cannot produce every memory the manifest declares")
 
 // reportFactStoreIntegrity prints the cross-check verdict for a fact read
 // surface and returns the error that should end the command, or nil when the

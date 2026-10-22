@@ -354,7 +354,7 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 			entityIndexCacheMaxKeys))
 	}
 	if len(view.cache.Entries) == 0 {
-		result.Note = "the entity index is empty; run `entire brain entities backfill`"
+		result.Note = "the entity index is empty; run `" + brainInvocation(os.LookupEnv, "entities backfill") + "`"
 		return result, nil
 	}
 	reachable, err := checkedBranchReachableCommits(ctx, opts.Runner, repoDir, result.Branch)
@@ -499,7 +499,7 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 	}
 	raw, ok := snapshot.RawDelta(commit)
 	if !ok {
-		return fmt.Errorf("commit %s is not indexed; run `entire brain entities backfill`", shortSHA(commit))
+		return fmt.Errorf("commit %s is not indexed; run `"+brainInvocation(os.LookupEnv, "entities backfill")+"`", shortSHA(commit))
 	}
 	out := cmd.OutOrStdout()
 	if summary {
@@ -616,7 +616,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	if hasPrevious && previous.MetaTip == tip && tip != "" {
 		view.cache = previous
 		if previous.NeedsMigration && view.warning == "" {
-			view.warning = "history from another parser revision is available; run `entire brain entities migrate` to carry it forward"
+			view.warning = "history from another parser revision is available; run `" + brainInvocation(os.LookupEnv, "entities migrate") + "` to carry it forward"
 		}
 		return finish()
 	}
@@ -636,7 +636,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	}
 	view.cache = cache
 	if cache.NeedsMigration && view.warning == "" {
-		view.warning = "history from another parser revision is available; run `entire brain entities migrate` to carry it forward"
+		view.warning = "history from another parser revision is available; run `" + brainInvocation(os.LookupEnv, "entities migrate") + "` to carry it forward"
 	}
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
@@ -865,7 +865,12 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 			out[checkpoint] = append(out[checkpoint], id)
 		}
 	}
-	if snapshot, _, err := loadLocalCheckpointSnapshotForVerify(ctx, opts.Runner, repoDir); err == nil && snapshot != nil {
+	// Read through the export-maintained metadata cache, like the transcript
+	// store does: without it this join reads every checkpoint's metadata blob
+	// with its own git cat-file, which dominated distill wall time (COR-2182).
+	// Loaded read-only; export remains the only writer.
+	metadataCache := loadCheckpointMetadataCache(filepath.Join(brainDir, filepath.FromSlash(checkpointMetadataCachePath)))
+	if snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, true, checkpointBranchDestinations{}, metadataCache); err == nil && snapshot != nil {
 		for _, member := range snapshot.SessionCheckpoints {
 			add(member.CheckpointID, member.SessionID)
 		}

@@ -171,6 +171,16 @@ func TestOllamaDistillAgentSkipsTruncationCheckWithoutAWindow(t *testing.T) {
 // --max-chunk-bytes has no upper bound, so the scaling needs an absolute
 // ceiling or a hostile loopback endpoint could amplify a large chunk into an
 // unbounded read.
+// ollamaEnvelopeStreamHeadroom is how much past the ceiling the fake endpoint
+// keeps streaming, and ollamaEnvelopeStopTolerance is how far past it the
+// server may have WRITTEN before a correct client's stop takes effect. The
+// first must be much larger than the second, or the assertion is bounded by
+// the handler rather than by the client and can only measure scheduling.
+const (
+	ollamaEnvelopeStreamHeadroom = 64 << 20
+	ollamaEnvelopeStopTolerance  = 32 << 20
+)
+
 func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	// A prompt whose unclamped allowance (8x + slack) would exceed the ceiling.
 	oversized := distillOllamaMaxEnvelopeBytes/distillOllamaEnvelopeFactor + (1 << 20)
@@ -184,10 +194,13 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	// than on the behaviour under test.
 	var served atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Stream past the ceiling; a correct client stops reading at it.
+		// Stream well past the ceiling; a correct client stops reading at it.
+		// The overshoot must dwarf the stop-detection slack below, or a
+		// stream-following client would be indistinguishable from a correct
+		// one.
 		chunk := strings.Repeat("a", 1<<20)
 		w.Header().Set("Content-Type", "application/json")
-		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+(8<<20) {
+		for served.Load() < int64(distillOllamaMaxEnvelopeBytes)+ollamaEnvelopeStreamHeadroom {
 			n, err := io.WriteString(w, chunk)
 			served.Add(int64(n))
 			if err != nil {
@@ -206,8 +219,21 @@ func TestOllamaDistillAgentEnvelopeAllowanceIsCeilinged(t *testing.T) {
 	if !strings.Contains(err.Error(), "envelope exceeds") {
 		t.Fatalf("error must name the envelope bound, got: %v", err)
 	}
-	if got := served.Load(); got > int64(distillOllamaMaxEnvelopeBytes)+(4<<20) {
-		t.Fatalf("read %d bytes, must stop near the %d ceiling rather than following the stream",
+	// What this counts is what the SERVER WROTE, which runs ahead of what the
+	// client read by however much the connection will buffer. The tolerance
+	// used to be 4MiB while the handler stopped at 8MiB, so the assertion sat
+	// INSIDE the server's own bound: it was measuring goroutine scheduling, and
+	// it failed on main at 38797312 bytes with nothing wrong with the client.
+	//
+	// The handler now offers far more than any correct client would take, and
+	// the bound is set above the buffering overshoot but far below the offer.
+	// A client that follows the stream still fails; one that stops at the
+	// ceiling passes regardless of how far the writer ran ahead. Kernel socket
+	// buffers on both ends keep accepting writes after the client stops, and
+	// tuned hosts buffer several MiB, so the tolerance only has to separate
+	// "stopped at the ceiling" from "followed the stream to the full offer".
+	if got := served.Load(); got > int64(distillOllamaMaxEnvelopeBytes)+ollamaEnvelopeStopTolerance {
+		t.Fatalf("served %d bytes, must stop near the %d ceiling rather than following the stream",
 			got, distillOllamaMaxEnvelopeBytes)
 	}
 }

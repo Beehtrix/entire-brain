@@ -342,7 +342,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		if markerErr := rejectInterruptedPatternCorpusPublication(brainDir); markerErr != nil {
 			return nil, markerErr
 		}
-		return nil, fmt.Errorf("pattern corpus not found (run `entire brain patterns refresh` first): %w", os.ErrNotExist)
+		return nil, fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
 	snapshotPath, cleanup, err := snapshotPrivacySQLiteStore(brainDir, patternCorpusPath)
 	if err != nil {
@@ -435,7 +435,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus is unavailable; run `entire brain patterns refresh`", memoryErrSourceStale)
+		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
 	}
 	return nil
 }
@@ -636,7 +636,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 		return err
 	}
 	if !present {
-		return fmt.Errorf("pattern corpus not found (run `entire brain patterns refresh` first): %w", os.ErrNotExist)
+		return fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
 	path, cleanup, err := preparePatternCorpusStaging(brainDir)
 	if err != nil {
@@ -1481,27 +1481,15 @@ func toolMix(tools []corpusToolOp) string {
 	return strings.Join(parts, ",")
 }
 
-// readPatternCorpusTranscript uses the same descriptor-bound canonical session
-// opener as history projection. It performs one bounded read, then calls the
-// mandatory finish check to prove the leaf and every path component retained
-// their exact identity for the complete read.
+// readPatternCorpusTranscript derives metadata from the canonical bytes, so
+// checkpoint-backed sessions have the same corpus identity as bundle files.
 func readPatternCorpusTranscript(ctx context.Context, brainDir, rel string) (data []byte, size, mtime int64, sha string, err error) {
-	f, finish, err := openCanonicalHistoryTranscript(ctx, brainDir, rel)
+	data, err = readCanonicalHistoryTranscript(ctx, brainDir, rel)
 	if err != nil {
 		return nil, 0, 0, "", err
 	}
-	info, statErr := f.Stat()
-	if statErr != nil {
-		_ = finish()
-		return nil, 0, 0, "", statErr
-	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "pattern transcript "+rel)
-	finishErr := finish()
-	if readErr != nil || finishErr != nil {
-		return nil, 0, 0, "", errors.Join(readErr, finishErr)
-	}
 	sum := sha256.Sum256(data)
-	return data, info.Size(), info.ModTime().UnixNano(), hex.EncodeToString(sum[:]), nil
+	return data, int64(len(data)), 0, hex.EncodeToString(sum[:]), nil
 }
 
 func corpusMeta(db *sql.DB, key string) string {

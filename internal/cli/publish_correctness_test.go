@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestPublishRefusesMalformedOrAmbiguousFactStreams(t *testing.T) {
-	for _, data := range []string{"not-json\n", "not-json\n{\"branch\":\"main\"}\n", "{}\n", "null\n", "{\"branch\":\"main\"}\n{\"branch\":\"other\"}\n", "{\"branch\":\"main\"}\n{}\n"} {
+	for _, data := range []string{"not-json\n", "not-json\n{\"branch\":\"main\"}\n", "{}\n", "null\n", "{\"branch\":\"main\"}\n{}\n"} {
 		t.Run(data, func(t *testing.T) {
 			brainDir := t.TempDir()
 			writePublishBrainFixture(t, brainDir)
@@ -65,6 +66,57 @@ func TestPublishAcknowledgementErrorRedactsToken(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "audit-token") || strings.ContainsRune(err.Error(), '\x1b') {
 		t.Fatalf("unsafe error: %q", err)
+	}
+}
+
+// Hosted pull rebuilds a branch store from the repo-wide feed
+// (pullHostedFacts), so a store legitimately carries records from other
+// branches. The stream's owner is the branch that re-derives its directory
+// name, not the records' uniform branch field.
+func TestPublishAcceptsPulledCrossBranchFactStreams(t *testing.T) {
+	for name, tc := range map[string]struct {
+		branch string
+		data   string
+	}{
+		"mixed":        {"evis/feature", "{\"branch\":\"main\",\"text\":\"pulled\"}\n{\"branch\":\"evis/feature\",\"text\":\"local\"}\n"},
+		"pure-foreign": {"feature-x", "{\"branch\":\"main\",\"text\":\"pulled\"}\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			brainDir := t.TempDir()
+			writePublishBrainFixture(t, brainDir)
+			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(tc.branch))), []byte(tc.data))
+			art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
+			got, err := collectFactArtifacts(art, brainDir)
+			if err != nil || len(got) != 2 {
+				t.Fatalf("cross-branch stream plus fixture main: %d artifacts, %v", len(got), err)
+			}
+			refs := []string{got[0].Ref, got[1].Ref}
+			sort.Strings(refs)
+			want := []string{tc.branch, "main"}
+			sort.Strings(want)
+			if refs[0] != want[0] || refs[1] != want[1] {
+				t.Fatalf("streams attributed to %v, want %v", refs, want)
+			}
+		})
+	}
+}
+
+// A slash branch sanitizes to a different slug, so a store holding ONLY pulled
+// foreign records cannot be re-derived from either the records or the slug.
+// Refusal is correct — publishing under a guessed branch would corrupt the
+// artifact coordinate — but the error must name the directory and the branches
+// it found.
+func TestPublishRefusesUnresolvableFactStream(t *testing.T) {
+	brainDir := t.TempDir()
+	writePublishBrainFixture(t, brainDir)
+	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("evis/feature"))), []byte("{\"branch\":\"main\",\"text\":\"pulled\"}\n"))
+	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
+	got, err := collectFactArtifacts(art, brainDir)
+	if err == nil || len(got) != 0 {
+		t.Fatalf("unresolvable stream accepted: %d artifacts, %v", len(got), err)
+	}
+	if !strings.Contains(err.Error(), "evis-feature") || !strings.Contains(err.Error(), "main") {
+		t.Fatalf("error names neither directory nor record branches: %v", err)
 	}
 }
 

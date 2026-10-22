@@ -20,7 +20,6 @@ behavior is described below.
 | Conversation expansion (line transcript) | streamed; per-line 1 MiB, output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
 | Short-term overlay (`history/short-term.json`) | 64 MiB | `defaultMaxReadBytes` via `loadHistoryShortTermState` | — |
 | Filtered conversation candidate scan | 10,000 rows, then a structured degraded error | `historyFTSFilteredScanCeiling` (`history_fts.go`) | — |
-| Vector KNN neighborhood (brain_cgo) | 4,096 | `vec0KnnMaxK` (`embed_vec_cgo.go`); filtered vector search is approximate past it | — |
 | get / multi-get ids per request | 50 | `maxGetBatchIDs` (`retrieve.go`) | — |
 | Seed / markdown doc (per file) | 32 MiB | `maxSeedDocBytes` | — |
 | Auxiliary JSON state / index / cursor | 16 MiB | `maxManifestBytes` | — |
@@ -94,7 +93,8 @@ memory and filesystem performance.
 
 ## Egress threat model
 
-- No-egress mode (`ENTIRE_BRAIN_NO_EGRESS` / `ENTIRE_BRAIN_LOCAL_ONLY`) is
+- No-egress mode (`ENTIRE_BRAIN_NO_EGRESS`, deprecated alias
+  `ENTIRE_BRAIN_LOCAL_ONLY`) is
   **fail-closed**: any unrecognized toggle value is treated as enabled (with a
   warning), and only `--agent ollama`/`none` are permitted — any other or
   unknown agent name is denied (`agent_policy.go`).

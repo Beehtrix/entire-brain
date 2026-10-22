@@ -37,7 +37,7 @@ func TestRenderBrainStatsHumanOutputIsCompleteAndSorted(t *testing.T) {
 		"conversation: 5 exchanges (1 incomplete, 2 range-incomplete, 1 degraded-identity, 1 truncated-projection)\n" +
 		"  sessions span 2024-01-01T00:00:00Z .. 2024-03-01T00:00:00Z\n" +
 		"  by branch: alpha=4 zeta=1\n" + "  by agent: claude=2 codex=3\n" + "  vectors: current (5, model-a)\n" +
-		"short-term memory: 6 records (4 exchanges) from 2 changed transcripts (built 2024-03-02T00:00:00Z); state partial; buffer full, consolidate with `entire brain refresh`; 2 transcripts failed to scan\n"
+		"short-term memory: 6 records (4 exchanges) from 2 changed transcripts (built 2024-03-02T00:00:00Z); state partial; buffer full, consolidate with `" + brainInvocation(os.LookupEnv, "refresh") + "`; 2 transcripts failed to scan\n"
 	if out.String() != want {
 		t.Fatalf("stats output mismatch:\n got:\n%s\nwant:\n%s", out.String(), want)
 	}
@@ -66,7 +66,7 @@ func TestPrintDistillDryRunReportHumanOutputDistinguishesCacheAndSchedule(t *tes
 	for _, expected := range []string{
 		"distill dry-run: 3 sessions, 1 cached, 2 to distill, 5 chunks\n",
 		"chunks if uncached: 7\n",
-		"estimated agent calls: 2 extraction + up to 3 reconcile = up to 5 total\n",
+		"estimated agent calls: 2 extraction + up to 3 reconcile (batched by similarity cluster; typically far fewer) = up to 5 total\n",
 		"branch main: 2 sessions, 1 cached, 3 chunks\n",
 		"branch main chunks if uncached: 4\n",
 		"- main sessions/a.jsonl: 2 chunks scheduled, 3 if uncached cached, 500 preprocessed bytes, 600 raw bytes\n",

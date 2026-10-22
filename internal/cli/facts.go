@@ -30,37 +30,49 @@ const (
 // factSourceManifest is recorded under sources.facts in the brain manifest,
 // parallel to historySourceManifest and the semantic source metadata.
 type factSourceManifest struct {
-	LastDistilledAt   time.Time                 `json:"last_distilled_at,omitzero"`
-	GeneratedAt       time.Time                 `json:"generated_at"`
-	TaxonomyPath      string                    `json:"taxonomy_path"`
-	Branches          []string                  `json:"branches,omitempty"`
-	Facts             int                       `json:"facts"`
-	Distilled         int                       `json:"distilled"`
-	Authored          int                       `json:"authored"`
-	Imported          int                       `json:"imported,omitempty"`
-	Superseded        int                       `json:"superseded"`
-	Proposals         int                       `json:"proposals"`
-	Verified          int                       `json:"verified"`
-	Unsigned          int                       `json:"unsigned"`
-	ByKind            map[string]int            `json:"by_kind,omitempty"`
-	ChunksScanned     int                       `json:"chunks_scanned"`
-	ChunksDistilled   int                       `json:"chunks_distilled"`
-	CacheHits         int                       `json:"cache_hits,omitempty"`
-	FailedChunks      int                       `json:"failed_chunks,omitempty"`
-	PreprocessedBytes int64                     `json:"preprocessed_bytes,omitempty"`
-	Agent             string                    `json:"agent,omitempty"`
-	Model             string                    `json:"model,omitempty"`
-	Effort            string                    `json:"effort,omitempty"`
-	Branch            string                    `json:"branch,omitempty"`
-	Force             bool                      `json:"force,omitempty"`
-	Jobs              int                       `json:"jobs,omitempty"`
-	ExtractionJobsCap int                       `json:"extraction_jobs_cap,omitempty"`
-	MaxChunkBytes     int                       `json:"max_chunk_bytes,omitempty"`
-	Confidence        float64                   `json:"confidence_threshold,omitempty"`
-	ExtractionCalls   int                       `json:"extraction_agent_calls,omitempty"`
-	ReconcileCalls    int                       `json:"reconcile_agent_calls,omitempty"`
-	TotalAgentCalls   int                       `json:"total_agent_calls,omitempty"`
-	TokenUsage        *distillTokenUsageSummary `json:"token_usage,omitempty"`
+	LastDistilledAt   time.Time      `json:"last_distilled_at,omitzero"`
+	GeneratedAt       time.Time      `json:"generated_at"`
+	TaxonomyPath      string         `json:"taxonomy_path"`
+	Branches          []string       `json:"branches,omitempty"`
+	Facts             int            `json:"facts"`
+	Distilled         int            `json:"distilled"`
+	Authored          int            `json:"authored"`
+	Imported          int            `json:"imported,omitempty"`
+	Superseded        int            `json:"superseded"`
+	Proposals         int            `json:"proposals"`
+	Verified          int            `json:"verified"`
+	Unsigned          int            `json:"unsigned"`
+	ByKind            map[string]int `json:"by_kind,omitempty"`
+	ChunksScanned     int            `json:"chunks_scanned"`
+	ChunksDistilled   int            `json:"chunks_distilled"`
+	CacheHits         int            `json:"cache_hits,omitempty"`
+	FailedChunks      int            `json:"failed_chunks,omitempty"`
+	PreprocessedBytes int64          `json:"preprocessed_bytes,omitempty"`
+	Agent             string         `json:"agent,omitempty"`
+	Model             string         `json:"model,omitempty"`
+	Effort            string         `json:"effort,omitempty"`
+	Branch            string         `json:"branch,omitempty"`
+	Force             bool           `json:"force,omitempty"`
+	Jobs              int            `json:"jobs,omitempty"`
+	ExtractionJobsCap int            `json:"extraction_jobs_cap,omitempty"`
+	MaxChunkBytes     int            `json:"max_chunk_bytes,omitempty"`
+	Confidence        float64        `json:"confidence_threshold,omitempty"`
+	ExtractionCalls   int            `json:"extraction_agent_calls,omitempty"`
+	ReconcileCalls    int            `json:"reconcile_agent_calls,omitempty"`
+	// The staged-reconcile pass (COR-2184): how many extracted candidates the
+	// end-of-run pass adjudicated, how many promoted with no agent call, and
+	// how many similarity clusters went to the agent. Disclosed so the staging
+	// flow is visible rather than looking like missing facts.
+	CandidatesReconciled int `json:"candidates_reconciled,omitempty"`
+	PromotedWithoutAgent int `json:"promoted_without_agent,omitempty"`
+	ReconcileClusters    int `json:"reconcile_clusters,omitempty"`
+	// PendingReconcile counts staged candidates still on disk at summary time —
+	// including interrupted extraction, failed decisions, and queued review.
+	// They are excluded from Facts (not published). Distill retries failed
+	// decisions; queued candidates wait for explicit review.
+	PendingReconcile int                       `json:"pending_reconcile,omitempty"`
+	TotalAgentCalls  int                       `json:"total_agent_calls,omitempty"`
+	TokenUsage       *distillTokenUsageSummary `json:"token_usage,omitempty"`
 	// ExtractionWaitSeconds is the consumer's WAIT on prefetched results, not
 	// agent compute: with concurrency > 1, calls completing in the background
 	// register ~0s here. Compare total_seconds across --jobs settings for
@@ -158,7 +170,7 @@ func loadFacts(brainDir, branch string) ([]factRecord, error) {
 		// once, the way the history index names `refresh history`.
 		// parseFactsFile itself stays clean so the integrity report (which
 		// quotes it inside a fuller sentence) does not say it twice.
-		return nil, fmt.Errorf("%w; %s", err, factsRepairHint)
+		return nil, fmt.Errorf("%w; %s", err, factsRepairHint())
 	}
 	return records, nil
 
@@ -262,7 +274,7 @@ func missingFactStoreWarning(missing []string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `entire brain refresh` and re-distill",
+		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `"+brainInvocation(os.LookupEnv, "refresh")+"` and re-distill",
 		strings.Join(missing, ", "), factsFileName,
 	)
 }
@@ -399,6 +411,14 @@ func summarizeFactSource(now time.Time, byBranch map[string][]factRecord, chunks
 			// on the next `remember` or `refresh`, and it is what the integrity
 			// cross-check compares against.
 			if !isFactRecord(record) {
+				continue
+			}
+			if record.Status == factStatusCandidate {
+				// A staged candidate is not a published memory yet: counting it
+				// into Facts would inflate every surface after a crashed run,
+				// while hiding it would make the staged work invisible. Its own
+				// counter keeps both honest until the next distill reconciles it.
+				source.PendingReconcile++
 				continue
 			}
 			source.Facts++

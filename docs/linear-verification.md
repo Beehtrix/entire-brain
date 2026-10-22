@@ -13,7 +13,7 @@ native Linear client, or background service was used.
   five existing active issues, their full descriptions and fields, the project
   description, and all comment pages (empty on those five issues). No closed
   issues were returned. The import receipt fixes the requested 90-day window.
-- An ordinary hybrid Brain query returned issue evidence with source URL,
+- An ordinary Brain query returned issue evidence with source URL,
   observation time, content hash, and immutable snapshot reference.
 - Created the explicitly authorized sample
   [COR-1825](https://linear.app/entirehq/issue/COR-1825/sample-brain-acceptance-offline-linear-evidence-round-trip)
@@ -44,8 +44,8 @@ source text and Brain data are not committed to the repository.
   repository/workspace isolation, stale observations, concurrent writers, links,
   and pending/ambiguous/terminal operation histories.
 - Issue integration tests pass for default retrieval, offline exact citations,
-  FTS fallback, long-thread diversity, bounded excerpts, semantic capability
-  errors/cache invalidation, CLI stdin/MCP parity, all brief packet formats,
+  FTS fallback, long-thread diversity, bounded excerpts, concurrent
+  disconnect rejection, CLI stdin/MCP parity, all brief packet formats,
   untrusted issue text, workspace citation qualification, and export exclusion.
 - Existing affected retrieval, brief, workspace, MCP, documentation-contract,
   and doctor-clock tests pass. MCP schema fixtures were deliberately updated.

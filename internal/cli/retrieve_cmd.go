@@ -70,11 +70,11 @@ type retrievalTaskHints struct {
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
 func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 for history and docs; token-overlap for facts)")
+	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", modeVector, "Vector (semantic) search across facts and docs (history and conversation join with a Gemma-class embedder on the brain_cgo build)")
+	return newRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
@@ -115,6 +115,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
+			warnRemovedSemanticAlias(cmd, use, selection.semantic)
 			return runRetrieve(cmd.Context(), cmd, opts, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
@@ -123,8 +124,8 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current); with --source conversation also filters exchanges to that captured branch")
-	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global facts from this request")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current); with --source conversation also filters exchanges to that captured branch")
+	cmd.Flags().BoolVar(&noGlobal, "no-global", false, "Exclude global memories from this request")
 	cmd.Flags().BoolVar(&patterns, "patterns", false, "Also surface relevant pattern:/theme: pointers (does not change facts/history/docs ranking)")
 	cmd.Flags().StringVar(&source, "source", "", "Restrict retrieval to all, fact, history, conversation, doc, or issue (default all; conversation is experimental opt-in)")
 	cmd.Flags().StringVar(&after, "after", "", "Conversation source only: sessions at or after this time (RFC3339 or YYYY-MM-DD)")
@@ -220,7 +221,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// rather than only on the one command that happened to load them. They go
 	// through the same guard, filters and scoring as repository facts.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		ropts.GlobalFacts = globalFacts
 	}
@@ -623,7 +624,7 @@ exiting, so the result is readable either way.`,
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current)")
 	cmd.Flags().IntVar(&contextBefore, "context-before", 0, "Adjacent earlier exchanges to include (conversation: ids only, 0-3)")
 	cmd.Flags().IntVar(&contextAfter, "context-after", 0, "Adjacent later exchanges to include (conversation: ids only, 0-3)")
 	cmd.Flags().IntVar(&afterTurn, "after-turn", 0, "Outline cursor: entries after this turn ordinal (conversation-session: ids only)")
@@ -661,7 +662,7 @@ survives the nonzero exit.`,
 	}
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&format, "format", "", "Output format: json or cli (QMD-style alias for --json)")
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch for facts (default: current)")
+	cmd.Flags().StringVar(&branch, "branch", "", "Branch for memories (default: current)")
 	return cmd
 }
 
@@ -739,7 +740,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	// An id that query or search just handed back and get reports missing is a
 	// worse seam than not returning it at all.
 	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global facts unavailable: %v\n", globalErr)
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		gopts.GlobalFacts = globalFacts
 	}
@@ -859,6 +860,16 @@ func printRetrievalCaveats(out io.Writer, result unifiedResult) {
 	}
 }
 
+// warnRemovedSemanticAlias prints the one-line deprecation notice when a
+// caller reaches retrieval through a removed-semantic surface (the vsearch
+// verb or --semantic). stderr only, so JSON/CSV consumers are unaffected.
+func warnRemovedSemanticAlias(cmd *cobra.Command, use string, semanticFlag bool) {
+	if use != "vsearch" && !semanticFlag {
+		return
+	}
+	fmt.Fprintln(cmd.ErrOrStderr(), "warning: semantic retrieval was removed (trail #278); running the standard BM25 lexical ranking")
+}
+
 // querySelection is shared by local and workspace query commands.
 type querySelection struct {
 	text              string
@@ -873,7 +884,9 @@ func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
 		return modeLexical, nil
 	}
 	if s.semantic {
-		return modeVector, nil
+		// Semantic retrieval was removed (trail #278); the flag is honored as
+		// a compatibility alias for the default BM25 ranking.
+		return modeHybrid, nil
 	}
 	return fallback, nil
 }
@@ -890,7 +903,7 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 	cmd.Long = cmd.Short + ". Supply the text positionally or with --query. Flags may appear before or after the text."
 	cmd.Flags().StringVar(&selection.text, "query", "", "Query text (alternative to the positional query)")
 	cmd.Flags().BoolVar(&selection.keyword, "keyword", false, "Match keywords and identifiers only")
-	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Match meaning using vector similarity only")
+	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Compatibility alias: semantic retrieval was removed; ranking is BM25 lexical")
 	cmd.MarkFlagsMutuallyExclusive("keyword", "semantic")
 	cmd.Args = func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().Changed("query") {

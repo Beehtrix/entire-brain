@@ -92,17 +92,21 @@ func renderStatus(t *testing.T, report brainStatusReport, verbose bool) string {
 func TestShortStatusGolden(t *testing.T) {
 	t.Parallel()
 	got := renderStatus(t, statusFixtureReport(t, 44), false)
-	const want = "Brain  gh/entireio/entire-brain\n" +
-		"  /brain | manifest current | 1179 files, 40781 symbols | 375 facts\n" +
+	const want = "\n" +
+		"Brain  gh/entireio/entire-brain\n" +
+		"  manifest: current\n" +
+		"  semantic: 1179 files, 40781 symbols\n" +
+		"  memories: 375\n" +
 		"\n" +
 		"Onboarding\n" +
-		"  facts     #............. 20/185 distilled  (backfill running, pid 4242)\n" +
-		"  daemon    - installed but not running (io.entire.brain-watch.a2d3fd66) (last watcher tick 17m0s ago)\n" +
+		"  memories  #............. 20/185 distilled  (backfill running, pid 4242)\n" +
+		"  daemon    - installed but not running (last watcher tick 17m0s ago)\n" +
 		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
 		"\n" +
 		"- freshness degraded -- run `entire-brain refresh --agent none`\n" +
 		"  semantic_completeness=degraded (44 partial failures)\n" +
-		"  `entire-brain status --verbose` for the full report\n"
+		"  `entire-brain status --verbose` for the full report\n" +
+		"\n"
 	if got != want {
 		t.Fatalf("short status\n got:\n%s\nwant:\n%s", got, want)
 	}
@@ -114,7 +118,7 @@ func TestShortStatusGolden(t *testing.T) {
 func TestShortStatusNeverLeaksTheVerboseWall(t *testing.T) {
 	t.Parallel()
 	got := renderStatus(t, statusFixtureReport(t, 44), false)
-	if lines := strings.Count(got, "\n"); lines > 12 {
+	if lines := strings.Count(got, "\n"); lines > 16 {
 		t.Fatalf("the default report grew to %d lines; it exists to be short:\n%s", lines, got)
 	}
 	for _, forbidden := range []string{

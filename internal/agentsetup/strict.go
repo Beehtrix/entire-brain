@@ -63,7 +63,7 @@ preflight because a file is known or a grep looks easier.
 
 Start needed code discovery with:
 
-    entire graph query --repo . --profile full --head --query "<task>"
+    entire graph search --repo . --profile full --head --query "<task>"
 
 Code relationships — callers, callees, dependents, implementors, type consumers,
 routes, and blast radius — MUST be answered with Graph first, ALWAYS, even when
@@ -128,13 +128,13 @@ do not waive this requirement. Specs, reviews, and refactoring plans count
 as substantive tasks.
 
 Previous decisions, rationale, prior attempts, documentation, durable project
-facts, and earlier sessions MUST be investigated with Brain first, ALWAYS.
+memories, and earlier sessions MUST be investigated with Brain first, ALWAYS.
 Knowing what the current code does does not establish why it was written.
 Do not substitute recollection, source comments, or a plausible explanation
 for retrieval of the recorded evidence.
 
 Retrieve prior decisions, rejected approaches and rationale with recall, not
-with query and not from the brief's facts sample alone:
+with query and not from the brief's memories sample alone:
 
     entire brain recall "<question>" --json
 
@@ -149,17 +149,17 @@ Cite the retrieved evidence for historical claims. Distinguish recorded rational
 from inference. An empty result means no evidence was found; it does not establish
 that a decision or previous attempt never existed.
 
-Durable facts are Brain's episodic memory. When you establish something durable
+Durable memories are Brain's episodic record. When you establish something durable
 that the code does not already state - a decision and its rationale, an
 invariant, a gotcha that cost you time - RECORD it before finishing:
 
-    entire brain remember "<fact>" --path <category.subcategory.type> --json
+    entire brain remember "<memory>" --path <category.subcategory.type> --json
 
 Categories are architecture, constraints, preferences, project and workflow.
-Omitting --path classifies the fact for you and requires a supported coding
-agent on PATH; pass --path when none is guaranteed. No MCP tool writes a fact,
-so this is a CLI call; do not go looking for one. Retrieve with recall and
-re-check anchors with verify. A fact you author has no source anchor, so verify
+Omitting --path classifies the memory for you and requires a supported coding
+agent on PATH; pass --path when none is guaranteed. Over MCP the same write is
+the brain_remember tool, which requires path. Retrieve with recall and
+re-check anchors with verify. A memory you author has no source anchor, so verify
 reports it unverifiable-here - that is expected, not a failure.
 
 Brain semantic answers refer to a stored index, which may differ from current
@@ -195,4 +195,26 @@ func guideFor(active map[string]bool, mode Mode) string {
 		return BrainGuide()
 	}
 	return GraphGuide
+}
+
+// AllGuides returns every guide text this package can write, keyed by the
+// activation that produces it ("<mode>:<products>").
+//
+// Exported because the guards that hold these texts to what the binary
+// actually ships -- the registered MCP tools, the registered commands -- have
+// to live in a package that can see both, and internal/cli imports this one.
+// Checking only the exported BrainGuide/CombinedGuide/GraphGuide would leave
+// the strict variants, which are a separate copy of the same prose, unguarded.
+func AllGuides() map[string]string {
+	guides := map[string]string{}
+	for _, mode := range []Mode{ModeNormal, ModeStrict} {
+		for name, active := range map[string]map[string]bool{
+			"brain":       {"brain": true},
+			"graph":       {"graph": true},
+			"brain+graph": {"brain": true, "graph": true},
+		} {
+			guides[string(mode)+":"+name] = guideFor(active, mode)
+		}
+	}
+	return guides
 }

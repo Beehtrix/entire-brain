@@ -92,7 +92,7 @@ func TestIssueContinuationRequiresExistingSnapshot(t *testing.T) {
 	}
 }
 
-func TestIssueThreadDiversityFallbackAndSemanticCache(t *testing.T) {
+func TestIssueThreadDiversityAndLexicalFallback(t *testing.T) {
 	dir := t.TempDir()
 	s := seedIssueTest(t, dir)
 	rs := []issues.Record{}
@@ -114,7 +114,7 @@ func TestIssueThreadDiversityFallbackAndSemanticCache(t *testing.T) {
 	if err := os.WriteFile(cacheDir, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	hits, err := retrieveIssues(dir, "retry recovery", 5, modeLexical, nil)
+	hits, err := retrieveIssues(dir, "retry recovery", 5)
 	if err != nil || len(hits) != 2 {
 		t.Fatal("fallback/diversity", len(hits), err)
 	}
@@ -126,34 +126,11 @@ func TestIssueThreadDiversityFallbackAndSemanticCache(t *testing.T) {
 	if err := os.Remove(cacheDir); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := retrieveIssues(dir, "retry", 5, modeVector, nil); err != errIssueSemanticUnavailable {
-		t.Fatal("semantic capability", err)
-	}
-	if hits, err := retrieveIssues(dir, "retry", 5, modeHybrid, nil); err != nil || len(hits) == 0 {
-		t.Fatal("hybrid lost lexical arm", err)
-	}
-	e := &issueTestEmbedder{}
-	if _, ok := issueVectors(dir, []issues.Snapshot{s}, "retry", e); !ok {
-		t.Fatal("semantic failed")
-	}
-	count := e.documents
-	if _, ok := issueVectors(dir, []issues.Snapshot{s}, "retry", e); !ok || e.documents != count {
-		t.Fatal("cache missed")
-	}
-	s.Text = "different"
-	s.Hash = s.ContentHash()
-	_, _ = issueVectors(dir, []issues.Snapshot{s}, "retry", e)
-	if e.documents != count+1 {
-		t.Fatal("content change reused stale vector")
+	// With the cache directory usable again the FTS path ranks the same evidence.
+	if hits, err := retrieveIssues(dir, "retry", 5); err != nil || len(hits) == 0 {
+		t.Fatal("fts ranking lost lexical matches", err)
 	}
 }
-
-type issueTestEmbedder struct{ documents int }
-
-func (e *issueTestEmbedder) ID() string                    { return "issue-test" }
-func (e *issueTestEmbedder) Dim() int                      { return 2 }
-func (e *issueTestEmbedder) Embed(s string) []float32      { e.documents++; return []float32{1, 0} }
-func (e *issueTestEmbedder) EmbedQuery(s string) []float32 { return []float32{1, 0} }
 
 func TestIssueBriefCLIMCPAndQuotedCompactPackets(t *testing.T) {
 	f := newBrainBriefProfileFixture(t)
@@ -279,7 +256,7 @@ func TestIssueDisconnectPurgesDerivedAndRestoresEmptyBehavior(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedIssueTest(t, f.brainDir)
-	_, _ = retrieveIssues(f.brainDir, "retry", 3, modeLexical, nil)
+	_, _ = retrieveIssues(f.brainDir, "retry", 3)
 	if _, err := executeIssueAction(f.brainDir, "disconnect", nil, issueTestProject, true, time.Now()); err != nil {
 		t.Fatal(err)
 	}

@@ -66,13 +66,18 @@ func TestPublishSurfacesWhyTheServerIsUnavailable(t *testing.T) {
 	}
 }
 
-// A gateway's HTML page must arrive as its title, not as a slice of markup.
+// A gateway's HTML page must arrive as its title, not as a slice of markup. The
+// title's leading status echo is stripped (the message already says "HTTP 413");
+// what the title says beyond it survives.
 func TestPublishHTMLErrorPageIsBoundedAndReadable(t *testing.T) {
-	page := "<!DOCTYPE html>\n<html><head><title>413 Request Entity Too Large</title></head><body>\n" +
+	page := "<!DOCTYPE html>\n<html><head><title>413 Request Entity Too Large: body exceeds plan limit</title></head><body>\n" +
 		strings.Repeat("<span>x</span>\n", 100000) + "</body></html>\n"
 	got := publishErr(t, http.StatusRequestEntityTooLarge, page)
-	if !strings.Contains(got, "413 Request Entity Too Large") {
-		t.Fatalf("publish(html) = %q; want the page title", got)
+	if !strings.Contains(got, "body exceeds plan limit") {
+		t.Fatalf("publish(html) = %q; want the page title's detail", got)
+	}
+	if strings.Contains(got, "413 Request Entity Too Large") {
+		t.Fatalf("publish(html) = %q; the title's status echo was rendered beside HTTP 413", got)
 	}
 	if strings.Contains(got, "<span>") || strings.Contains(got, "<!DOCTYPE") {
 		t.Fatalf("publish(html) = %q; raw markup reached the member", got)
@@ -111,6 +116,23 @@ func TestPublishStatusClassesAreUnchanged(t *testing.T) {
 		if !strings.HasPrefix(got, tc.class) {
 			t.Fatalf("publish(%d) = %q; want the %q class", tc.status, got, tc.class)
 		}
+	}
+}
+
+// A body that only echoes the status text must not render it beside "(HTTP 404)"
+// (COR-2210: "unexpected server response (HTTP 404): not found").
+func TestPublishDoesNotRepeatTheStatusText(t *testing.T) {
+	got := publishErr(t, http.StatusNotFound, `{"title":"Not Found","detail":"not found"}`)
+	if want := "publish_failed: unexpected server response (HTTP 404)"; got != want {
+		t.Fatalf("publish(404, status echo) = %q; want exactly %q", got, want)
+	}
+
+	got = publishErr(t, http.StatusNotFound, `{"detail":"Not Found; repo was never published"}`)
+	if !strings.Contains(got, "repo was never published") {
+		t.Fatalf("publish(404) = %q; the server's extra detail was dropped", got)
+	}
+	if strings.Contains(got, "Not Found") {
+		t.Fatalf("publish(404) = %q; the status text is rendered beside HTTP 404", got)
 	}
 }
 

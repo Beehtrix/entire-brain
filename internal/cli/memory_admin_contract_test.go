@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestFinishMemoryOperationFailureEmitsOneCompleteReceiptInRequestedFormat(t *testing.T) {
+func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 	started := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
 	finished := started.Add(2 * time.Second)
 	cause := fmt.Errorf("%s: injected", memoryErrSourceStale)
@@ -50,9 +50,10 @@ func TestFinishMemoryOperationFailureEmitsOneCompleteReceiptInRequestedFormat(t 
 				}
 				return
 			}
-			if strings.Contains(output.String(), "{") || strings.Count(output.String(), "repair failed ") != 1 ||
-				!strings.Contains(output.String(), "error_code="+memoryErrSourceStale) || !strings.Contains(output.String(), "finished_at="+finished.Format(time.RFC3339Nano)) {
-				t.Fatalf("plain failure receipt = %q", output.String())
+			// Plain mode: the receipt is --json telemetry (COR-2205); the
+			// returned error is the whole report and stdout stays silent.
+			if output.Len() != 0 {
+				t.Fatalf("plain failure wrote receipt telemetry = %q", output.String())
 			}
 		})
 	}
@@ -209,8 +210,8 @@ func TestManualAbstractMutationReceiptsAndDryRun(t *testing.T) {
 	}
 
 	out, err = execute(t, newMemoryAbstractCommand(opts), ref, "--provider", "ollama", "--model", "test")
-	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstract_generate completed") || !strings.Contains(out, "operation_id=") {
-		t.Fatalf("repeat abstract plain receipt: err=%v\n%s", err, out)
+	if err != nil || strings.Contains(out, "{") || !strings.Contains(out, "abstract") || strings.Contains(out, "operation_id=") {
+		t.Fatalf("repeat abstract plain output: err=%v\n%s", err, out)
 	}
 	if provider.calls.Load() != 2 || len(loadMemoryJobs(brainDir)) != 1 {
 		t.Fatalf("repeat generation duplicated identity: provider_calls=%d jobs=%+v", provider.calls.Load(), loadMemoryJobs(brainDir))
@@ -253,8 +254,8 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) || committed != 1 {
 			t.Fatalf("err=%v committed=%d out=%s", err, committed, out)
 		}
-		if strings.Contains(out, "{") || strings.Count(out, "rebuild failed ") != 1 || !strings.Contains(out, "finished_at=") {
-			t.Fatalf("plain failure receipt = %q", out)
+		if out != "" {
+			t.Fatalf("plain failure wrote receipt telemetry = %q", out)
 		}
 	})
 
@@ -332,7 +333,7 @@ func TestConfigureAbstractsEmitsFinalizedReceiptAfterCommittedFailure(t *testing
 	}
 }
 
-func TestConfigureAbstractsValidationFailureHonorsPlainReceiptMode(t *testing.T) {
+func TestConfigureAbstractsValidationFailureKeepsPlainSurfaceQuiet(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
 	oldFactory := memoryAbstractorFactory
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
@@ -345,8 +346,8 @@ func TestConfigureAbstractsValidationFailureHonorsPlainReceiptMode(t *testing.T)
 	if err == nil || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
 		t.Fatalf("configure validation error=%v out=%s", err, out)
 	}
-	if strings.Contains(out, "{") || strings.Count(out, "configure_abstracts failed ") != 1 || !strings.Contains(out, "schema_version=1") || !strings.Contains(out, "error_code="+memoryErrProviderUnavail) || !strings.Contains(out, "finished_at=") {
-		t.Fatalf("configure plain failure receipt=%q", out)
+	if out != "" {
+		t.Fatalf("configure plain failure wrote receipt telemetry=%q", out)
 	}
 	if _, state, loadErr := loadMemoryConfigChecked(brainDir); loadErr != nil || state != memoryConfigAbsent {
 		t.Fatalf("validation failure mutated config state=%s err=%v", state, loadErr)
@@ -536,10 +537,8 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 			if tc.version != 0 && report.Brain.Schema != tc.version {
 				t.Fatalf("observed schema = %d, want %d", report.Brain.Schema, tc.version)
 			}
-			for _, section := range []string{"install", "locks", "schemas", "coordinator", "worker_log"} {
-				if _, ok := report.Memory[section]; !ok {
-					t.Fatalf("partial status missing %q: %#v", section, report.Memory)
-				}
+			if report.Memory != nil || report.Integrity != "not_checked" {
+				t.Fatalf("status must leave deep memory health to doctor: %+v", report)
 			}
 			found := false
 			for _, issue := range report.Issues {
@@ -576,8 +575,7 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 			}
 			payload := mcpTextJSONPayload(t, responses[0])
 			brain, _ := payload["brain"].(map[string]any)
-			memory, _ := payload["memory"].(map[string]any)
-			if brain["manifest_state"] != tc.state || memory["install"] == nil || memory["issues"] == nil {
+			if brain["manifest_state"] != tc.state || payload["integrity"] != "not_checked" || payload["issues"] == nil {
 				t.Fatalf("partial MCP brain_status = %#v", payload)
 			}
 			if tc.symlink {
@@ -629,7 +627,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	for _, check := range report.Checks {
 		checks[check.Name] = check
 	}
-	for _, name := range []string{"memory_install", "memory_host_adapter", "memory_coordinator", "write_lock", "memory_provider_egress", "memory_schema_capabilities", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
+	for _, name := range []string{"memory_install", "memory_coordinator", "write_lock", "memory_provider_egress", "memory_schemas", "memory_migrations", "memory_worker_log", "manifest"} {
 		if _, ok := checks[name]; !ok {
 			t.Fatalf("doctor check %q missing: %+v", name, report.Checks)
 		}
@@ -637,13 +635,23 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, memoryErrUnsupportedVersion) {
 		t.Fatalf("manifest check = %+v", checks["manifest"])
 	}
-	// Not a warning: this process never observes the host adapter, so the
-	// check could never pass. It still has to name the authority that can.
-	if got := checks["memory_host_adapter"]; got.State != "ok" || !strings.Contains(got.Detail, "authority entire-cli") {
-		t.Fatalf("host adapter check = %+v", got)
+	// Not findings: both were string literals, so they are gone from the
+	// report. The payload they were formatted from is still in the machine
+	// contract, which is the half a caller can actually use.
+	for _, gone := range []string{"memory_host_adapter", "memory_schema_capabilities"} {
+		if got, ok := checks[gone]; ok {
+			t.Fatalf("%s is back in the report: %+v", gone, got)
+		}
 	}
-	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
-		t.Fatalf("compiled schema capabilities = %+v", got)
+	install, _ := report.Memory["install"].(map[string]any)
+	adapter, _ := install["host_adapter"].(map[string]any)
+	if adapter["authority"] != "entire-cli" {
+		t.Fatalf("host-adapter payload lost its authority: %#v", install["host_adapter"])
+	}
+	schemas, _ := report.Memory["schemas"].(map[string]any)
+	compiled, _ := schemas["compiled_capabilities"].(map[string]any)
+	if compiled["brain_manifest"] != float64(brainManifestSchemaVersion) {
+		t.Fatalf("compiled schema capabilities payload = %#v", compiled)
 	}
 	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, memoryErrUnsupportedVersion) || !strings.Contains(got.Detail, "schema 4") {
 		t.Fatalf("observed schema health = %+v", got)
@@ -714,8 +722,8 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if got := checks["memory_provider_egress"]; got.State != "ok" || !strings.Contains(got.Detail, "hosted") || !strings.Contains(got.Detail, "global policy default") || !strings.Contains(got.Detail, "effective available_unverified") {
 		t.Fatalf("provider/egress check = %+v", got)
 	}
-	if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("jobs %d", memoryJobSchemaVersion)) {
-		t.Fatalf("compiled schema check = %+v", got)
+	if got, ok := checks["memory_schema_capabilities"]; ok {
+		t.Fatalf("compiled-capability check is back in the report: %+v", got)
 	}
 	if got := checks["memory_schemas"]; got.State != "ok" || !strings.Contains(got.Detail, "observed state current") {
 		t.Fatalf("schema check = %+v", got)
@@ -762,8 +770,8 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 			for _, check := range memoryDoctorChecks(snapshot) {
 				checks[check.Name] = check
 			}
-			if got := checks["memory_schema_capabilities"]; got.State != "ok" || !strings.Contains(got.Detail, fmt.Sprintf("manifest %d", brainManifestSchemaVersion)) {
-				t.Fatalf("compiled capabilities = %+v", got)
+			if got, ok := checks["memory_schema_capabilities"]; ok {
+				t.Fatalf("compiled-capability check is back in the report: %+v", got)
 			}
 			if got := checks["memory_schemas"]; got.State != tc.wantState || (tc.wantCode != "" && !strings.Contains(got.Detail, tc.wantCode)) {
 				t.Fatalf("observed schema check = %+v, want state=%s code=%s", got, tc.wantState, tc.wantCode)

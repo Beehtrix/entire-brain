@@ -121,7 +121,7 @@ func TestInstantPhaseComponentsSeparateFailedFromMissing(t *testing.T) {
 		Semantic: &semanticSourceManifest{GeneratedAt: setupTestNow.Add(-time.Hour)},
 	}}
 
-	components := instantPhaseComponents(manifest, record)
+	components := instantPhaseComponents(manifest, record, nil)
 
 	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
 		t.Fatalf("a component that failed must not read %q", state)
@@ -140,7 +140,7 @@ func TestInstantPhaseComponentsSeparateFailedFromMissing(t *testing.T) {
 	// Self-healing: a source rebuilt AFTER the recorded failure reads built
 	// again, so a stale record can never pin a healthy brain as broken.
 	manifest.Sources.Semantic.GeneratedAt = setupTestNow.Add(time.Hour)
-	if state := statusComponentState(instantPhaseComponents(manifest, record), brainComponentSemantic); state != "built" {
+	if state := statusComponentState(instantPhaseComponents(manifest, record, nil), brainComponentSemantic); state != "built" {
 		t.Fatalf("a source rebuilt since the failure must read built, got %q", state)
 	}
 }
@@ -173,7 +173,7 @@ func TestRenderBrainOnboardingStatusLines(t *testing.T) {
 	rendered := out.String()
 	for _, want := range []string{
 		"facts: 3/12 sessions distilled (backfill running, pid 99)",
-		"daemon: running (io.entire.brain-watch); last tick 2m0s ago",
+		"daemon: running; last tick 2m0s ago",
 		"instant: sessions=built semantic=missing",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -371,5 +371,100 @@ func TestStatusDoesNotReportAReusedPidAsARunningBackfill(t *testing.T) {
 	}
 	if onboarding.Facts.Pending() != 1 {
 		t.Fatalf("the pending work is still pending and must still be reported: %+v", onboarding.Facts)
+	}
+}
+
+// TestRecordedFailureAgesOutOnceTheComponentRebuilds pins COR-2162.
+//
+// Before this, only the five manifest-backed sources had their recorded
+// failure cleared by a later rebuild; everything else was reported from the
+// setup record forever. On a real machine that left `patterns` reading
+// "failed" from 2026-10-11 over a manifest field that no longer existed in any
+// of the 35 manifests on disk, while `brain patterns status` read the
+// artifacts directly and reported "current" — two surfaces, opposite verdicts,
+// seconds apart.
+func TestRecordedFailureAgesOutOnceTheComponentRebuilds(t *testing.T) {
+	t.Parallel()
+	recordedAt := time.Date(2026, 10, 11, 22, 58, 0, 0, time.UTC)
+	record := setupInstantRecord{
+		UpdatedAt: recordedAt,
+		Components: []setupComponent{
+			{Name: brainComponentPatterns, State: "failed", Detail: "memory_state_corrupt: unknown field", Hint: "re-run setup"},
+		},
+	}
+
+	// No run time published: the failure must still be reported. Silence is
+	// not success, and this also proves the fixture really carries a failure,
+	// so the assertion below cannot pass vacuously.
+	got := statusComponentState(instantPhaseComponents(nil, record, nil), brainComponentPatterns)
+	if got != "failed" {
+		t.Fatalf("with no run time the failure must stand, got %q", got)
+	}
+
+	// A run that predates the failure does not clear it.
+	stale := map[string]time.Time{brainComponentPatterns: recordedAt.Add(-time.Hour)}
+	if got := statusComponentState(instantPhaseComponents(nil, record, stale), brainComponentPatterns); got != "failed" {
+		t.Fatalf("a run BEFORE the failure must not clear it, got %q", got)
+	}
+
+	// A run after the failure clears it, and takes the stale detail with it.
+	fresh := map[string]time.Time{brainComponentPatterns: recordedAt.Add(time.Hour)}
+	components := instantPhaseComponents(nil, record, fresh)
+	if got := statusComponentState(components, brainComponentPatterns); got != "built" {
+		t.Fatalf("a rebuild AFTER the failure must clear it, got %q", got)
+	}
+	for _, c := range components {
+		if c.Name == brainComponentPatterns && (c.Detail != "" || c.Hint != "") {
+			t.Fatalf("a cleared failure kept its stale detail/hint: %+v", c)
+		}
+	}
+
+	// Exactly at the recorded moment counts as a rebuild, matching the
+	// manifest-backed rule's `!generated.Before(record.UpdatedAt)`.
+	same := map[string]time.Time{brainComponentPatterns: recordedAt}
+	if got := statusComponentState(instantPhaseComponents(nil, record, same), brainComponentPatterns); got != "built" {
+		t.Fatalf("a run at the same instant must count as a rebuild, got %q", got)
+	}
+}
+
+// TestStatusAndDoctorAgreeOnAStaleFailure pins the bug the staleness rule was
+// written to end, at the pair of surfaces where it was reproduced.
+//
+// The first version of that fix taught `status` to clear a failure its
+// component had since rebuilt, and left doctor reading the same record raw.
+// So status printed "built" while doctor printed State:"error" with the same
+// stale detail — the identical two-surfaces-disagree bug, moved rather than
+// fixed.
+func TestStatusAndDoctorAgreeOnAStaleFailure(t *testing.T) {
+	t.Parallel()
+	recordedAt := time.Date(2026, 10, 11, 22, 58, 0, 0, time.UTC)
+	record := setupInstantRecord{
+		UpdatedAt: recordedAt,
+		Components: []setupComponent{
+			{Name: brainComponentPatterns, State: "failed", Detail: "memory_state_corrupt: unknown field", Hint: "re-run setup"},
+		},
+	}
+	rebuilt := map[string]time.Time{brainComponentPatterns: recordedAt.Add(time.Hour)}
+
+	// status: cleared.
+	if got := statusComponentState(instantPhaseComponents(nil, record, rebuilt), brainComponentPatterns); got != "built" {
+		t.Fatalf("status still reports %q after a rebuild", got)
+	}
+
+	// doctor: must reach the same verdict from the same inputs. This mirrors
+	// the filter in failedSetupComponents; if that filter is removed, the two
+	// surfaces disagree again and this fails.
+	_, failed := partitionSetupComponents(record.Components)
+	kept := pruneRebuiltFailures(failed, rebuilt, record.UpdatedAt)
+	if len(kept) != 0 {
+		t.Fatalf("doctor would still report %d stale failure(s) that status cleared: %+v", len(kept), kept)
+	}
+
+	// And with no rebuild, BOTH must still report it.
+	if got := statusComponentState(instantPhaseComponents(nil, record, nil), brainComponentPatterns); got != "failed" {
+		t.Fatalf("without a rebuild status must still report failed, got %q", got)
+	}
+	if componentRebuiltSince(nil, brainComponentPatterns, record.UpdatedAt) {
+		t.Fatal("without a rebuild doctor must still report the failure")
 	}
 }

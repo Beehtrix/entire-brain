@@ -34,18 +34,30 @@ func Sort(records []Record) {
 // records were folded away. An id is defined to identify exactly one record;
 // a store that violates that (e.g. after a writer concatenated two copies of
 // itself) is repaired losslessly by this pass.
+//
+// Lifecycle is folded one-way: when any copy says superseded or retracted,
+// the survivor does too, whatever order the file held them in. A heal must
+// never revive a fact a later write retired — retraction is a privacy
+// surface — so active never wins over non-active. Between differing
+// non-active copies the first stands; the remaining fields follow Upsert's
+// ordinary first-copy-wins policy, the same one every live writer applies.
 func DedupByID(records []Record) ([]Record, int) {
 	index := make(map[string]int, len(records))
 	out := make([]Record, 0, len(records))
 	folded := 0
 	for _, rec := range records {
-		if i, ok := index[rec.ID]; ok {
-			Upsert(out[i:i+1], rec)
-			folded++
+		i, ok := index[rec.ID]
+		if !ok {
+			index[rec.ID] = len(out)
+			out = append(out, rec)
 			continue
 		}
-		index[rec.ID] = len(out)
-		out = append(out, rec)
+		Upsert(out[i:i+1], rec)
+		if out[i].Status == StatusActive && rec.Status != StatusActive && rec.Status != "" {
+			out[i].Status = rec.Status
+			out[i].SupersededBy = rec.SupersededBy
+		}
+		folded++
 	}
 	return out, folded
 }

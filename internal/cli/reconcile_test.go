@@ -44,7 +44,7 @@ func TestParseReconcileActions(t *testing.T) {
 	}
 }
 
-func TestParseReconcileActionsDegradesToNew(t *testing.T) {
+func TestParseReconcileActionsDefersMalformed(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	candidates := []factRecord{
 		factFor(t, "c1", []string{"project.tooling.stack"}, now),
@@ -53,16 +53,15 @@ func TestParseReconcileActionsDegradesToNew(t *testing.T) {
 	}
 	existing := []factRecord{factFor(t, "e1", []string{"project.tooling.stack"}, now)}
 
-	// c1: merge with out-of-range existing -> new. c2: no line at all -> new.
-	// c3: malformed -> new. None must be lost.
+	// Invalid targets, missing decisions, and malformed output all stay staged.
 	out := "1 merge 5 0.9\n3 garbage line here"
 	actions, warnings := parseReconcileActions(out, candidates, existing)
 	if len(actions) != 3 {
 		t.Fatalf("every candidate must get an action, got %d", len(actions))
 	}
 	for i, a := range actions {
-		if a.Kind != factActionNew {
-			t.Errorf("candidate %d should degrade to new, got %s", i+1, a.Kind)
+		if a.Kind != factActionDefer {
+			t.Errorf("candidate %d should stay staged, got %s", i+1, a.Kind)
 		}
 		if a.Candidate.ID != candidates[i].ID {
 			t.Errorf("action %d bound to wrong candidate", i)
@@ -195,7 +194,7 @@ func writeSameBranchFixture(t *testing.T, now time.Time) string {
 	return brainDir
 }
 
-func TestRunDistillForBrainReconcilesMerge(t *testing.T) {
+func TestRunDistillForBrainQueuesConfidentMerge(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSameBranchFixture(t, now)
 
@@ -222,20 +221,29 @@ func TestRunDistillForBrainReconcilesMerge(t *testing.T) {
 	if reconcileCalls == 0 {
 		t.Fatalf("reconcile pass never fired despite same-path facts")
 	}
-	// Session 1 created fact A; session 2's candidate merged into A, so only one
-	// fact remains, with provenance from both sessions.
+	// Both statements and their provenance remain durable. Only the elected
+	// original publishes; the proposed merge waits for review.
 	facts, err := loadFacts(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(facts) != 1 {
-		t.Fatalf("expected merge to leave 1 fact, got %d", len(facts))
+	if len(facts) != 2 {
+		t.Fatalf("proposed merge must retain both statements, got %d", len(facts))
 	}
-	if len(facts[0].Provenance) != 2 {
-		t.Fatalf("merge should union provenance from both sessions, got %d", len(facts[0].Provenance))
+	for _, f := range facts {
+		if len(f.Provenance) != 1 {
+			t.Fatalf("each original must retain its provenance until review: %+v", f)
+		}
 	}
-	if source.Facts != 1 {
-		t.Errorf("manifest should report 1 fact, got %d", source.Facts)
+	if source.Facts != 1 || source.PendingReconcile != 1 || source.Proposals != 1 {
+		t.Fatalf("manifest must separate the published fact and pending candidate: %+v", source)
+	}
+	proposals, err := loadFactProposals(brainDir, "main")
+	if err != nil || len(proposals) != 1 || proposals[0].Action != factActionMerge {
+		t.Fatalf("confident merge proposal not persisted: %+v, %v", proposals, err)
+	}
+	if facts[indexOfFact(facts, proposals[0].CandidateID)].Status != factStatusCandidate || facts[indexOfFact(facts, proposals[0].TargetID)].Status != factStatusActive {
+		t.Fatalf("proposed merge published its candidate or retired its target: %+v", facts)
 	}
 }
 
@@ -268,10 +276,8 @@ func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
 	if len(facts) != 2 {
 		t.Fatalf("low-confidence supersede should keep both facts, got %d", len(facts))
 	}
-	for _, f := range facts {
-		if f.Status != factStatusActive {
-			t.Errorf("no memory should be superseded below threshold: %+v", f)
-		}
+	if source.Facts != 1 || source.PendingReconcile != 1 {
+		t.Fatalf("unresolved supersession must leave one published fact and one staged candidate: %+v", source)
 	}
 	if source.Proposals != 1 {
 		t.Errorf("expected 1 queued proposal, got %d", source.Proposals)
@@ -283,5 +289,8 @@ func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
 	}
 	if proposals[0].Action != factActionSupersede {
 		t.Errorf("wrong proposal action: %+v", proposals[0])
+	}
+	if facts[indexOfFact(facts, proposals[0].CandidateID)].Status != factStatusCandidate || facts[indexOfFact(facts, proposals[0].TargetID)].Status != factStatusActive {
+		t.Fatalf("unresolved supersession published its candidate or retired its target: %+v", facts)
 	}
 }

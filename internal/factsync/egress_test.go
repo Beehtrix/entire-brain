@@ -159,3 +159,22 @@ func TestSanitizeForEgressClearsClientClaimedAuthor(t *testing.T) {
 		t.Fatal("the caller's in-memory record must not be mutated")
 	}
 }
+
+func TestSanitizeForEgressOmitsCandidatesButKeepsRetirements(t *testing.T) {
+	now := time.Now().UTC()
+	var records []factmerge.Record
+	for _, status := range []string{factmerge.StatusActive, factmerge.StatusCandidate, factmerge.StatusRetracted, factmerge.StatusSuperseded} {
+		r := fact(status, []string{"workflow.testing.rules"}, status, now)
+		r.Status = status
+		records = append(records, r)
+	}
+	got := SanitizeForEgress(records)
+	if len(got) != 3 || records[1].Status != factmerge.StatusCandidate {
+		t.Fatalf("egress did not filter independently: %+v", got)
+	}
+	for _, r := range got {
+		if r.Status == factmerge.StatusCandidate {
+			t.Fatal("pending candidate uploaded")
+		}
+	}
+}

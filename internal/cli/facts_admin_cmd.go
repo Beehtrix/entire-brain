@@ -151,7 +151,7 @@ func newFactsReviewCommand(opts Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "review",
-		Short: "Resolve queued low-confidence merge/supersede proposals",
+		Short: "Resolve queued merge/supersede proposals",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -164,9 +164,9 @@ func newFactsReviewCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch to review (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "List pending proposals as JSON")
 	cmd.Flags().StringVar(&apply, "apply", "", "Apply the proposal for this candidate memory id")
-	cmd.Flags().StringVar(&reject, "reject", "", "Reject the proposal for this candidate memory id")
+	cmd.Flags().StringVar(&reject, "reject", "", "Reject the proposed merge/supersede and keep the candidate as a separate active memory")
 	cmd.Flags().BoolVar(&applyAll, "apply-all", false, "Apply every pending proposal")
-	cmd.Flags().BoolVar(&rejectAll, "reject-all", false, "Reject every pending proposal")
+	cmd.Flags().BoolVar(&rejectAll, "reject-all", false, "Reject every pending merge/supersede and keep the candidates as separate active memories")
 	return cmd
 }
 
@@ -291,8 +291,16 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 			}
 			switch {
 			case applyThis:
-				updated, applyErr := applyProposal(facts, p, now)
+				updated, applyErr := applyDistillReviewProposal(facts, p, now)
 				if applyErr != nil {
+					if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
+						// A staged target may need review first. Never drop the only
+						// way to resolve this unpublished candidate.
+						fmt.Fprintf(cmd.ErrOrStderr(), "keep pending proposal %s: %v; resolve its target first or reject to keep the candidate separately\n", p.CandidateID, applyErr)
+						keep = append(keep, p)
+						deferred++
+						continue
+					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "skip stale proposal %s: %v\n", p.CandidateID, applyErr)
 					resolved++ // drop the stale proposal
 					continue
@@ -300,16 +308,22 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 				facts = updated
 				resolved++
 			case rejectThis:
+				// Explicit rejection means keep the candidate as a separate fact.
+				if ci := indexOfFact(facts, p.CandidateID); ci >= 0 && facts[ci].Status == factStatusCandidate {
+					facts[ci].Status = factStatusActive
+					facts[ci].UpdatedAt = now
+				}
 				facts = rejectProposal(facts, p)
 				resolved++
 			default:
 				keep = append(keep, p)
 			}
 		}
+		remaining = len(keep)
 		if resolved == 0 {
 			if deferred > 0 {
-				// Everything asked for is shared; the interlock already explained
-				// where to settle it. Not an error — nothing was left unhandled.
+				// Warnings explain how to resolve these deferred proposals.
+				// Leave their records and queue intact.
 				return nil
 			}
 			return fmt.Errorf("no proposal matched")
@@ -320,25 +334,41 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err := writeFactProposals(brainDir, branch, keep); err != nil {
 			return err
 		}
-		remaining = len(keep)
 		return updateFactSourceManifestLocked(brainDir, now)
 	}); err != nil {
 		return err
 	}
 	if deferred > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining (%d shared, settle with 'memories proposals')\n", resolved, branch, remaining, deferred)
+		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining (%d deferred; see warnings)\n", resolved, branch, remaining, deferred)
 	} else {
 		fmt.Fprintf(cmd.OutOrStdout(), "resolved %d proposal(s) on %s; %d remaining\n", resolved, branch, remaining)
 	}
 	return nil
 }
 
+// Only local private review can publish a staged distill candidate. The shared
+// settlement engine still requires active records on both sides.
+func applyDistillReviewProposal(facts []factRecord, p factProposal, now time.Time) ([]factRecord, error) {
+	ci := indexOfFact(facts, p.CandidateID)
+	if ci < 0 || facts[ci].Status != factStatusCandidate {
+		return applyProposal(facts, p, now)
+	}
+	// Work on a copy so a rejected/stale apply cannot accidentally publish it.
+	ready := cloneDistillFacts(facts)
+	ready[ci].Status = factStatusActive
+	updated, err := applyProposal(ready, p, now)
+	if err != nil {
+		return facts, err
+	}
+	return updated, nil
+}
+
 func printProposalContext(cmd *cobra.Command, facts []factRecord, p factProposal) {
 	if i := indexOfFact(facts, p.CandidateID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  candidate: %s\n", truncateString(facts[i].Text, 100))
+		fmt.Fprintf(cmd.OutOrStdout(), "  candidate (%s): %s\n", facts[i].Status, facts[i].Text)
 	}
 	if i := indexOfFact(facts, p.TargetID); i >= 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "  target:    %s\n", truncateString(facts[i].Text, 100))
+		fmt.Fprintf(cmd.OutOrStdout(), "  target (%s): %s\n", facts[i].Status, facts[i].Text)
 	}
 }
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -229,7 +230,11 @@ func runFactsProposalsList(cmd *cobra.Command, opts Options, pOpts factsProposal
 		return err
 	}
 	proposals, err := target.client.ListProposals(ctx, target.repoID, target.branch)
-	if err != nil {
+	// A backend that predates the queue (404/501 on the collection) means no
+	// open proposals can exist there — an answer for `list`, not a transport
+	// failure to dump on the reader (COR-2204).
+	queueUnsupported := errors.Is(err, factsync.ErrProposalQueueUnsupported)
+	if err != nil && !queueUnsupported {
 		return err
 	}
 	if pOpts.jsonOut {
@@ -237,12 +242,17 @@ func runFactsProposalsList(cmd *cobra.Command, opts Options, pOpts factsProposal
 			proposals = []factsync.OpenProposal{}
 		}
 		return writeJSON(cmd, map[string]any{
-			"branch":    target.branch,
-			"repo_id":   target.repoID,
-			"host":      target.baseURL,
-			"open":      len(proposals),
-			"proposals": proposals,
+			"branch":          target.branch,
+			"repo_id":         target.repoID,
+			"host":            target.baseURL,
+			"open":            len(proposals),
+			"proposals":       proposals,
+			"queue_supported": !queueUnsupported,
 		})
+	}
+	if queueUnsupported {
+		fmt.Fprintf(cmd.OutOrStdout(), "no open cross-member proposals on %s (this server does not serve the proposal queue)\n", target.branch)
+		return nil
 	}
 	out := cmd.OutOrStdout()
 	if len(proposals) == 0 {

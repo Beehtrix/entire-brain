@@ -30,6 +30,12 @@ const (
 	maxHostedFeedPages = 200
 )
 
+// hostedSyncOutcome reports what one hostedFactsSyncAndPull run did.
+type hostedSyncOutcome struct {
+	Attempted     bool
+	PullSucceeded bool
+}
+
 // hostedFactsSyncAndPull closes the hosted-memory loop for one branch on the
 // per-fact wire (COR-2126): batch-upsert this machine's branch store to
 // brainstore, pull the repo-wide delta feed into the repo-level cache, and
@@ -52,12 +58,15 @@ const (
 // token is minted per call via the host CLI's own login and held only in
 // memory.
 //
-// The bool reports whether a sync was actually ATTEMPTED (gates passed, the
-// server was contacted): callers that log success must not report a gated
-// no-op as a sync that ran.
-func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (bool, error) {
+// The outcome reports what actually happened: Attempted is whether the gates
+// passed and the server was contacted (callers that log success must not
+// report a gated no-op as a sync that ran); PullSucceeded is whether the pull
+// half completed — the half that proves the exchange (the per-branch marker
+// keys off it). Callers that promise a sync to the user (connect) key their
+// report off PullSucceeded; background callers keep ignoring it.
+func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
 	if brainNoEgressMode() {
-		return false, nil
+		return hostedSyncOutcome{}, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
 	if err != nil {
@@ -66,20 +75,20 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		// survives a rewrite. Skip loudly; the remedy is an explicit
 		// `entire brain connect`.
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return false, nil
+		return hostedSyncOutcome{}, nil
 	}
 	if !present || binding.OptedOut {
-		return false, nil
+		return hostedSyncOutcome{}, nil
 	}
 	baseURL, err := apiurl.Validate(binding.BaseURL)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return false, nil
+		return hostedSyncOutcome{}, nil
 	}
 	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
-		return false, nil
+		return hostedSyncOutcome{}, nil
 	}
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
 
@@ -87,7 +96,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
 	if pullErr != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
-		return true, nil
+		return hostedSyncOutcome{Attempted: true}, nil
 	}
 	if pushed {
 		// The per-branch marker records that this branch completed a sync
@@ -104,7 +113,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	}
 	fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
 		branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
-	return true, nil
+	return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
 }
 
 // pushHostedFacts batch-upserts the branch store. Idempotent server-side, so

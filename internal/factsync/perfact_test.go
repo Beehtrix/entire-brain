@@ -30,8 +30,8 @@ func TestUpsertFactsWire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertFacts: %v", err)
 	}
-	if gotMethod != http.MethodPost || gotPath != "/api/v1/repos/r1/brain/facts:upsert" {
-		t.Fatalf("request target = %s %s, want POST /api/v1/repos/r1/brain/facts:upsert", gotMethod, gotPath)
+	if gotMethod != http.MethodPost || gotPath != "/api/v1/repos/r1/brain/facts" {
+		t.Fatalf("request target = %s %s, want POST /api/v1/repos/r1/brain/facts", gotMethod, gotPath)
 	}
 	if gotAuth != "Bearer tok" {
 		t.Fatalf("Authorization = %q", gotAuth)

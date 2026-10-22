@@ -366,11 +366,12 @@ func captureCheckFor(t *testing.T, sessionsStageRan bool) doctorCheckResult {
 // The no-egress rail above is what makes the session export REFUSE, and that
 // rail is opt-in. Everything below runs with neither ENTIRE_BRAIN_NO_EGRESS
 // nor ENTIRE_BRAIN_LOCAL_ONLY set, because that is the configuration real
-// users run and it is where the remaining half of this defect lives: Entire's
-// own routed inventory can report itself INCOMPLETE, and then a repository
-// with nothing captured still fails its sessions component -- honestly, since
-// nothing can prove the inventory empty -- and still got sent to a command
-// whose first stage is that same export.
+// users run. Entire's own routed inventory can report itself INCOMPLETE, and a
+// repository with nothing captured used to fail its sessions component on that
+// -- and got sent to a command whose first stage is that same export. Both
+// modes now agree that zero readable checkpoints is the ordinary empty case
+// (COR-2203); the hint machinery below it stays, because brains set up by
+// older binaries still carry the recorded failure.
 
 // routedScopeIncompleteStderr is the stable stderr record Entire emits when it
 // could not enumerate every checkpoint store.
@@ -405,11 +406,14 @@ func TestEgressAllowedEmptyCatalogStillAsksEntire(t *testing.T) {
 	}
 }
 
-// TestEgressAllowedNoSessionsIsNotSentBackToRefresh is the loop, in the only
-// configuration a real user can reach it: Entire reports an incomplete scope
-// and no readable IDs, so the component fails honestly -- and the reader must
-// still be handed a step that is not the command that just failed.
-func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
+// TestEgressAllowedIncompleteEmptyInventoryIsNotAFailure pins the COR-2203
+// agreement: Entire reports an incomplete scope and zero readable IDs -- the
+// state every repository is in between `entire enable` and its first finished
+// session whenever the store cannot vouch for its own completeness. The
+// no-egress rail already treats that as an ordinary empty export, so the
+// egress-allowed path must too, instead of failing the sessions component and
+// sending the reader to a remedy whose first stage is that same export.
+func TestEgressAllowedIncompleteEmptyInventoryIsNotAFailure(t *testing.T) {
 	assertNoEgressRailsUnset(t)
 	f, runner := newSetupRefreshFixture(t)
 	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{
@@ -424,32 +428,22 @@ func TestEgressAllowedNoSessionsIsNotSentBackToRefresh(t *testing.T) {
 	setupOpts.noDaemon = true
 	out := &bytes.Buffer{}
 	if err := runSetup(context.Background(), setupTestCommand(t, out, setupOpts), f.opts, setupOpts, f.repoDir, steps); err != nil {
-		t.Fatalf("one failed component must not fail setup: %v\n%s", err, out)
+		t.Fatalf("runSetup: %v\n%s", err, out)
 	}
-	if !strings.Contains(out.String(), "no captured sessions") {
-		t.Fatalf("setup must explain the state rather than only report it:\n%s", out)
+	if strings.Contains(out.String(), "session export failed") {
+		t.Fatalf("an incomplete, empty inventory is not a failed sessions component:\n%s", out)
 	}
-	// Fault 2, setup's half: the hint's own remedy is `setup`, so adding a
-	// referral to `doctor` would close the circle.
-	if strings.Contains(out.String(), "run 'entire-brain doctor' for detail") {
-		t.Fatalf("setup refers to doctor, whose answer for this component refers back to setup:\n%s", out)
-	}
-
-	// Fault 2, status's half: read the verdict the same surface builds.
-	report := brainStatusReport{
+	health := buildStatusHealth(brainStatusReport{
 		Semantic:   &brainStatusSemantic{},
 		Onboarding: &brainStatusOnboarding{Components: instantPhaseComponents(nil, readSetupInstantRecord(filepath.Dir(f.storage.HeadPath)), nil)},
+	})
+	for _, failed := range health.Failed {
+		if failed == brainComponentSessions {
+			t.Fatalf("sessions reported as failed on an incomplete, empty inventory: %v", health.Failed)
+		}
 	}
-	health := buildStatusHealth(report)
-	if !health.NoCapturedSessions {
-		t.Fatalf("status did not recognise the state setup just recorded: %+v", health.Failed)
-	}
-	health.Severity = "degraded"
-	if got := health.nextStepMessage(setupBrainBinaryName); got != setupNoSessionsHint(setupBrainBinaryName) {
-		t.Fatalf("egress-allowed next step is\n  %s\nwant the no-sessions guidance", got)
-	}
-	if namesACommandThatRerunsTheSessionExport(health.nextStepMessage(setupBrainBinaryName)) {
-		t.Fatal("egress-allowed next step still re-runs the stage that failed")
+	if health.NoCapturedSessions {
+		t.Fatal("an incomplete, empty inventory succeeds; nothing failed for the no-sessions hint to explain")
 	}
 }
 

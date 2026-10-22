@@ -460,8 +460,8 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 }
 
 // collectFactArtifacts reads facts/<slug>/facts.ndjson, recovering each stream's
-// logical branch from the records (the on-disk slug is lossy), and registers a
-// FactsRef on art. Streams are keyed by branch and emitted in branch order.
+// logical branch (resolveFactStreamBranch), and registers a FactsRef on art.
+// Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -496,7 +496,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		if !ok {
 			continue
 		}
-		branch, err := firstFactBranch(data)
+		branch, err := resolveFactStreamBranch(dir, data)
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
@@ -770,24 +770,49 @@ func subdirNames(entries []os.DirEntry) []string {
 	return names
 }
 
-// firstFactBranch validates the entire stream before choosing its branch. Empty
-// streams are optional; malformed records and mixed branch coordinates are not.
-func firstFactBranch(data []byte) (string, error) {
+// resolveFactStreamBranch validates a stream and recovers the branch that owns
+// it. Records from other branches are expected content, not corruption: the
+// hosted pull rebuilds a branch store from the repo-wide feed
+// (pullHostedFacts), so after a sync on a feature branch the store also
+// carries teammates' main facts. The owner is therefore not "the records'
+// branch" but the branch that re-derives the directory name
+// (factsBranchRelDir is deterministic: slug plus a hash of the full name).
+// Candidates are every branch the records name, plus the directory's own slug
+// for a store holding only pulled foreign records. A directory no candidate
+// re-derives is refused — publishing it under a guessed branch would corrupt
+// the artifact coordinate. (Residual gap: a store of only foreign records for
+// a branch whose name sanitizes lossily, e.g. "evis/x"; such a stream fails
+// publish until the branch distills or records a fact of its own.)
+func resolveFactStreamBranch(dir string, data []byte) (string, error) {
 	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
 	if err != nil {
 		return "", fmt.Errorf("invalid fact stream: %w", err)
 	}
-	branch := ""
+	seen := make(map[string]struct{})
+	var candidates []string
 	for i, record := range records {
-		if strings.TrimSpace(record.Branch) == "" {
+		branch := strings.TrimSpace(record.Branch)
+		if branch == "" {
 			return "", fmt.Errorf("fact record %d has no branch", i+1)
 		}
-		if i > 0 && record.Branch != branch {
-			return "", fmt.Errorf("fact stream contains multiple branches")
+		if _, dup := seen[branch]; !dup {
+			seen[branch] = struct{}{}
+			candidates = append(candidates, branch)
 		}
-		branch = record.Branch
 	}
-	return branch, nil
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	recordBranches := strings.Join(candidates, ", ")
+	if i := len(dir) - len("-01234567"); i > 0 {
+		candidates = append(candidates, dir[:i])
+	}
+	for _, candidate := range candidates {
+		if filepath.Base(factsBranchRelDir(candidate)) == dir {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("directory name matches no branch named by its records (%s); refusing to publish the stream under a guessed branch", recordBranches)
 }
 
 // overlayBranchName reads the advisory "branch" field from an overlay payload.

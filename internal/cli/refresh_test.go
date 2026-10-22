@@ -489,6 +489,7 @@ func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
 }
 
 func TestRefreshSemanticWorktreeAliasIsSeparateFromSeedWorktree(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // CI need not have the Entire host installed.
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)

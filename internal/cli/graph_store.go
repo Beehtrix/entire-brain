@@ -280,7 +280,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 }
 
 func removeLegacyGraphArtifacts(brainDir string) error {
-	for _, rel := range []string{"semantic/generations", "semantic/snapshots", "semantic/overlays"} {
+	for _, rel := range []string{"semantic/generations", "semantic/snapshots"} {
 		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return err
 		}

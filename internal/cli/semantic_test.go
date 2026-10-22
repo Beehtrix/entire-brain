@@ -207,6 +207,18 @@ func TestSemanticRefreshAllBranchesWritesBoundedReport(t *testing.T) {
 	if strings.Contains(string(overlayData), "snapshot_path") {
 		t.Fatalf("non-current branch overlay should not reuse current snapshot:\n%s", overlayData)
 	}
+	// Branch overlays are Brain metadata, and must survive later Graph indexes.
+	for _, force := range []bool{false, true} {
+		if err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{force: force}, repoDir); err != nil {
+			t.Fatal(err)
+		}
+		for path, want := range map[string][]byte{reportPath: data, filepath.Join(filepath.Dir(reportPath), "base111..recent111.json"): overlayData} {
+			got, err := os.ReadFile(path)
+			if err != nil || string(got) != string(want) {
+				t.Fatalf("index changed branch metadata %s: %v", path, err)
+			}
+		}
+	}
 }
 
 func TestSemanticIndexFailsBeforeSnapshotWhenProviderRequiresNetwork(t *testing.T) {

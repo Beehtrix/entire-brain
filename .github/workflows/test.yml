@@ -595,7 +595,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: entireio/entire-graph
-          ref: 91f9a05ad02aa779b858e9f641e5a8fa2ecf7103
+          ref: 9d031e164f8962c01ec425b505c4f0c8020cc50c # Graph PR #361: read-only store contract
           path: .integration-graph
           persist-credentials: false
       - name: Build the real preparation components

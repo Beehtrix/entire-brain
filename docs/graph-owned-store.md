@@ -23,8 +23,9 @@ explicit inspection failure; briefs continue with their other sources.
 Runtime observations live in `semantic/traces/observations.json`, written
 atomically under Brain's writer lock. They are joined through a connection-local
 TEMP table when needed. Refresh extracts observations from the active legacy
-SQLite generation before removing `semantic/generations`, `semantic/snapshots`
-and `semantic/overlays`. An unreadable legacy store blocks deletion so unknown
+SQLite generation before removing `semantic/generations` and `semantic/snapshots`.
+Branch reports in `semantic/overlays` remain Brain-owned metadata and survive
+Graph index refreshes. An unreadable legacy store blocks deletion so unknown
 observations cannot be silently lost. Old bundles are validated for migration;
 new bundles include observations and Brain layers without any code store.
 

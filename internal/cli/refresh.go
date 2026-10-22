@@ -121,6 +121,9 @@ func defaultRefreshCommandOptions() refreshCommandOptions {
 }
 
 func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOpts refreshCommandOptions) error {
+	if refreshOpts.semanticWorktree {
+		return errors.New("Graph store indexes committed HEAD; use graph queries for working-tree inspection")
+	}
 	if refreshOpts.allBranches && !refreshOpts.semantic {
 		return errors.New("--all-branches requires --semantic")
 	}
@@ -480,7 +483,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			// The internal pattern corpus is a rebuildable cache; a corpus failure must
 			// not break the rest of the brain, so it is a warning here (the explicit
 			// `patterns refresh` is the stricter surface that fails on corpus errors).
-			if cerr := buildPatternCorpus(brainDir, opts.Now().UTC()); cerr != nil {
+			if cerr := buildPatternCorpus(brainDir, opts.Now().UTC(), patternCorpusGraphContext{Context: ctx, Options: opts, RepoDir: repoDir, Binary: refreshOpts.graphBinary}); cerr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: pattern corpus: %v\n", cerr)
 			}
 			finishPatterns(nil)
@@ -730,7 +733,7 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	if worktree {
 		return false, "", errors.New("Graph store indexes committed HEAD; use graph queries for working-tree inspection")
 	}
-	_, err := fetchGraphStore(ctx, opts, repoDir, graphBinary, graphStoreProfile(manifest))
+	descriptor, err := fetchGraphStore(ctx, opts, repoDir, graphBinary, graphStoreProfile(manifest))
 	if ctx.Err() != nil {
 		return false, "", ctx.Err()
 	}
@@ -738,6 +741,12 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 		return true, "", nil
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
+		return true, "", nil
+	}
+	source := manifest.Sources.Semantic
+	// Ownership is published before migration completes. A stub or stale
+	// inventory must be repaired even when Graph already has the code store.
+	if source.GraphRepoRoot != repoDir || source.GeneratedAt.IsZero() || source.Commit != descriptor.Commit || source.Tree != descriptor.Tree || source.Files != descriptor.Files || source.Symbols != descriptor.Symbols || source.Relations != descriptor.Relations || source.Externals != descriptor.Externals {
 		return true, "", nil
 	}
 	return false, "", nil

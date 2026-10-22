@@ -283,3 +283,39 @@ func TestLegacyGraphMigrationRefusesToLoseUnreadableTraces(t *testing.T) {
 		t.Fatalf("deleted legacy store: %v", err)
 	}
 }
+
+func TestGraphOwnedMigrationRetriesAfterIndexFailure(t *testing.T) {
+	opts, repo, brain, _ := newGraphStoreFixture(t)
+	if err := writeBrainSemanticSource(brain, "gh/example/repo", &semanticSourceManifest{Profile: "full"}); err != nil {
+		t.Fatal(err)
+	}
+	runner := opts.Runner.(*fakeCommandRunner)
+	key := fakeCommandKey("entire", "graph", "index", "--repo", repo, "--head", "--profile", "full", "--format", "json")
+	runner.responses[key] = fakeCommandResponse{err: os.ErrPermission}
+	if err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{}, repo); err == nil {
+		t.Fatal("expected interrupted migration")
+	}
+	manifest, err := loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources.Semantic.StoreOwner != "graph" {
+		t.Fatal("migration did not reach ownership publication")
+	}
+	needed, _, err := semanticRefreshNeeded(context.Background(), opts, brain, repo, manifest, false, "")
+	if err != nil || !needed {
+		t.Fatalf("interrupted migration must retry: needed=%v err=%v", needed, err)
+	}
+	runner.responses[key] = fakeCommandResponse{stdout: `{}`}
+	if err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{}, repo); err != nil {
+		t.Fatal(err)
+	}
+	manifest, err = loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	needed, _, err = semanticRefreshNeeded(context.Background(), opts, brain, repo, manifest, false, "")
+	if err != nil || needed {
+		t.Fatalf("completed migration should be reusable: needed=%v err=%v", needed, err)
+	}
+}

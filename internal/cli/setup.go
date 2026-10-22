@@ -1408,6 +1408,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
 		Sessions: queued,
+		Total:    report.Facts.Pending(),
 		Agent:    agent,
 		Model:    strings.TrimSpace(setupOpts.model),
 		Effort:   strings.TrimSpace(setupOpts.effort),
@@ -1419,6 +1420,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	if !outcome.Spend {
 		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
 	}
+	// What THIS run will actually distill, for the summary line. Without it the
+	// short form said "Distilling 272 sessions" about a budget of 2.
+	report.Facts.Queued = queued
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
@@ -1868,15 +1872,13 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			// setup resolves the agent once and embeds it in the daemon plan,
-			// so this is the single place a user is told which agent their
-			// repository's content will be sent to — announce it. Silent under
-			// --json, as every other human line in setup already is.
-			var announce io.Writer
-			if !setupOpts.json {
-				announce = cmd.ErrOrStderr()
-			}
-			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
+			// No standalone announcement here: the agent is disclosed at the
+			// moments it matters instead. The consent block names agent, model
+			// and effort before a human answers, and the --yes path prints the
+			// spend label before the detached child starts. A preamble before
+			// any of that was the first line every reader saw, about a spend
+			// that had not been agreed to yet (and often never happened).
+			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
 		}
 	}
 	if steps.spawnBackfill == nil {

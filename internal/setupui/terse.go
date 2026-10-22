@@ -95,7 +95,13 @@ type TerseReport struct {
 
 	Sessions  int
 	Distilled int
-	Distill   DistillOutcome
+	// Queued is how many sessions the just-started backfill will actually
+	// distill (the pending pool capped by the spend budget). Zero means
+	// uncapped or unknown; when it is smaller than Sessions the distill line
+	// says both, because "Distilling 272 sessions" about a budget of 2 is a
+	// false promise.
+	Queued  int
+	Distill DistillOutcome
 	// DistillReason explains a DistillFailed outcome in one clause.
 	DistillReason string
 
@@ -117,7 +123,7 @@ type TerseReport struct {
 	// reading it.
 	UpToDate bool
 
-	// BrainCmd is the command name to put in the "try this" line.
+	// BrainCmd is the command name the remedy and watch hints print.
 	BrainCmd string
 
 	// OfferConnect asks for one closing line about team sync.
@@ -142,8 +148,7 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	fmt.Fprintln(w)
 
 	if rep.UpToDate {
-		fmt.Fprintf(w, "  %s %s\n\n", ok, rep.upToDateLine())
-		fmt.Fprintln(w, "Ready.")
+		fmt.Fprintf(w, "  %s %s\n", ok, rep.upToDateLine())
 		return
 	}
 
@@ -193,15 +198,20 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 		fmt.Fprintf(w, "  %s %s\n", r.MarkGlyph(mark), line)
 	}
 
-	fmt.Fprintln(w)
-	if rep.Queryable {
-		fmt.Fprintf(w, "Ready. Try: %s brief \"<your task>\"\n", brainCmd)
-		if rep.OfferConnect {
-			fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
-		}
-		return
+	// A queryable brain ends on its status lines: the summary IS the output,
+	// and the old "Ready. Try: ... brief" hint was one more thing to read
+	// after the answer. The two exceptions each carry something the status
+	// lines do not: the connect offer is the one place hosted sync gets
+	// discovered on an unbound repo, and a failed build has to point at
+	// doctor.
+	switch {
+	case rep.Queryable && rep.OfferConnect:
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
+	case !rep.Queryable:
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)
 	}
-	fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)
 }
 
 func (rep TerseReport) upToDateLine() string {
@@ -226,8 +236,12 @@ func (rep TerseReport) distillLine(brainCmd string) (string, tui.Mark) {
 	case DistillNoSessions:
 		return "No past sessions to distill — memories accrue as you work", tui.MarkDone
 	case DistillStarted:
+		count := plural(rep.Sessions, "session")
+		if rep.Queued > 0 && rep.Queued < rep.Sessions {
+			count = fmt.Sprintf("%d of %d sessions", rep.Queued, rep.Sessions)
+		}
 		return fmt.Sprintf("Distilling %s in the background (watch: %s status)",
-			plural(rep.Sessions, "session"), brainCmd), tui.MarkDone
+			count, brainCmd), tui.MarkDone
 	case DistillDeclined:
 		return fmt.Sprintf("Distillation skipped — run `%s setup` again anytime", brainCmd), tui.MarkSkipped
 	case DistillSkippedFlag:

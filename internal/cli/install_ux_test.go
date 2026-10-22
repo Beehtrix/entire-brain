@@ -612,8 +612,12 @@ func TestDistillJSONStaysSilentAboutTheAgent(t *testing.T) {
 // TestSetupDetectAgentAnnouncesExceptUnderJSON covers the third call site, and
 // the one that matters most: setup resolves the agent ONCE and embeds it in the
 // daemon plan the watcher then runs forever, so this is the moment a user is
-// told which vendor's agent will be reading their repository from now on.
-func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
+// which vendor's agent will read their repository — but at the moment of
+// consent, not as a preamble. Setup's detectAgent must stay SILENT in every
+// mode: the consent block names agent/model/effort before a human answers,
+// and the --yes path prints the spend label before the child starts. A line
+// printed at detect time described a spend that had not been agreed to yet.
+func TestSetupDetectAgentStaysSilent(t *testing.T) {
 	clearAgentHarnessEnv(t)
 	for _, jsonMode := range []bool{false, true} {
 		repoDir := t.TempDir()
@@ -626,24 +630,8 @@ func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
 		if agent := steps.detectAgent(context.Background()); agent != "codex" {
 			t.Fatalf("json=%v: setup detected agent = %q, want codex", jsonMode, agent)
 		}
-		announced := strings.Contains(stderr.String(), "auto-selected codex")
-		if jsonMode {
-			// The model is checked FIRST so this guard can be shown failing on
-			// its own: the agent guard below would otherwise always fire first
-			// and the model half would never be observed red.
-			if strings.Contains(stderr.String(), "opus") {
-				t.Fatalf("json: setup announced the model while a machine reader was parsing: %q", stderr.String())
-			}
-			if announced {
-				t.Fatalf("json: setup announced the agent while a machine reader was parsing: %q", stderr.String())
-			}
-			continue
-		}
-		if !announced {
-			t.Fatalf("human: setup chose an agent without saying which, so the json case above proves nothing: %q", stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "model opus") {
-			t.Fatalf("human: setup named the agent but not the model, which is the half of the report still unanswered: %q", stderr.String())
+		if stderr.Len() != 0 {
+			t.Fatalf("json=%v: detectAgent wrote a preamble; disclosure belongs to the consent gate: %q", jsonMode, stderr.String())
 		}
 	}
 }

@@ -28,8 +28,8 @@ func TestSetupDefaultIsTheShortForm(t *testing.T) {
 	if !strings.Contains(out, "Brain turns this repo's history") {
 		t.Fatalf("the short form opens by saying what Brain is for:\n%s", out)
 	}
-	if !strings.Contains(out, "Ready. Try:") {
-		t.Fatalf("the short form ends with what to type:\n%s", out)
+	if strings.Contains(out, "Ready. Try:") {
+		t.Fatalf("the summary IS the output; no trailing hint after the status lines:\n%s", out)
 	}
 	// The phase view's vocabulary must be absent, or this is not the short form.
 	for _, leaked := range []string{"Detect", "instant core", "FAILED", "Workspace"} {

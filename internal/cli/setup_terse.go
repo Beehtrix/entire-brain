@@ -42,6 +42,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 		Queryable: queryable,
 		Sessions:  report.Facts.Sessions,
 		Distilled: report.Facts.Distilled,
+		Queued:    report.Facts.Queued,
 		BrainCmd:  setupBrainCommand(brainCmd),
 	}
 	if timings != nil {

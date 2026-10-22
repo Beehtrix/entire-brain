@@ -37,6 +37,8 @@ const (
 // explicitly rather than sniffing a file descriptor, so every path through
 // this function is reachable from a unit test.
 type ConsentRequest struct {
+	// Compact uses the short setup prompt instead of the verbose phase block.
+	Compact bool
 	// Sessions is how many sessions THIS run would distill: the pending pool
 	// capped by the spend budget. The cost estimate is derived from it.
 	Sessions int
@@ -152,9 +154,9 @@ func Consent(req ConsentRequest, in io.Reader, out io.Writer, r *Renderer) Conse
 		return ConsentOutcome{Reason: "not distilled: no terminal to ask, and silence is not consent; run " + resume + " or pass --yes", Why: ConsentReasonNoTTY}
 	}
 
-	writePrompt(out, r, req)
-	answer, prompted, promptLines := askTwice(in, out, r)
-	erasePrompt(out, promptLineCount+promptLines)
+	blockLines := writePrompt(out, r, req)
+	answer, prompted, promptLines := askTwice(in, out, r, req.Compact)
+	erasePrompt(out, blockLines+promptLines)
 	if answer {
 		return ConsentOutcome{Spend: true, Reason: "distilling " + plural(req.Sessions, "session") + ", newest first", Why: ConsentReasonAccepted, Prompted: prompted}
 	}
@@ -164,9 +166,9 @@ func Consent(req ConsentRequest, in io.Reader, out io.Writer, r *Renderer) Conse
 // writePrompt paints the block the operator is answering. It uses the same
 // gutter as every phase line, with the glyph column left blank: a question is
 // not an outcome and must not wear an outcome's tick.
-func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) {
+func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 	if out == nil {
-		return
+		return 0
 	}
 	bullet := " " + r.Bullet() + " "
 	agent := "Agent: " + req.Agent
@@ -175,6 +177,24 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) {
 	}
 	if req.Effort != "" {
 		agent += bullet + "effort: " + req.Effort
+	}
+	if req.Compact {
+		pool := max(req.Total, req.Sessions)
+		verb := "remain"
+		if pool == 1 {
+			verb = "remains"
+		}
+		count := 0
+		for _, text := range []string{
+			fmt.Sprintf("%s %s. Distill up to %d now?", plural(pool, "session"), verb, req.Sessions),
+			agent + bullet + "uses agent tokens",
+		} {
+			for _, line := range r.Wrap(text) {
+				fmt.Fprintf(out, "  %s\n", line)
+				count++
+			}
+		}
+		return count
 	}
 	pool := plural(req.Sessions, "session")
 	estimate := "Estimated: ~" + plural(req.Sessions, "agent call") + ", newest first, resumable."
@@ -192,11 +212,8 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) {
 	for _, line := range lines {
 		fmt.Fprintln(out, r.Line(line))
 	}
+	return len(lines)
 }
-
-// promptLineCount is how many lines writePrompt paints, for the erase that
-// follows the answer.
-const promptLineCount = 4
 
 // erasePrompt clears the consent block once it is answered. The question must
 // be ASKED — it gates token spend — but it does not have to be KEPT: after the
@@ -218,15 +235,21 @@ const question = "Distill now? [y/N]"
 // askTwice reads an answer, re-asking ONCE on something unrecognisable and
 // defaulting to No after that. Two chances is the whole budget: a loop here is
 // a different way of blocking a pipeline.
-func askTwice(in io.Reader, out io.Writer, r *Renderer) (answer, prompted bool, lines int) {
+func askTwice(in io.Reader, out io.Writer, r *Renderer, compact bool) (answer, prompted bool, lines int) {
 	if in == nil {
 		return false, false, 0
 	}
 	reader := bufio.NewReader(in)
+	promptLine := func(text string) string {
+		if compact {
+			return "  " + text
+		}
+		return r.Line(Line{Text: text, Accent: PhaseFacts.Accent()})
+	}
 	for attempt := 0; attempt < 2; attempt++ {
 		// Printed with a trailing space Line would have trimmed: the cursor has to
 		// sit clear of the "]" or the answer reads as part of the question.
-		fmt.Fprint(out, r.Line(Line{Text: question, Accent: PhaseFacts.Accent()})+" ")
+		fmt.Fprint(out, promptLine(question)+" ")
 		// The operator's Enter (or the explicit newline on EOF) completes the
 		// prompt line, so each attempt occupies exactly one line for the erase.
 		lines++
@@ -245,7 +268,7 @@ func askTwice(in io.Reader, out io.Writer, r *Renderer) (answer, prompted bool, 
 			return false, true, lines
 		}
 		if attempt == 0 {
-			fmt.Fprintln(out, r.Line(Line{Text: "Please answer y or n.", Accent: PhaseFacts.Accent()}))
+			fmt.Fprintln(out, promptLine("Please answer y or n."))
 			lines++
 		}
 		if err != nil {

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
@@ -41,6 +42,9 @@ func TestSetupShortOutputArrivesAsEachPhaseCompletes(t *testing.T) {
 	watcher := "Watcher already running"
 	detect := steps.detectAgent
 	steps.detectAgent = func(ctx context.Context) string {
+		if !strings.HasPrefix(out.String(), "\nBrain turns") {
+			t.Errorf("introduction must start after a blank line: %q", out.String())
+		}
 		assertOutput([]string{intro}, []string{built, distill, watcher})
 		return detect(ctx)
 	}
@@ -66,6 +70,76 @@ func TestSetupShortOutputArrivesAsEachPhaseCompletes(t *testing.T) {
 		t.Fatalf("expected backfill and watcher phases: %+v", rec)
 	}
 	assertOutput([]string{intro, built, distill, watcher}, nil)
+	if !strings.HasSuffix(out.String(), "\n\n") {
+		t.Errorf("setup must leave a blank line before the shell prompt: %q", out.String())
+	}
+}
+
+func TestSetupShortTaskShowsWorkWithoutVerbosePhaseBar(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	progress := newTestProgress(t, &out, ttyCaps())
+	sink := newSetupSink(progress, true)
+	sink.StartTask("Building Brain…")
+	defer sink.Suspend()
+	// Nested refresh can report a substep while holding the terminal lock.
+	updated := make(chan struct{})
+	go func() {
+		progress.live.emitAround(func() { sink.BuildStep("semantic index: parsing sources") })
+		close(updated)
+	}()
+	select {
+	case <-updated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("updating the short task deadlocked the terminal")
+	}
+	line := stripANSI(sink.task.liveLine())
+	if !strings.HasPrefix(line, "  ") || !strings.Contains(line, "Building Brain — indexing code… (") {
+		t.Fatalf("expected an indented active task with elapsed time: %q", line)
+	}
+	if strings.ContainsAny(line, "█░") || strings.Contains(line, "Build     ") {
+		t.Fatalf("verbose phase bar leaked into short mode: %q", line)
+	}
+	sink.Suspend()
+	if got := visibleLines(out.String()); len(got) != 0 {
+		t.Fatalf("active task must disappear rather than become a permanent row: %q", got)
+	}
+}
+
+func TestSetupShortBuildStepLabels(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"export sessions":                     "reading past AI sessions",
+		"seed baseline: inventory":            "scanning repository files",
+		"history index: 2/3 sessions scanned": "indexing session history",
+		"doc index":                           "indexing documentation",
+		"semantic index: parsing sources":     "indexing code",
+		"reclassify facts":                    "organizing existing memories",
+		"pattern layer":                       "finding patterns in past sessions",
+		"entity index":                        "indexing code changes",
+		"memory coordinator":                  "updating memory state",
+		"semantic index: current skipped":     "",
+		"doc index: 10 chunks done":           "",
+		"warning: semantic index failed":      "",
+		"refreshed brain: /tmp/brain":         "",
+	} {
+		if got := setupShortBuildLabel(input); got != want {
+			t.Errorf("%q: got %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestSetupShortWarningSurvivesTransientTask(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	sink := newSetupSink(newTestProgress(t, &out, ttyCaps()), true)
+	sink.StartTask("Saving setup…")
+	sink.ShortWarning("Setup settings could not be saved: permission denied", "entire brain")
+	sink.Suspend()
+	lines := visibleLines(out.String())
+	if len(lines) != 1 || !strings.Contains(lines[0], "permission denied") || !strings.Contains(lines[0], "entire brain setup --verbose") {
+		t.Fatalf("failed transient phase must leave its reason and remedy: %q", lines)
+	}
 }
 
 func TestSetupShortOutputReportsBuildFailureWithoutLaterResults(t *testing.T) {

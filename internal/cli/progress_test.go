@@ -289,6 +289,25 @@ func TestProgressTTYTruncatesToWidth(t *testing.T) {
 	}
 }
 
+func TestProgressTimedLineIncludesElapsedTimeWithinWidth(t *testing.T) {
+	t.Parallel()
+	for _, width := range []int{40, 120} {
+		var out bytes.Buffer
+		caps := ttyCaps()
+		caps.Width = width
+		p := newTestProgress(t, &out, caps)
+		task := p.beginPhase("Building Brain — indexing code…", tui.PhaseInstant, time.Now().Add(-12*time.Second))
+		line := stripANSI(task.liveLine())
+		task.Abandon()
+		if runewidth.StringWidth(line) >= width {
+			t.Fatalf("timed line would wrap at width %d: %q", width, line)
+		}
+		if width == 120 && !strings.HasSuffix(line, "(12s)") {
+			t.Fatalf("elapsed time missing: %q", line)
+		}
+	}
+}
+
 func TestProgressGaugeBudgetIncludesJoinSpaces(t *testing.T) {
 	t.Parallel()
 	for width := 46; width <= 80; width++ {

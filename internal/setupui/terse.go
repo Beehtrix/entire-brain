@@ -149,9 +149,8 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	ok := r.MarkGlyph(tui.MarkDone)
 	skip := r.MarkGlyph(tui.MarkSkipped)
 
-	fmt.Fprintln(w)
-
 	if rep.UpToDate {
+		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  %s %s\n", ok, rep.upToDateLine())
 		return
 	}
@@ -160,6 +159,7 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	// have measured the rest never ran. Say the one true thing and the one
 	// action, and claim nothing else.
 	if rep.NoCommitsYet {
+		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  %s %s\n\n", skip, "Nothing to index yet — this repository has no commits")
 		fmt.Fprintf(w, "Make a commit, then: %s setup\n", brainCmd)
 		return
@@ -174,6 +174,7 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 
 // RenderTerseIntro introduces Brain before setup begins its work.
 func RenderTerseIntro(w io.Writer, r *Renderer) {
+	fmt.Fprintln(w)
 	for _, line := range r.Wrap("Brain turns this repo's history and past AI sessions into memories your agents recall while they work.") {
 		fmt.Fprintln(w, line)
 	}

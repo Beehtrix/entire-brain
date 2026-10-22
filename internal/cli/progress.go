@@ -192,6 +192,9 @@ type refreshProgressTask struct {
 	mu       sync.Mutex
 	label    string
 	phase    tui.Phase
+	// startedAt enables the short setup line's elapsed time and two-space gutter.
+	// Other progress reporters leave it zero and keep their existing layout.
+	startedAt time.Time
 	// done/total drive the determinate bar. total <= 0 means indeterminate and
 	// renders as a spinner with no bar, which is honest: a bar that cannot say
 	// how full it is must not imply a fraction.
@@ -267,6 +270,14 @@ func (p *refreshProgress) Begin(label string) *refreshProgressTask {
 
 // BeginPhase starts a task rendered in a phase's colour.
 func (p *refreshProgress) BeginPhase(label string, phase tui.Phase) *refreshProgressTask {
+	return p.beginPhase(label, phase, time.Time{})
+}
+
+func (p *refreshProgress) beginTimedPhase(label string, phase tui.Phase) *refreshProgressTask {
+	return p.beginPhase(label, phase, time.Now())
+}
+
+func (p *refreshProgress) beginPhase(label string, phase tui.Phase, startedAt time.Time) *refreshProgressTask {
 	if p == nil || p.out == nil {
 		return &refreshProgressTask{}
 	}
@@ -274,6 +285,7 @@ func (p *refreshProgress) BeginPhase(label string, phase tui.Phase) *refreshProg
 		progress:     p,
 		label:        label,
 		phase:        phase,
+		startedAt:    startedAt,
 		plainPending: label,
 		plainHasPend: true,
 		plainKey:     progressStatusKey(label),
@@ -587,7 +599,13 @@ func (t *refreshProgressTask) liveLine() string {
 	label, phase, tick := t.label, t.phase, t.tick
 	done, total := t.done, t.total
 	marks := append([]tui.Mark(nil), t.marks...)
+	startedAt := t.startedAt
 	t.mu.Unlock()
+	indent := ""
+	if !startedAt.IsZero() {
+		indent = "  "
+		label += " (" + time.Since(startedAt).Truncate(time.Second).String() + ")"
+	}
 
 	render := t.progress.render
 	spinner := render.Spinner(tick)
@@ -611,7 +629,7 @@ func (t *refreshProgressTask) liveLine() string {
 	// RUNES, not bytes: a braille spinner frame is three bytes and one cell, and
 	// charging it three would shrink the label for no reason.
 	width := render.Width()
-	used := utf8.RuneCountInString(spinner)
+	used := len(indent) + utf8.RuneCountInString(spinner)
 	partCount := 2 // spinner + label
 	if gaugePlain != "" {
 		used += utf8.RuneCountInString(gaugePlain)
@@ -625,7 +643,7 @@ func (t *refreshProgressTask) liveLine() string {
 	// which is the failure mode this whole line-budget exists to prevent.
 	if width > 0 && gaugePlain != "" && used+liveMinLabelWidth > width-1 {
 		gauge, gaugePlain = "", ""
-		used = utf8.RuneCountInString(spinner) + 1 // spinner + join space + label
+		used = len(indent) + utf8.RuneCountInString(spinner) + 1 // spinner + join space + label
 	}
 	limit := utf8.RuneCountInString(label)
 	if width > 0 {
@@ -639,7 +657,7 @@ func (t *refreshProgressTask) liveLine() string {
 		parts = append(parts, gauge)
 	}
 	parts = append(parts, render.PhasePaint(phase, render.TruncateTo(label, limit)))
-	return strings.Join(parts, " ")
+	return indent + strings.Join(parts, " ")
 }
 
 // progressStatusKey folds a label down to its PHASE, discarding the counters

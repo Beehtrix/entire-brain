@@ -784,6 +784,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
 	if shortOutput {
 		setupui.RenderTerseIntro(cmd.OutOrStdout(), rend)
+		ui.StartTask("Checking repository…")
+		defer func() {
+			ui.Suspend()
+			fmt.Fprintln(cmd.OutOrStdout())
+		}()
 	}
 
 	configuredAgent := setupOpts.agent
@@ -871,6 +876,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// another CLI's repo key is a worse outcome, by far, than a brain with four
 	// sources instead of five.
 	buildPhase := run.Begin(setupui.PhaseBuild)
+	ui.StartTask("Building Brain…")
 	// The nine components feed ONE line. The previous run's count sizes the
 	// bar exactly; a first run uses the estimate, clamped so the gauge can
 	// never read more than total.
@@ -885,7 +891,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Progress(done, setupBuildTotal(recordedComponents, done))
 		buildPhase.Step(setupComponentLabel(component.Name))
 	})
-	steps.stepOutput.bind(buildPhase.Step)
+	steps.stepOutput.bind(func(label string) {
+		buildPhase.Step(label)
+		ui.BuildStep(label)
+	})
 	instantStarted := time.Now()
 	components, instantErr := steps.instant(ctx)
 	elapsed := time.Since(instantStarted)
@@ -983,11 +992,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// still has a working brain — so a failure is one warning, never an exit
 	// code.
 
-	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
-
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
+	ui.StartTask("Configuring agent integration…")
 	agentsPhase.Step("session-end hook")
 	report.Hook = inspectSessionEndHook(repoDir)
 	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
@@ -1019,11 +1027,16 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	} else {
 		agentsPhase.Skip(hookLine, phaseDetails...)
 	}
+	if agentWarning != "" {
+		ui.ShortWarning(agentWarning, brainCmd)
+	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
+	ui.StartTask("Checking remaining sessions…")
+	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
@@ -1035,12 +1048,14 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
 	workspacePhase := run.Begin(setupui.PhaseWorkspace)
+	ui.StartTask("Registering repository in workspace…")
 	workspacePhase.Step("registering repo")
 	report.Workspace, err = registerRepoInWorkspace(ctx, cmd, perRepo, setupOpts.workspace, repoDir, storage.Key)
 	switch {
 	case err != nil:
 		report.Warnings = append(report.Warnings, "workspace registration failed: "+err.Error())
 		workspacePhase.Fail("workspace registration failed", err)
+		ui.ShortWarning("Workspace registration failed: "+err.Error(), brainCmd)
 	case report.Workspace.Already:
 		workspacePhase.OK(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
 	default:
@@ -1064,6 +1079,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
 	watcherPhase := run.Begin(setupui.PhaseWatcher)
+	if !setupOpts.noDaemon {
+		ui.StartTask("Configuring background watcher…")
+	}
 	switch {
 	case setupOpts.noDaemon:
 		watcherPhase.Skip("background watcher (--no-daemon)")
@@ -1109,6 +1127,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// and so a later bare `setup` re-installs the same daemon rather than one
 	// reverted to stock intervals and models.
 	// A failed plan must not become the identity used by the next setup.
+	ui.StartTask("Saving setup…")
 	recordedDaemonName := setupOpts.daemonName
 	if planErr != nil {
 		recordedDaemonName, _ = installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
@@ -1132,11 +1151,13 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		NoAgentHooks: setupOpts.noAgentHooks,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
+		ui.ShortWarning("Setup settings could not be saved: "+err.Error(), brainCmd)
 	}
 
 	// Phase 7 — READY. The verdict, the two paths nobody can infer, each
 	// failure's one line, and what to run next. It does NOT re-list the
 	// phases: they are on the screen directly above it.
+	ui.Suspend()
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 
 	if shortOutput {
@@ -1428,6 +1449,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// a terminal, and the reader is told what it would cost before answering.
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
+		Compact:  ui.quiet,
 		Sessions: queued,
 		Total:    report.Facts.Pending(),
 		Agent:    agent,
@@ -1465,6 +1487,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}
 
+	ui.StartTask("Starting background distillation…")
 	pid, err := steps.spawnBackfill(ctx, plan)
 	if err != nil {
 		phase.Fail("fact backfill did not start", err)
@@ -1885,7 +1908,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// unless it is re-emitted on the command the user is reading.
 			if cmd != nil && !setupOpts.json {
 				for _, warning := range setupWarningsFrom(capturedStderr) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+					printAroundLiveLine(cmd.ErrOrStderr(), "warning: %s\n", warning)
 				}
 			}
 			return components, err

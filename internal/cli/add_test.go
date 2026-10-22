@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,6 +132,85 @@ func TestRunBrainAddHonorsNoEgress(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// cloneFailRunner mimics ExecRunner's error shape: argv and stderr embedded in
+// the error, stderr also returned separately.
+type cloneFailRunner struct{ stderr string }
+
+func (r *cloneFailRunner) Run(_ context.Context, _, name string, args ...string) ([]byte, []byte, error) {
+	return nil, []byte(r.stderr), fmt.Errorf("%s %v: %w: %s", name, args, errors.New("exit status 128"), r.stderr)
+}
+
+func TestRunBrainAddCloneFailureIsOneCleanLine(t *testing.T) {
+	const repo = "https://github.com/sandbox-audit/nonexistent-repo.git"
+	for _, tc := range []struct {
+		name, stderr, want string
+	}{
+		{
+			name:   "github-not-found",
+			stderr: "remote: Repository not found.\nfatal: repository 'https://github.com/sandbox-audit/nonexistent-repo.git/' not found\n",
+			want:   "clone_failed: " + repo + ": repository not found (or no access)",
+		},
+		{
+			name:   "git-fatal-only",
+			stderr: "fatal: repository 'https://github.com/sandbox-audit/nonexistent-repo.git/' not found\n",
+			want:   "clone_failed: " + repo + ": repository not found (or no access)",
+		},
+		{
+			name:   "ssh-no-access",
+			stderr: "Permission denied (publickey).\nfatal: Could not read from remote repository.\n",
+			want:   "clone_failed: " + repo + ": repository not found (or no access)",
+		},
+		{
+			name:   "host-key-verification-shows-real-cause",
+			stderr: "Host key verification failed.\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": Host key verification failed.",
+		},
+		{
+			name:   "connection-refused-shows-real-cause",
+			stderr: "ssh: connect to host github.com port 22: Connection refused\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": ssh: connect to host github.com port 22: Connection refused",
+		},
+		{
+			name:   "local-permission-denied-is-not-no-access",
+			stderr: "fatal: could not create work tree dir 'sandbox-audit_nonexistent-repo': Permission denied\n",
+			want:   "clone_failed: " + repo + ": fatal: could not create work tree dir 'sandbox-audit_nonexistent-repo': Permission denied",
+		},
+		{
+			name:   "upload-pack-missing-is-not-not-found",
+			stderr: "bash: git-upload-pack: command not found\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": bash: git-upload-pack: command not found",
+		},
+		{
+			name:   "footer-only-survives",
+			stderr: "fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": fatal: Could not read from remote repository.; Please make sure you have the correct access rights; and the repository exists.",
+		},
+		{
+			name:   "other-failure-deduplicated",
+			stderr: "fatal: unable to access: Could not resolve host: github.com\nfatal: unable to access: Could not resolve host: github.com\n",
+			want:   "clone_failed: " + repo + ": fatal: unable to access: Could not resolve host: github.com",
+		},
+		{
+			name:   "empty-stderr-falls-back-to-root-cause",
+			stderr: "",
+			want:   "clone_failed: " + repo + ": exit status 128",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := runBrainAdd(newAddTestCmd(), Options{Runner: &cloneFailRunner{stderr: tc.stderr}}, addFlags{dir: t.TempDir(), build: false}, repo)
+			if err == nil {
+				t.Fatal("expected a clone failure")
+			}
+			if err.Error() != tc.want {
+				t.Errorf("error = %q, want %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "\n") || strings.Contains(err.Error(), "[") {
+				t.Errorf("error must be one line without git argv: %q", err)
+			}
+		})
 	}
 }
 

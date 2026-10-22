@@ -164,6 +164,26 @@ func TestRunBrainAddCloneFailureIsOneCleanLine(t *testing.T) {
 			want:   "clone_failed: " + repo + ": repository not found (or no access)",
 		},
 		{
+			name:   "host-key-verification-shows-real-cause",
+			stderr: "Host key verification failed.\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": Host key verification failed.",
+		},
+		{
+			name:   "connection-refused-shows-real-cause",
+			stderr: "ssh: connect to host github.com port 22: Connection refused\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": ssh: connect to host github.com port 22: Connection refused",
+		},
+		{
+			name:   "local-permission-denied-is-not-no-access",
+			stderr: "fatal: could not create work tree dir 'sandbox-audit_nonexistent-repo': Permission denied\n",
+			want:   "clone_failed: " + repo + ": fatal: could not create work tree dir 'sandbox-audit_nonexistent-repo': Permission denied",
+		},
+		{
+			name:   "footer-only-survives",
+			stderr: "fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": fatal: Could not read from remote repository.; Please make sure you have the correct access rights; and the repository exists.",
+		},
+		{
 			name:   "other-failure-deduplicated",
 			stderr: "fatal: unable to access: Could not resolve host: github.com\nfatal: unable to access: Could not resolve host: github.com\n",
 			want:   "clone_failed: " + repo + ": fatal: unable to access: Could not resolve host: github.com",

@@ -106,22 +106,21 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 // built from stderr alone, falling back to the root cause when stderr is empty.
 func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
 	lower := strings.ToLower(string(stderr))
-	// "repository ... not found" covers git's own fatal line, which quotes the
-	// URL between the two words.
-	notFoundOrNoAccess := strings.Contains(lower, "repository") && strings.Contains(lower, "not found")
-	for _, marker := range []string{
-		"authentication failed",
-		"could not read username",
-		"permission denied",
-		"correct access rights",
-	} {
-		notFoundOrNoAccess = notFoundOrNoAccess || strings.Contains(lower, marker)
-	}
+	// Only genuine repo-missing or auth-denied signals classify. "repository ...
+	// not found" covers git's own fatal line, which quotes the URL between the
+	// two words; "permission denied (publickey" is SSH auth specifically — bare
+	// "permission denied" also appears in local failures (e.g. creating the work
+	// tree dir), and git's "correct access rights" footer accompanies most SSH
+	// transport failures (host key, connection refused), so neither classifies.
+	notFoundOrNoAccess := (strings.Contains(lower, "repository") && strings.Contains(lower, "not found")) ||
+		strings.Contains(lower, "authentication failed") ||
+		strings.Contains(lower, "could not read username") ||
+		strings.Contains(lower, "permission denied (publickey")
 	if notFoundOrNoAccess {
 		return repoURL + ": repository not found (or no access)"
 	}
 	seen := map[string]bool{}
-	var lines []string
+	var lines, specific []string
 	for _, line := range strings.Split(strings.TrimSpace(string(stderr)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || seen[line] {
@@ -129,6 +128,14 @@ func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
 		}
 		seen[line] = true
 		lines = append(lines, line)
+		if !genericCloneFooterLine(line) {
+			specific = append(specific, line)
+		}
+	}
+	// Prefer the cause-bearing lines; the footer only survives when it is all
+	// git printed.
+	if len(specific) > 0 {
+		lines = specific
 	}
 	if len(lines) == 0 {
 		// The runner wraps the exec error under argv-bearing text; unwrap to the
@@ -139,6 +146,16 @@ func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
 		return fmt.Sprintf("%s: %v", repoURL, err)
 	}
 	return repoURL + ": " + strings.Join(lines, "; ")
+}
+
+// genericCloneFooterLine reports whether a stderr line is part of the advice
+// footer git appends to most SSH transport failures. The footer carries no
+// cause, so it must not crowd out the specific error line above it.
+func genericCloneFooterLine(line string) bool {
+	lower := strings.ToLower(line)
+	return strings.Contains(lower, "make sure you have the correct access rights") ||
+		strings.Contains(lower, "and the repository exists") ||
+		strings.Contains(lower, "could not read from remote repository")
 }
 
 // buildClonedBrain builds the cloned repo's brain by running `refresh` with the

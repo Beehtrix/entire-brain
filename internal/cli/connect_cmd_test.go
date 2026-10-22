@@ -133,7 +133,7 @@ func TestConnectPlacementErrorKeepsHostMessageAndFlagsHint(t *testing.T) {
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
 	hostMessage := `no repo matching "sandbox-audit/brain-sbx" visible from your login (GitHub repos you could onboard: ` + "`entire repo mirror list --available`" + `)`
-	stderr := "Using context 'us.auth.entire.io'.\n" + hostMessage + "\n"
+	stderr := "Using context 'auth.example.invalid'.\n" + hostMessage + "\n"
 	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) > 0 && args[0] == "version" {
 			return []byte("Entire CLI 0.12.0\n"), nil, nil
@@ -160,7 +160,7 @@ func TestPlacementFailureErrorWithoutStderrNamesTheCommand(t *testing.T) {
 	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	bannerOnly := []byte("Using context 'us.auth.entire.io'.\n")
+	bannerOnly := []byte("Using context 'auth.example.invalid'.\n")
 	err = placementFailureError(errors.New("exit status 1"), bannerOnly)
 	if got, want := err.Error(), "`entire repo view --json`: exit status 1"; got != want {
 		t.Fatalf("banner-only stderr must fall back to the command, got %q, want %q", got, want)

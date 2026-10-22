@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -67,7 +68,7 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 		fmt.Fprintf(out, "clone: %s -> %s\n", repoURL, dest)
 		// "--" ends option parsing so a repo URL can never be read as a git flag.
 		if _, stderr, err := opts.Runner.Run(ctx, "", "git", "clone", "--quiet", "--", repoURL, dest); err != nil {
-			return fmt.Errorf("clone_failed: %v: %s", err, strings.TrimSpace(string(stderr)))
+			return fmt.Errorf("clone_failed: %s", cloneFailureMessage(repoURL, stderr, err))
 		}
 	}
 
@@ -97,6 +98,47 @@ func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL strin
 	}
 	fmt.Fprintf(out, "added %s at %s — brain built. Explore it with `"+brainInvocation(os.LookupEnv, "dash")+"` (or `status`) from %s.\n", name, dest, dest)
 	return nil
+}
+
+// cloneFailureMessage reduces a failed `git clone` to one human-readable line.
+// The runner error already embeds the git argv and stderr, so formatting it
+// verbatim dumped the argv and printed stderr twice (COR-2206); the message is
+// built from stderr alone, falling back to the root cause when stderr is empty.
+func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
+	lower := strings.ToLower(string(stderr))
+	// "repository ... not found" covers git's own fatal line, which quotes the
+	// URL between the two words.
+	notFoundOrNoAccess := strings.Contains(lower, "repository") && strings.Contains(lower, "not found")
+	for _, marker := range []string{
+		"authentication failed",
+		"could not read username",
+		"permission denied",
+		"correct access rights",
+	} {
+		notFoundOrNoAccess = notFoundOrNoAccess || strings.Contains(lower, marker)
+	}
+	if notFoundOrNoAccess {
+		return repoURL + ": repository not found (or no access)"
+	}
+	seen := map[string]bool{}
+	var lines []string
+	for _, line := range strings.Split(strings.TrimSpace(string(stderr)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || seen[line] {
+			continue
+		}
+		seen[line] = true
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		// The runner wraps the exec error under argv-bearing text; unwrap to the
+		// root (e.g. "exit status 128") to keep the argv off the human surface.
+		for root := errors.Unwrap(err); root != nil; root = errors.Unwrap(root) {
+			err = root
+		}
+		return fmt.Sprintf("%s: %v", repoURL, err)
+	}
+	return repoURL + ": " + strings.Join(lines, "; ")
 }
 
 // buildClonedBrain builds the cloned repo's brain by running `refresh` with the

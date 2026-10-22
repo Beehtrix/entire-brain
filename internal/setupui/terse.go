@@ -17,10 +17,9 @@ import (
 // time. A first run printed seventeen lines, two of them raw subprocess error
 // dumps and one of them an internal ticket id, to say "it worked".
 //
-// The short form answers the three questions a person actually has, in order:
-// is it usable, what happens to my past sessions, and will it stay fresh. One
-// line each, then one line telling them what to type. Everything else moves
-// behind `--verbose` and `doctor`, which exist for it.
+// The short form opens with an introduction, then answers three questions as
+// each phase finishes: is it usable, what happens to my past sessions, and
+// will it stay fresh. Details live behind `--verbose` and `doctor`.
 //
 // This is a pure function over a value: every state below is reachable in a
 // test without a brain, a repo, or a terminal.
@@ -95,7 +94,12 @@ type TerseReport struct {
 
 	Sessions  int
 	Distilled int
-	Distill   DistillOutcome
+	// Queued is how many sessions the just-started backfill will actually
+	// distill (the pending pool capped by the spend budget). Zero means
+	// uncapped or unknown; when it is smaller than the pending pool
+	// (Sessions - Distilled), the distill line says both counts.
+	Queued  int
+	Distill DistillOutcome
 	// DistillReason explains a DistillFailed outcome in one clause.
 	DistillReason string
 
@@ -117,7 +121,7 @@ type TerseReport struct {
 	// reading it.
 	UpToDate bool
 
-	// BrainCmd is the command name to put in the "try this" line.
+	// BrainCmd is the command name the remedy and watch hints print.
 	BrainCmd string
 
 	// OfferConnect asks for one closing line about team sync.
@@ -130,20 +134,24 @@ type TerseReport struct {
 	OfferConnect bool
 }
 
-// RenderTerse writes the short form.
-func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
+func (rep TerseReport) command() string {
 	brainCmd := strings.TrimSpace(rep.BrainCmd)
 	if brainCmd == "" {
 		brainCmd = "entire brain"
 	}
-	ok := r.MarkGlyph(tui.MarkDone)
-	skip := r.MarkGlyph(tui.MarkSkipped)
+	return brainCmd
+}
 
-	fmt.Fprintln(w)
+// RenderTerse writes a completed report. Setup uses the individual renderers
+// below to report each result as soon as its phase finishes.
+func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
+	brainCmd := rep.command()
+	ok := terseMark(r, tui.MarkDone)
+	skip := terseMark(r, tui.MarkSkipped)
 
 	if rep.UpToDate {
-		fmt.Fprintf(w, "  %s %s\n\n", ok, rep.upToDateLine())
-		fmt.Fprintln(w, "Ready.")
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %s %s\n", ok, rep.upToDateLine())
 		return
 	}
 
@@ -151,24 +159,40 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	// have measured the rest never ran. Say the one true thing and the one
 	// action, and claim nothing else.
 	if rep.NoCommitsYet {
+		fmt.Fprintln(w)
 		fmt.Fprintf(w, "  %s %s\n\n", skip, "Nothing to index yet — this repository has no commits")
 		fmt.Fprintf(w, "Make a commit, then: %s setup\n", brainCmd)
 		return
 	}
 
-	// The opening sentence is for the person who has just installed this and
-	// does not yet know what it is for. It says what they GET, not what the
-	// program is about to do.
+	RenderTerseIntro(w, r)
+	RenderTerseBuild(w, r, rep)
+	RenderTerseDistill(w, r, rep)
+	RenderTerseWatcher(w, r, rep)
+	RenderTerseNext(w, rep)
+}
+
+// RenderTerseIntro introduces Brain before setup begins its work.
+func RenderTerseIntro(w io.Writer, r *Renderer) {
+	fmt.Fprintln(w)
 	for _, line := range r.Wrap("Brain turns this repo's history and past AI sessions into memories your agents recall while they work.") {
-		fmt.Fprintf(w, "  %s\n", line)
+		if strings.HasPrefix(line, "Brain ") {
+			line = r.TUI().Bold(r.TUI().Paint(tui.CLIAccent, "Brain")) + strings.TrimPrefix(line, "Brain")
+		}
+		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w)
+}
 
+// RenderTerseBuild reports the completed build and any unavailable capabilities.
+func RenderTerseBuild(w io.Writer, r *Renderer, rep TerseReport) {
+	brainCmd := rep.command()
+	skip := terseMark(r, tui.MarkSkipped)
 	built := fmt.Sprintf("Brain built — queryable now (%s)", roundTerse(rep.Elapsed))
 	if !rep.Queryable {
 		built = "Brain could not be built"
 	}
-	fmt.Fprintf(w, "  %s %s\n", markFor(r, rep.Queryable), built)
+	fmt.Fprintf(w, "  %s %s\n", markFor(r, rep.Queryable), terseDetail(r, built))
 
 	// A degraded build gets ONE line naming the capability in plain words and
 	// the command that restores it -- not the provider's error text, which is
@@ -185,23 +209,42 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 		fmt.Fprintf(w, "  %s %s did not build — `%s doctor` names them\n",
 			skip, plural(rep.UnnamedFailures, "other component"), brainCmd)
 	}
+}
 
-	if line, mark := rep.distillLine(brainCmd); line != "" {
-		fmt.Fprintf(w, "  %s %s\n", r.MarkGlyph(mark), line)
+// RenderTerseDistill reports the outcome of starting or skipping the backfill.
+func RenderTerseDistill(w io.Writer, r *Renderer, rep TerseReport) {
+	if line, mark := rep.distillLine(rep.command()); line != "" {
+		fmt.Fprintf(w, "  %s %s\n", terseMark(r, mark), terseDetail(r, line))
 	}
+}
+
+// RenderTerseWatcher reports the outcome of installing or skipping the watcher.
+func RenderTerseWatcher(w io.Writer, r *Renderer, rep TerseReport) {
 	if line, mark := rep.watcherLine(); line != "" {
-		fmt.Fprintf(w, "  %s %s\n", r.MarkGlyph(mark), line)
+		fmt.Fprintf(w, "  %s %s\n", terseMark(r, mark), terseDetail(r, line))
 	}
+}
 
-	fmt.Fprintln(w)
-	if rep.Queryable {
-		fmt.Fprintf(w, "Ready. Try: %s brief \"<your task>\"\n", brainCmd)
-		if rep.OfferConnect {
-			fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
-		}
+// RenderTerseNext writes any action needed after the status lines.
+func RenderTerseNext(w io.Writer, rep TerseReport) {
+	if rep.UpToDate {
 		return
 	}
-	fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)
+	brainCmd := rep.command()
+	// A queryable brain ends on its status lines: the summary IS the output,
+	// and the old "Ready. Try: ... brief" hint was one more thing to read
+	// after the answer. The two exceptions each carry something the status
+	// lines do not: the connect offer is the one place hosted sync gets
+	// discovered on an unbound repo, and a failed build has to point at
+	// doctor.
+	switch {
+	case rep.Queryable && rep.OfferConnect:
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Memories stay on this machine. To share them: %s connect\n", brainCmd)
+	case !rep.Queryable:
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Run `%s doctor` for what went wrong.\n", brainCmd)
+	}
 }
 
 func (rep TerseReport) upToDateLine() string {
@@ -226,8 +269,13 @@ func (rep TerseReport) distillLine(brainCmd string) (string, tui.Mark) {
 	case DistillNoSessions:
 		return "No past sessions to distill — memories accrue as you work", tui.MarkDone
 	case DistillStarted:
+		pending := max(0, rep.Sessions-rep.Distilled)
+		count := plural(pending, "session")
+		if rep.Queued > 0 && rep.Queued < pending {
+			count = fmt.Sprintf("%d of %d sessions", rep.Queued, pending)
+		}
 		return fmt.Sprintf("Distilling %s in the background (watch: %s status)",
-			plural(rep.Sessions, "session"), brainCmd), tui.MarkDone
+			count, brainCmd), tui.MarkDone
 	case DistillDeclined:
 		return fmt.Sprintf("Distillation skipped — run `%s setup` again anytime", brainCmd), tui.MarkSkipped
 	case DistillSkippedFlag:
@@ -282,9 +330,9 @@ func (rep TerseReport) watcherLine() (string, tui.Mark) {
 // are the ones the rest of this package already agreed on.
 func markFor(r *Renderer, ok bool) string {
 	if ok {
-		return r.MarkGlyph(tui.MarkDone)
+		return terseMark(r, tui.MarkDone)
 	}
-	return r.MarkGlyph(tui.MarkFailed)
+	return terseMark(r, tui.MarkFailed)
 }
 
 // roundTerse renders a duration the way a person would say it.
@@ -299,4 +347,25 @@ func roundTerse(d time.Duration) string {
 	default:
 		return d.Round(time.Second).String()
 	}
+}
+
+// Paint after composing text so styling cannot affect wrapping or wording.
+func terseMark(r *Renderer, mark tui.Mark) string {
+	color := tui.CLIMuted
+	switch mark {
+	case tui.MarkDone:
+		color = tui.CLISuccess
+	case tui.MarkFailed:
+		color = tui.CLIError
+	}
+	return r.TUI().Paint(color, r.MarkGlyph(mark))
+}
+
+func terseDetail(r *Renderer, text string) string {
+	for _, separator := range []string{" — ", " (watch:", " ("} {
+		if i := strings.Index(text, separator); i >= 0 {
+			return text[:i] + r.TUI().Paint(tui.CLIMuted, text[i:])
+		}
+	}
+	return text
 }

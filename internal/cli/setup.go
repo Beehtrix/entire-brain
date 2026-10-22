@@ -812,6 +812,15 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
 	}
+	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
+	if shortOutput {
+		setupui.RenderTerseIntro(cmd.OutOrStdout(), rend)
+		ui.StartTask("Checking repository…")
+		defer func() {
+			ui.Suspend()
+			fmt.Fprintln(cmd.OutOrStdout())
+		}()
+	}
 
 	configuredAgent := setupOpts.agent
 
@@ -898,6 +907,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// another CLI's repo key is a worse outcome, by far, than a brain with four
 	// sources instead of five.
 	buildPhase := run.Begin(setupui.PhaseBuild)
+	ui.StartTask("Building Brain…")
 	// The nine components feed ONE line. The previous run's count sizes the
 	// bar exactly; a first run uses the estimate, clamped so the gauge can
 	// never read more than total.
@@ -912,7 +922,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Progress(done, setupBuildTotal(recordedComponents, done))
 		buildPhase.Step(setupComponentLabel(component.Name))
 	})
-	steps.stepOutput.bind(buildPhase.Step)
+	steps.stepOutput.bind(func(label string) {
+		buildPhase.Step(label)
+		ui.BuildStep(label)
+	})
 	instantStarted := time.Now()
 	components, instantErr := steps.instant(ctx)
 	elapsed := time.Since(instantStarted)
@@ -943,6 +956,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Fail("instant core failed "+rend.Dash()+" nothing usable was built", fmt.Errorf("%s", reasons))
 		report.Instant.State = "failed"
 		report.Instant.Detail = reasons
+		if shortOutput {
+			terse := terseReportFor(report, timings, false, setupOpts, brainCmd)
+			setupui.RenderTerseBuild(cmd.OutOrStdout(), rend, terse)
+			setupui.RenderTerseNext(cmd.OutOrStdout(), terse)
+		}
 		if instantErr != nil {
 			return fmt.Errorf("instant phase failed, the brain is not usable: %w", instantErr)
 		}
@@ -987,6 +1005,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
 		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
 		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
+	if shortOutput {
+		setupui.RenderTerseBuild(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
 	// is told the brain exists it will never ask, and setup used to end without
@@ -1001,11 +1023,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// still has a working brain — so a failure is one warning, never an exit
 	// code.
 
-	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
-
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
+	ui.StartTask("Configuring agent integration…")
 	agentsPhase.Step("session-end hook")
 	report.Hook = inspectSessionEndHook(repoDir)
 	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
@@ -1037,24 +1058,35 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	} else {
 		agentsPhase.Skip(hookLine, phaseDetails...)
 	}
+	if agentWarning != "" {
+		ui.ShortWarning(agentWarning, brainCmd)
+	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
+	ui.StartTask("Checking remaining sessions…")
+	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
+	if shortOutput {
+		setupui.RenderTerseDistill(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
 	workspacePhase := run.Begin(setupui.PhaseWorkspace)
+	ui.StartTask("Registering repository in workspace…")
 	workspacePhase.Step("registering repo")
 	report.Workspace, err = registerRepoInWorkspace(ctx, cmd, perRepo, setupOpts.workspace, repoDir, storage.Key)
 	switch {
 	case err != nil:
 		report.Warnings = append(report.Warnings, "workspace registration failed: "+err.Error())
 		workspacePhase.Fail("workspace registration failed", err)
+		ui.ShortWarning("Workspace registration failed: "+err.Error(), brainCmd)
 	case report.Workspace.Already:
 		workspacePhase.OK(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
 	default:
@@ -1078,6 +1110,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
 	watcherPhase := run.Begin(setupui.PhaseWatcher)
+	if !setupOpts.noDaemon {
+		ui.StartTask("Configuring background watcher…")
+	}
 	switch {
 	case setupOpts.noDaemon:
 		watcherPhase.Skip("background watcher (--no-daemon)")
@@ -1113,12 +1148,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		outcome.settle(watcherPhase)
 	}
 	timings.record("daemon", time.Since(daemonStarted))
+	if shortOutput {
+		setupui.RenderTerseWatcher(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
 	// reverted to stock intervals and models.
 	// A failed plan must not become the identity used by the next setup.
+	ui.StartTask("Saving setup…")
 	recordedDaemonName := setupOpts.daemonName
 	if planErr != nil {
 		recordedDaemonName, _ = installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
@@ -1142,15 +1182,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		NoAgentHooks: setupOpts.noAgentHooks,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
+		ui.ShortWarning("Setup settings could not be saved: "+err.Error(), brainCmd)
 	}
 
 	// Phase 7 — READY. The verdict, the two paths nobody can infer, each
 	// failure's one line, and what to run next. It does NOT re-list the
 	// phases: they are on the screen directly above it.
+	ui.Suspend()
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 
-	if !setupOpts.json && !setupOpts.verbose {
-		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+	if shortOutput {
+		setupui.RenderTerseNext(cmd.OutOrStdout(),
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
 
@@ -1438,7 +1480,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// a terminal, and the reader is told what it would cost before answering.
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
+		Compact:  ui.quiet,
 		Sessions: queued,
+		Total:    report.Facts.Pending(),
 		Agent:    agent,
 		Model:    strings.TrimSpace(setupOpts.model),
 		Effort:   strings.TrimSpace(setupOpts.effort),
@@ -1450,6 +1494,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	if !outcome.Spend {
 		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
 	}
+	// What THIS run will actually distill, for the summary line. Without it the
+	// short form said "Distilling 272 sessions" about a budget of 2.
+	report.Facts.Queued = queued
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
@@ -1457,20 +1504,15 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			"not distilled: could not resolve this executable's path"+counter,
 			setupui.ConsentReasonNoExecutable)
 	}
-	// A human who answered the prompt has already read the cost. A run that
-	// was answered by --yes has not, and the cost still has to be on screen
-	// BEFORE the detached child starts rather than after: the whole point of a
-	// cost line is that someone who did not want this can see it and Ctrl-C.
-	if !outcome.Prompted {
-		// Written to promptOut, NOT through the phase sink. The phase rows are
-		// discarded in the default short form, and a cost line a reader cannot
-		// see defeats its own purpose: someone who did not want this has to be
-		// able to read it and Ctrl-C. promptOut is the real stream in every
-		// mode except --json, which does not spend without --yes anyway.
+	// Interactive consent already discloses token use. Explicit --backfill or
+	// --yes opts in without a prompt; keep its detailed announcement in the
+	// verbose view so the default transcript contains only the result.
+	if setupOpts.verbose && !outcome.Prompted {
 		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
 			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}
 
+	ui.StartTask("Starting background distillation…")
 	pid, err := steps.spawnBackfill(ctx, plan)
 	if err != nil {
 		phase.Fail("fact backfill did not start", err)
@@ -1891,7 +1933,7 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// unless it is re-emitted on the command the user is reading.
 			if cmd != nil && !setupOpts.json {
 				for _, warning := range setupWarningsFrom(capturedStderr) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+					printAroundLiveLine(cmd.ErrOrStderr(), "warning: %s\n", warning)
 				}
 			}
 			return components, err
@@ -1899,15 +1941,13 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			// setup resolves the agent once and embeds it in the daemon plan,
-			// so this is the single place a user is told which agent their
-			// repository's content will be sent to — announce it. Silent under
-			// --json, as every other human line in setup already is.
-			var announce io.Writer
-			if !setupOpts.json {
-				announce = cmd.ErrOrStderr()
-			}
-			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
+			// No standalone announcement here: the agent is disclosed at the
+			// moments it matters instead. The consent block names agent, model
+			// and effort before a human answers, and the --yes path prints the
+			// spend label before the detached child starts. A preamble before
+			// any of that was the first line every reader saw, about a spend
+			// that had not been agreed to yet (and often never happened).
+			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
 		}
 	}
 	if steps.spawnBackfill == nil {

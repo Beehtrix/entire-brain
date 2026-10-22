@@ -729,14 +729,29 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	// name it instead of losing the reason to a discarded stderr line; with no
 	// reporter the strict watch path keeps its warning and carries on exactly as
 	// before.
+	// Setup supplies the component reporter and consumes these progress lines
+	// as transient labels. Ordinary watch ticks retain their quiet behavior.
+	var entityTask, memoryTask *refreshProgressTask
+	if component != nil {
+		entityTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("entity index")
+	}
 	entityErr := refreshEntityIndexQuietly(ctx, perRepo, repoDir)
+	if entityTask != nil {
+		entityTask.Finish(entityErr)
+	}
 	switch {
 	case component != nil:
 		component(brainComponentEntities, entityErr)
 	case entityErr != nil:
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: entity index refresh skipped: %v\n", entityErr)
 	}
+	if component != nil {
+		memoryTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("memory coordinator")
+	}
 	_, warning, err := reconcileMemoryAndLaunch(ctx, perRepo, repoDir, "watch")
+	if memoryTask != nil {
+		memoryTask.Finish(err)
+	}
 	if warning != "" {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: memory coordinator: %s\n", warning)
 	}

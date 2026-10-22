@@ -53,7 +53,6 @@ func TestTerseShapes(t *testing.T) {
 				"✓ Brain built — queryable now (4s)",
 				"✓ Distilling 274 sessions in the background (watch: entire brain status)",
 				"✓ Watcher installed — keeps the brain fresh; starts at login",
-				"Ready. Try: entire brain brief \"<your task>\"",
 			},
 		},
 		{
@@ -68,7 +67,6 @@ func TestTerseShapes(t *testing.T) {
 				"✓ Brain built — queryable now (4s)",
 				"− Distillation skipped — run `entire brain setup` again anytime",
 				"✓ Watcher installed — keeps the brain fresh; starts at login",
-				"Ready. Try: entire brain brief \"<your task>\"",
 			},
 		},
 		{
@@ -83,7 +81,6 @@ func TestTerseShapes(t *testing.T) {
 				"✓ Brain built — queryable now (2s)",
 				"✓ No past sessions to distill — memories accrue as you work",
 				"✓ Watcher installed — keeps the brain fresh; starts at login",
-				"Ready. Try: entire brain brief \"<your task>\"",
 			},
 		},
 		{
@@ -98,7 +95,6 @@ func TestTerseShapes(t *testing.T) {
 				"✓ Brain built — queryable now (4s)",
 				"− 274 sessions found, but no agent CLI to distill them — install claude or codex, then re-run `entire brain setup`",
 				"✓ Watcher installed — keeps the brain fresh; starts at login",
-				"Ready. Try: entire brain brief \"<your task>\"",
 			},
 		},
 		{
@@ -109,7 +105,6 @@ func TestTerseShapes(t *testing.T) {
 			},
 			lines: []string{
 				"✓ Brain up to date — 274 sessions distilled, watcher running (1s)",
-				"Ready.",
 			},
 		},
 	} {
@@ -142,8 +137,8 @@ func TestTerseDegradedStaysReadyAndNamesTheRemedy(t *testing.T) {
 	if !strings.Contains(out, "semantic search unavailable — run `entire plugin install graph`") {
 		t.Fatalf("degraded line must name the capability and the remedy:\n%s", out)
 	}
-	if !strings.Contains(out, "Ready. Try:") {
-		t.Fatalf("a queryable brain ends Ready:\n%s", out)
+	if strings.Contains(out, "Ready.") {
+		t.Fatalf("the summary IS the output; no trailing hint after the status lines:\n%s", out)
 	}
 }
 
@@ -216,5 +211,47 @@ func TestTerseLeaksNothingInternal(t *testing.T) {
 	}
 	if n := len(bodyLines(out)); n > 6 {
 		t.Errorf("short form grew to %d lines; it exists to be short:\n%s", n, out)
+	}
+}
+
+// A budget-capped backfill must not claim the whole pool: "Distilling 272
+// sessions" about a budget of 2 was a false promise.
+func TestTerseDistillLineSaysQueuedOfPool(t *testing.T) {
+	t.Parallel()
+	rep := TerseReport{Elapsed: time.Second, Queryable: true, BrainCmd: "entire brain",
+		Sessions: 272, Queued: 2, Distill: DistillStarted, Watcher: WatcherSkippedFlag}
+	out := terseRender(t, rep)
+	if !strings.Contains(out, "Distilling 2 of 272 sessions in the background") {
+		t.Fatalf("capped backfill misreported:\n%s", out)
+	}
+	rep.Queued = 272
+	if out := terseRender(t, rep); !strings.Contains(out, "Distilling 272 sessions in the background") {
+		t.Fatalf("uncapped backfill lost its plain count:\n%s", out)
+	}
+}
+
+func TestTerseUsesGraphPaletteAndHonorsNoColor(t *testing.T) {
+	for _, color := range []bool{true, false} {
+		var out bytes.Buffer
+		r := rendererFor(tui.Caps{TTY: true, Color: color, Unicode: true, Width: 160}, 160)
+		RenderTerse(&out, r, TerseReport{Queryable: true, Elapsed: time.Second, Distill: DistillFailed, Watcher: WatcherSkippedFlag})
+		got := out.String()
+		if !color {
+			if strings.Contains(got, "\x1b[") {
+				t.Fatalf("NO_COLOR output contains styling: %q", got)
+			}
+			continue
+		}
+		for _, want := range []string{
+			"\x1b[38;5;5mBrain\x1b[0m",
+			"\x1b[38;5;2m✓\x1b[0m Brain built",
+			"\x1b[38;5;8m — queryable now (1s)\x1b[0m",
+			"\x1b[38;5;1m✗\x1b[0m Distillation did not start",
+			"\x1b[38;5;8m−\x1b[0m Watcher not installed",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing Graph palette fragment %q in %q", want, got)
+			}
+		}
 	}
 }

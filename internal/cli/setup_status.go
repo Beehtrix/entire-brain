@@ -32,8 +32,14 @@ const entireBinaryName = "entire"
 // factsBackfillStatus is the "facts: <distilled>/<total> sessions distilled"
 // counter plus whatever is known about a running backfill process.
 type factsBackfillStatus struct {
-	Sessions  int       `json:"sessions"`
-	Distilled int       `json:"distilled"`
+	Sessions  int `json:"sessions"`
+	Distilled int `json:"distilled"`
+	// Queued is how many sessions the CURRENT setup run's backfill will
+	// actually distill — Pending() capped by the spend budget. Transient:
+	// populated only while a setup run reports on the backfill it just
+	// started, so the summary can say "2 of 272" instead of claiming the
+	// whole pool.
+	Queued    int       `json:"queued,omitempty"`
 	Running   bool      `json:"running"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`

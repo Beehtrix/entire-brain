@@ -53,6 +53,7 @@ type brainBriefOptions struct {
 	json        bool
 	limit       int
 	noSemantic  bool
+	graphBinary string
 	profileJSON string
 	// packetFormat is set only by the MCP adapter. The CLI continues to select
 	// between its existing text and JSON renderers with json above.
@@ -283,6 +284,10 @@ type brainBriefSemantic struct {
 	Context       semanticContextResult `json:"context"`
 	RuntimeTraces []semanticRecord      `json:"runtime_traces,omitempty"`
 	Tests         semanticTestsResult   `json:"tests"`
+	// Source is "graph-context" when the section was served by the graph
+	// plugin's store (COR-2217) rather than the brain's internal semantic
+	// index; empty means the internal path answered.
+	Source string `json:"source,omitempty"`
 }
 
 // brainBriefJSONReport is the agent-facing projection of the in-process brief.
@@ -319,6 +324,7 @@ type brainBriefJSONSemantic struct {
 	Context       brainBriefJSONContext   `json:"context"`
 	RuntimeTraces []compactSemanticRecord `json:"runtime_traces,omitempty"`
 	Tests         brainBriefJSONTests     `json:"tests"`
+	Source        string                  `json:"source,omitempty"`
 }
 
 type brainBriefJSONContext struct {
@@ -768,6 +774,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
 	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for memories; use lexical ranking only")
+	cmd.Flags().StringVar(&briefOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
 	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
@@ -1437,6 +1444,30 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	var receiptBranch, receiptSurface string
 	var receiptFactIDs []string
+	// The graph plugin's store answers first (COR-2217): `graph context` reads
+	// the committed-tree sqlite sidecar the graph owns, so the brief no longer
+	// depends on the brain's own copy of the snapshot when the plugin can
+	// serve. Every failure — plugin absent, a version without the verb, no
+	// store for this commit — falls through to the internal semantic path (or
+	// its missing-index warning) unchanged.
+	semanticDelegated := false
+	{
+		delegationStarted := profile.start()
+		graphContext, graphErr := fetchGraphTaskContext(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary, task, briefOpts.limit, briefOpts.limit)
+		if graphErr == nil && !graphContext.StoreUnavailable {
+			report.Semantic.Context = semanticContextResult{
+				Symbols:   nonNil(graphContextSymbolRecords(graphContext.Symbols)),
+				Relations: nonNil(graphContextRelationRecords(graphContext.Symbols, graphContext.Relations)),
+			}
+			report.Semantic.Tests = graphContextTestsResult(graphContext.Tests)
+			report.Semantic.Source = "graph-context"
+			semanticDelegated = true
+			if profile != nil {
+				outputs := len(graphContext.Symbols) + len(graphContext.Relations) + len(graphContext.Tests)
+				profile.finishStage(&profile.Semantic.Context, delegationStarted, len(graphContext.Symbols), outputs, 0)
+			}
+		}
+	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		semanticSource := status.Manifest.Sources.Semantic
 		semanticInputCount := semanticSource.Symbols + semanticSource.Relations
@@ -1446,28 +1477,30 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// which stale top-ranked records would otherwise consume.
 			semanticLimit = brainBriefSemanticCandidateLimit(briefOpts.limit, semanticSource.Symbols)
 		}
-		contextStarted := profile.start()
-		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
-		if contextErr != nil {
-			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
-		} else {
-			report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
-			if len(report.Semantic.Context.Symbols) > 0 {
-				impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
-				_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
-				if impactErr != nil {
-					report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
-				} else {
-					report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
+		if !semanticDelegated {
+			contextStarted := profile.start()
+			contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
+			if contextErr != nil {
+				report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
+			} else {
+				report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
+				if len(report.Semantic.Context.Symbols) > 0 {
+					impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
+					_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
+					if impactErr != nil {
+						report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
+					} else {
+						report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
+					}
 				}
 			}
-		}
-		if profile != nil {
-			contextErrors := 0
-			if contextErr != nil {
-				contextErrors = 1
+			if profile != nil {
+				contextErrors := 0
+				if contextErr != nil {
+					contextErrors = 1
+				}
+				profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
 			}
-			profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
 		}
 		runtimeStarted := profile.start()
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, semanticSource, task, semanticLimit)
@@ -1483,21 +1516,23 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			profile.finishStage(&profile.Semantic.RuntimeTraces, runtimeStarted, semanticInputCount, len(runtimeTraces), runtimeErrors)
 		}
-		testsStarted := profile.start()
-		tests, testsErr := semanticTestFactsReservoir(status.Brain.Path, semanticSource, task, semanticLimit)
-		if testsErr != nil {
-			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
-		} else {
-			report.Semantic.Tests = brainBriefSelectSemanticTests(tests, report.Semantic.Context, semanticLimit)
-		}
-		if profile != nil {
-			testErrors := 0
+		if !semanticDelegated {
+			testsStarted := profile.start()
+			tests, testsErr := semanticTestFactsReservoir(status.Brain.Path, semanticSource, task, semanticLimit)
 			if testsErr != nil {
-				testErrors = 1
+				report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
+			} else {
+				report.Semantic.Tests = brainBriefSelectSemanticTests(tests, report.Semantic.Context, semanticLimit)
 			}
-			profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
+			if profile != nil {
+				testErrors := 0
+				if testsErr != nil {
+					testErrors = 1
+				}
+				profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
+			}
 		}
-	} else {
+	} else if !semanticDelegated {
 		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
@@ -2643,6 +2678,7 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		Guidance:           report.Guidance,
 		Warnings:           report.Warnings,
 	}
+	out.Semantic.Source = report.Semantic.Source
 	out.Semantic.Context.Symbols = compactSemanticRecords(report.Semantic.Context.Symbols)
 	out.Semantic.Context.Relations = compactSemanticRecords(report.Semantic.Context.Relations)
 	out.Semantic.Context.Neighbors = compactSemanticRecords(report.Semantic.Context.Neighbors)

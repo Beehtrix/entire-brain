@@ -43,6 +43,32 @@ func ConflictConfidence(a, b Record) float64 {
 	return math.Round(math.Min(score, PromoteConfidenceCeiling)*100) / 100
 }
 
+// TextOverlap is the overlap coefficient |a ∩ b| / min(|a|, |b|) over the two
+// texts' token sets, in [0, 1].
+//
+// Distill uses this lexical score to route candidates into batched comparisons.
+// The smaller-set denominator keeps short statements close to longer statements
+// that contain the same vocabulary. Even a score of 1 does not establish equal
+// meaning or entailment: the longer statement can add distinct requirements.
+// This is a cost heuristic, never authority to merge or supersede facts.
+func TextOverlap(a, b string) float64 {
+	ta, tb := textTokens(a), textTokens(b)
+	if len(ta) == 0 || len(tb) == 0 {
+		return 0
+	}
+	intersection := 0
+	for k := range ta {
+		if _, ok := tb[k]; ok {
+			intersection++
+		}
+	}
+	m := len(ta)
+	if len(tb) < m {
+		m = len(tb)
+	}
+	return float64(intersection) / float64(m)
+}
+
 // jaccard is |a ∩ b| / |a ∪ b|, and 0 when both sets are empty (two facts that
 // say nothing are not evidence of each other).
 func jaccard(a, b map[string]struct{}) float64 {

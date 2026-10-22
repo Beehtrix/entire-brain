@@ -316,12 +316,14 @@ class ProtocolCheckTest(unittest.TestCase):
 
     def test_preparation_artifacts_are_consistent(self) -> None:
         # The integration verification is an immutable historical receipt.  This
-        # workstream changes nine recorded source files, and the dependency update
-        # changes the pinned package lock. The live validator must fail closed on
-        # exactly those stale bindings rather than silently rewriting the receipt.
+        # workstream changes nine recorded source files, and dependency updates
+        # change the pinned package manifest and lock. The live validator must fail
+        # closed on exactly those stale bindings rather than silently rewriting the
+        # receipt.
         self.assertEqual(
             CHECK.validate(freeze=False),
             [
+                "engine runtime pin package_manifest hash is stale",
                 "engine runtime pin package_lock hash is stale",
                 "source_artifacts[0]: content hash mismatch: benchmarks/agent-brain/run.py",
                 "source_artifacts[1]: content hash mismatch: benchmarks/agent-brain/run_test.py",

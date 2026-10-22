@@ -14,6 +14,9 @@ import (
 
 const factsProposalsFileName = "proposals.ndjson"
 
+// Local-only action: preserve a staged candidate for retry, never publish it.
+const factActionDefer = "defer"
+
 func factsProposalsRelPath(branch string) string {
 	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsProposalsFileName))
 }
@@ -175,6 +178,7 @@ func reconcileInput(candidates, existing []factRecord) []byte {
 func parseReconcileActions(output string, candidates, existing []factRecord) ([]factAction, []string) {
 	decided := make(map[int]factAction, len(candidates))
 	var warnings []string
+	seen := make(map[int]bool)
 
 	for _, raw := range strings.Split(output, "\n") {
 		line := strings.TrimSpace(raw)
@@ -197,28 +201,43 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			continue
 		}
 		candidate := candidates[ci-1]
+		if seen[ci] {
+			warnings = append(warnings, fmt.Sprintf("reconcile: duplicate decision for candidate %d; left staged", ci))
+			decided[ci] = factAction{Kind: factActionDefer, Candidate: candidate}
+			continue
+		}
+		seen[ci] = true
 		kind := strings.ToLower(fields[1])
 		switch kind {
 		case factActionNew:
-			// Tolerate a missing "-" placeholder. Confidence is the last field when
-			// it is numeric; otherwise default to 1.0 (the prompt's value for new).
+			// Accept the documented compact forms, but never turn arbitrary
+			// trailing garbage or an invalid confidence into publication.
 			confidence := 1.0
-			if len(fields) >= 3 {
-				if last := fields[len(fields)-1]; isNumericToken(last) {
-					confidence = parseConfidence(last)
-				}
+			valid := len(fields) == 2
+			if len(fields) == 3 {
+				valid = fields[2] == "-" || isNumericToken(fields[2])
+			} else if len(fields) == 4 {
+				valid = fields[2] == "-" && isNumericToken(fields[3])
+			}
+			if !valid {
+				warnings = append(warnings, fmt.Sprintf("reconcile: malformed new decision for candidate %d; left staged", ci))
+				decided[ci] = factAction{Kind: factActionDefer, Candidate: candidate}
+				continue
+			}
+			if last := fields[len(fields)-1]; isNumericToken(last) {
+				confidence = parseConfidence(last)
 			}
 			decided[ci] = factAction{Kind: factActionNew, Confidence: confidence, Candidate: candidate}
 		case factActionMerge, factActionSupersede:
 			if len(fields) < 3 {
-				warnings = append(warnings, fmt.Sprintf("reconcile: %s missing existing number, treating candidate %d as new", kind, ci))
-				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
+				warnings = append(warnings, fmt.Sprintf("reconcile: %s missing existing number, leaving candidate %d staged", kind, ci))
+				decided[ci] = factAction{Kind: factActionDefer, Candidate: candidate}
 				continue
 			}
 			ei, eerr := strconv.Atoi(fields[2])
 			if eerr != nil || ei < 1 || ei > len(existing) {
-				warnings = append(warnings, fmt.Sprintf("reconcile: %s with bad existing number, treating candidate %d as new", kind, ci))
-				decided[ci] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate}
+				warnings = append(warnings, fmt.Sprintf("reconcile: %s with bad existing number, leaving candidate %d staged", kind, ci))
+				decided[ci] = factAction{Kind: factActionDefer, Candidate: candidate}
 				continue
 			}
 			// A missing confidence stays 0 so the action is queued for review
@@ -239,8 +258,8 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			actions = append(actions, action)
 			continue
 		}
-		warnings = append(warnings, fmt.Sprintf("reconcile: no decision for candidate %d, treating as new", i+1))
-		actions = append(actions, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: candidate})
+		warnings = append(warnings, fmt.Sprintf("reconcile: no decision for candidate %d; left staged", i+1))
+		actions = append(actions, factAction{Kind: factActionDefer, Candidate: candidate})
 	}
 	return actions, warnings
 }
@@ -324,8 +343,8 @@ func candidatePathSet(candidates []factRecord) []string {
 // reconcileChunkCandidates resolves a chunk's candidates against the current
 // active set: when no existing facts share the candidates' paths, every
 // candidate is trivially `new` (no agent call); otherwise the agent decides.
-// An agent error falls back to treating all candidates as `new` so facts are
-// never lost. It returns the actions to apply plus any warnings.
+// An agent error leaves candidates staged for retry. It returns the actions
+// to apply plus any warnings.
 func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
 	existing, capped := activeFactsAtPaths(active, candidatePathSet(candidates))
 	if len(existing) == 0 {
@@ -341,10 +360,10 @@ func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agent
 	}
 	out, err := run(ctx, repoDir, agentArgs, reconcileInput(candidates, existing), timeout)
 	if err != nil {
-		warnings = append(warnings, fmt.Sprintf("reconcile agent failed, treating %d candidates as new: %v", len(candidates), err))
+		warnings = append(warnings, fmt.Sprintf("reconcile agent failed, leaving %d candidates staged: %v", len(candidates), err))
 		actions := make([]factAction, len(candidates))
 		for i, c := range candidates {
-			actions[i] = factAction{Kind: factActionNew, Confidence: 1.0, Candidate: c}
+			actions[i] = factAction{Kind: factActionDefer, Candidate: c}
 		}
 		return actions, warnings
 	}

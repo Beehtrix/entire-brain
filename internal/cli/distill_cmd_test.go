@@ -1055,12 +1055,12 @@ func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 	// failure streak long enough to cross the flush interval.
 	brainDir := writeSingleSessionFixture(t, now, strings.Repeat("a conversational turn\n", 6))
 
-	// Chunk 1 distills a fact (2 counted calls: distill + reconcile), then the
-	// agent starts failing. The flush interval (3) is crossed on chunk 2's
-	// failure, so by chunk 3's call the fact must already be durable — failure
-	// streaks are exactly when runs get killed, and the failure path skipping
-	// maybeFlush left everything since the last flush at risk for the whole
-	// streak.
+	// Chunk 1 distills a fact (1 counted call: extraction — reconcile is
+	// deferred to the end-of-run pass), then the agent starts failing. The
+	// flush interval (2) is crossed on chunk 2's failure, so by chunk 3's call
+	// the staged fact must already be durable — failure streaks are exactly
+	// when runs get killed, and the failure path skipping maybeFlush left
+	// everything since the last flush at risk for the whole streak.
 	var calls int
 	sawFlushedFact := false
 	fakeRun := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -1075,7 +1075,7 @@ func TestRunDistillForBrainFlushesDuringFailureStreak(t *testing.T) {
 		}
 		return "", errors.New("rate limited")
 	}
-	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 3}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: fakeRun, maxChunkBytes: 1, timeout: time.Minute, flushEvery: 2}
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
 	}
@@ -2081,6 +2081,69 @@ func TestDistillCommandRejectsOutOfRangeConfidence(t *testing.T) {
 		if err := cmd.Execute(); err != nil {
 			t.Fatalf("--confidence %s rejected: %v\nstderr:\n%s", value, err, stderr.String())
 		}
+	}
+}
+
+// TestDistillDryRunAllowedUnderNoEgress is the COR-2208 regression: --dry-run
+// returns before the agent runner is constructed and reads local files only,
+// so ENTIRE_BRAIN_NO_EGRESS must not block it. A real run keeps the unchanged
+// pre-resolution refusal.
+func TestDistillDryRunAllowedUnderNoEgress(t *testing.T) {
+	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+
+	setup := func(t *testing.T) (Options, *fakeCommandRunner) {
+		repoDir := t.TempDir()
+		runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+			fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: repoDir + "\n"},
+			fakeCommandKey("git", "remote", "get-url", "origin"):  {stdout: "git@github.com:example/repo.git\n"},
+		}}
+		opts := Options{
+			Version: "test",
+			Env: EntireEnv{
+				RepoRoot: repoDir, PluginConfigDir: t.TempDir(), PluginDataDir: t.TempDir(),
+				PluginStateDir: t.TempDir(), PluginCacheDir: t.TempDir(),
+			},
+			Runner: runner,
+			Now:    func() time.Time { return now },
+		}
+		storage, err := repoStoragePaths(context.Background(), runner, opts.Env, repoDir)
+		if err != nil {
+			t.Fatalf("storage: %v", err)
+		}
+		writeDistillFixtureAt(t, storage.BrainDir, now)
+		return opts, runner
+	}
+
+	opts, runner := setup(t)
+	var stdout, stderr bytes.Buffer
+	cmd := NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--dry-run", "--json"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("dry-run must succeed under no-egress: %v\nstderr:\n%s", err, stderr.String())
+	}
+	for _, call := range runner.calls {
+		if call.name != "git" {
+			t.Fatalf("dry-run under no-egress ran %q %v; it must invoke nothing but local git", call.name, call.args)
+		}
+	}
+
+	opts, _ = setup(t)
+	stdout.Reset()
+	stderr.Reset()
+	cmd = NewRootCommand(opts)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"distill", "--agent", "auto"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatalf("real run must still refuse under no-egress; stdout:\n%s", stdout.String())
+	}
+	want := "no_egress: --agent auto can send selected brain context outside local loopback"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("real-run refusal changed: got %q, want it to contain %q", err, want)
 	}
 }
 

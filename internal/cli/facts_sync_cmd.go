@@ -54,11 +54,13 @@ and compare-and-swap the result back; retrying on a losing swap.
 Backends (--memories-backend, or ` + envFactsBackend + `):
   local-gitmeta  (default) a bare, on-disk git-meta store under the brain cache
                  (<cache>/brain/<repo-key>/gitmeta.git); fully local, no network,
-                 entiredb, or Postgres.
-  http           the hosted entire-api FactSetStore; opt-in. Target resolves
-                 flag > env > connected binding: --api-url/ENTIRE_API_URL,
-                 --repo-id/ENTIRE_REPO_ID, --token/ENTIRE_API_TOKEN; on a
-                 connected repo the binding and a minted token are the default.`,
+                 entiredb, or Postgres. This is the default whether or not the
+                 repo is connected: a plain sync never leaves the machine.
+  http           the hosted entire-api FactSetStore; opt-in with
+                 --memories-backend=http. Target resolves flag > env > connected
+                 binding: --api-url/ENTIRE_API_URL, --repo-id/ENTIRE_REPO_ID,
+                 --token/ENTIRE_API_TOKEN; on a connected repo the binding
+                 supplies the target and the token is minted automatically.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runFactsSync(cmd, opts, syncOpts)

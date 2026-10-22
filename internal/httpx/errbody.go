@@ -63,6 +63,9 @@ type errorEnvelope struct {
 
 // ErrorDetail reads a bounded prefix of resp.Body and renders the server's objection
 // as one short, terminal-safe line, or "" when the body says nothing useful.
+// A body that merely echoes resp.Status is nothing useful: every caller prints the
+// status beside the detail, so the echo would render doubled ("403 Forbidden:
+// Forbidden") — see StripStatusEcho.
 //
 // It is for NON-2xx responses only: it consumes from the body, so calling it on a
 // success response would eat the payload. Safe on a nil response and on a response
@@ -72,7 +75,7 @@ func ErrorDetail(resp *http.Response) string {
 		return ""
 	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
-	return ErrorDetailFromBody(raw)
+	return StripStatusEcho(ErrorDetailFromBody(raw), resp.Status)
 }
 
 // ErrorSuffix is ErrorDetail formatted for appending to an error message: ": <detail>",
@@ -107,6 +110,57 @@ func suffix(detail string) string {
 		return ""
 	}
 	return ": " + detail
+}
+
+// StripStatusEcho removes from a rendered detail the part that merely repeats the
+// HTTP status line. Callers print the status next to the detail, so a server whose
+// error body echoes it would read doubled: "unexpected status 403 Forbidden:
+// Forbidden". A detail saying no more than the status renders "" (and the Suffix
+// forms then add no separator); a detail that leads with the echo but says more
+// keeps the rest ("Forbidden; pull-only" becomes "pull-only"); anything else is
+// returned unchanged. Matching is ASCII-case-insensitive — reason phrases are
+// ASCII — and a leading echo counts only when a separator follows it, so
+// "Forbidden fruit" loses its echo while an unrelated word that merely starts
+// with one ("Forbiddenness") survives whole.
+func StripStatusEcho(detail, status string) string {
+	detail = strings.TrimSpace(detail)
+	status = strings.TrimSpace(status)
+	if detail == "" || status == "" {
+		return detail
+	}
+	if strings.Contains(asciiLower(status), asciiLower(detail)) {
+		return ""
+	}
+	candidates := []string{status}
+	if _, phrase, ok := strings.Cut(status, " "); ok && strings.TrimSpace(phrase) != "" {
+		candidates = append(candidates, strings.TrimSpace(phrase))
+	}
+	for _, c := range candidates {
+		if len(detail) <= len(c) || !strings.EqualFold(detail[:len(c)], c) {
+			continue
+		}
+		rest := strings.TrimLeft(detail[len(c):], ";:,.- \t")
+		if rest == detail[len(c):] {
+			continue
+		}
+		if rest == "" {
+			return ""
+		}
+		return rest
+	}
+	return detail
+}
+
+// asciiLower folds only A-Z. Unicode case folding can change byte lengths (the
+// Kelvin sign folds to k), and these comparisons are against ASCII reason phrases.
+func asciiLower(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
 }
 
 // jsonDetail pulls the human-readable part out of a JSON error envelope.
@@ -148,16 +202,9 @@ func jsonDetail(body string) string {
 // everything it has to say in its title; the surrounding markup is noise that would
 // otherwise fill the member's whole line.
 func htmlTitle(body string) string {
-	// HTML tag names are ASCII-insensitive. Unicode case folding can change
-	// byte lengths (for example Kelvin sign to k), invalidating the offsets
-	// used to slice the original body.
-	folded := []byte(body)
-	for i, b := range folded {
-		if b >= 'A' && b <= 'Z' {
-			folded[i] = b + ('a' - 'A')
-		}
-	}
-	lower := string(folded)
+	// HTML tag names are ASCII-insensitive, and asciiLower preserves byte offsets
+	// into the original body.
+	lower := asciiLower(body)
 	if !strings.HasPrefix(lower, "<") {
 		return ""
 	}

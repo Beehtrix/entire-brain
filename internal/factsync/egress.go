@@ -21,19 +21,23 @@ import "github.com/entireio/entire-brain/factmerge"
 // paths only, never provenance.
 //
 // It returns a deep copy; the caller's in-memory local facts (which the member still
-// wants full local provenance for) are never mutated.
+// wants full local provenance for) are never mutated. Staged candidates are
+// omitted entirely: reconciliation and private review have not published them.
 func SanitizeForEgress(records []factmerge.Record) []factmerge.Record {
 	if records == nil {
 		return nil
 	}
-	out := make([]factmerge.Record, len(records))
-	for i, r := range records {
+	out := make([]factmerge.Record, 0, len(records))
+	for _, r := range records {
+		if r.Status == factmerge.StatusCandidate {
+			continue
+		}
 		r.Provenance = sanitizeAnchors(r.Provenance)
 		// Attribution is server-stamped from the verified JWT, never
 		// client-claimed: a client-written Author must not reach the shared
 		// head, where it would masquerade as server attribution.
 		r.Author = ""
-		out[i] = r
+		out = append(out, r)
 	}
 	return out
 }

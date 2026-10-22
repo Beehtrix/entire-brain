@@ -239,38 +239,35 @@ func TestSetupVerboseStillReportsPhases(t *testing.T) {
 	}
 }
 
-// TestSetupSpendDisclosureSurvivesTheShortForm is the one that matters.
-//
-// The cost line and the consent prompt are NOT progress rows: suppressing the
-// phase view must not suppress them, or setup spends the reader's money with
-// nothing on screen to object to. This asserts the disclosure is present at
-// the instant the child is spawned, in the DEFAULT mode.
-func TestSetupSpendDisclosureSurvivesTheShortForm(t *testing.T) {
-	f := newSetupTestFixture(t, "s1")
-	rec := &recordedSetup{agent: "codex"}
-	steps := rec.steps(f)
-
-	out := &bytes.Buffer{}
-	var atSpawn string
-	inner := steps.spawnBackfill
-	steps.spawnBackfill = func(ctx context.Context, plan setupBackfillPlan) (int, error) {
-		atSpawn = out.String()
-		return inner(ctx, plan)
-	}
-
-	opts := defaultSetupOptions()
-	opts.yes = true // consent by flag, so there is no prompt to carry the cost
-	opts.noDaemon = true
-	opts.verbose = false // the default, which discards the phase rows
-
-	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
-		t.Fatalf("runSetup: %v", err)
-	}
-	if !strings.Contains(atSpawn, "SPEND TOKENS") {
-		t.Fatalf("the reader was not told about the spend before it started:\n%s", atSpawn)
-	}
-	if !strings.Contains(atSpawn, "--no-backfill") {
-		t.Fatalf("the spend disclosure must name the way out:\n%s", atSpawn)
+// Explicit opt-in starts the backfill without adding a persistent cost line.
+// Interactive disclosure stays in the consent prompt; verbose has diagnostics.
+func TestSetupShortFormOmitsSpendAnnouncement(t *testing.T) {
+	for _, flag := range []string{"backfill", "yes"} {
+		t.Run(flag, func(t *testing.T) {
+			f := newSetupTestFixture(t, "s1", "s2", "s3")
+			rec := &recordedSetup{agent: "codex"}
+			opts := defaultSetupOptions()
+			opts.backfill = flag == "backfill"
+			opts.yes = flag == "yes"
+			opts.noDaemon = true
+			opts.backfillBudget = 2
+			opts.verbose = false
+			out := &bytes.Buffer{}
+			if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+				t.Fatalf("runSetup: %v", err)
+			}
+			if rec.spawnCalls != 1 {
+				t.Fatalf("--%s should spawn one backfill, got %d", flag, rec.spawnCalls)
+			}
+			for _, unwanted := range []string{"fact backfill will", "SPEND TOKENS"} {
+				if strings.Contains(out.String(), unwanted) {
+					t.Fatalf("default output contains redundant announcement %q:\n%s", unwanted, out)
+				}
+			}
+			if !strings.Contains(out.String(), "Distilling 2 of 3 sessions in the background") {
+				t.Fatalf("default output must retain the budgeted result:\n%s", out)
+			}
+		})
 	}
 }
 

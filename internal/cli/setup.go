@@ -1504,16 +1504,10 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			"not distilled: could not resolve this executable's path"+counter,
 			setupui.ConsentReasonNoExecutable)
 	}
-	// A human who answered the prompt has already read the cost. A run that
-	// was answered by --yes has not, and the cost still has to be on screen
-	// BEFORE the detached child starts rather than after: the whole point of a
-	// cost line is that someone who did not want this can see it and Ctrl-C.
-	if !outcome.Prompted {
-		// Written to promptOut, NOT through the phase sink. The phase rows are
-		// discarded in the default short form, and a cost line a reader cannot
-		// see defeats its own purpose: someone who did not want this has to be
-		// able to read it and Ctrl-C. promptOut is the real stream in every
-		// mode except --json, which does not spend without --yes anyway.
+	// Interactive consent already discloses token use. Explicit --backfill or
+	// --yes opts in without a prompt; keep its detailed announcement in the
+	// verbose view so the default transcript contains only the result.
+	if setupOpts.verbose && !outcome.Prompted {
 		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
 			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}

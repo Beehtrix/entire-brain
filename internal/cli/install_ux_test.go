@@ -615,7 +615,7 @@ func TestDistillJSONStaysSilentAboutTheAgent(t *testing.T) {
 // which vendor's agent will read their repository — but at the moment of
 // consent, not as a preamble. Setup's detectAgent must stay SILENT in every
 // mode: the consent block names agent/model/effort before a human answers,
-// and the --yes path prints the spend label before the child starts. A line
+// and verbose mode prints the spend label for explicit opt-in. A line
 // printed at detect time described a spend that had not been agreed to yet.
 func TestSetupDetectAgentStaysSilent(t *testing.T) {
 	clearAgentHarnessEnv(t)

@@ -661,12 +661,12 @@ func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, 
 	cmd := setupBrainCommand(brainCmd)
 	next := []setupui.NextStep{}
 	// FIRST when the wiring did not land. Every other step below assumes an
-	// agent can find this brain; until init-agents runs, nothing will, so
-	// naming it third would bury the only step that matters.
+	// agent can find this brain; until the agent instructions land, nothing
+	// will, so naming it third would bury the only step that matters.
 	if !agentsWired {
 		next = append(next, setupui.NextStep{
-			Command: cmd + " init-agents",
-			Why:     "write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this runs)",
+			Command: cmd + " setup",
+			Why:     "re-run to write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this lands)",
 		})
 	}
 	next = append(next, []setupui.NextStep{

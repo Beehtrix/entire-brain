@@ -37,17 +37,17 @@ The plugin binary is named `entire-brain` and is invoked through Entire as
 
 | Command | Purpose |
 |---|---|
-| `entire brain init-agents [path]` | Install the guide and managed pointers in AGENTS.md/CLAUDE.md |
 | `entire brain agent-guide` | Print the canonical coding-agent operating guide |
 | `entire brain capabilities [--json]` | List compiled features, retrieval sources, requirements, and experimental features |
 | `entire brain refresh index` | Build the semantic index from committed HEAD (use `--worktree` for dirty code) |
 
-`init-agents` accepts `--repo <path>` instead of the positional path and
-`--json` to return a `changed_files` array (empty when already up to date).
-With neither path form it uses the host's repository root, then the nearest Git
-repository. Outside a repository, supply an explicit project path to install.
-It writes `.entire/agent-guide.md` and reconciles legacy Graph and Brain blocks
-into shared `<!-- entire-agent:begin -->` / `<!-- entire-agent:end -->` pointers.
+`setup` installs the agent instructions as one of its phases: it writes
+`.entire/agent-guide.md` and reconciles legacy Graph and Brain blocks into
+shared `<!-- entire-agent:begin -->` / `<!-- entire-agent:end -->` pointers.
+The install is best-effort — a repository that will not accept the files still
+gets a working brain and one warning. `setup --strict` saves strict guidance;
+`setup --normal` resets it. The setup report's `agent_instructions` field lists
+the files that exist and the ones the run changed.
 Existing user text and supported instruction aliases are preserved. Unsafe write
 paths and malformed markers are refused. The guide is plugin-managed; keep user
 instructions outside managed blocks. No Brain setup or services run.

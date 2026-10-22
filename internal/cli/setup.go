@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
@@ -472,6 +473,14 @@ type setupCommandOptions struct {
 	daemon     bool
 	backfill   bool
 	agentHooks bool
+	// strict/normal save a guidance mode into the installed agent guide's
+	// activation record. Unset, the agents phase inherits whatever mode the
+	// repository already saved — a bare re-run never flips a strict repo back.
+	strict bool
+	normal bool
+	// explicitPath is true when the reader typed the repository path, which is
+	// consent to a nested target: the nested-repo warning stays quiet.
+	explicitPath bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -649,6 +658,7 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 --effort the previous run was given unless you pass the flag again.`, setupCommandPrefix(os.LookupEnv)),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			setupOpts.explicitPath = len(args) == 1
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
 		},
 	}
@@ -660,6 +670,8 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().BoolVar(&setupOpts.backfill, "backfill", false, "Start the background fact backfill even if a previous run declined it (SPENDS TOKENS)")
 	cmd.Flags().BoolVar(&setupOpts.noAgentHooks, "no-agent-hooks", false, "Write the agent guide but do not merge the Claude Code PreToolUse entry (remembered)")
 	cmd.Flags().BoolVar(&setupOpts.agentHooks, "agent-hooks", false, "Merge the Claude Code PreToolUse entry even if a previous run declined it")
+	cmd.Flags().BoolVar(&setupOpts.strict, "strict", false, "Save strict (mandatory tool-use) guidance into the agent guide")
+	cmd.Flags().BoolVar(&setupOpts.normal, "normal", false, "Reset the agent guide to normal guidance")
 	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
 	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
@@ -686,6 +698,21 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
+	}
+	// Name both roots when this one sits inside another repository. Building
+	// the brain and writing the guide into a nested clone is silent and looks
+	// like success, and the instruction files land where the outer repository
+	// cannot see them. Warn BEFORE any phase runs — the person may want to
+	// abort — and only when no explicit path was given, which is consent to
+	// the nested target. The path in the SUGGESTED COMMAND is shell-quoted;
+	// the two in the prose are not, because they are prose. An unquoted path
+	// with a space — ordinary on macOS — made the remedy silently do the wrong
+	// thing when copied, and one with $ or a backtick would expand. See
+	// agentsetup.OuterRepo.
+	if outer := agentsetup.OuterRepo(repoDir); outer != "" && !setupOpts.explicitPath && !setupOpts.uninstallDaemon {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: %s is a git repository inside %s.\nThe brain, the guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s %s\n\n",
+			repoDir, outer, brainInvocation(os.LookupEnv, "setup"), shellQuotedRepoDir(outer))
 	}
 	// Refuse a non-repository UP FRONT. Everything below is a side effect --
 	// a workspace registration, a machine watch-plan row, a per-repo state
@@ -725,6 +752,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	changed := setupFlagChanged(cmd)
 	if err := rejectConflictingSetupToggles(changed); err != nil {
+		return err
+	}
+	mode, err := agentsetup.SelectMode(setupOpts.strict, setupOpts.normal)
+	if err != nil {
 		return err
 	}
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
@@ -1014,7 +1045,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// has a working brain.
 	agentsPhase.Step("agent instructions")
 	agentsStarted := time.Now()
-	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks)
+	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks, mode)
 	timings.record("agents", time.Since(agentsStarted))
 	agentDetails, agentWarning := setupAgentsPhaseDetails(report.Agents, setupOpts.noAgentHooks, rend.Dash(), brainCmd)
 	if agentWarning != "" {
@@ -2372,7 +2403,7 @@ func setupAgentsPhaseDidWork(hookWired bool, agents setupAgentsState) bool {
 func setupAgentsPhaseDetails(agents setupAgentsState, declinedHooks bool, dash, brainCmd string) (details []string, warning string) {
 	if !agents.Installed {
 		warning = "agent instructions not written: " + agents.Detail
-		return []string{fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`",
+		return []string{fmt.Sprintf("%s %s no agent will discover this brain; fix the cause and re-run `%s setup`",
 			warning, dash, setupBrainCommand(brainCmd))}, warning
 	}
 	what := strings.Join(agents.Files, ", ")

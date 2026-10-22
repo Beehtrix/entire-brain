@@ -437,7 +437,7 @@ func TestGuidesNameOnlyCommandsGraphExposes(t *testing.T) {
 // activation is recorded in the guide rather than probed from the installed
 // plugins (preview.go: "activation does not depend on plugin inventory").
 //
-// Measured in a clean clone: `entire brain init-agents` alone yields
+// Measured in a clean clone: Brain's install alone yields
 // `enabled:["brain"]` and zero occurrences of the Graph directive. So the
 // directive restored for the combined guide is unreachable for anyone who
 // follows Brain's README without also activating Graph — which is why the
@@ -467,7 +467,7 @@ func TestREADMEDocumentsBothActivationsAndTheirOrder(t *testing.T) {
 	if len(readme) == 0 {
 		t.Fatal("README is empty; this assertion would be vacuous")
 	}
-	for _, want := range []string{"entire graph init-agents", "entire brain init-agents"} {
+	for _, want := range []string{"entire graph setup", "entire brain setup"} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README does not tell the user to run %q", want)
 		}

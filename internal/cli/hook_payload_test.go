@@ -19,7 +19,7 @@ import (
 // CLAUDE_CODE_ENTRYPOINT -- nothing naming the edited file.
 //
 // So the flag expanded to "" on every edit and the hook errored every time,
-// serving nothing. Installed and inert is the worst of both: `init-agents`
+// serving nothing. Installed and inert is the worst of both: the agent wiring
 // reported success and no fact ever reached an agent.
 func TestHookReadsTheFilePathFromTheHarnessPayload(t *testing.T) {
 	t.Parallel()

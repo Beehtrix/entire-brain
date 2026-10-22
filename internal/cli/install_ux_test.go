@@ -17,7 +17,7 @@ import (
 //
 // A. Entire's own installer dirties the tree that Entire then refuses:
 //
-//	$ entire graph init-agents          # writes AGENTS.md, CLAUDE.md, .claude/settings.json
+//	$ entire graph setup          # writes AGENTS.md, CLAUDE.md, .claude/settings.json
 //	$ entire brain setup
 //	seed:     dirty_worktree: refusing to seed uncommitted content without --worktree
 //	semantic: dirty_worktree: refusing to index uncommitted content without --worktree
@@ -294,7 +294,7 @@ func TestSeedRefusalNamesOffendingPaths(t *testing.T) {
 }
 
 // TestSeedProceedsWhenOnlyEntireAuthoredConfigIsDirty is the reported scenario
-// end to end on the seed component: `entire graph init-agents` left three files
+// end to end on the seed component: `entire graph setup` left three files
 // uncommitted and the next command must not treat that as uncommitted source.
 func TestSeedProceedsWhenOnlyEntireAuthoredConfigIsDirty(t *testing.T) {
 	t.Parallel()
@@ -370,7 +370,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
-	// Exactly what `entire graph init-agents` leaves behind.
+	// Exactly what `entire graph setup` leaves behind.
 	initAgents := "?? AGENTS.md\n M CLAUDE.md\n?? .claude/settings.json\n"
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: initAgents}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: initAgents}
@@ -389,7 +389,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 	})
 	out, err := execute(t, cmd, "refresh", "--entire-binary", "entire-test")
 	if err != nil {
-		t.Fatalf("refresh after init-agents: %v\n%s", err, out)
+		t.Fatalf("refresh after agent wiring: %v\n%s", err, out)
 	}
 	// Component outcomes, not the exit code: both stages have to BUILD.
 	for _, want := range []string{
@@ -397,7 +397,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 		"refresh: semantic index: 1 symbol, 1 relation, 1 file done",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("component did not build after init-agents (%q missing):\n%s", want, out)
+			t.Fatalf("component did not build after agent wiring (%q missing):\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, dirtyWorktreeErrorCode) {

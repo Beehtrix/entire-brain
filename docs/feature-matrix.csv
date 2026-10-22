@@ -33,7 +33,7 @@ OPERATION,"Team-wide index built once, server-side",No,No,No,Yes,Unknown,Yes,No,
 OPERATION,Hosted / managed offering,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — the deliberate opposite of our pitch, and the reason several rows above read No.",https://supermemory.ai/docs/concepts/container-tags
 INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,,
 INTERFACE,CLI,Yes,Yes,Yes,Partial,Yes,Partial,Yes,,
-INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,init-agents writes AGENTS.md / CLAUDE.md managed blocks,verified: capabilities --json
+INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,setup writes AGENTS.md / CLAUDE.md managed blocks,verified: capabilities --json
 INTERFACE,Visual graph explorer,No,Yes,Yes,No,Yes,No,No,cognee offers 4 views including an embedding projection,https://docs.cognee.ai/guides/graph-visualization
 INTERFACE,Terminal dashboard,No,Yes,No,No,No,No,No,`entire brain dash`,verified: capabilities --json
 INTERFACE,Remote MCP over HTTP or SSE,No,Yes,Unknown,Yes,Yes,Yes,Unknown,"Was REAL GAP. `brain mcp --http` serves the same tools over HTTP, loopback by default and bearer-token authenticated; remote binding is explicit.",https://mem0.ai/blog/introducing-openmemory-mcp

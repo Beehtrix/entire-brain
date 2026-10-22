@@ -2,11 +2,10 @@
 
 ## Install and discover agent instructions
 
-Run `entire brain init-agents` in the consuming project to install
+`entire brain setup` installs the agent instructions as part of its run:
 `.entire/agent-guide.md` plus managed pointers in `AGENTS.md` and
 `CLAUDE.md`. Reruns reconcile Graph and Brain blocks into one shared workflow and preserve your own text.
-Use `--repo <path>` for another project. Installation does not build indexes,
-call an agent, or start services.
+Pass a path to target another project.
 
 `entire brain agent-guide` prints the same guide; `guide` remains an alias.
 Use `entire brain capabilities --json` to discover compiled features and their
@@ -285,7 +284,7 @@ after `setup` works too, and the next backfill pass picks the new sessions up.
 
 **Entire's own config no longer blocks the install.** `entire enable` writes
 `.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
-for Claude Code, `.codex/hooks.json` for Codex); `entire graph init-agents`
+for Claude Code, `.codex/hooks.json` for Codex); `entire graph setup`
 writes `AGENTS.md` and `CLAUDE.md`.
 A `setup` run immediately afterwards used to find that dirty worktree and refuse
 to seed or index it — two red `x` on a first run, caused by the command directly
@@ -606,8 +605,8 @@ repo-wide text search until the brain's targeted context has been used.
 ### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
 
 `entire-brain` also has a hook surface for harness integrations. A harness must
-be configured to invoke a hook before it can have any effect, and `init-agents`
-— which `setup` runs for you — wires the one that matters for Claude Code: it
+be configured to invoke a hook before it can have any effect, and `setup`
+wires the one that matters for Claude Code: it
 merges a `PreToolUse` entry for `Edit`/`Write`/`MultiEdit`/`NotebookEdit` into
 the repository's `.claude/settings.json`, running
 `entire-brain hook pre-edit --claude-hook`. That flag is the wired spelling: it

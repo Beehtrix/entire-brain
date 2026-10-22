@@ -3,15 +3,165 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
+
+func TestSetupShortOutputArrivesAsEachPhaseCompletes(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2", "s3")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.yes = true
+	opts.backfillBudget = 2
+	var out bytes.Buffer
+	steps := rec.steps(f)
+	assertOutput := func(want []string, absent []string) {
+		t.Helper()
+		for _, text := range want {
+			if strings.Count(out.String(), text) != 1 {
+				t.Errorf("want %q exactly once at this stage:\n%s", text, out.String())
+			}
+		}
+		for _, text := range absent {
+			if strings.Contains(out.String(), text) {
+				t.Errorf("%q appeared before its phase completed:\n%s", text, out.String())
+			}
+		}
+	}
+	intro := "Brain turns this repo's history"
+	built := "Brain built — queryable now"
+	distill := "Distilling 2 of 3 sessions in the background"
+	watcher := "Watcher already running"
+	detect := steps.detectAgent
+	steps.detectAgent = func(ctx context.Context) string {
+		if !strings.HasPrefix(out.String(), "\nBrain turns") {
+			t.Errorf("introduction must start after a blank line: %q", out.String())
+		}
+		assertOutput([]string{intro}, []string{built, distill, watcher})
+		return detect(ctx)
+	}
+	instant := steps.instant
+	steps.instant = func(ctx context.Context) ([]setupComponent, error) {
+		assertOutput([]string{intro}, []string{built, distill, watcher})
+		return instant(ctx)
+	}
+	spawn := steps.spawnBackfill
+	steps.spawnBackfill = func(ctx context.Context, plan setupBackfillPlan) (int, error) {
+		assertOutput([]string{intro, built}, []string{distill, watcher})
+		return spawn(ctx, plan)
+	}
+	install := steps.install
+	steps.install = func(ctx context.Context, plan daemonPlan) error {
+		assertOutput([]string{intro, built, distill}, []string{watcher})
+		return install(ctx, plan)
+	}
+	if err := runSetup(context.Background(), setupTestCommand(t, &out, opts), f.opts, opts, f.repoDir, steps); err != nil {
+		t.Fatal(err)
+	}
+	if rec.spawnCalls != 1 || rec.installCalls != 1 {
+		t.Fatalf("expected backfill and watcher phases: %+v", rec)
+	}
+	assertOutput([]string{intro, built, distill, watcher}, nil)
+	if !strings.HasSuffix(out.String(), "\n\n") {
+		t.Errorf("setup must leave a blank line before the shell prompt: %q", out.String())
+	}
+}
+
+func TestSetupShortTaskShowsWorkWithoutVerbosePhaseBar(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	progress := newTestProgress(t, &out, ttyCaps())
+	sink := newSetupSink(progress, true)
+	sink.StartTask("Building Brain…")
+	defer sink.Suspend()
+	// Nested refresh can report a substep while holding the terminal lock.
+	updated := make(chan struct{})
+	go func() {
+		progress.live.emitAround(func() { sink.BuildStep("semantic index: parsing sources") })
+		close(updated)
+	}()
+	select {
+	case <-updated:
+	case <-time.After(5 * time.Second):
+		t.Fatal("updating the short task deadlocked the terminal")
+	}
+	line := stripANSI(sink.task.liveLine())
+	if !strings.HasPrefix(line, "  ") || !strings.Contains(line, "Building Brain — indexing code… (") {
+		t.Fatalf("expected an indented active task with elapsed time: %q", line)
+	}
+	if strings.ContainsAny(line, "█░") || strings.Contains(line, "Build     ") {
+		t.Fatalf("verbose phase bar leaked into short mode: %q", line)
+	}
+	sink.Suspend()
+	if got := visibleLines(out.String()); len(got) != 0 {
+		t.Fatalf("active task must disappear rather than become a permanent row: %q", got)
+	}
+}
+
+func TestSetupShortBuildStepLabels(t *testing.T) {
+	t.Parallel()
+	for input, want := range map[string]string{
+		"export sessions":                     "reading past AI sessions",
+		"seed baseline: inventory":            "scanning repository files",
+		"history index: 2/3 sessions scanned": "indexing session history",
+		"doc index":                           "indexing documentation",
+		"semantic index: parsing sources":     "indexing code",
+		"reclassify facts":                    "organizing existing memories",
+		"pattern layer":                       "finding patterns in past sessions",
+		"entity index":                        "indexing code changes",
+		"memory coordinator":                  "updating memory state",
+		"semantic index: current skipped":     "",
+		"doc index: 10 chunks done":           "",
+		"warning: semantic index failed":      "",
+		"refreshed brain: /tmp/brain":         "",
+	} {
+		if got := setupShortBuildLabel(input); got != want {
+			t.Errorf("%q: got %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestSetupShortWarningSurvivesTransientTask(t *testing.T) {
+	t.Parallel()
+	var out bytes.Buffer
+	sink := newSetupSink(newTestProgress(t, &out, ttyCaps()), true)
+	sink.StartTask("Saving setup…")
+	sink.ShortWarning("Setup settings could not be saved: permission denied", "entire brain")
+	sink.Suspend()
+	lines := visibleLines(out.String())
+	if len(lines) != 1 || !strings.Contains(lines[0], "permission denied") || !strings.Contains(lines[0], "entire brain setup --verbose") {
+		t.Fatalf("failed transient phase must leave its reason and remedy: %q", lines)
+	}
+}
+
+func TestSetupShortOutputReportsBuildFailureWithoutLaterResults(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{instantErr: errors.New("build failed")}
+	opts := defaultSetupOptions()
+	var out bytes.Buffer
+	err := runSetup(context.Background(), setupTestCommand(t, &out, opts), f.opts, opts, f.repoDir, rec.steps(f))
+	if err == nil {
+		t.Fatal("expected build failure")
+	}
+	for _, want := range []string{"Brain turns this repo's history", "Brain could not be built", "doctor"} {
+		if strings.Count(out.String(), want) != 1 {
+			t.Errorf("want %q exactly once:\n%s", want, out.String())
+		}
+	}
+	for _, absent := range []string{"queryable now", "Distilling", "Watcher"} {
+		if strings.Contains(out.String(), absent) {
+			t.Errorf("uncompleted phase reported %q:\n%s", absent, out.String())
+		}
+	}
+}
 
 // TestSetupDefaultIsTheShortForm pins the default. The phase view reports what
 // the machine did and is still available behind --verbose; what a person gets
@@ -28,8 +178,8 @@ func TestSetupDefaultIsTheShortForm(t *testing.T) {
 	if !strings.Contains(out, "Brain turns this repo's history") {
 		t.Fatalf("the short form opens by saying what Brain is for:\n%s", out)
 	}
-	if !strings.Contains(out, "Ready. Try:") {
-		t.Fatalf("the short form ends with what to type:\n%s", out)
+	if strings.Contains(out, "Ready. Try:") {
+		t.Fatalf("the summary IS the output; no trailing hint after the status lines:\n%s", out)
 	}
 	// The phase view's vocabulary must be absent, or this is not the short form.
 	for _, leaked := range []string{"Detect", "instant core", "FAILED", "Workspace"} {
@@ -39,6 +189,37 @@ func TestSetupDefaultIsTheShortForm(t *testing.T) {
 	}
 	if n := len(strings.Split(strings.TrimSpace(out), "\n")); n > 10 {
 		t.Errorf("default output is %d lines; the point is that it is short:\n%s", n, out)
+	}
+}
+
+func TestSetupTerseBackfillCountsOnlyPendingSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		budget    int
+		distilled []string
+		want      string
+	}{
+		{"capped", 1, []string{"s1"}, "Distilling 1 of 2 sessions in the background"},
+		{"uncapped", 0, []string{"s1"}, "Distilling 2 sessions in the background"},
+		{"last session", 1, []string{"s1", "s2"}, "Distilling 1 session in the background"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newSetupTestFixture(t, "s1", "s2", "s3")
+			f.markDistilled(t, tc.distilled...)
+			rec := &recordedSetup{agent: "codex"}
+			opts := defaultSetupOptions()
+			opts.yes = true
+			opts.noDaemon = true
+			opts.backfillBudget = tc.budget
+
+			out := runSetupTerseForTest(t, f, opts, rec)
+			if rec.spawnCalls != 1 {
+				t.Fatalf("expected one backfill, got %d", rec.spawnCalls)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("summary must exclude already distilled sessions; want %q:\n%s", tc.want, out)
+			}
+		})
 	}
 }
 
@@ -58,38 +239,35 @@ func TestSetupVerboseStillReportsPhases(t *testing.T) {
 	}
 }
 
-// TestSetupSpendDisclosureSurvivesTheShortForm is the one that matters.
-//
-// The cost line and the consent prompt are NOT progress rows: suppressing the
-// phase view must not suppress them, or setup spends the reader's money with
-// nothing on screen to object to. This asserts the disclosure is present at
-// the instant the child is spawned, in the DEFAULT mode.
-func TestSetupSpendDisclosureSurvivesTheShortForm(t *testing.T) {
-	f := newSetupTestFixture(t, "s1")
-	rec := &recordedSetup{agent: "codex"}
-	steps := rec.steps(f)
-
-	out := &bytes.Buffer{}
-	var atSpawn string
-	inner := steps.spawnBackfill
-	steps.spawnBackfill = func(ctx context.Context, plan setupBackfillPlan) (int, error) {
-		atSpawn = out.String()
-		return inner(ctx, plan)
-	}
-
-	opts := defaultSetupOptions()
-	opts.yes = true // consent by flag, so there is no prompt to carry the cost
-	opts.noDaemon = true
-	opts.verbose = false // the default, which discards the phase rows
-
-	if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, steps); err != nil {
-		t.Fatalf("runSetup: %v", err)
-	}
-	if !strings.Contains(atSpawn, "SPEND TOKENS") {
-		t.Fatalf("the reader was not told about the spend before it started:\n%s", atSpawn)
-	}
-	if !strings.Contains(atSpawn, "--no-backfill") {
-		t.Fatalf("the spend disclosure must name the way out:\n%s", atSpawn)
+// Explicit opt-in starts the backfill without adding a persistent cost line.
+// Interactive disclosure stays in the consent prompt; verbose has diagnostics.
+func TestSetupShortFormOmitsSpendAnnouncement(t *testing.T) {
+	for _, flag := range []string{"backfill", "yes"} {
+		t.Run(flag, func(t *testing.T) {
+			f := newSetupTestFixture(t, "s1", "s2", "s3")
+			rec := &recordedSetup{agent: "codex"}
+			opts := defaultSetupOptions()
+			opts.backfill = flag == "backfill"
+			opts.yes = flag == "yes"
+			opts.noDaemon = true
+			opts.backfillBudget = 2
+			opts.verbose = false
+			out := &bytes.Buffer{}
+			if err := runSetup(context.Background(), setupTestCommand(t, out, opts), f.opts, opts, f.repoDir, rec.steps(f)); err != nil {
+				t.Fatalf("runSetup: %v", err)
+			}
+			if rec.spawnCalls != 1 {
+				t.Fatalf("--%s should spawn one backfill, got %d", flag, rec.spawnCalls)
+			}
+			for _, unwanted := range []string{"fact backfill will", "SPEND TOKENS"} {
+				if strings.Contains(out.String(), unwanted) {
+					t.Fatalf("default output contains redundant announcement %q:\n%s", unwanted, out)
+				}
+			}
+			if !strings.Contains(out.String(), "Distilling 2 of 3 sessions in the background") {
+				t.Fatalf("default output must retain the budgeted result:\n%s", out)
+			}
+		})
 	}
 }
 
@@ -123,6 +301,26 @@ func TestDefaultModeStillHasATerminalForConsent(t *testing.T) {
 		}
 		if !sink.Renderer().Caps().Unicode {
 			t.Errorf("quiet=%v: unicode was lost, so the short form renders ASCII on a UTF-8 terminal", quiet)
+		}
+	}
+}
+
+func TestSetupPhaseProgressOnlyAppearsInVerboseMode(t *testing.T) {
+	t.Parallel()
+	for _, verbose := range []bool{false, true} {
+		var out bytes.Buffer
+		progress := newTestProgress(t, &out, ttyCaps())
+		sink := newSetupSink(progress, !verbose)
+		run := setupui.NewRun(sink, sink.Renderer())
+		phase := run.Begin(setupui.PhaseBuild)
+		phase.Step("6/9 pattern layer")
+		phase.OK("built")
+
+		if !verbose && out.Len() != 0 {
+			t.Fatalf("default setup must hide live and settled phase output, got %q", out.String())
+		}
+		if verbose && !strings.Contains(out.String(), "Build") {
+			t.Fatalf("verbose setup lost phase output: %q", out.String())
 		}
 	}
 }

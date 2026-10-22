@@ -2,12 +2,47 @@ package setupui
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/tui"
 )
+
+func TestConsentCompactPromptNamesPoolBudgetAndSpend(t *testing.T) {
+	t.Parallel()
+	req := spendRequest()
+	req.Compact, req.Sessions, req.Total = true, 2, 3
+	req.Model = ""
+	got, out := ask(t, req, strings.NewReader("y\n"))
+	if !got.Spend || !got.Prompted {
+		t.Fatalf("explicit yes should consent: %+v", got)
+	}
+	for _, want := range []string{"  3 sessions remain. Distill up to 2 now?\n", "Agent: claude-code", "effort: low", "uses agent tokens", "  Distill now? [y/N] "} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q: %q", want, out)
+		}
+	}
+	if !strings.HasSuffix(out, "\x1b[3A\x1b[J") {
+		t.Fatalf("compact prompt should erase exactly three rows: %q", out)
+	}
+}
+
+func TestConsentCompactEraseAccountsForWrappedRows(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{"n\n", "maybe\ny\n"} {
+		var out bytes.Buffer
+		req := spendRequest()
+		req.Compact = true
+		Consent(req, strings.NewReader(input), &out, rendererFor(tui.PlainCaps(), 40))
+		// Each input answer completes a prompt row in the real terminal.
+		rows := strings.Count(out.String(), "\n") + strings.Count(out.String(), question)
+		if !strings.HasSuffix(out.String(), fmt.Sprintf("\x1b[%dA\x1b[J", rows)) {
+			t.Fatalf("erase must cover wrapped rows and re-prompts, got %q", out.String())
+		}
+	}
+}
 
 // failReader fails the test if anything reads it. It is how "the no-terminal
 // path does not block" is proved rather than asserted: a function that cannot
@@ -275,5 +310,39 @@ func TestConsentPromptRendersInEveryMode(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// The question gates spend, so it must be asked — but once answered it is
+// history, and the final summary should be the only persistent output. The
+// answered block is erased with one cursor-up-and-clear. Only the TTY path
+// reaches the prompt, so ANSI is safe there.
+func TestConsentErasesTheBlockAfterTheAnswer(t *testing.T) {
+	t.Parallel()
+	_, out := ask(t, spendRequest(), strings.NewReader("y\n"))
+	// 4 block lines + 1 answered prompt line.
+	if !strings.Contains(out, "\x1b[5A\x1b[J") {
+		t.Fatalf("answered prompt was not erased:\n%q", out)
+	}
+	// A re-asked prompt adds the hint line and a second prompt line.
+	_, out = ask(t, spendRequest(), strings.NewReader("maybe\nn\n"))
+	if !strings.Contains(out, "\x1b[7A\x1b[J") {
+		t.Fatalf("re-asked prompt was not erased in full:\n%q", out)
+	}
+}
+
+// A spend budget smaller than the pending pool must be visible at the moment
+// of consent: "2 sessions can be distilled" about a pool of 272 understated
+// the decision, and the summary then overstated it from the other side.
+func TestConsentNamesThePoolWhenTheBudgetCapsTheRun(t *testing.T) {
+	t.Parallel()
+	req := spendRequest()
+	req.Sessions, req.Total = 2, 272
+	_, out := ask(t, req, strings.NewReader("n\n"))
+	if !strings.Contains(out, "272 sessions can be distilled") {
+		t.Fatalf("the pool went unnamed:\n%s", out)
+	}
+	if !strings.Contains(out, "~2 agent calls this run (spend budget)") {
+		t.Fatalf("the capped estimate went unnamed:\n%s", out)
 	}
 }

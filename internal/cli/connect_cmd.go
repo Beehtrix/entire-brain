@@ -2,11 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
@@ -82,7 +84,10 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present && existing.RepoID != "" {
 				resolved = hostedPlacement{RepoID: existing.RepoID, APIURL: existing.BaseURL}
 			} else {
-				return fmt.Errorf("connect: resolve hosted placement (`entire repo view --json`): %w; pass --repo-id and --api-url explicitly", placementErr)
+				// The hint sits on its own line: the host CLI's message ends
+				// with a newline of its own, so a "; pass ..." suffix used to
+				// dangle on a line starting with ";".
+				return fmt.Errorf("connect: %w\nOr pass --repo-id and --api-url explicitly", placementErr)
 			}
 		}
 		if repoID == "" {
@@ -181,15 +186,41 @@ func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir s
 	if err := checkHostCLIVersion(ctx, runner, repoDir, minHostCLIVersion); err != nil {
 		return hostedPlacement{}, err
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
+	stdout, stderr, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
 	if err != nil {
-		return hostedPlacement{}, err
+		return hostedPlacement{}, placementFailureError(err, stderr)
 	}
 	var result hostedPlacement
 	if err := decodeHostCLIJSON(stdout, &result); err != nil {
 		return hostedPlacement{}, fmt.Errorf("parse repo view json: %w", err)
 	}
 	return result, nil
+}
+
+// placementFailureError reduces a failed `entire repo view --json` to the line
+// the host CLI actually said. The runner's wrap carries debug framing — an
+// argv echo plus the host's "Using context '…'." login banner — that a human
+// reading connect's failure never needs. Drop the banner, then let
+// providerdetail.Summary keep the host's Error:-marked or first stderr line.
+func placementFailureError(runErr error, stderr []byte) error {
+	var kept []string
+	for _, line := range strings.Split(string(stderr), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Using context ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if summary := providerdetail.Summary(strings.Join(kept, "\n")); summary != "" {
+		return errors.New(summary)
+	}
+	// Nothing usable on stderr: name the command and the cause under the
+	// runner's argv echo (exit status, or a missing host CLI).
+	cause := runErr
+	if unwrapped := errors.Unwrap(runErr); unwrapped != nil {
+		cause = unwrapped
+	}
+	return fmt.Errorf("`entire repo view --json`: %v", cause)
 }
 
 // checkHostCLIVersion refuses placement resolution on a host CLI older than

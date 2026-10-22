@@ -79,9 +79,9 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
-	// AgentsUnwired reports that `init-agents` has not been run: the guide or
-	// the managed pointer in AGENTS.md / CLAUDE.md is absent, so no agent has
-	// been told this brain exists.
+	// AgentsUnwired reports that the agent instructions have not landed: the
+	// guide or the managed pointer in AGENTS.md / CLAUDE.md is absent, so no
+	// agent has been told this brain exists.
 	//
 	// This is the product's worst failure mode and it is SILENT -- setup
 	// succeeds, every source reads healthy, and the brain is simply never
@@ -400,7 +400,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	// no agent knows about is healthy on every other line and useless in
 	// practice, and nothing else in this report would say so.
 	if onboarding.AgentsUnwired {
-		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s init-agents` so your agent uses this brain\n", brainCmd)
+		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s setup` so your agent uses this brain\n", brainCmd)
 		if len(onboarding.AgentsMissing) > 0 {
 			fmt.Fprintf(out, "          missing: %s\n", strings.Join(onboarding.AgentsMissing, ", "))
 		}

@@ -218,7 +218,7 @@ arguments. --claude-hook is the wired spelling: Claude Code delivers a
 PreToolUse event as JSON on stdin and only reads a JSON envelope back, so the
 flag reads the path from the event and replies in the shape the host parses.
 Plain stdout is NOT added to the agent's context for PreToolUse, which is why
-the text emission alone could never have reached an agent. ` + setupBrainBinaryName + ` init-agents
+the text emission alone could never have reached an agent. ` + setupBrainBinaryName + ` setup
 wires it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

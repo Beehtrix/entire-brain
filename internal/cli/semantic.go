@@ -2431,12 +2431,12 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 }
 
 // entireAuthoredGatePaths are the files ENTIRE'S OWN installers write into a
-// repository. `entire graph init-agents` creates AGENTS.md, CLAUDE.md and
+// repository. `entire graph setup` creates AGENTS.md, CLAUDE.md and
 // .claude/settings.json; brain itself writes .brainignore. So a user who runs
 // the documented install sequence arrives at the next command with a tree that
 // Entire dirtied, and BOTH components refuse it:
 //
-//	$ entire graph init-agents
+//	$ entire graph setup
 //	$ entire brain setup
 //	seed:     dirty_worktree: refusing to seed uncommitted content without --worktree
 //	semantic: dirty_worktree: refusing to index uncommitted content without --worktree
@@ -2453,7 +2453,7 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 //
 // The writers live across the whole product, not just this repo, which is why
 // "nothing in entire-brain writes it" is the wrong test for membership:
-// entire-graph's init-agents writes AGENTS.md, CLAUDE.md and
+// entire-graph's agent wiring writes AGENTS.md, CLAUDE.md and
 // .claude/settings.json; the cli writes .codex/hooks.json for
 // `entire enable --agent codex` (cmd/entire/cli/agent/codex/hook_root.go);
 // brain writes .brainignore. One install flow, one user, several repos.

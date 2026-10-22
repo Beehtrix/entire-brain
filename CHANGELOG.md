@@ -5,6 +5,16 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- The `init-agents` command. `setup` already ran the same installer; the
+  command's two unique behaviors moved onto `setup`: `--strict` / `--normal`
+  save the guidance mode, and the nested-repository warning prints before any
+  phase runs. The agent wiring stays best-effort — a repository that will not
+  accept the instruction files still gets a working brain and one warning
+  naming a `setup` re-run as the repair. `agent-guide` remains the read-only
+  preview.
+
 ### Changed
 
 - Durable facts are now called memories on the command surface: the `facts`

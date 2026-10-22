@@ -914,6 +914,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 			source.CandidatesReconciled, source.PromotedWithoutAgent,
 			source.CandidatesReconciled-source.PromotedWithoutAgent, source.ReconcileClusters, source.ReconcileCalls)
 	}
+	if source.PendingReconcile > 0 {
+		fmt.Fprintf(cmd.OutOrStdout(), "%d candidates remain unpublished; resolve proposals with memories review or rerun distill to retry failed decisions\n", source.PendingReconcile)
+	}
 	return nil
 }
 

@@ -128,6 +128,25 @@ func TestStagedReviewCannotPublishBeforeTargetResolved(t *testing.T) {
 	if err == nil || len(got) != 2 || got[1].Status != factStatusCandidate {
 		t.Fatalf("unresolved target published candidate: %+v, %v", got, err)
 	}
+	dir := writeSingleSessionFixture(t, now, "some transcript\n")
+	p := factProposal{Action: factActionMerge, CandidateID: candidate.ID, TargetID: target.ID, Branch: "main"}
+	if err := writeFacts(dir, "main", []factRecord{target, candidate}); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFactProposals(dir, "main", []factProposal{p}); err != nil {
+		t.Fatal(err)
+	}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := runFactsReview(cmd, Options{Now: func() time.Time { return now }}, dir, "main", factsReviewActions{apply: candidate.ID}); err != nil {
+		t.Fatal(err)
+	}
+	queue, err := loadFactProposals(dir, "main")
+	if err != nil || len(queue) != 1 || !strings.Contains(out.String(), "1 remaining") {
+		t.Fatalf("deferred review lost queue or misreported it: %+v %v %s", queue, err, out.String())
+	}
 }
 
 func TestStagedReconcileForcePreservesPendingReview(t *testing.T) {

@@ -319,10 +319,11 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 				keep = append(keep, p)
 			}
 		}
+		remaining = len(keep)
 		if resolved == 0 {
 			if deferred > 0 {
-				// Everything asked for is shared; the interlock already explained
-				// where to settle it. Not an error — nothing was left unhandled.
+				// Warnings explain how to resolve these deferred proposals.
+				// Leave their records and queue intact.
 				return nil
 			}
 			return fmt.Errorf("no proposal matched")
@@ -333,7 +334,6 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err := writeFactProposals(brainDir, branch, keep); err != nil {
 			return err
 		}
-		remaining = len(keep)
 		return updateFactSourceManifestLocked(brainDir, now)
 	}); err != nil {
 		return err

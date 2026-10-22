@@ -67,9 +67,9 @@ type factSourceManifest struct {
 	PromotedWithoutAgent int `json:"promoted_without_agent,omitempty"`
 	ReconcileClusters    int `json:"reconcile_clusters,omitempty"`
 	// PendingReconcile counts staged candidates still on disk at summary time —
-	// nonzero only after a run died between extraction and its reconcile pass.
-	// They are excluded from Facts (not published) and the next distill
-	// reconciles them first.
+	// including interrupted extraction, failed decisions, and queued review.
+	// They are excluded from Facts (not published). Distill retries failed
+	// decisions; queued candidates wait for explicit review.
 	PendingReconcile int                       `json:"pending_reconcile,omitempty"`
 	TotalAgentCalls  int                       `json:"total_agent_calls,omitempty"`
 	TokenUsage       *distillTokenUsageSummary `json:"token_usage,omitempty"`

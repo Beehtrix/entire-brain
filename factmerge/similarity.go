@@ -46,20 +46,11 @@ func ConflictConfidence(a, b Record) float64 {
 // TextOverlap is the overlap coefficient |a ∩ b| / min(|a|, |b|) over the two
 // texts' token sets, in [0, 1].
 //
-// It is the similarity the distill reconcile pass uses to decide whether a
-// candidate fact is CLOSE enough to another statement that an agent must rule
-// on merge/supersede — not ConflictConfidence, deliberately. ConflictConfidence
-// adds a 0.3-weight path-jaccard term, and within a shared-path comparison that
-// term is a near-constant floor: on the recorded calibration corpus
-// (COR-2184, 2026-10-20) it compressed hallucinated pairings (0.31–0.35) against
-// genuine ones (0.39–0.43) with no usable gap, while text-only overlap
-// separated them cleanly (every genuine merge/supersede ≥ 0.24, every
-// hallucinated pairing < 0.20). min-normalization rather than jaccard because a
-// short restatement of a long fact is still the same fact; jaccard punishes the
-// length mismatch.
-//
-// Like ConflictConfidence it is lexical EVIDENCE only, never a judgment:
-// callers use it to decide whether to ask, not what to answer.
+// Distill uses this lexical score to route candidates into batched comparisons.
+// The smaller-set denominator keeps short statements close to longer statements
+// that contain the same vocabulary. Even a score of 1 does not establish equal
+// meaning or entailment: the longer statement can add distinct requirements.
+// This is a cost heuristic, never authority to merge or supersede facts.
 func TextOverlap(a, b string) float64 {
 	ta, tb := textTokens(a), textTokens(b)
 	if len(ta) == 0 || len(tb) == 0 {

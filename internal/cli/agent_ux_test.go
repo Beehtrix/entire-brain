@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -23,8 +24,11 @@ func indexFixtureBrain(t *testing.T, snapshot string) (string, string, Options) 
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	source := mustSemanticSource(t, env)
-	storePath := filepath.Join(brainDir, filepath.FromSlash(source.StorePath))
+	m, err := loadGraphManifest(context.Background(), opts, repoDir, brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storePath := m.Sources.Semantic.StorePath
 	return brainDir, storePath, opts
 }
 
@@ -179,8 +183,8 @@ func TestInspectCodeEmptyResultsEmitArrayNotNull(t *testing.T) {
 }
 
 func TestInspectImpactSurfacesNeighborsBeyondRoots(t *testing.T) {
-	brainDir, _, _ := indexFixtureBrain(t, semanticFixtureSnapshotWithCallerSymbol())
-	source, err := loadBrainManifest(brainDir)
+	brainDir, _, opts := indexFixtureBrain(t, semanticFixtureSnapshotWithCallerSymbol())
+	source, err := loadGraphManifest(context.Background(), opts, opts.Env.RepoRoot, brainDir)
 	if err != nil {
 		t.Fatalf("manifest: %v", err)
 	}

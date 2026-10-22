@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // semanticStreamLeanHeader is a minimal streaming header: identity fields only,
@@ -291,201 +288,6 @@ func TestStreamSemanticSnapshotReportsProviderFailureAfterPartialOutput(t *testi
 	}
 }
 
-func TestSemanticIndexUsesSummaryMetadataOverLeanHeader(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
-	cmd := &cobra.Command{Use: "index"}
-
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{
-		Version: "test",
-		Env:     env,
-		Runner:  runner,
-		Now:     time.Now,
-	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-
-	source := mustSemanticSource(t, env)
-	if !source.SummaryPresent {
-		t.Fatal("expected SummaryPresent to be true")
-	}
-	if len(source.Languages) != 1 || source.Languages[0] != "Go" {
-		t.Fatalf("languages from summary not applied: %+v", source.Languages)
-	}
-	if !bytes.Contains(source.Completeness, []byte(`"relations"`)) {
-		t.Fatalf("completeness object from summary not applied: %s", source.Completeness)
-	}
-	if source.Profile != "default" {
-		t.Fatalf("profile from summary not applied: %q", source.Profile)
-	}
-	if len(source.RelationSet) != 1 || source.RelationSet[0] != "CALLS" {
-		t.Fatalf("relation set from summary not applied: %+v", source.RelationSet)
-	}
-	if len(source.SkippedRelationFamilies) != 1 || source.SkippedRelationFamilies[0] != "routes" {
-		t.Fatalf("skipped relation families from summary not applied: %+v", source.SkippedRelationFamilies)
-	}
-	if source.Externals != 1 {
-		t.Fatalf("external count not recorded: %d", source.Externals)
-	}
-	if !semanticWarningsContainCode(source.Warnings, "summary_warning") {
-		t.Fatalf("summary warning missing from manifest (lean header had none): %+v", source.Warnings)
-	}
-	if !semanticWarningsContainCode(source.Warnings, "provider_unknown_record_type") {
-		t.Fatalf("unknown-record warning missing from manifest: %+v", source.Warnings)
-	}
-}
-
-func TestSemanticIndexPersistsSummaryRecordInSnapshot(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
-	cmd := &cobra.Command{Use: "index"}
-
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	source := mustSemanticSource(t, env)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	snapshotPath := filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath))
-	data, err := os.ReadFile(snapshotPath)
-	if err != nil {
-		t.Fatalf("read persisted snapshot: %v", err)
-	}
-	for _, line := range strings.Split(strings.TrimRight(string(data), "\n"), "\n") {
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err != nil {
-			t.Fatalf("persisted snapshot has invalid NDJSON line: %v\n%s", err, line)
-		}
-	}
-	if !strings.Contains(string(data), `"record_type":"summary"`) {
-		t.Fatalf("persisted snapshot missing summary record:\n%s", string(data))
-	}
-}
-
-// TestSemanticRepairMergesSummaryMetadata indexes a streamed snapshot whose
-// lean header has no warnings and whose trailing summary carries one, then
-// repairs (rebuilding the SQLite store from the snapshot). The rebuilt store,
-// its metrics, and the manifest must all reflect the summary's warning — proving
-// readSemanticSnapshotSummary merges the trailing summary on the rebuild path.
-func TestSemanticRepairMergesSummaryMetadata(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
-	cmd := NewRootCommand(Options{Version: "test", Env: env, Runner: runner, Now: time.Now})
-	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatalf("load manifest: %v", err)
-	}
-	// Remove the indexed store so repair rebuilds it from the snapshot alone.
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))); err != nil {
-		t.Fatalf("remove store: %v", err)
-	}
-	if _, err := execute(t, cmd, "repair"); err != nil {
-		t.Fatalf("repair: %v", err)
-	}
-
-	repaired, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatalf("load repaired manifest: %v", err)
-	}
-	src := repaired.Sources.Semantic
-	// Manifest reflects the summary warning.
-	if !semanticWarningsContainCode(src.Warnings, "summary_warning") {
-		t.Fatalf("repaired manifest missing summary warning: %+v", src.Warnings)
-	}
-	// The rebuilt store's warnings table has the merged summary warning.
-	storePath := filepath.Join(brainDir, filepath.FromSlash(src.StorePath))
-	if got := semanticTestSQLCount(t, storePath, "warnings"); got != 1 {
-		t.Fatalf("rebuilt store warnings = %d, want 1 (summary warning merged)", got)
-	}
-	// Rebuilt metrics reflect the summary warning count.
-	metricsRaw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(src.MetricsPath)))
-	if err != nil {
-		t.Fatalf("read metrics: %v", err)
-	}
-	var metrics struct {
-		Warnings int `json:"warnings"`
-	}
-	if err := json.Unmarshal(metricsRaw, &metrics); err != nil {
-		t.Fatalf("parse metrics: %v", err)
-	}
-	if metrics.Warnings != 1 {
-		t.Fatalf("rebuilt metrics warnings = %d, want 1", metrics.Warnings)
-	}
-}
-
-// TestSemanticStaleValidatesStreamedSnapshotWithSummary confirms stale
-// validation accepts a streamed snapshot that contains external, unknown, and
-// trailing summary records.
-func TestSemanticStaleValidatesStreamedSnapshotWithSummary(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
-	opts := Options{Env: env, Runner: runner, Now: time.Now}
-	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	report, err := semanticStaleReport(cmd.Context(), opts, repoDir)
-	if err != nil {
-		t.Fatalf("stale: %v", err)
-	}
-	if axis := report.Axes["snapshot"]; axis.State != "ok" {
-		t.Fatalf("snapshot axis = %+v, want ok", axis)
-	}
-}
-
-// TestBundleRoundTripToleratesStreamedSnapshotRecords exercises bundle
-// export/import on a streamed snapshot containing external, unknown, and summary
-// records, and confirms the round-tripped store stays queryable.
-func TestBundleRoundTripToleratesStreamedSnapshotRecords(t *testing.T) {
-	repoDir := t.TempDir()
-	exportEnv := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticStreamSummaryFixture())
-	cmd := &cobra.Command{Use: "index"}
-	exportOpts := Options{Env: exportEnv, Runner: runner, Now: time.Now}
-	if err := runSemanticIndex(cmd.Context(), cmd, exportOpts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	output := filepath.Join(t.TempDir(), "brain.tar")
-	if err := runSemanticBundleExport(cmd.Context(), cmd, exportOpts, output, false); err != nil {
-		t.Fatalf("export: %v", err)
-	}
-
-	importEnv := semanticTestEnv(t, repoDir)
-	importOpts := Options{Env: importEnv, Runner: runner, Now: time.Now}
-	if err := runSemanticBundleImport(cmd.Context(), cmd, importOpts, output, bundleSHA256(t, output), false); err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	report, err := semanticStaleReport(cmd.Context(), importOpts, repoDir)
-	if err != nil {
-		t.Fatalf("stale: %v", err)
-	}
-	if report.Severity != "ok" {
-		t.Fatalf("round-trip stale report = %+v", report)
-	}
-	var queryOut bytes.Buffer
-	queryCmd := &cobra.Command{Use: "query"}
-	queryCmd.SetOut(&queryOut)
-	if err := runSemanticQuery(queryCmd.Context(), queryCmd, importOpts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
-		t.Fatalf("query round-tripped store: %v", err)
-	}
-	var query struct {
-		Results []semanticRecord `json:"results"`
-	}
-	if err := json.Unmarshal(queryOut.Bytes(), &query); err != nil {
-		t.Fatalf("decode round-trip query: %v\n%s", err, queryOut.String())
-	}
-	if len(query.Results) != 1 || query.Results[0].Name != "ValidateToken" || query.Results[0].FilePath != "internal/auth/token.go" {
-		t.Fatalf("round-trip query results = %+v\n%s", query.Results, queryOut.String())
-	}
-}
-
 // TestStreamSemanticSnapshotFailsOnTruncatedEntireGraphStream proves the
 // confirmed truncation bug: a real entire-graph snapshot always ends with a
 // terminating "summary" record, emitted unconditionally right before the
@@ -582,28 +384,6 @@ func TestStreamSemanticSnapshotWarnsOnMissingSummaryForThirdPartyProvider(t *tes
 	}
 	if !found {
 		t.Fatalf("expected a provider_summary_missing warning, got %+v", res.extraWarnings)
-	}
-}
-
-// TestSemanticIndexFailsOnTruncatedEntireGraphSnapshot is the end-to-end
-// version of the truncation test: the full `entire brain semantic index`
-// pipeline (not just the streaming layer) must reject a truncated
-// entire-graph snapshot rather than silently persisting it as complete.
-func TestSemanticIndexFailsOnTruncatedEntireGraphSnapshot(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	truncated := `{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"aaa111","tree":"tree111","capabilities":["go"],"warnings":[],"partial_failures":[]}
-{"record_type":"symbol","id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","kind":"function","name":"ValidateToken","qualified_name":"auth.ValidateToken","file_path":"internal/auth/token.go","start_line":10,"end_line":20,"signature":"func ValidateToken(token string) error","language":"Go","stable_id_version":"1"}
-{"record_type":"relation","from_id":"caller","to_id":"gh/example/repo:go:internal/auth/token.go:function:auth.ValidateToken","type":"CALLS","confidence":1}
-`
-	runner := semanticFixtureRunner(repoDir, truncated)
-	cmd := &cobra.Command{Use: "index"}
-	err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err == nil {
-		t.Fatal("expected the index command to fail on a truncated entire-graph snapshot")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "truncat") {
-		t.Fatalf("index error should mention truncation, got: %v", err)
 	}
 }
 

@@ -3,10 +3,11 @@ package cli
 import (
 	"context"
 	"errors"
-	"github.com/spf13/cobra"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
@@ -26,33 +27,14 @@ func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
 	if needed, _, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || needed {
 		t.Fatalf("legacy unchanged tree: %v %v", needed, err)
 	}
-	key := fakeCommandKey("entire", "graph", "version", "--json")
-	runner.responses[key] = fakeCommandResponse{err: errors.New("unknown graph version command")}
-	needed, warning, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire")
-	if err != nil || needed || warning == "" {
-		t.Fatalf("probe failure aborted warm reuse: %v %q %v", needed, warning, err)
+	delete(runner.graphStoreFixtures, repo+"\x00full")
+	if needed, _, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || !needed {
+		t.Fatalf("missing provider entry did not trigger refresh: %v %v", needed, err)
 	}
-	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "changed-tree\n"}
-	needed, warning, err = semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire")
-	if err != nil || !needed || warning == "" {
-		t.Fatalf("probe failure masked changed tree: %v %q %v", needed, warning, err)
-	}
-	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD^{tree}")] = fakeCommandResponse{stdout: "tree111\n"}
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, _, err := semanticRefreshNeeded(cancelled, opts, brain, repo, manifest, false, "entire"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation swallowed: %v", err)
-	}
-	runner.responses[fakeCommandKey("entire", "graph", "version", "--json")] = fakeCommandResponse{stdout: `{"identity_revision":"scope-1"}`}
-	if needed, _, err := semanticRefreshNeeded(ctx, opts, brain, repo, manifest, false, "entire"); err != nil || !needed {
-		t.Fatalf("provider upgrade ignored: %v %v", needed, err)
-	}
-	report, err := semanticStaleReport(ctx, opts, repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.Axes["provider"].State == "ok" {
-		t.Fatal("old identity reported current")
 	}
 	// Snapshot and manifest must attest the same identity even on import/readback.
 	if err := validateSemanticSourceMatchesSnapshot(&semanticSourceManifest{IdentityRevision: "scope-1"}, semanticHeader{}, semanticCounts{}); err == nil {

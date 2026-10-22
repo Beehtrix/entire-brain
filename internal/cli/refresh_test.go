@@ -133,7 +133,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("warm refresh with unsupported version probe: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "cannot verify semantic provider identity") || !strings.Contains(out, "refreshed brain:") {
+	if !strings.Contains(out, "refreshed brain:") {
 		t.Fatalf("missing warning or pipeline completion: %s", out)
 	}
 	for _, call := range runner.calls {
@@ -514,22 +514,8 @@ func TestRefreshSemanticWorktreeAliasIsSeparateFromSeedWorktree(t *testing.T) {
 		Now:    time.Now,
 	}
 	cmd := NewRootCommand(cmdOpts)
-	if _, err := execute(t, cmd, "refresh", "--worktree", "--semantic-worktree"); err != nil {
-		t.Fatalf("refresh --worktree --semantic-worktree: %v", err)
-	}
-	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
-		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
-	}
-	storage, err := repoStoragePaths(context.Background(), runner, cmdOpts.Env, repoDir)
-	if err != nil {
-		t.Fatalf("storage paths: %v", err)
-	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		t.Fatalf("load manifest: %v", err)
-	}
-	if manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Seed.WorktreeMode != "worktree" || manifest.Sources.Seed.WorktreeHash == "" {
-		t.Fatalf("seed was not refreshed from a verifiable worktree snapshot: %+v", manifest.Sources)
+	if _, err := execute(t, cmd, "refresh", "--worktree", "--semantic-worktree"); err == nil || !strings.Contains(err.Error(), "committed HEAD") {
+		t.Fatalf("working-tree persistent index should direct users to Graph queries: %v", err)
 	}
 }
 
@@ -557,7 +543,7 @@ func TestRefreshWorktreeSkipsImplicitSemanticRebuild(t *testing.T) {
 		t.Fatalf("refresh --worktree: %v", err)
 	}
 	for _, call := range runner.calls {
-		if call.name == "entire" && len(call.args) >= 2 && call.args[0] == "graph" {
+		if call.name == "entire" && len(call.args) >= 2 && call.args[0] == "graph" && call.args[1] == "index" {
 			t.Fatalf("seed/docs --worktree unexpectedly rebuilt semantic index: %+v", runner.calls)
 		}
 	}

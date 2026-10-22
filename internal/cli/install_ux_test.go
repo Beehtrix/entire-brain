@@ -333,26 +333,18 @@ func TestSemanticIndexProceedsWhenOnlyEntireAuthoredConfigIsDirty(t *testing.T) 
 	}
 }
 
-// TestSemanticIndexRefusalNamesOffendingPaths keeps the semantic gate honest
-// about real source, and shows the reader which file it means.
-func TestSemanticIndexRefusalNamesOffendingPaths(t *testing.T) {
+// Graph's persistent index always describes HEAD, including in a dirty checkout.
+func TestSemanticIndexUsesHEADWhenSourceIsDirty(t *testing.T) {
 	t.Parallel()
 	repoDir := t.TempDir()
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? AGENTS.md\n M internal/auth/token.go\n"}
-	cmd := &cobra.Command{Use: "index"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n"}
 	opts := Options{Env: semanticTestEnv(t, repoDir), Runner: runner, Now: time.Now}
-	err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err == nil {
-		t.Fatal("semantic index accepted an uncommitted source file")
+	if err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{}, repoDir); err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{dirtyWorktreeErrorCode + ":", "internal/auth/token.go", "--worktree", "commit or stash"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("semantic refusal does not mention %q: %v", want, err)
-		}
-	}
-	if strings.Contains(err.Error(), "AGENTS.md") {
-		t.Fatalf("refusal blamed Entire's own config: %v", err)
+	if !fakeRunnerCalled(runner, "entire", "graph", "index", "--repo", repoDir, "--head", "--profile", "full", "--format", "json") {
+		t.Fatal("persistent graph did not use committed HEAD")
 	}
 }
 

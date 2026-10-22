@@ -259,11 +259,7 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest := mustSemanticSource(t, env)
-	storePath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", filepath.FromSlash(manifest.StorePath))
-	if err := os.Remove(storePath); err != nil {
-		t.Fatalf("remove store: %v", err)
-	}
+	delete(runner.graphStoreFixtures, repoDir+"\x00full")
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
@@ -274,14 +270,14 @@ func TestWorkspaceRefreshReportsRepoSemanticFreshness(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace refresh: %v", err)
 	}
-	if !strings.Contains(out, "gh/example/repo unsafe") {
+	if !strings.Contains(out, "gh/example/repo degraded") {
 		t.Fatalf("refresh output = %q", out)
 	}
 	contextOut, err := execute(t, cmd, "workspace", "inspect", "context", "payments-platform", "ValidateToken", "--json")
 	if err != nil {
 		t.Fatalf("workspace context: %v", err)
 	}
-	if !strings.Contains(contextOut, `"state": "unsafe"`) {
+	if !strings.Contains(contextOut, `"state": "degraded"`) {
 		t.Fatalf("context output missing freshness:\n%s", contextOut)
 	}
 }
@@ -587,19 +583,10 @@ func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
 	keyA := testLocalRepoStorageKey(t, repoA)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoA, keyA, "HandleA")
 
-	// Pin a degraded completeness/trust on the repo's semantic manifest so the
-	// workspace graph result is asserted to carry per-repo trust diagnostics.
-	brainDirA := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(keyA))
-	manifestA, err := loadBrainManifest(brainDirA)
-	if err != nil {
-		t.Fatalf("load manifest: %v", err)
-	}
-	manifestA.Sources.Semantic.CompletenessLevel = "degraded"
-	manifestA.Sources.Semantic.Trust = "partial"
-	manifestA.Sources.Semantic.LanguageTiers = map[string]string{"Go": "semantic"}
-	if err := writeBrainManifestAndReadme(brainDirA, *manifestA); err != nil {
-		t.Fatalf("write manifest: %v", err)
-	}
+	d := runner.graphStoreFixtures[repoA+"\x00full"]
+	d.Header.Stats = json.RawMessage(`{"completeness_level":"degraded"}`)
+	d.Header.LanguageTiers = map[string]string{"Go": "semantic"}
+	runner.graphStoreFixtures[repoA+"\x00full"] = d
 
 	manifest := workspaceManifest{
 		SchemaVersion: workspaceSchemaVersion,

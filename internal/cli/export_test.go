@@ -13,6 +13,7 @@ import (
 )
 
 type fakeCommandRunner struct {
+	graphStoreFixtures  map[string]graphStoreDescriptor
 	responses           map[string]fakeCommandResponse
 	sequences           map[string][]fakeCommandResponse
 	semanticSnapshotAny *fakeCommandResponse
@@ -76,6 +77,9 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 
 	response, ok := r.responses[key]
 	if !ok {
+		if response, handled := r.fakeGraphStoreCommand(dir, name, args); handled {
+			return []byte(response.stdout), []byte(response.stderr), response.err
+		}
 		if r.semanticSnapshotAny != nil && fakeCommandIsSemanticSnapshotAnyRepo(name, args) {
 			response := *r.semanticSnapshotAny
 			return []byte(response.stdout), []byte(response.stderr), response.err

@@ -38,7 +38,8 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := mustSemanticSource(t, env)
+	descriptor := runner.graphStoreFixtures[repo+"\x00full"]
+	source := graphStoreSource(descriptor, dir)
 	db, err := sql.Open(sqliteDriverName, filepath.Join(t.TempDir(), "corpus.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -92,17 +93,8 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if got := read(); !reflect.DeepEqual(first, got) {
 		t.Fatalf("rebuild changed membership: %v -> %v", first, got)
 	}
-	// The snapshot path must provide the same usable symbol identities as SQLite.
-	withoutStore := *source
-	withoutStore.StorePath = ""
-	withoutStore.GenerationPath = ""
-	if err := linkEpisodeSymbols(db, dir, &withoutStore); err != nil {
-		t.Fatal(err)
-	}
-	if got := read(); !reflect.DeepEqual(first, got) {
-		t.Fatalf("snapshot/store differ: %v -> %v", first, got)
-	}
-	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(source.StorePath)), []byte("corrupt store"), 0o600); err != nil {
+	// There is no retained snapshot fallback when Graph's store is unreadable.
+	if err := os.WriteFile(descriptor.Path, []byte("corrupt store"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := linkEpisodeSymbols(db, dir, source); err != nil {

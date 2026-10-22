@@ -54,7 +54,7 @@ func TestSemanticBenchRootRoutesJSONTextProgressAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json bench: %v\n%s", err, out)
 	}
-	for _, phase := range []string{"preparing isolated store", "verifying provider", "parsing sources", "building store"} {
+	for _, phase := range []string{"preparing isolated store", "building Graph-owned store"} {
 		if !strings.Contains(progress, "semantic bench: "+phase) {
 			t.Fatalf("progress omitted %q:\n%s", phase, progress)
 		}

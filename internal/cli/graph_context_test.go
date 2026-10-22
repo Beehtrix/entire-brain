@@ -79,11 +79,10 @@ func TestBrainBriefDelegatesSemanticContextToGraphStore(t *testing.T) {
 	}
 }
 
-// TestBrainBriefFallsBackWhenGraphStoreUnavailable pins the degradation
+// TestBrainBriefUsesGraphProjectionWhenContextUnavailable pins the degradation
 // contract: store_unavailable (and equally a missing or too-old plugin) must
-// leave the brief exactly as it was before delegation existed — internal
-// semantic section, no source marker, no new warnings.
-func TestBrainBriefFallsBackWhenGraphStoreUnavailable(t *testing.T) {
+// use the Graph-owned read-only projection when native context is unavailable.
+func TestBrainBriefUsesGraphProjectionWhenContextUnavailable(t *testing.T) {
 	fixture := newBrainBriefSemanticFreshnessFixture(t)
 	runner := fixture.opts.Runner.(*fakeCommandRunner)
 	runner.responses[graphContextCommandKey(fixture.repoDir)] = fakeCommandResponse{
@@ -117,15 +116,18 @@ func TestBrainBriefFallsBackWhenGraphStoreEmpty(t *testing.T) {
 
 // TestBrainBriefFallsBackWhenGraphPluginAbsent covers the user-required
 // no-graph degradation: the unscripted command errors like a machine without
-// the plugin, and the brief serves the internal path without complaint.
+// the plugin, and the brief continues without code context.
 func TestBrainBriefFallsBackWhenGraphPluginAbsent(t *testing.T) {
 	fixture := newBrainBriefSemanticFreshnessFixture(t)
+	fixture.opts.Runner.(*fakeCommandRunner).graphStoreFixtures = nil
 
 	report := runGraphContextBriefJSON(t, fixture)
 	if report.Semantic.Source != "" {
 		t.Fatalf("semantic source = %q, want internal (empty)", report.Semantic.Source)
 	}
-	assertInternalSemanticServed(t, report)
+	if len(report.Semantic.Context.Symbols) != 0 || len(report.Semantic.Tests.Suggestions) != 0 {
+		t.Fatal("code context survived absent Graph")
+	}
 	for _, warning := range report.Warnings {
 		if strings.Contains(warning, "graph context") {
 			t.Fatalf("plugin absence must degrade silently, got warning %q", warning)

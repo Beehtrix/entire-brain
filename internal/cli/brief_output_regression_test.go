@@ -217,11 +217,8 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed semantic store degrades with public warnings", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		manifest, err := loadBrainManifest(fixture.brainDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		store := filepath.Join(fixture.brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
+		d := fixture.opts.Runner.(*fakeCommandRunner).graphStoreFixtures[fixture.repoDir+"\x00full"]
+		store := d.Path
 		if err := os.WriteFile(store, []byte("not sqlite"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -278,14 +275,14 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatalf("invalid budget: %v\n%s", err, out)
 		}
 	})
-	t.Run("stale semantic input is explicit", func(t *testing.T) {
+	t.Run("uncommitted code is explicit", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
 		fixture.opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "bbb222\n"}
 		out, err := execute(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json", "--limit", "3")
 		if err != nil {
 			t.Fatalf("stale brief: %v\n%s", err, out)
 		}
-		if !strings.Contains(out, `"severity": "unsafe"`) || !strings.Contains(out, `"state": "stale"`) {
+		if !strings.Contains(out, `"state": "dirty-unindexed"`) {
 			t.Fatalf("stale input not explicit: %s", out)
 		}
 	})

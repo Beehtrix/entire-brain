@@ -23,6 +23,9 @@ func statusSemanticDetail(t *testing.T, opts Options, repoDir string) brainStatu
 		t.Fatalf("status report: %v", err)
 	}
 	populateBrainStatusSemanticSummary(context.Background(), opts, &report)
+	if report.Semantic == nil || report.Semantic.Freshness == nil {
+		t.Fatal("missing Graph semantic assessment")
+	}
 	coverage, err := semanticAuditStoreCoverage(report.Brain.Path, report.Manifest.Sources.Semantic, *report.Semantic.Freshness)
 	if err != nil {
 		t.Fatal(err)
@@ -108,6 +111,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 			}},
 		}},
 	}
+	registerStatusGraphFixture(t, runner, repoDir, storePath, manifest.Sources.Semantic)
 	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +149,8 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	if sem.Coverage.Symbols != 3 || sem.Coverage.Relations != 2 || sem.Coverage.Files != 3 {
 		t.Fatalf("counts missing from semantic coverage: %+v", sem.Coverage)
 	}
-	if sem.Freshness == nil || sem.Freshness.Severity != "unsafe" || sem.Freshness.Axes["snapshot"].State != "unsafe" {
-		t.Fatalf("freshness should report unsafe missing snapshot, got %+v", sem.Freshness)
+	if sem.Freshness == nil || sem.Freshness.Severity != "ok" || sem.Freshness.Axes["graph"].State != "ok" {
+		t.Fatalf("freshness should report the current Graph store, got %+v", sem.Freshness)
 	}
 	if len(sem.BlindSpots) != 1 || sem.BlindSpots[0].Path != "src/broken.ts" {
 		t.Fatalf("blind spots missing: %+v", sem.BlindSpots)
@@ -307,6 +311,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 			PartialFailures:  partialFailures,
 		}},
 	}
+	registerStatusGraphFixture(t, runner, repoDir, filepath.Join(t.TempDir(), "graph.sqlite"), manifest.Sources.Semantic)
 	if err := writeBrainManifestAndReadme(storage.BrainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -432,6 +437,18 @@ func TestBrainStatusReleaseFreshnessRequiresSemanticAssessment(t *testing.T) {
 
 func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	opts := statusGateFixtureOptions(t, t.TempDir(), nil)
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, opts.Env.RepoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := loadBrainManifest(storage.BrainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Sources.Seed = &seedSourceManifest{Commit: "oldsha", WorktreeMode: "tracked"}
+	if err := writeBrainManifestAndReadme(storage.BrainDir, *m); err != nil {
+		t.Fatal(err)
+	}
 	for _, failOn := range []string{"unsafe", "release"} {
 		t.Run(failOn, func(t *testing.T) {
 			cmd := NewRootCommand(opts)
@@ -549,15 +566,44 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report := statusSemanticDetail(t, opts, repoDir)
-	sem := report.Semantic
-	if sem == nil || sem.Freshness == nil {
-		t.Fatalf("semantic section missing: %+v", report)
+	report, err := buildBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if axis := sem.Freshness.Axes["store"]; axis.State != "unsafe" {
-		t.Fatalf("store axis should be unsafe for outside-generation path: %+v", axis)
+	if report.Semantic != nil {
+		t.Fatalf("legacy store should not be used without Graph: %+v", report.Semantic)
 	}
-	if c := sem.Coverage; c == nil || len(c.FileLanguages) != 0 || len(c.Languages) != 0 || len(c.RelationTypes) != 0 {
-		t.Fatalf("unsafe store should not be opened for coverage: %+v", c)
+}
+
+// Register a provider-owned projection for status fixtures. The manifest remains
+// intentionally legacy: status must resolve live metadata from Graph instead.
+func registerStatusGraphFixture(t *testing.T, runner *fakeCommandRunner, repo, path string, s *semanticSourceManifest) {
+	t.Helper()
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer db.Close()
+	var existing int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE name='symbols'").Scan(&existing); err != nil {
+		t.Fatal(err)
+	}
+	if existing == 0 {
+		if err := initializeSemanticSQLite(db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"symbols", "relations", "files", "reverse_relations", "symbol_fts"} {
+		if _, err := db.Exec("CREATE VIEW brain_" + name + "_v1 AS SELECT * FROM " + name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO meta(key,value) VALUES('entry_digest','"status"')`); err != nil {
+		t.Fatal(err)
+	}
+	d := graphStoreDescriptor{ContractVersion: 1, Path: path, EntryDigest: "status", Commit: s.Commit, Tree: "tree", Files: s.Files, Symbols: s.Symbols, Relations: s.Relations, Header: semanticHeader{Provider: "entire-graph", ProviderVersion: s.ProviderVersion, SchemaVersion: s.SchemaVersion, Warnings: s.Warnings, PartialFailures: s.PartialFailures}}
+	if runner.graphStoreFixtures == nil {
+		runner.graphStoreFixtures = map[string]graphStoreDescriptor{}
+	}
+	runner.graphStoreFixtures[repo+"\x00full"] = d
 }

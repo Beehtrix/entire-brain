@@ -569,7 +569,12 @@ func buildPatternCorpusLocked(brainDir string, now time.Time) error {
 	// rebuild candidate patterns, then materialize the synapse explanation graph.
 	var sem *semanticSourceManifest
 	if manifest.Sources != nil {
-		sem = manifest.Sources.Semantic
+		recorded := manifest.Sources.Semantic
+		if recorded != nil && recorded.StoreOwner == "graph" && recorded.GraphRepoRoot != "" {
+			if d, err := fetchGraphStore(context.Background(), Options{Runner: ExecRunner{}}, recorded.GraphRepoRoot, "", recorded.Profile); err == nil && semanticRepoKeyEqual(d.Header.RepoKey, manifest.RepoKey) {
+				sem = graphStoreSource(d, brainDir)
+			}
+		}
 	}
 	if err := linkEpisodeSymbols(db, brainDir, sem); err != nil {
 		return err

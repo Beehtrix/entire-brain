@@ -34,7 +34,7 @@ func TestSemanticRuntimeTraceFactsPreserveMatchEvidenceAndRanking(t *testing.T) 
 		t.Fatalf("ingest report = %+v", report)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := loadGraphManifest(cmd.Context(), opts, opts.Env.RepoRoot, brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Semantic == nil {
 		t.Fatalf("semantic manifest: %+v err=%v", manifest.Sources, err)
 	}

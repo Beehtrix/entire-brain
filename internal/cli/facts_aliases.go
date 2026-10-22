@@ -62,6 +62,10 @@ func upsertFact(records []factRecord, incoming factRecord) []factRecord {
 	return factmerge.Upsert(records, incoming)
 }
 
+func dedupFactRecords(records []factRecord) ([]factRecord, int) {
+	return factmerge.DedupByID(records)
+}
+
 func sortFactRecords(records []factRecord) { factmerge.Sort(records) }
 
 func indexOfFact(records []factRecord, id string) int { return factmerge.IndexOf(records, id) }

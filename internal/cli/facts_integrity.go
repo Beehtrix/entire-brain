@@ -289,7 +289,7 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 		report.Mode = factStoreDefectUnreadable
 		return report
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byFile, err := loadFactStoreFiles(brainDir)
 	if err != nil {
 		report.ParseError = err.Error()
 		for _, broken := range unreadableFactBranchStores(brainDir, source) {
@@ -299,12 +299,15 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 		return report
 	}
 	duplicated := map[string]struct{}{}
-	for _, records := range byBranch {
-		// One `seen` per branch, never one for the whole brain: see the file
-		// header on why a brain-wide id set would fire on every `facts
-		// promote`. byBranch is keyed by the branch recorded ON each record,
-		// which is what every writer sets to the store it writes into, so this
-		// is the same set `loadFacts` hands to recall for that branch.
+	for _, records := range byFile {
+		// One `seen` per store FILE, never one for the whole brain: a file is
+		// the set `loadFacts` hands to recall, so a repeat within one file is
+		// the only shape that shadows a memory. The same id across files is
+		// ordinary: `facts promote` copies a record into another branch's
+		// store, and the hosted pull mirrors the repo feed into the current
+		// branch's store. Bucketing by the branch recorded on each record
+		// conflated those mirrors into one bucket and reported them as
+		// corruption (COR-2220).
 		seen := make(map[string]struct{}, len(records))
 		for _, record := range records {
 			if !isFactRecord(record) {

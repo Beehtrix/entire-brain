@@ -27,6 +27,29 @@ func Sort(records []Record) {
 // text and paths) therefore collapse for free, which is what makes re-distilling
 // a turn idempotent. It returns the updated set; the input slice may be reused.
 //
+// DedupByID collapses records that repeat an id into one record per id,
+// keeping first position and folding each repeat in through Upsert's merge
+// rules (anchor union, newest UpdatedAt, kind/author fill), so nothing a
+// duplicate carried is dropped. It returns the collapsed set and how many
+// records were folded away. An id is defined to identify exactly one record;
+// a store that violates that (e.g. after a writer concatenated two copies of
+// itself) is repaired losslessly by this pass.
+func DedupByID(records []Record) ([]Record, int) {
+	index := make(map[string]int, len(records))
+	out := make([]Record, 0, len(records))
+	folded := 0
+	for _, rec := range records {
+		if i, ok := index[rec.ID]; ok {
+			Upsert(out[i:i+1], rec)
+			folded++
+			continue
+		}
+		index[rec.ID] = len(out)
+		out = append(out, rec)
+	}
+	return out, folded
+}
+
 // Upsert deliberately does not implement merge/supersede across *different*
 // ids: that is the agent's judgment during distillation, handled separately.
 func Upsert(records []Record, incoming Record) []Record {

@@ -6,7 +6,7 @@
 #   cond3  `entire graph agent-guide` outside a repository (standalone Graph) + sessions
 #   cond4  Brain's `agent-guide --normal` inside this repository (combined Graph and Brain, normal mode,
 #          rendered by LADDER_BRAIN_BIN when set so a build under test is what the agent reads) + sessions
-#   cond5  this repository's .entire/agent-guide.md as committed (strict if init-agents --strict was run) + sessions
+#   cond5  this repository's .entire/agent-guide.md as committed (strict if setup --strict was run) + sessions
 set -eu
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 repo=$(git -C "$here" rev-parse --show-toplevel)

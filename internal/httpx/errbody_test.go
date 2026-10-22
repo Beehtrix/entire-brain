@@ -101,6 +101,34 @@ func TestErrorDetailEmptyBodyAddsNothing(t *testing.T) {
 	}
 }
 
+// A body that merely echoes the status line must not render it a second time: every
+// caller prints resp.Status beside the detail (COR-2210, "403 Forbidden: Forbidden").
+func TestErrorDetailDropsARedundantStatusEcho(t *testing.T) {
+	respWithStatus := func(status, body string) *http.Response {
+		return &http.Response{Status: status, Body: io.NopCloser(strings.NewReader(body))}
+	}
+	for _, tc := range []struct {
+		name, status, body, want string
+	}{
+		{"reason phrase alone", "403 Forbidden", "Forbidden", ""},
+		{"full status line", "403 Forbidden", "403 Forbidden", ""},
+		{"case-insensitive, via envelope", "404 Not Found", `{"title":"Not Found","detail":"not found"}`, ""},
+		{"echo with extra detail keeps the rest", "403 Forbidden", "Forbidden; pull-only", "pull-only"},
+		{"full-line echo with extra detail", "403 Forbidden", "403 Forbidden: token is pull-only", "token is pull-only"},
+		{"unrelated body survives", "403 Forbidden", "pull-only", "pull-only"},
+		{"longer word is not an echo", "403 Forbidden", "Forbiddenness", "Forbiddenness"},
+		{"empty body stays empty", "403 Forbidden", "", ""},
+		{"no status leaves the detail alone", "", "Forbidden", "Forbidden"},
+	} {
+		if got := ErrorDetail(respWithStatus(tc.status, tc.body)); got != tc.want {
+			t.Errorf("%s: ErrorDetail(%q, %q) = %q; want %q", tc.name, tc.status, tc.body, got, tc.want)
+		}
+	}
+	if got := ErrorSuffix(respWithStatus("403 Forbidden", "Forbidden")); got != "" {
+		t.Errorf("ErrorSuffix(echo) = %q; want no dangling separator", got)
+	}
+}
+
 // The read is capped, so a server streaming forever cannot be used to exhaust the
 // client's memory through its own error path.
 func TestErrorDetailReadIsCapped(t *testing.T) {

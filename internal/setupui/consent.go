@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // consent.go is phase 4's gate. Distilling sessions into durable facts is the
@@ -185,11 +187,14 @@ func writePrompt(out io.Writer, r *Renderer, req ConsentRequest) int {
 			verb = "remains"
 		}
 		count := 0
-		for _, text := range []string{
+		for i, text := range []string{
 			fmt.Sprintf("%s %s. Distill up to %d now?", plural(pool, "session"), verb, req.Sessions),
 			agent + bullet + "uses agent tokens",
 		} {
 			for _, line := range r.Wrap(text) {
+				if i > 0 {
+					line = r.TUI().Paint(tui.CLIMuted, line)
+				}
 				fmt.Fprintf(out, "  %s\n", line)
 				count++
 			}

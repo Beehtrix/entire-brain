@@ -146,8 +146,8 @@ func (rep TerseReport) command() string {
 // below to report each result as soon as its phase finishes.
 func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 	brainCmd := rep.command()
-	ok := r.MarkGlyph(tui.MarkDone)
-	skip := r.MarkGlyph(tui.MarkSkipped)
+	ok := terseMark(r, tui.MarkDone)
+	skip := terseMark(r, tui.MarkSkipped)
 
 	if rep.UpToDate {
 		fmt.Fprintln(w)
@@ -176,6 +176,9 @@ func RenderTerse(w io.Writer, r *Renderer, rep TerseReport) {
 func RenderTerseIntro(w io.Writer, r *Renderer) {
 	fmt.Fprintln(w)
 	for _, line := range r.Wrap("Brain turns this repo's history and past AI sessions into memories your agents recall while they work.") {
+		if strings.HasPrefix(line, "Brain ") {
+			line = r.TUI().Bold(r.TUI().Paint(tui.CLIAccent, "Brain")) + strings.TrimPrefix(line, "Brain")
+		}
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w)
@@ -184,12 +187,12 @@ func RenderTerseIntro(w io.Writer, r *Renderer) {
 // RenderTerseBuild reports the completed build and any unavailable capabilities.
 func RenderTerseBuild(w io.Writer, r *Renderer, rep TerseReport) {
 	brainCmd := rep.command()
-	skip := r.MarkGlyph(tui.MarkSkipped)
+	skip := terseMark(r, tui.MarkSkipped)
 	built := fmt.Sprintf("Brain built — queryable now (%s)", roundTerse(rep.Elapsed))
 	if !rep.Queryable {
 		built = "Brain could not be built"
 	}
-	fmt.Fprintf(w, "  %s %s\n", markFor(r, rep.Queryable), built)
+	fmt.Fprintf(w, "  %s %s\n", markFor(r, rep.Queryable), terseDetail(r, built))
 
 	// A degraded build gets ONE line naming the capability in plain words and
 	// the command that restores it -- not the provider's error text, which is
@@ -211,14 +214,14 @@ func RenderTerseBuild(w io.Writer, r *Renderer, rep TerseReport) {
 // RenderTerseDistill reports the outcome of starting or skipping the backfill.
 func RenderTerseDistill(w io.Writer, r *Renderer, rep TerseReport) {
 	if line, mark := rep.distillLine(rep.command()); line != "" {
-		fmt.Fprintf(w, "  %s %s\n", r.MarkGlyph(mark), line)
+		fmt.Fprintf(w, "  %s %s\n", terseMark(r, mark), terseDetail(r, line))
 	}
 }
 
 // RenderTerseWatcher reports the outcome of installing or skipping the watcher.
 func RenderTerseWatcher(w io.Writer, r *Renderer, rep TerseReport) {
 	if line, mark := rep.watcherLine(); line != "" {
-		fmt.Fprintf(w, "  %s %s\n", r.MarkGlyph(mark), line)
+		fmt.Fprintf(w, "  %s %s\n", terseMark(r, mark), terseDetail(r, line))
 	}
 }
 
@@ -327,9 +330,9 @@ func (rep TerseReport) watcherLine() (string, tui.Mark) {
 // are the ones the rest of this package already agreed on.
 func markFor(r *Renderer, ok bool) string {
 	if ok {
-		return r.MarkGlyph(tui.MarkDone)
+		return terseMark(r, tui.MarkDone)
 	}
-	return r.MarkGlyph(tui.MarkFailed)
+	return terseMark(r, tui.MarkFailed)
 }
 
 // roundTerse renders a duration the way a person would say it.
@@ -344,4 +347,25 @@ func roundTerse(d time.Duration) string {
 	default:
 		return d.Round(time.Second).String()
 	}
+}
+
+// Paint after composing text so styling cannot affect wrapping or wording.
+func terseMark(r *Renderer, mark tui.Mark) string {
+	color := tui.CLIMuted
+	switch mark {
+	case tui.MarkDone:
+		color = tui.CLISuccess
+	case tui.MarkFailed:
+		color = tui.CLIError
+	}
+	return r.TUI().Paint(color, r.MarkGlyph(mark))
+}
+
+func terseDetail(r *Renderer, text string) string {
+	for _, separator := range []string{" — ", " (watch:", " ("} {
+		if i := strings.Index(text, separator); i >= 0 {
+			return text[:i] + r.TUI().Paint(tui.CLIMuted, text[i:])
+		}
+	}
+	return text
 }

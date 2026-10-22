@@ -229,3 +229,29 @@ func TestTerseDistillLineSaysQueuedOfPool(t *testing.T) {
 		t.Fatalf("uncapped backfill lost its plain count:\n%s", out)
 	}
 }
+
+func TestTerseUsesGraphPaletteAndHonorsNoColor(t *testing.T) {
+	for _, color := range []bool{true, false} {
+		var out bytes.Buffer
+		r := rendererFor(tui.Caps{TTY: true, Color: color, Unicode: true, Width: 160}, 160)
+		RenderTerse(&out, r, TerseReport{Queryable: true, Elapsed: time.Second, Distill: DistillFailed, Watcher: WatcherSkippedFlag})
+		got := out.String()
+		if !color {
+			if strings.Contains(got, "\x1b[") {
+				t.Fatalf("NO_COLOR output contains styling: %q", got)
+			}
+			continue
+		}
+		for _, want := range []string{
+			"\x1b[38;5;5mBrain\x1b[0m",
+			"\x1b[38;5;2m✓\x1b[0m Brain built",
+			"\x1b[38;5;8m — queryable now (1s)\x1b[0m",
+			"\x1b[38;5;1m✗\x1b[0m Distillation did not start",
+			"\x1b[38;5;8m−\x1b[0m Watcher not installed",
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing Graph palette fragment %q in %q", want, got)
+			}
+		}
+	}
+}

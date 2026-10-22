@@ -652,6 +652,18 @@ func (t *refreshProgressTask) liveLine() string {
 			limit = 0
 		}
 	}
+	if !startedAt.IsZero() {
+		// Short setup uses the Entire CLI/Graph palette: accent spinner,
+		// terminal-default task text, and muted detail and elapsed time.
+		text := render.TruncateTo(label, limit)
+		for _, separator := range []string{" " + render.Dash() + " ", " ("} {
+			if i := strings.Index(text, separator); i >= 0 {
+				text = text[:i] + render.Paint(tui.CLIMuted, text[i:])
+				break
+			}
+		}
+		return indent + render.Bold(render.Paint(tui.CLIAccent, spinner)) + " " + text
+	}
 	parts := []string{render.PhasePaint(phase, spinner)}
 	if gauge != "" {
 		parts = append(parts, gauge)

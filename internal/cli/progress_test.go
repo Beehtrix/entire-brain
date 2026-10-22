@@ -297,8 +297,12 @@ func TestProgressTimedLineIncludesElapsedTimeWithinWidth(t *testing.T) {
 		caps.Width = width
 		p := newTestProgress(t, &out, caps)
 		task := p.beginPhase("Building Brain — indexing code…", tui.PhaseInstant, time.Now().Add(-12*time.Second))
-		line := stripANSI(task.liveLine())
+		painted := task.liveLine()
+		line := stripANSI(painted)
 		task.Abandon()
+		if !strings.Contains(painted, "\x1b[38;5;5m") || !strings.Contains(painted, " Building Brain\x1b[38;5;8m — ") {
+			t.Fatalf("expected Graph accent spinner, neutral task and muted detail: %q", painted)
+		}
 		if runewidth.StringWidth(line) >= width {
 			t.Fatalf("timed line would wrap at width %d: %q", width, line)
 		}

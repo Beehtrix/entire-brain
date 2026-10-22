@@ -14,6 +14,13 @@ const (
 	StatusActive     = "active"
 	StatusSuperseded = "superseded"
 	StatusRetracted  = "retracted"
+	// StatusCandidate is a fact extracted by distill but not yet reconciled
+	// against the active set, or awaiting explicit review. Candidates are durable (a crashed run resumes
+	// them) but invisible to every consumer that selects StatusActive —
+	// recall, sync, promote — so nothing unreconciled ever publishes. The
+	// reconcile pass publishes explicit new decisions; destructive decisions
+	// stay staged until review. GC retains candidates.
+	StatusCandidate = "candidate"
 )
 
 // Record is one durable, self-contained statement. The id is content
@@ -32,7 +39,7 @@ type Record struct {
 	// outside merge/sort semantics: two records differing only in Author are
 	// the same fact.
 	Author       string    `json:"author,omitempty"`
-	Status       string    `json:"status"` // "active" | "superseded" | "retracted"
+	Status       string    `json:"status"` // "active" | "candidate" | "superseded" | "retracted"
 	Confidence   string    `json:"confidence,omitempty"`
 	Provenance   []Anchor  `json:"provenance"` // >=1; retained source/authored anchors
 	RelatedIDs   []string  `json:"related_ids,omitempty"`

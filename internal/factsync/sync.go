@@ -166,7 +166,7 @@ func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, loca
 // state is a no-op.
 func applyLocalRetirements(local, merged []factmerge.Record, now time.Time) []factmerge.Record {
 	for _, l := range local {
-		if l.Status == "" || l.Status == factmerge.StatusActive {
+		if l.Status != factmerge.StatusRetracted && l.Status != factmerge.StatusSuperseded {
 			continue
 		}
 		i := factmerge.IndexOf(merged, l.ID)

@@ -7,36 +7,16 @@ import (
 	"time"
 )
 
-// The staged-candidate reconcile pass (COR-2184).
+// Extraction durably stages candidates; this pass batches related candidates
+// across sessions and applies results in deterministic order. Only explicit new
+// decisions and candidates outside the lexical prefilter publish automatically.
+// Every non-identical merge/supersede needs human review, regardless of model
+// confidence. Failed decisions remain staged for a later retry.
 //
-// Extraction stores its facts with factStatusCandidate and never consults the
-// agent; this pass, at the end of the same distill invocation, adjudicates
-// every staged candidate on the branch in similarity clusters instead of one
-// agent call per chunk. Candidates with no statement lexically close enough
-// for merge/supersede to be plausible promote straight to active; the rest
-// cluster, and each cluster gets batched agent calls that see all of its
-// near-duplicates together. Clusters are disjoint by construction, so their
-// agent calls run concurrently; every ruling is applied afterwards in one
-// deterministic order, so a --force replay reconstructs the identical store.
-//
-// The pass operates on ALL candidate-status facts, not just this run's: a run
-// that dies after extraction leaves its candidates staged (and therefore
-// unpublished — every consumer selects active), and the next invocation
-// reconciles them before anything new. Nothing is re-extracted and nothing
-// unreconciled ever publishes.
-
-// reconcileFlagThreshold is the factmerge.TextOverlap score at or above which
-// a candidate is close enough to another statement that the agent must rule.
-// Calibrated against a recorded real-agent run (COR-2184, 2026-10-20): every
-// hand-verified genuine merge/supersede pair scored >= 0.24 and every
-// hallucinated pairing < 0.20, so this threshold kept 100% of genuine rulings
-// while blocking most of the judge's destructive mistakes. Candidates below it
-// are promoted as new without an agent call — the safe direction: a missed
-// merge is a reviewable duplicate, never a lost fact.
-//
-// Deliberately NOT part of the distill cache salt: it only gates how NEW
-// candidates are adjudicated; sessions already distilled were reconciled under
-// whatever rules held then, and their facts are final either way.
+// The lexical prefilter is a cost heuristic, not an equivalence or contradiction
+// test. It may miss paraphrases; its shortcut preserves text instead of deleting
+// or superseding an existing statement. Semantic accuracy is tracked separately
+// in COR-2215.
 const reconcileFlagThreshold = 0.20
 
 // reconcileBatchStats is what the pass reports up to the distill summary, so
@@ -51,15 +31,16 @@ type reconcileBatchStats struct {
 // reconcileStagedCandidates adjudicates the branch's candidate-status facts
 // and returns the updated fact set, queued proposals, stats, and warnings.
 // A branch with no candidates is returned unchanged at zero cost.
-func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, facts []factRecord, repoDir string, timeout time.Duration, concurrency int, confidenceThreshold float64, newestFirst bool, now time.Time) ([]factRecord, []factProposal, reconcileBatchStats, []string) {
+func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, facts []factRecord, queued []factProposal, repoDir string, timeout time.Duration, concurrency int, now time.Time) ([]factRecord, []factProposal, reconcileBatchStats, []string) {
 	var stats reconcileBatchStats
 	rest := make([]factRecord, 0, len(facts))
 	var candidates []factRecord
+	pending := make(map[string]bool, len(queued))
+	for _, p := range queued {
+		pending[p.CandidateID] = true
+	}
 	for _, f := range facts {
-		if f.Status == factStatusCandidate {
-			// Adjudicated as if freshly extracted: the staged row leaves the
-			// store and re-enters through ApplyActions, exactly like the
-			// pre-staging flow where candidates were never stored first.
+		if f.Status == factStatusCandidate && !pending[f.ID] {
 			f.Status = factStatusActive
 			candidates = append(candidates, f)
 			continue
@@ -82,28 +63,25 @@ func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agen
 	flagged, clusters, anchored := clusterFlaggedCandidates(candidates, rest)
 
 	var warnings []string
-	applyOne := func(active []factRecord, action factAction, proposals *[]factProposal) []factRecord {
-		threshold := confidenceThreshold
-		if newestFirst && action.Kind == factActionSupersede {
-			// Extraction order is not evidence that a candidate is newer. In
-			// reverse-order backfill, preserve both facts for review.
-			threshold = 2 // above every valid agent confidence
-			warnings = append(warnings, "newest-first supersession requires review; both facts retained (run facts review)")
+	applyOne := func(records []factRecord, action factAction, proposals *[]factProposal) []factRecord {
+		c := action.Candidate
+		if action.Kind == factActionNew {
+			c.Status = factStatusActive
+			return upsertFact(records, c)
 		}
-		if action.Kind == factActionMerge || action.Kind == factActionSupersede {
-			// Low lexical overlap is insufficient evidence for automatically
-			// discarding a candidate or replacing its target. Preserve both and
-			// ask for review, even when the agent reports high confidence.
-			// This is a conservative guard, not a semantic correctness test.
-			if ti := indexOfFact(active, action.TargetID); ti >= 0 &&
-				factTextOverlap(action.Candidate.Text, active[ti].Text) < reconcileFlagThreshold {
-				threshold = 2
-				warnings = append(warnings, "reconcile: "+action.Kind+" pairs lexically unrelated facts; queued for review instead of applying")
-			}
+		// Never use ApplyActions here: its fallback publishes candidates and
+		// its high-confidence path discards text. Keep the complete candidate
+		// unpublished, including when a target is missing or itself staged.
+		c.Status = factStatusCandidate
+		records = upsertFact(records, c)
+		if (action.Kind == factActionMerge || action.Kind == factActionSupersede) && action.TargetID != c.ID {
+			*proposals = append(*proposals, factProposal{
+				Action: action.Kind, CandidateID: c.ID, TargetID: action.TargetID,
+				Confidence: action.Confidence, Branch: c.Branch,
+			})
+			warnings = append(warnings, "reconcile: "+action.Kind+" requires review; candidate remains unpublished (run memories review)")
 		}
-		updated, pending := applyFactActions(active, []factAction{action}, threshold, now)
-		*proposals = append(*proposals, pending...)
-		return updated
+		return records
 	}
 
 	var proposals []factProposal
@@ -164,10 +142,9 @@ func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agen
 				// EXISTING for this wave: the branch's stored facts plus every
 				// cluster member not in the wave — the elected head and any
 				// other waves — so the agent can merge within the run.
-				// ponytail: later waves do not see earlier waves' RULINGS, only
-				// their texts; a merge chain across waves degrades to a
-				// reviewable duplicate, never a lost fact. Upgrade path: feed
-				// applied outcomes into subsequent waves' active list.
+				// Other waves are comparison context, not published facts. A
+				// proposal against a staged target must wait for that target's
+				// review before it can be applied.
 				activeArg := make([]factRecord, 0, len(rest)+len(members)-len(wave))
 				activeArg = append(activeArg, rest...)
 				inWave := make(map[string]struct{}, len(wave))
@@ -203,9 +180,8 @@ func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agen
 		if res.elected != nil {
 			rest = applyOne(rest, factAction{Kind: factActionNew, Confidence: 1.0, Candidate: *res.elected}, &proposals)
 		}
-		// New rulings land before merges/supersedes so a ruling that targets a
-		// same-cluster candidate finds it already active (ApplyActions degrades
-		// an unknown target to new, which would store the duplicate instead).
+		// Apply explicit new decisions first; destructive decisions only queue
+		// review and never change either side's text or retire a target.
 		for _, action := range res.actions {
 			if action.Kind == factActionNew {
 				rest = applyOne(rest, action, &proposals)

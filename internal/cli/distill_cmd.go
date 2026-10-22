@@ -741,7 +741,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.json, "json", false, "Emit the memory source summary as JSON")
 	cmd.Flags().StringVar(&distillOpts.agent, "agent", "auto", "Distillation agent: auto, codex, claude-code, ollama, or command")
 	cmd.Flags().StringArrayVar(&distillOpts.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
-	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Minimum agent confidence to auto-apply a merge/supersede; below this it is queued for review")
+	cmd.Flags().Float64Var(&distillOpts.confidenceThreshold, "confidence", defaultFactConfidenceThreshold, "Legacy confidence setting; all non-identical merges/supersedes now require review")
 	cmd.Flags().StringVar(&distillOpts.model, "model", "", "Override the agent model for codex/claude-code, or select the local Ollama model")
 	cmd.Flags().StringVar(&distillOpts.effort, "effort", "", "Override the reasoning effort for codex/claude-code (e.g. low) — pairs with --model for a cheap run")
 	cmd.Flags().BoolVar(&distillOpts.dryRun, "dry-run", false, "Estimate distill work without calling an agent or writing memories")
@@ -1015,6 +1015,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	byBranch := map[string][]factRecord{}
 	baselineByBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
+	queuedByBranch := map[string][]factProposal{}
 	loaded := map[string]bool{}
 	// dirtyBranches tracks branches whose in-memory facts/proposals have
 	// diverged from disk since the last successful flush, so a flush rewrites
@@ -1090,6 +1091,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		baselineByBranch[branch] = cloneDistillFacts(existing)
 		if distillOpts.force {
+			// Rebuilding extraction must not erase either side of a pending review.
+			reviewIDs := map[string]bool{}
+			for _, p := range append(append([]factProposal(nil), queuedByBranch[branch]...), proposalsByBranch[branch]...) {
+				reviewIDs[p.CandidateID], reviewIDs[p.TargetID] = true, true
+			}
 			kept := existing[:0]
 			for _, record := range existing {
 				// A force rebuild drops the distilled facts it is about to
@@ -1102,7 +1108,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				// candidate has the same content-derived id, so upsertFact lands on
 				// the tombstone and leaves its status alone, and a supersede the
 				// rebuild does replay re-marks it identically.
-				if record.Origin != factOriginDistilled || record.Status != factStatusActive {
+				if record.Origin != factOriginDistilled || record.Status != factStatusActive || reviewIDs[record.ID] {
 					kept = append(kept, record)
 				}
 			}
@@ -1131,6 +1137,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// would make a plain rerun after a kill skip those sessions forever — their
 	// facts silently lost. A force run therefore writes newCache only, and an
 	// interrupted force run re-distills the sessions it never reached.
+	resumeOnly := true
 	flushFactStoresLocked := func(final bool) error {
 		priorByBranch := make(map[string][]factProposal, len(dirtyBranches))
 		for branch := range dirtyBranches {
@@ -1175,7 +1182,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			loadedProposals := priorByBranch[branch]
 			if distillOpts.force && final {
 				for _, p := range loadedProposals {
-					if strings.TrimSpace(p.ProposedBy) != "" {
+					if ci := indexOfFact(rebased, p.CandidateID); strings.TrimSpace(p.ProposedBy) != "" || (ci >= 0 && rebased[ci].Status == factStatusCandidate) {
 						prior = append(prior, p)
 					}
 				}
@@ -1195,7 +1202,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 		}
 		cache := newCache
-		if !final && !distillOpts.force {
+		if !final && (!distillOpts.force || resumeOnly) {
 			cache = distillCache{
 				Version:  distillCacheVersion,
 				Sessions: make(map[string]string, len(prevCache.Sessions)+len(newCache.Sessions)),
@@ -1237,7 +1244,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	batchTotals := reconcileBatchStats{}
 	reconcileBranch := func(b string) {
 		reconcileStarted := time.Now()
-		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], repoDir, distillOpts.timeout, distillOpts.concurrency, threshold, distillOpts.newestFirst, now)
+		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], append(append([]factProposal(nil), queuedByBranch[b]...), proposalsByBranch[b]...), repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
 			return
 		}
@@ -1264,6 +1271,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			continue
 		}
 		resumeBranches[b] = true
+		queued, err := loadFactProposals(brainDir, b)
+		if err != nil {
+			return nil, fmt.Errorf("load pending review for %s: %w", b, err)
+		}
+		queuedByBranch[b] = queued
 		stored, err := loadFacts(brainDir, b)
 		if err != nil {
 			return nil, fmt.Errorf("load staged candidates for %s: %w", b, err)
@@ -1289,6 +1301,8 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// rebuilt below should replace its prior proposal backlog at the end.
 		clear(dirtyBranches)
 	}
+
+	resumeOnly = false
 
 	// Session pipeline: a producer goroutine prepares sessions ahead —
 	// transcript read, preprocessing, fingerprint/cache check, chunking — and

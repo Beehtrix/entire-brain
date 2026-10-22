@@ -44,7 +44,7 @@ func TestParseReconcileActions(t *testing.T) {
 	}
 }
 
-func TestParseReconcileActionsDegradesToNew(t *testing.T) {
+func TestParseReconcileActionsDefersMalformed(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	candidates := []factRecord{
 		factFor(t, "c1", []string{"project.tooling.stack"}, now),
@@ -53,16 +53,15 @@ func TestParseReconcileActionsDegradesToNew(t *testing.T) {
 	}
 	existing := []factRecord{factFor(t, "e1", []string{"project.tooling.stack"}, now)}
 
-	// c1: merge with out-of-range existing -> new. c2: no line at all -> new.
-	// c3: malformed -> new. None must be lost.
+	// Invalid targets, missing decisions, and malformed output all stay staged.
 	out := "1 merge 5 0.9\n3 garbage line here"
 	actions, warnings := parseReconcileActions(out, candidates, existing)
 	if len(actions) != 3 {
 		t.Fatalf("every candidate must get an action, got %d", len(actions))
 	}
 	for i, a := range actions {
-		if a.Kind != factActionNew {
-			t.Errorf("candidate %d should degrade to new, got %s", i+1, a.Kind)
+		if a.Kind != factActionDefer {
+			t.Errorf("candidate %d should stay staged, got %s", i+1, a.Kind)
 		}
 		if a.Candidate.ID != candidates[i].ID {
 			t.Errorf("action %d bound to wrong candidate", i)

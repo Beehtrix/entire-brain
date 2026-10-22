@@ -232,3 +232,24 @@ func (s *conflictOnceServer) Current(ctx context.Context, repoID, branch string)
 func (s *conflictOnceServer) Advance(ctx context.Context, repoID, branch, oldRef string, plaintext []byte) (string, error) {
 	return s.inner.Advance(ctx, repoID, branch, oldRef, plaintext)
 }
+
+// A locally staged copy must neither publish nor demote an identical hosted fact.
+func TestSyncCandidatesStayLocal(t *testing.T) {
+	now := time.Now().UTC()
+	srv := &fakeServer{}
+	active := fact("All writes use atomic rename.", []string{"workflow.testing.rules"}, "active", now)
+	if _, err := Sync(context.Background(), srv, "repo", "main", "member", []factmerge.Record{active}, now); err != nil {
+		t.Fatal(err)
+	}
+	candidate := active
+	candidate.Status = factmerge.StatusCandidate
+	distinct := fact("All writes use atomic rename and retry failures.", active.Paths, "pending", now)
+	distinct.Status = factmerge.StatusCandidate
+	result, err := Sync(context.Background(), srv, "repo", "main", "member", []factmerge.Record{candidate, distinct}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Published || len(result.Facts) != 1 || result.Facts[0].Status != factmerge.StatusActive || len(result.Proposals) != 0 {
+		t.Fatalf("staged state escaped to hosted head: %+v", result)
+	}
+}

@@ -43,8 +43,8 @@ type setupSink struct {
 	progress *refreshProgress
 	rend     *setupui.Renderer
 	tty      bool
-	// quiet suppresses the permanent PHASE ROWS only. It exists because the
-	// short form replaced them, and the rows must stop WITHOUT the sink
+	// quiet suppresses live progress and permanent phase rows. It exists because
+	// the short form replaced them, and the output must stop WITHOUT the sink
 	// pretending there is no terminal.
 	//
 	// The first attempt suppressed them by handing newProgress io.Discard.
@@ -147,7 +147,7 @@ func (s *setupSink) Renderer() *setupui.Renderer { return s.rend }
 
 // Begin opens the phase's transient line.
 func (s *setupSink) Begin(accent tui.Phase, label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()
@@ -161,7 +161,7 @@ func (s *setupSink) Begin(accent tui.Phase, label string) {
 // again deadlocks the process. The spinner repaints the new label within
 // 100ms. See refreshProgressTask.SetLabel.
 func (s *setupSink) Live(label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()

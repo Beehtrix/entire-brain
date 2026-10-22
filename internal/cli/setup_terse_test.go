@@ -158,6 +158,26 @@ func TestDefaultModeStillHasATerminalForConsent(t *testing.T) {
 	}
 }
 
+func TestSetupPhaseProgressOnlyAppearsInVerboseMode(t *testing.T) {
+	t.Parallel()
+	for _, verbose := range []bool{false, true} {
+		var out bytes.Buffer
+		progress := newTestProgress(t, &out, ttyCaps())
+		sink := newSetupSink(progress, !verbose)
+		run := setupui.NewRun(sink, sink.Renderer())
+		phase := run.Begin(setupui.PhaseBuild)
+		phase.Step("6/9 pattern layer")
+		phase.OK("built")
+
+		if !verbose && out.Len() != 0 {
+			t.Fatalf("default setup must hide live and settled phase output, got %q", out.String())
+		}
+		if verbose && !strings.Contains(out.String(), "Build") {
+			t.Fatalf("verbose setup lost phase output: %q", out.String())
+		}
+	}
+}
+
 func mustTheme(t *testing.T) tui.Theme {
 	t.Helper()
 	theme, _ := tui.ThemeByName("default")

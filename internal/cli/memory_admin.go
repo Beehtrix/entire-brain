@@ -134,27 +134,11 @@ func finalizeMemoryOperationReceipt(receipt *memoryOperationReceipt, now time.Ti
 	}
 }
 
-// renderMemoryOperationReceiptText is the plain-output counterpart to the
-// JSON receipt. Keep it content-free but complete enough for operators and
-// scripts to retain the same operation identity and per-artifact transitions.
-func renderMemoryOperationReceiptText(out io.Writer, receipt memoryOperationReceipt, status string) {
-	fmt.Fprintf(out, "%s %s schema_version=%d operation_id=%s dry_run=%v error_code=%s started_at=%s finished_at=%s artifacts=%d jobs=%d\n",
-		receipt.Operation, status, receipt.SchemaVersion, receipt.OperationID, receipt.DryRun, receipt.ErrorCode,
-		receipt.StartedAt.UTC().Format(time.RFC3339Nano), receipt.FinishedAt.UTC().Format(time.RFC3339Nano), len(receipt.Artifacts), len(receipt.JobIDs))
-	if receipt.SessionRef != "" {
-		fmt.Fprintf(out, "selected session_ref=%q\n", receipt.SessionRef)
-	}
-	for _, jobID := range receipt.JobIDs {
-		fmt.Fprintf(out, "selected job_id=%q\n", jobID)
-	}
-	for _, artifact := range receipt.Artifacts {
-		fmt.Fprintf(out, "artifact path=%q prior_state=%q new_state=%q\n", artifact.Path, artifact.PriorState, artifact.NewState)
-	}
-}
-
 // finishMemoryOperationFailure closes and emits the one failure receipt for an
 // operation after its receipt identity exists. The original failure remains
 // the command error; an output failure is joined instead of replacing it.
+// The receipt is machine telemetry and belongs to --json alone (COR-2205); on
+// the plain surface the returned error is the whole report.
 func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationReceipt, jsonOut bool, now time.Time, cause error) error {
 	if cause == nil {
 		cause = fmt.Errorf("%s: memory operation failed", memoryErrStateCorrupt)
@@ -163,16 +147,10 @@ func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationRe
 	if receipt.ErrorCode == "" {
 		receipt.ErrorCode = memoryErrorCode(cause)
 	}
-	var emitErr error
 	if jsonOut {
-		emitErr = writeJSON(cmd, receipt)
-	} else {
-		emitErr = writeText(cmd, func(out io.Writer) {
-			renderMemoryOperationReceiptText(out, *receipt, "failed")
-		})
-	}
-	if emitErr != nil {
-		return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
+		if emitErr := writeJSON(cmd, receipt); emitErr != nil {
+			return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
+		}
 	}
 	return cause
 }
@@ -204,7 +182,7 @@ func emitMemoryOperationSuccess(
 				renderText(out, *receipt)
 				return
 			}
-			renderMemoryOperationReceiptText(out, *receipt, "completed")
+			fmt.Fprintf(out, "%s completed\n", receipt.Operation)
 		})
 	}
 	if emitErr == nil {
@@ -541,7 +519,6 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					"rebuilt": needsRebuild && !dryRun,
 				}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				if !needsRebuild {
 					fmt.Fprintln(out, "repair: projections verify clean and current; nothing to do")
 					return
@@ -612,7 +589,6 @@ func newMemoryRebuildCommand(opts Options) *cobra.Command {
 				planMemoryProjectionRefreshStates(&receipt.Artifacts)
 			}
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), nil, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				mode := "rebuilt"
 				if dryRun {
 					mode = "dry-run: would rebuild"
@@ -1018,7 +994,6 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 			return emitMemoryOperationSuccess(cmd, &receipt, jsonOut, opts.Now().UTC(), func(receipt memoryOperationReceipt) any {
 				return map[string]any{"receipt": receipt, "findings": findings, "remaining_findings": remaining, "migrated": migrated}
 			}, func(out io.Writer, receipt memoryOperationReceipt) {
-				renderMemoryOperationReceiptText(out, receipt, "completed")
 				if len(findings) == 0 {
 					fmt.Fprintln(out, "migrate: every derived schema is current")
 					return

@@ -23,13 +23,19 @@ func executeMemoryCommandWithFailOnce(t *testing.T, cmd *cobra.Command, args ...
 	return writer.output.String(), err
 }
 
-func TestMemoryMaintenancePlainSuccessIncludesVersionedReceipt(t *testing.T) {
+// The versioned receipt is machine telemetry and belongs to --json alone
+// (COR-2205): plain success output is the one-line human result, with no
+// receipt fields.
+func TestMemoryMaintenancePlainSuccessIsTheHumanResultOnly(t *testing.T) {
 	assertReceipt := func(t *testing.T, out, operation, legacyResult string) {
 		t.Helper()
-		if strings.Contains(out, "{") || !strings.Contains(out, operation+" completed ") ||
-			!strings.Contains(out, "schema_version=1") || !strings.Contains(out, "operation_id=op:") ||
-			!strings.Contains(out, "finished_at=") || !strings.Contains(out, legacyResult) {
-			t.Fatalf("%s plain success receipt = %q", operation, out)
+		if strings.Contains(out, "{") || !strings.Contains(out, legacyResult) {
+			t.Fatalf("%s plain success output = %q", operation, out)
+		}
+		for _, telemetry := range []string{"schema_version=", "operation_id=", "started_at=", "finished_at=", "artifact path="} {
+			if strings.Contains(out, telemetry) {
+				t.Fatalf("%s plain success leaked receipt telemetry %q:\n%s", operation, telemetry, out)
+			}
 		}
 	}
 

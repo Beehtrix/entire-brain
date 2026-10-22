@@ -715,7 +715,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 }
 
 // sessionExclusionMatchedSomething reports whether anything in this brain
-// actually answers to the excluded id.
+// actually answers to the excluded or purged id.
 //
 // The evidence is deliberately drawn from the manifest and from the plan's
 // manifest-derived counts only -- never from the privacy transaction record or
@@ -1038,6 +1038,12 @@ type sessionPurgePlan struct {
 	// keep-both merge model has no deletion semantics yet).
 	Caveats []string `json:"caveats,omitempty"`
 	DryRun  bool     `json:"dry_run"`
+	// Matched says whether anything in this brain answered to the id, exactly
+	// as exclude's JSON reports it. A false is not a failure: the tombstone is
+	// still recorded and applies to a session captured later. The caller cannot
+	// infer this from the counts alone -- a captured session can legitimately
+	// have zero remaining artifacts.
+	Matched bool `json:"matched"`
 }
 
 type purgeArtifact struct {
@@ -1078,6 +1084,11 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 			if planErr != nil {
 				return planErr
 			}
+			manifest, manifestErr := loadBrainManifest(brainDir)
+			if manifestErr != nil {
+				return manifestErr
+			}
+			plan.Matched = sessionExclusionMatchedSomething(manifest, plan, sessionID)
 			plan.Caveats = append(plan.Caveats, purgeGitmetaSyncCaveats(opts.Env, storage.Key, plan)...)
 			plan.DryRun = dryRun
 			if dryRun {
@@ -1097,6 +1108,21 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		return writeJSON(cmd, plan)
 	}
 	return writeText(cmd, func(out io.Writer) {
+		// Same honesty rule as exclude: an id no captured session answers to
+		// must not report as a cleanup. The tombstone still lands (pre-emptive
+		// arming is strictly safer than refusing and losing the race), so the
+		// operation stays permitted and keeps exiting 0, like exclude.
+		if !plan.Matched {
+			if plan.DryRun {
+				fmt.Fprintf(out, "purge (dry-run) %s: nothing to remove or rebuild\n", plan.SessionID)
+				fmt.Fprintln(out, "  no captured session in this brain matches this id")
+				return
+			}
+			fmt.Fprintf(out, "purged %s: tombstone recorded, nothing to remove or rebuild\n", plan.SessionID)
+			fmt.Fprintln(out, "  no captured session in this brain matches this id")
+			fmt.Fprintln(out, "  the tombstone stays recorded and applies if such a session is captured later")
+			return
+		}
 		mode := "purged"
 		if plan.DryRun {
 			mode = "purge (dry-run) would remove"

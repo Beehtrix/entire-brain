@@ -781,6 +781,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
 	}
+	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
+	if shortOutput {
+		setupui.RenderTerseIntro(cmd.OutOrStdout(), rend)
+	}
 
 	configuredAgent := setupOpts.agent
 
@@ -912,6 +916,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Fail("instant core failed "+rend.Dash()+" nothing usable was built", fmt.Errorf("%s", reasons))
 		report.Instant.State = "failed"
 		report.Instant.Detail = reasons
+		if shortOutput {
+			terse := terseReportFor(report, timings, false, setupOpts, brainCmd)
+			setupui.RenderTerseBuild(cmd.OutOrStdout(), rend, terse)
+			setupui.RenderTerseNext(cmd.OutOrStdout(), terse)
+		}
 		if instantErr != nil {
 			return fmt.Errorf("instant phase failed, the brain is not usable: %w", instantErr)
 		}
@@ -956,6 +965,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
 		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
 		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
+	if shortOutput {
+		setupui.RenderTerseBuild(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
 	// is told the brain exists it will never ask, and setup used to end without
@@ -1014,6 +1027,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
+	if shortOutput {
+		setupui.RenderTerseDistill(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
@@ -1082,6 +1099,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		outcome.settle(watcherPhase)
 	}
 	timings.record("daemon", time.Since(daemonStarted))
+	if shortOutput {
+		setupui.RenderTerseWatcher(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
@@ -1118,8 +1139,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// phases: they are on the screen directly above it.
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 
-	if !setupOpts.json && !setupOpts.verbose {
-		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+	if shortOutput {
+		setupui.RenderTerseNext(cmd.OutOrStdout(),
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
 

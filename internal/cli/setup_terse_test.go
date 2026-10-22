@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -12,6 +13,81 @@ import (
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
+
+func TestSetupShortOutputArrivesAsEachPhaseCompletes(t *testing.T) {
+	f := newSetupTestFixture(t, "s1", "s2", "s3")
+	rec := &recordedSetup{agent: "codex"}
+	opts := defaultSetupOptions()
+	opts.yes = true
+	opts.backfillBudget = 2
+	var out bytes.Buffer
+	steps := rec.steps(f)
+	assertOutput := func(want []string, absent []string) {
+		t.Helper()
+		for _, text := range want {
+			if strings.Count(out.String(), text) != 1 {
+				t.Errorf("want %q exactly once at this stage:\n%s", text, out.String())
+			}
+		}
+		for _, text := range absent {
+			if strings.Contains(out.String(), text) {
+				t.Errorf("%q appeared before its phase completed:\n%s", text, out.String())
+			}
+		}
+	}
+	intro := "Brain turns this repo's history"
+	built := "Brain built — queryable now"
+	distill := "Distilling 2 of 3 sessions in the background"
+	watcher := "Watcher already running"
+	detect := steps.detectAgent
+	steps.detectAgent = func(ctx context.Context) string {
+		assertOutput([]string{intro}, []string{built, distill, watcher})
+		return detect(ctx)
+	}
+	instant := steps.instant
+	steps.instant = func(ctx context.Context) ([]setupComponent, error) {
+		assertOutput([]string{intro}, []string{built, distill, watcher})
+		return instant(ctx)
+	}
+	spawn := steps.spawnBackfill
+	steps.spawnBackfill = func(ctx context.Context, plan setupBackfillPlan) (int, error) {
+		assertOutput([]string{intro, built}, []string{distill, watcher})
+		return spawn(ctx, plan)
+	}
+	install := steps.install
+	steps.install = func(ctx context.Context, plan daemonPlan) error {
+		assertOutput([]string{intro, built, distill}, []string{watcher})
+		return install(ctx, plan)
+	}
+	if err := runSetup(context.Background(), setupTestCommand(t, &out, opts), f.opts, opts, f.repoDir, steps); err != nil {
+		t.Fatal(err)
+	}
+	if rec.spawnCalls != 1 || rec.installCalls != 1 {
+		t.Fatalf("expected backfill and watcher phases: %+v", rec)
+	}
+	assertOutput([]string{intro, built, distill, watcher}, nil)
+}
+
+func TestSetupShortOutputReportsBuildFailureWithoutLaterResults(t *testing.T) {
+	f := newSetupTestFixture(t)
+	rec := &recordedSetup{instantErr: errors.New("build failed")}
+	opts := defaultSetupOptions()
+	var out bytes.Buffer
+	err := runSetup(context.Background(), setupTestCommand(t, &out, opts), f.opts, opts, f.repoDir, rec.steps(f))
+	if err == nil {
+		t.Fatal("expected build failure")
+	}
+	for _, want := range []string{"Brain turns this repo's history", "Brain could not be built", "doctor"} {
+		if strings.Count(out.String(), want) != 1 {
+			t.Errorf("want %q exactly once:\n%s", want, out.String())
+		}
+	}
+	for _, absent := range []string{"queryable now", "Distilling", "Watcher"} {
+		if strings.Contains(out.String(), absent) {
+			t.Errorf("uncompleted phase reported %q:\n%s", absent, out.String())
+		}
+	}
+}
 
 // TestSetupDefaultIsTheShortForm pins the default. The phase view reports what
 // the machine did and is still available behind --verbose; what a person gets

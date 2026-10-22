@@ -97,6 +97,24 @@ func TestBrainBriefFallsBackWhenGraphStoreUnavailable(t *testing.T) {
 	assertInternalSemanticServed(t, report)
 }
 
+// TestBrainBriefFallsBackWhenGraphStoreEmpty pins that a successful but
+// empty provider response does not displace the internal answer: zero
+// symbols means the store had nothing for the task, not that the task has no
+// context.
+func TestBrainBriefFallsBackWhenGraphStoreEmpty(t *testing.T) {
+	fixture := newBrainBriefSemanticFreshnessFixture(t)
+	runner := fixture.opts.Runner.(*fakeCommandRunner)
+	runner.responses[graphContextCommandKey(fixture.repoDir)] = fakeCommandResponse{
+		stdout: `{"schema_version":"1.1","commit":"aaa111","tree":"tree111","symbols":[],"relations":[],"tests":[],"latency_ms":3}`,
+	}
+
+	report := runGraphContextBriefJSON(t, fixture)
+	if report.Semantic.Source != "" {
+		t.Fatalf("semantic source = %q, want internal (empty)", report.Semantic.Source)
+	}
+	assertInternalSemanticServed(t, report)
+}
+
 // TestBrainBriefFallsBackWhenGraphPluginAbsent covers the user-required
 // no-graph degradation: the unscripted command errors like a machine without
 // the plugin, and the brief serves the internal path without complaint.

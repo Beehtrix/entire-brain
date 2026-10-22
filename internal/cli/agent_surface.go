@@ -1454,7 +1454,12 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	{
 		delegationStarted := profile.start()
 		graphContext, graphErr := fetchGraphTaskContext(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary, task, briefOpts.limit, briefOpts.limit)
-		if graphErr == nil && !graphContext.StoreUnavailable {
+		// An empty symbol list falls through too: the internal index may still
+		// have an answer, and delegating nothing would also suppress the
+		// missing-index warning. Commit/tree coherence needs no check here —
+		// the provider keys the store by the current committed tree and
+		// reports any mismatch as store_unavailable.
+		if graphErr == nil && !graphContext.StoreUnavailable && len(graphContext.Symbols) > 0 {
 			report.Semantic.Context = semanticContextResult{
 				Symbols:   nonNil(graphContextSymbolRecords(graphContext.Symbols)),
 				Relations: nonNil(graphContextRelationRecords(graphContext.Symbols, graphContext.Relations)),

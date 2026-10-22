@@ -795,8 +795,15 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if cmd.Flags().Changed("confidence") && (math.IsNaN(distillOpts.confidenceThreshold) || distillOpts.confidenceThreshold <= 0 || distillOpts.confidenceThreshold > 1) {
 		return fmt.Errorf("--confidence must be greater than 0 and at most 1 (agent confidence is a probability); got %g", distillOpts.confidenceThreshold)
 	}
-	if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
-		return err
+	// --dry-run is exempt: it returns before the agent runner is constructed
+	// and builds its report from local files and the local git transcript
+	// store only, so no-egress mode has nothing to block (COR-2208). Real runs
+	// keep this pre-resolution gate, and distillAgentCommandArgs rejects
+	// non-loopback agents again at invocation as defense in depth.
+	if !distillOpts.dryRun {
+		if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
+			return err
+		}
 	}
 	// Resolve the agent BEFORE the dry-run branch: the cache salt hashes the
 	// agent name, so a dry-run salted with the literal "auto" while real runs

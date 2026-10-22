@@ -108,11 +108,21 @@ func cloneFailureMessage(repoURL string, stderr []byte, err error) string {
 	lower := strings.ToLower(string(stderr))
 	// Only genuine repo-missing or auth-denied signals classify. "repository ...
 	// not found" covers git's own fatal line, which quotes the URL between the
-	// two words; "permission denied (publickey" is SSH auth specifically — bare
-	// "permission denied" also appears in local failures (e.g. creating the work
-	// tree dir), and git's "correct access rights" footer accompanies most SSH
-	// transport failures (host key, connection refused), so neither classifies.
-	notFoundOrNoAccess := (strings.Contains(lower, "repository") && strings.Contains(lower, "not found")) ||
+	// two words; both words must sit on ONE line, or unrelated lines combine
+	// (e.g. "git-upload-pack: command not found" plus the "Could not read from
+	// remote repository." footer). "permission denied (publickey" is SSH auth
+	// specifically — bare "permission denied" also appears in local failures
+	// (e.g. creating the work tree dir), and git's "correct access rights"
+	// footer accompanies most SSH transport failures (host key, connection
+	// refused), so neither classifies.
+	repoNotFound := false
+	for _, line := range strings.Split(lower, "\n") {
+		if strings.Contains(line, "repository") && strings.Contains(line, "not found") {
+			repoNotFound = true
+			break
+		}
+	}
+	notFoundOrNoAccess := repoNotFound ||
 		strings.Contains(lower, "authentication failed") ||
 		strings.Contains(lower, "could not read username") ||
 		strings.Contains(lower, "permission denied (publickey")

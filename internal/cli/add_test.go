@@ -179,6 +179,11 @@ func TestRunBrainAddCloneFailureIsOneCleanLine(t *testing.T) {
 			want:   "clone_failed: " + repo + ": fatal: could not create work tree dir 'sandbox-audit_nonexistent-repo': Permission denied",
 		},
 		{
+			name:   "upload-pack-missing-is-not-not-found",
+			stderr: "bash: git-upload-pack: command not found\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
+			want:   "clone_failed: " + repo + ": bash: git-upload-pack: command not found",
+		},
+		{
 			name:   "footer-only-survives",
 			stderr: "fatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists.\n",
 			want:   "clone_failed: " + repo + ": fatal: Could not read from remote repository.; Please make sure you have the correct access rights; and the repository exists.",

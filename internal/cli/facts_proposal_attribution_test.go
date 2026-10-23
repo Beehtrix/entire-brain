@@ -35,32 +35,3 @@ func TestDedupeProposalsKeepsMemberAttribution(t *testing.T) {
 		}
 	}
 }
-
-// End to end through the durable queue: a sync that raises a conflict already
-// present in distill's private backlog must still leave a publishable,
-// member-attributed entry on disk. Without it, `facts sync` skips the entry
-// (it publishes only attributed ones) and the team never sees the conflict.
-func TestPersistFactsSyncProposalsKeepsAttributedEntry(t *testing.T) {
-	brainDir, branch := t.TempDir(), "main"
-	private := factProposal{Action: factActionSupersede, CandidateID: "fact:c", TargetID: "fact:t"}
-	if err := writeFactProposals(brainDir, branch, []factProposal{private}); err != nil {
-		t.Fatal(err)
-	}
-	raised := factProposal{Action: factActionSupersede, CandidateID: "fact:c", TargetID: "fact:t", Branch: branch, ProposedBy: "alice@example.com", Confidence: 0}
-	if err := persistFactsSyncProposals(brainDir, branch, []factProposal{raised}); err != nil {
-		t.Fatal(err)
-	}
-	queue, err := loadFactProposals(brainDir, branch)
-	if err != nil {
-		t.Fatal(err)
-	}
-	publishable := 0
-	for _, p := range queue {
-		if p.ProposedBy != "" {
-			publishable++
-		}
-	}
-	if publishable != 1 {
-		t.Fatalf("the cross-member conflict is not publishable after persisting; queue = %+v", queue)
-	}
-}

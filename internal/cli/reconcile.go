@@ -66,16 +66,12 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 	return writeBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
 }
 
-// dedupeProposals collapses identical queue entries. Its identity must match
-// factsync.ProposalID — action, candidate, target, BRANCH and PROPOSED_BY —
-// because that is the id the shared review queue, the shared-proposal ledger and
-// the `facts review` interlock all key on. Keying on the triple alone silently
-// merges rows those layers treat as distinct: distill's private, unattributed
-// backlog entry and a cross-member conflict `facts sync` raised for the same two
-// facts collapse onto whichever landed first, and since the private one is
-// written first the member-attributed entry is the one that disappears — so the
-// conflict is never published to the team and the member settles locally a
-// decision the next sync will overrule.
+// dedupeProposals collapses identical queue entries, keyed on
+// factsync.ProposalID — action, candidate, target, BRANCH and PROPOSED_BY.
+// Keying on the triple alone silently merges rows that are distinct: distill's
+// private, unattributed backlog entry and a member-attributed conflict
+// `memories sync` raised for the same two facts collapse onto whichever landed
+// first, losing the attribution.
 func dedupeProposals(proposals []factProposal) []factProposal {
 	seen := make(map[string]struct{}, len(proposals))
 	out := make([]factProposal, 0, len(proposals))

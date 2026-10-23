@@ -246,8 +246,8 @@ Semantic (embedding) retrieval was removed: a 1,748-run agent eval measured
 BM25 lexical ranking matching or beating the embedder stack end-to-end while
 cutting agent tokens 18-28%, query memory 96%, and 31 MB off the binary (see
 docs/eval_ledger.md and trail #278). `--keyword` is accepted for
-compatibility (it is the only mode); `--semantic` and `vsearch` return an
-error pointing here.
+compatibility (it is the only mode); `--semantic` and `vsearch` run the same
+BM25 ranking and print a stderr notice.
 
 Supply the query text positionally or with `--query`; flags can appear before or after it:
 
@@ -395,7 +395,7 @@ the binary.
 | --- | --- |
 | `entire brain overview` | Summarize the project, its structure, and decisions |
 | `entire brain brief` | Gather relevant context for a task |
-| `entire brain query` | Search the brain (hybrid by default) |
+| `entire brain query` | Search the brain (BM25 lexical) |
 | `entire brain get` | Fetch a brain item by ID |
 | `entire brain multi-get` | Fetch several brain items by ID in one call |
 | `entire brain dash` | Browse the brain in an interactive dashboard |

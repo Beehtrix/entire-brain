@@ -16,7 +16,7 @@ import (
 const envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
 
 // manualHostedTarget is the resolved destination for a manual hosted command
-// (publish, facts sync --facts-backend=http, facts proposals).
+// (publish, memories sync on the hosted backend).
 type manualHostedTarget struct {
 	repoID  string
 	baseURL string

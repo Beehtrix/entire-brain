@@ -772,7 +772,7 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
-	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for memories; use lexical ranking only")
+	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, memory ranking is always BM25 lexical")
 	cmd.Flags().StringVar(&briefOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
@@ -2001,9 +2001,8 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 
 // brainBriefConversationHits retrieves a small, bounded set of conversation
 // exchanges for the brief packet: at most 3 (or limit, if smaller), excerpts
-// capped at 200 bytes. Hybrid mode: BM25 by default, fused only under the
-// ENTIRE_BRAIN_CONVERSATION_FUSION development flag (see eval ledger
-// 2026-08-07).
+// capped at 200 bytes. Ranking is BM25 lexical (semantic retrieval was
+// removed, trail #278).
 func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefConversationHit {
 	count := min(3, limit)
 	if count <= 0 {

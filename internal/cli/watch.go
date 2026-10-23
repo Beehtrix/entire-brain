@@ -526,6 +526,11 @@ func markFactsSyncAttempt(cursorPath string, now time.Time) {
 // (output discarded; the tick logs one summary line), deterministic, and
 // token-free. The returned stats let the tick escalate to consolidation when
 // the buffer overflows.
+//
+// The watcher runs unattended as a launchd daemon, exactly like the memory
+// worker prepass: nobody is watching its (discarded) stderr, so it must never
+// run the destructive transcript cache sweep. Only user-invoked export/refresh
+// sweeps.
 func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) (shortTermStats, error) {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
@@ -533,7 +538,7 @@ func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, 
 	deltaCmd.SetOut(io.Discard)
 	deltaCmd.SetErr(io.Discard)
 	deltaCmd.SetContext(ctx)
-	return runRefreshDeltaStats(deltaCmd, perRepo, true, false)
+	return runRefreshDeltaStats(deltaCmd, perRepo, true, true)
 }
 
 // watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:

@@ -150,7 +150,9 @@ func setupUnqueryableCore(components []setupComponent) []string {
 	}
 	labels := make([]string, 0, len(setupRetrievalCore))
 	for _, name := range setupRetrievalCore {
-		if states[name] != "failed" {
+		// Skipped counts as unavailable here: whoever caused the absence,
+		// a skipped source answers queries exactly as well as a failed one.
+		if state := states[name]; state != "failed" && state != "skipped" {
 			return nil
 		}
 		labels = append(labels, setupComponentLabel(name))

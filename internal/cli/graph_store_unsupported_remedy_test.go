@@ -60,6 +60,48 @@ func TestGraphStoreUnsupportedOutranksTheDirtyTreeRemedy(t *testing.T) {
 	}
 }
 
+// A skipped source answers queries exactly as well as a failed one: not at
+// all. It must not count as evidence the brain is queryable, and the phase
+// clause must name it among the missing sources when nothing else can answer.
+func TestASkippedSourceIsNotEvidenceOfQueryability(t *testing.T) {
+	t.Parallel()
+	skippedSemantic := newSetupComponent(brainComponentSemantic, errGraphStoreUnsupported, "entire-brain")
+	failedSeed := setupComponent{Name: brainComponentSeed, State: "failed", Detail: "refused"}
+	failedHistory := setupComponent{Name: brainComponentHistory, State: "failed", Detail: "refused"}
+	if setupBrainQueryable([]setupComponent{skippedSemantic, failedSeed, failedHistory}) {
+		t.Fatal("every content source is failed or skipped; a `setup && query` script would proceed against nothing")
+	}
+	builtSeed := setupComponent{Name: brainComponentSeed, State: "ok"}
+	if !setupBrainQueryable([]setupComponent{skippedSemantic, builtSeed}) {
+		t.Fatal("a built seed still answers; a skipped semantic must not fail the brain")
+	}
+	if labels := setupUnqueryableCore([]setupComponent{skippedSemantic, failedSeed}); len(labels) != 2 {
+		t.Fatalf("the phase clause must name both missing retrieval-core sources, got %v", labels)
+	}
+	if labels := setupUnqueryableCore([]setupComponent{skippedSemantic, builtSeed}); labels != nil {
+		t.Fatalf("a built seed keeps the brain queryable, got %v", labels)
+	}
+}
+
+// The live `graph store` descriptor status fetches carries no GeneratedAt, so
+// the timestamp-based clear would read its zero time as "older than the
+// record" and pin a recorded skip forever. Its presence is itself current
+// proof the store answers — after the hinted Graph upgrade, the row clears.
+func TestASkipClearsWhenTheLiveStoreAnswers(t *testing.T) {
+	t.Parallel()
+	recorded := newSetupComponent(brainComponentSemantic, errGraphStoreUnsupported, "entire-brain")
+	manifest := &exportManifest{Sources: &brainSources{Semantic: &semanticSourceManifest{}}}
+	components := instantPhaseComponents(manifest, setupInstantRecord{
+		UpdatedAt:  setupTestNow,
+		Components: []setupComponent{recorded},
+	}, nil)
+	for _, component := range components {
+		if component.Name == brainComponentSemantic && component.State != "built" {
+			t.Fatalf("a live store descriptor is current proof the store answers; the skip must clear: %+v", component)
+		}
+	}
+}
+
 // The status row keeps a skipped component's reason and hint. Presence-based
 // reporting alone would render "missing" and drop both, leaving the glyph with
 // nothing to explain it.

@@ -265,12 +265,26 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	manifestBacked := []string{"sessions", "seed", "docs", "semantic", "history"}
 	components := make([]brainStatusComponent, 0, len(manifestBacked)+len(record.Components))
 	for _, name := range manifestBacked {
+		// A recorded failure or skip clears when the source proves itself
+		// newer than the record, and GeneratedAt is that proof — except for
+		// one semantic shape. A semantic source WITH a timestamp is a
+		// persisted snapshot, which can be the exact stale artifact the
+		// record warns about (the repo-key skew), so it keeps the timestamp
+		// rule. A semantic source WITHOUT one is the LIVE `graph store`
+		// descriptor (agent_surface.go), fetched moments ago: its presence IS
+		// current proof the store answers, and the timestamp rule would read
+		// its zero time as "older than the record" and pin a recorded skip
+		// forever, Graph upgrade or not.
+		rebuilt := present[name] && !generated[name].Before(record.UpdatedAt)
+		if name == brainComponentSemantic && present[name] && generated[name].IsZero() {
+			rebuilt = true
+		}
 		failure, hasFailure := failures[name]
-		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
+		if hasFailure && rebuilt {
 			hasFailure = false
 		}
 		skip, hasSkip := skips[name]
-		if hasSkip && present[name] && !generated[name].Before(record.UpdatedAt) {
+		if hasSkip && rebuilt {
 			hasSkip = false
 		}
 		switch {

@@ -46,10 +46,13 @@ if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
   exit 1
 fi
 
+# Released CLIs can print an update banner on stdout; the token is the last
+# non-empty line (same rule as the plugin's mintHostedToken).
+last_line() { awk 'NF {line=$0} END {print line}'; }
 if [ -n "${AUTH_CONTEXT:-}" ]; then
-  ENTIRE_TOKEN=$(entire auth token --context "$AUTH_CONTEXT")
+  ENTIRE_TOKEN=$(entire auth token --context "$AUTH_CONTEXT" | last_line)
 else
-  ENTIRE_TOKEN=$(entire auth token)
+  ENTIRE_TOKEN=$(entire auth token | last_line)
 fi
 export ENTIRE_TOKEN
 

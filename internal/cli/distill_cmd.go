@@ -403,11 +403,13 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			}
 			distilled++
 			if sem == nil {
-				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
+				ps.seq = func(sessionID string, chunks []transcriptChunk) func(int) (string, error) {
 					return func(i int) (string, error) {
-						return distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+						return distillOpts.trace.call(ctx, sessionID, chunks[i], i, 0, func(callCtx context.Context) (string, error) {
+							return distillOpts.run(callCtx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+						})
 					}
-				}(ps.chunks)
+				}(ps.session.SessionID, ps.chunks)
 				select {
 				case prepared <- ps:
 				case <-ctx.Done():
@@ -432,13 +434,15 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					ps.results[i] <- agentCallResult{err: ctx.Err()}
 					continue
 				}
+				slotWaitStart := time.Now()
 				select {
 				case sem <- struct{}{}:
 				case <-ctx.Done():
 					ps.results[i] <- agentCallResult{err: ctx.Err()}
 					continue
 				}
-				go func(i int, chunks []transcriptChunk, results []chan agentCallResult) {
+				slotWait := time.Since(slotWaitStart)
+				go func(sessionID string, i int, chunks []transcriptChunk, results []chan agentCallResult, slotWait time.Duration) {
 					// A panic while processing one (untrusted) chunk must not crash the
 					// whole distill run and lose every other chunk's work; convert it to
 					// a per-chunk error so the slot is released and the run continues.
@@ -447,9 +451,11 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 							results[i] <- agentCallResult{err: fmt.Errorf("distill worker panicked: %v", r), holdsSlot: true}
 						}
 					}()
-					out, err := distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					out, err := distillOpts.trace.call(ctx, sessionID, chunks[i], i, slotWait, func(callCtx context.Context) (string, error) {
+						return distillOpts.run(callCtx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					})
 					results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
-				}(i, ps.chunks, ps.results)
+				}(ps.session.SessionID, i, ps.chunks, ps.results, slotWait)
 			}
 		}
 	}()
@@ -536,6 +542,10 @@ type distillCommandOptions struct {
 	// observe mid-run persistence).
 	flushEvery int
 	run        distillAgentRunner
+	// callTracePath/trace stream one JSON line per extraction agent call for
+	// latency profiling (COR-2214); a nil trace adds no work.
+	callTracePath string
+	trace         *distillTraceWriter
 	// progress, when set, is called as each session is processed so the command
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
@@ -764,6 +774,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful memories land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
+	cmd.Flags().StringVar(&distillOpts.callTracePath, "call-trace", "", "Write one JSON line per extraction agent call (latency, slot wait, tokens) to this file for profiling")
 	return cmd
 }
 
@@ -842,6 +853,14 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// where "another pass holds this brain" is a wait-and-retry.
 	if distillOpts.run == nil && distillOpts.agent != "none" {
 		distillOpts.run = defaultDistillAgentRunner(distillOpts.agent)
+	}
+	if distillOpts.callTracePath != "" {
+		traceFile, traceErr := os.Create(distillOpts.callTracePath)
+		if traceErr != nil {
+			return fmt.Errorf("--call-trace: %w", traceErr)
+		}
+		defer traceFile.Close()
+		distillOpts.trace = &distillTraceWriter{w: traceFile}
 	}
 	// Progress goes to stderr so it never corrupts the --json summary on stdout.
 	progress := newProgress(cmd.ErrOrStderr(), "distill")
@@ -956,6 +975,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
+	ctx = withDistillAgentChildEnv(ctx, distillOpts.agent)
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
@@ -2644,6 +2664,9 @@ func execDistillAgentWithPrompt(ctx context.Context, dir string, args []string, 
 	command := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(stdin)
+	if env, ok := ctx.Value(distillChildEnvKey{}).([]string); ok {
+		command.Env = env
+	}
 	stdoutLimit := distillStdoutLimit(argv)
 	stdout := newCappedDistillBuffer(stdoutLimit)
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)

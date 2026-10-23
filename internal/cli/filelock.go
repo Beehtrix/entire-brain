@@ -16,6 +16,12 @@ const fileLockRetryInterval = 10 * time.Millisecond
 
 var errFileLockTimeout = errors.New("file lock timeout")
 
+// errFileHardlinked classifies the nlink>1 refusal so callers can tell an
+// externally hardlinked state file (a backup or bench tool's cheap copy, which
+// a rebuild clears) from damage that needs different handling. The rendered
+// message is unchanged: "<label> must not be hardlinked: <path>".
+var errFileHardlinked = errors.New("must not be hardlinked")
+
 type fileLock struct {
 	path        string
 	file        *os.File

@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 )
 
 // host_cli.go names one condition: the host Entire CLI this plugin runs under
@@ -110,6 +113,22 @@ func hostCLIMissingExportError(err error, binary string) error {
 func hostCLISemanticProviderAbsent(graphBinary string) bool {
 	return hostCLIBinaryName(graphBinary) == entireBinaryName && !hostCLIOnPath()
 }
+
+// semanticProviderOnHost reports whether the host Entire CLI can launch the
+// graph provider at all. A probe in the hostCLIOnPath mold: `status` and the
+// brief use it to keep "run refresh" honest — refresh cannot build a semantic
+// index while no provider is installed, so the remedy must name the install
+// step instead. Cached per process: the answer cannot change mid-command and
+// the probe spawns the host CLI. A package variable so render tests need no
+// subprocess.
+var semanticProviderOnHost = sync.OnceValue(func() bool {
+	if !hostCLIOnPath() {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return exec.CommandContext(ctx, entireBinaryName, "graph", "version").Run() == nil
+})
 
 // hostCLIOnPath reports whether the host Entire CLI can be launched at all.
 //

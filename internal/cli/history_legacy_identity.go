@@ -172,7 +172,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	}
 	path := filepath.Join(brainDir, clean)
 	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
-		return "", err
+		return "", historyHardlinkRepairHint(err)
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
 	if err != nil {
@@ -180,7 +180,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	}
 	defer f.Close()
 	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", err
+		return "", historyHardlinkRepairHint(err)
 	}
 	before, err := f.Stat()
 	if err != nil {
@@ -212,7 +212,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 		return "", errors.New("history index changed while verifying identity")
 	}
 	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", err
+		return "", historyHardlinkRepairHint(err)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

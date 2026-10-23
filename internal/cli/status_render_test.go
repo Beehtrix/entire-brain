@@ -310,3 +310,22 @@ func TestStatusSaysWhenTheInstalledDaemonIsNotCurrent(t *testing.T) {
 		t.Fatalf("status must say what to do about it:\n%s", got)
 	}
 }
+
+// A missing semantic index has two different repairs and only one of them was
+// ever named: `refresh` rebuilds the index when a graph provider is installed,
+// but with no provider the same advice sends the reader through an exit that
+// changes nothing. When the probe reports the provider absent, the next step
+// must name the install command and only then the index rebuild.
+func TestStatusNextStepNamesGraphInstallWhenProviderAbsent(t *testing.T) {
+	t.Parallel()
+	h := statusHealth{SemanticMissing: true, SemanticProviderAbsent: true}
+	got := h.nextStepMessage(setupBrainBinaryName)
+	for _, want := range []string{"entire plugin install graph", semanticIndexVerb} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("next step %q does not name %q", got, want)
+		}
+	}
+	if withProvider := (statusHealth{SemanticMissing: true}).nextStepMessage(setupBrainBinaryName); strings.Contains(withProvider, "plugin install") {
+		t.Fatalf("provider-present next step must stay the refresh remedy: %q", withProvider)
+	}
+}

@@ -1537,7 +1537,12 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 		}
 	} else if !semanticDelegated {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		warning := "semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
+		if hostCLIOnPath() && !semanticProviderOnHost() {
+			// Refresh cannot build what no installed provider produces.
+			warning = "semantic index missing: the graph provider is not installed, so code context and semantic queries are skipped — install it with `entire plugin install graph`, then run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
+		}
+		report.Warnings = append(report.Warnings, warning)
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
@@ -4599,7 +4604,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 						continue
 					}
 					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v", branch, err))
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, brainInvocation(os.LookupEnv, "refresh")))
 					}
 				}
 			} else {

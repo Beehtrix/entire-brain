@@ -1030,10 +1030,16 @@ func parseSemanticSchemaVersion(version string) (int, int, error) {
 func validateSemanticSchema(version string) error {
 	major, _, err := parseSemanticSchemaVersion(version)
 	if err != nil {
-		return fmt.Errorf("%w (this build reads %s)", err, semanticSupportedSchemaRange)
+		return fmt.Errorf("%w (this build reads %s); reinstall the provider with `entire plugin install graph`", err, semanticSupportedSchemaRange)
 	}
 	if strconv.Itoa(major) != semanticSupportedMajor {
-		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s", strconv.Itoa(major), semanticSupportedSchemaRange)
+		// Name which side of the pin is behind, so the reader upgrades the
+		// right binary instead of reinstalling the one that already works.
+		action := "the provider is behind this build; upgrade it with `entire plugin install graph`"
+		if supportedMajor, convErr := strconv.Atoi(semanticSupportedMajor); convErr == nil && major > supportedMajor {
+			action = "the provider is ahead of this build; upgrade entire-brain"
+		}
+		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s — %s", strconv.Itoa(major), semanticSupportedSchemaRange, action)
 	}
 	return nil
 }

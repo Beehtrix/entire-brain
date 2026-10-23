@@ -142,5 +142,8 @@ func sweepTranscriptCache(ctx context.Context, inventory *historySessionInventor
 			_ = inventory.root.Remove(inventory.entries[i].Rel)
 		}
 	}
+	if len(inventory.files) > 0 {
+		fmt.Fprintf(os.Stderr, "transcript cache: removed %d cached transcript file(s); originals remain recoverable from checkpoints\n", len(inventory.files))
+	}
 	return nil
 }

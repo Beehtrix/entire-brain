@@ -53,7 +53,7 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 	}
 	version := header.SchemaVersion
 	if version > brainManifestSchemaVersion {
-		return nil, version, false, fmt.Errorf("%s: brain manifest schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, version, brainManifestSchemaVersion)
+		return nil, version, false, fmt.Errorf("%s: brain manifest schema version %d is newer than supported version %d; upgrade entire-brain to read it", memoryErrUnsupportedVersion, version, brainManifestSchemaVersion)
 	}
 	var manifest exportManifest
 	err := decodeManifestPass(f, &manifest, true)

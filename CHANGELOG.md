@@ -5,6 +5,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-23
+
 ### Removed
 
 - The `init-agents` command. `setup` already ran the same installer; the

@@ -50,6 +50,10 @@ type distillProviderUsage struct {
 	CacheReadInputTokens     int64
 	CachedInputTokens        int64
 	ReasoningOutputTokens    int64
+	// DurationMS/DurationAPIMS are the agent CLI's self-reported total and API
+	// durations; only the claude JSON envelope carries them. 0 = not reported.
+	DurationMS    int64
+	DurationAPIMS int64
 }
 
 type distillUsageCollector struct {
@@ -68,6 +72,16 @@ func withDistillUsageCollector(ctx context.Context) (context.Context, *distillUs
 }
 
 func recordDistillProviderUsage(ctx context.Context, usage distillProviderUsage) {
+	// A --call-trace record gets the provider's view of this exact call,
+	// durations included, even when no token fields were reported.
+	if rec, ok := ctx.Value(distillCallRecordKey{}).(*distillCallRecord); ok {
+		rec.AgentMS = usage.DurationMS
+		rec.AgentAPIMS = usage.DurationAPIMS
+		rec.InputTokens = usage.InputTokens
+		rec.OutputTokens = usage.OutputTokens
+		rec.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		rec.CacheReadInputTokens = usage.CacheReadInputTokens
+	}
 	if !usage.Reported {
 		return
 	}
@@ -249,15 +263,19 @@ func parseCodexDistillOutput(raw string) (string, distillProviderUsage, error) {
 func parseClaudeDistillOutput(raw string) (string, distillProviderUsage, error) {
 	usage := distillProviderUsage{Source: distillUsageSourceClaude}
 	var result struct {
-		Type    string           `json:"type"`
-		Subtype string           `json:"subtype"`
-		IsError bool             `json:"is_error"`
-		Result  *string          `json:"result"`
-		Usage   distillUsageJSON `json:"usage"`
+		Type          string           `json:"type"`
+		Subtype       string           `json:"subtype"`
+		IsError       bool             `json:"is_error"`
+		Result        *string          `json:"result"`
+		Usage         distillUsageJSON `json:"usage"`
+		DurationMS    int64            `json:"duration_ms"`
+		DurationAPIMS int64            `json:"duration_api_ms"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(raw)), &result); err != nil {
 		return "", usage, fmt.Errorf("parse claude JSON: %w", err)
 	}
+	usage.DurationMS = result.DurationMS
+	usage.DurationAPIMS = result.DurationAPIMS
 	if err := result.Usage.validate(); err != nil {
 		return "", usage, fmt.Errorf("claude usage: %w", err)
 	}

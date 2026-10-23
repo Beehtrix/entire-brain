@@ -847,7 +847,9 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	if full {
-		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir) }
+		// User-invoked (`entire brain workspace refresh <name> --full`): unlike
+		// the watch daemon's tick, this keeps the transcript cache sweep.
+		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir, false) }
 		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
 			return err
 		}

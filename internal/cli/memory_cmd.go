@@ -193,7 +193,10 @@ var memoryWorkerPrepass = func(ctx context.Context, opts Options, repoDir string
 	cmd.SetContext(ctx)
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	_, err := runRefreshDeltaStats(cmd, perRepo, true)
+	// Background worker: never run the destructive transcript cache sweep.
+	// Nobody reads this process's stderr, so a deleted-files notice here would
+	// be silent anyway, and the sweep is user-invoked export's job.
+	_, err := runRefreshDeltaStats(cmd, perRepo, true, true)
 	return err
 }
 

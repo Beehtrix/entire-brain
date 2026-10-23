@@ -39,6 +39,12 @@ type refreshCommandOptions struct {
 	bestEffort bool
 	// component observes outcomes without changing failure policy.
 	component func(name string, err error)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended orchestration (the watch daemon's tick, the session-end hook,
+	// MCP's brain_refresh): nobody is watching those paths' stderr to learn
+	// that files were deleted. User-invoked `entire brain refresh` and `entire
+	// brain path --ensure` leave this false and still sweep.
+	skipTranscriptSweep bool
 }
 
 func newRefreshCommand(opts Options) *cobra.Command {

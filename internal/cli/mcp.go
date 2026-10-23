@@ -1718,6 +1718,10 @@ func mcpRefreshOptions(args map[string]any) (refreshCommandOptions, error) {
 	refreshOpts.seed.force = force
 	refreshOpts.graphBinary = mcpGraphBinary()
 	refreshOpts.skipSessions = true
+	// skipSessions already keeps the export phase (and the sweep) out of this
+	// path today; this is defense-in-depth so brain_refresh stays safe if
+	// skipSessions is ever relaxed. The MCP caller has no stderr anyone reads.
+	refreshOpts.skipTranscriptSweep = true
 	refreshOpts.historyIndex = false
 	refreshOpts.semantic = semantic
 	refreshOpts.statusAfter = false

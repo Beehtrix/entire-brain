@@ -86,6 +86,12 @@ type exportCommandOptions struct {
 	historyIndex    bool
 	debug           bool
 	progress        func(exportProgress)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended paths. The background memory worker drives this same export
+	// to keep short-term memory warm; nobody is watching its stderr to learn
+	// that files were deleted, so it must never delete them. User-invoked
+	// export/refresh still sweeps.
+	skipTranscriptSweep bool
 }
 
 type exportProgress struct {
@@ -335,12 +341,15 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		if err != nil {
 			return err
 		}
-		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
-		if err != nil {
-			return err
-		}
-		if migration != nil {
-			defer migration.Close()
+		var migration *historySessionInventory
+		if !exportOpts.skipTranscriptSweep {
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+			if err != nil {
+				return err
+			}
+			if migration != nil {
+				defer migration.Close()
+			}
 		}
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
@@ -364,6 +373,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
+			// migration is nil when skipTranscriptSweep suppressed the plan above;
+			// sweepTranscriptCache(ctx, nil) is already a no-op.
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
@@ -583,8 +594,18 @@ func validateForcedOutputManifest(data []byte) error {
 		return err
 	}
 	normalizeBrainManifest(&manifest)
-	if manifest.SchemaVersion != brainManifestSchemaVersion {
-		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	// A floor, not a range. This explicit-output --force path exists only to
+	// confirm the target directory holds a genuine prior brain/export before
+	// wiping it, not to gate on whether THIS build can read everything the
+	// manifest contains. A manifest from a NEWER build still proves that: it
+	// is a real manifest this build cannot parse further, and --force is the
+	// deliberate destructive discard-and-rebuild escape hatch -- the only
+	// recovery available for exactly that case. Rejecting it here, the way
+	// equality once did, would make --force refuse the one case it exists for.
+	// Only a version below the oldest this build ever reads fails the "is this
+	// a brain store" check.
+	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")

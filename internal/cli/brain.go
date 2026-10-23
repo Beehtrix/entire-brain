@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const brainManifestSchemaVersion = 3
+const brainManifestSchemaVersion = 4
 
 // brainManifestMinSchemaVersion is the oldest manifest this build reads.
 //

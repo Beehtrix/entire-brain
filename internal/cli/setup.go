@@ -1922,11 +1922,13 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// first `brief` to answer without it.
 			sub, capturedStderr := newSetupInstantCommand(ctx, steps.stepOutput)
 			var components []setupComponent
+			// User-invoked (`entire setup`): keeps the transcript cache sweep,
+			// same as every other foreground command.
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)
-			})
+			}, false)
 			// The nested refresh's progress is discarded, but a warning on that
 			// stream is not progress -- a memory coordinator that could not
 			// launch, an entity index that was skipped -- and it reaches nobody

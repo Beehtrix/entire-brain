@@ -1446,13 +1446,21 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// The graph plugin's store answers first (COR-2217): `graph context` reads
 	// the committed-tree sqlite sidecar the graph owns, so the brief no longer
 	// depends on the brain's own copy of the snapshot when the plugin can
-	// serve. Every failure — plugin absent, a version without the verb, no
-	// store for this commit — falls through to the internal semantic path (or
-	// its missing-index warning) unchanged.
+	// serve. Plugin absent or a version without the verb falls through to the
+	// internal semantic path (or its missing-index warning) unchanged; a
+	// present graph with no store for this commit keeps its detail so the
+	// warning can carry graph's remedy instead of stale `refresh` advice
+	// (COR-2257).
 	semanticDelegated := false
+	graphStoreMissing := false
+	var graphStoreMissingDetail string
 	{
 		delegationStarted := profile.start()
 		graphContext, graphErr := fetchGraphTaskContext(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary, task, briefOpts.limit, briefOpts.limit)
+		if graphErr == nil && graphContext.StoreUnavailable {
+			graphStoreMissing = true
+			graphStoreMissingDetail = strings.TrimSpace(graphContext.Detail)
+		}
 		// An empty symbol list falls through too: the internal index may still
 		// have an answer, and delegating nothing would also suppress the
 		// missing-index warning. Commit/tree coherence needs no check here —
@@ -1538,7 +1546,17 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		}
 	} else if !semanticDelegated {
 		warning := "semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
-		if hostCLIOnPath() && !semanticProviderOnHost() {
+		switch {
+		case graphStoreMissing:
+			// Graph answered, so it is installed regardless of what the host
+			// PATH probe says; the remedy is building the graph-owned store,
+			// never the brain-side snapshot copy retired with COR-2217. Graph's
+			// detail names its own fix; add one only when it sent none.
+			if graphStoreMissingDetail == "" {
+				graphStoreMissingDetail = "the graph store cannot serve this commit; run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
+			}
+			warning = "code context unavailable: " + graphStoreMissingDetail
+		case hostCLIOnPath() && !semanticProviderOnHost():
 			// Refresh cannot build what no installed provider produces.
 			warning = "semantic index missing: the graph provider is not installed, so code context and semantic queries are skipped — install it with `entire plugin install graph`, then run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
 		}

@@ -383,8 +383,8 @@ The tasks file is a JSON array:
 			if err := validateEvalRetriever(retriever); err != nil {
 				return err
 			}
-			if err := validateEvalSemanticRetriever(semantic, retriever); err != nil {
-				return err
+			if semantic {
+				return fmt.Errorf("--semantic was removed: semantic retrieval no longer exists (trail #278); the default arm is BM25 lexical")
 			}
 			armFn, err := selectRetrievalArm(arm)
 			if err != nil {
@@ -424,9 +424,6 @@ The tasks file is a JSON array:
 				expander = func(query string) (string, error) {
 					return expandQuery(cmd.Context(), expRun, expandArgs, repoDir, query, expCache)
 				}
-			}
-			if semantic {
-				return fmt.Errorf("--semantic was removed: semantic retrieval no longer exists (trail #278); the default arm is BM25 lexical")
 			}
 			cache := loadJudgeCache(judgeCache)
 			if err := cache.validateLoaded(); err != nil {
@@ -477,7 +474,7 @@ The tasks file is a JSON array:
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama judge and expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
-	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
+	cmd.Flags().BoolVar(&semantic, "semantic", false, "Removed (trail #278): semantic retrieval no longer exists; passing this flag is an error")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
@@ -622,13 +619,6 @@ func validateEvalRetriever(retriever string) error {
 	default:
 		return fmt.Errorf("--retriever must be one of facts, history, query, raw-sessions")
 	}
-}
-
-func validateEvalSemanticRetriever(semantic bool, retriever string) error {
-	if semantic && retriever != evalRetrieverFacts {
-		return fmt.Errorf("--semantic requires --retriever facts")
-	}
-	return nil
 }
 
 func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limit int, retriever string, facts []factRecord, arm retrievalArm) ([]evalRetrievedItem, error) {

@@ -272,6 +272,10 @@ may differ from current working-tree source.
 //
 // This text does both: the Graph EVERY-question obligation opens the guide, and the
 // brief is step 1 of one explicit sequence rather than a second absolute.
+//
+// The full command list under the every-question sentence repeats the query line
+// shown as step 2 ON PURPOSE: agents treated a single shown query as a quota, so a
+// later "find this other code" question needs its verb on the list it follows.
 const combinedWorkflow = `Use Graph EVERY time you need to find code or a code relationship, not only at the
 start. Both tools run, in this order, and neither replaces the other:
 
@@ -285,7 +289,7 @@ not skip either step on the grounds that the available context feels sufficient,
 do not treat having done one as having done the other.
 Each later locate or relationship question MUST also go through Graph:
 
-` + graphFollowupCommands + `
+` + graphCommands + `
 ` + graphVerbNotes + `
 ` + brainRetrieval + `
 The Graph obligation holds when the brief has already reported locations: a brief

@@ -48,7 +48,7 @@ func checkHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 		return err
 	}
 	if !present || binding.RepoID != repoID || binding.BaseURL != strings.TrimRight(baseURL, "/") {
-		return fmt.Errorf("local facts are not bound to this hosted repository and API; run 'facts sync' with the intended target before mirroring settlements")
+		return fmt.Errorf("local facts are not bound to this hosted repository and API; run 'memories sync' with the intended target first")
 	}
 	return nil
 }

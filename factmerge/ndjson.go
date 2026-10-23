@@ -17,10 +17,10 @@ import (
 // inputs it reads whole. It was 64 KiB, which the WRITER did not enforce: a fact
 // whose text exceeded it serialized fine and then failed to parse back
 // ("bufio.Scanner: token too long"), so the store could persist a fact-set it
-// could not read. On the shared cross-member head that is worse than local
-// corruption — factsync.Sync parses the pulled blob with ParseNDJSON, so ONE
-// member's oversized fact permanently fails every other member's sync, with no
-// way to repair it from the affected side.
+// could not read. On a shared store that is worse than local corruption — the
+// hosted sync paths serialize and parse fact batches with WriteNDJSON and
+// ParseNDJSON, so ONE member's oversized fact would fail every consumer of the
+// shared data, with no way to repair it from the affected side.
 //
 // The bound is now enforced on BOTH sides: WriteNDJSON refuses to emit a line
 // this reader could not read back (ErrRecordTooLarge), so the asymmetry cannot

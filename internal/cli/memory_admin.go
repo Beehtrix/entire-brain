@@ -453,9 +453,15 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				}
 			}
 			projection, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
-			if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+			if receiptState == projectionStateUnsupported {
 				return fail(receiptErr)
 			}
+			// An UNSAFE receipt (hardlinked, symlinked, swapped) is exactly what
+			// repair exists to clear: the rebuild below never reads it and
+			// derives a fresh generation from the canonical sessions. Failing
+			// here left the one state with a deterministic repair without any
+			// command that performs it. Only vNext receipts stay fatal — data
+			// this binary cannot decode must not be rebuilt over.
 			receiptsCurrent := receiptState == projectionStateCurrent
 			fingerprintCurrent := source != nil && sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			needsRebuild := !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !fingerprintCurrent

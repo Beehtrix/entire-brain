@@ -4043,7 +4043,12 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string
 			if graphErr == nil {
 				member.GraphDigest = d.EntryDigest
 			} else {
-				member.GraphDigest = "unavailable"
+				// The reason matters, not just the fact of failure: collapsing
+				// every cause to the same "unavailable" sentinel meant a member
+				// that went from "Graph absent" to "Graph present but schema
+				// mismatched" (or vice versa) produced an unchanged digest, so
+				// the generation never invalidated the cross-repo cache.
+				member.GraphDigest = "unavailable: " + graphErr.Error()
 			}
 		}
 		members = append(members, member)

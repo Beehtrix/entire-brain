@@ -32,8 +32,8 @@ anecdotes.
   and semantic records.
 - Durable facts through separate distill, remember, recall, review, admin,
   verify, and eval surfaces.
-- Unified retrieval: `query` with optional keyword or semantic modes, `get`, and
-  `multi-get`.
+- Unified retrieval: `query` (BM25 lexical ranking; semantic memory retrieval
+  was removed in trail #278), `get`, and `multi-get`.
 - Semantic freshness, blind-spot reporting, and a semantic audit surface
   (`status --json`, gated in CI by `status --fail-on release`).
 - Local benchmark harnesses: GraphMark for semantic-graph accuracy, and the

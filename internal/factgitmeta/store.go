@@ -17,27 +17,33 @@ import (
 // reports the unchanged tip, so a no-op incremental pass costs no commit.
 var ErrNoUpdate = errors.New("factgitmeta: no update")
 
+// metaRef is the single git ref the local git-meta head lives on. The upstream
+// `git meta` CLI serializes to refs/meta/<remote>/main (golden_test resolves
+// refs/meta/local/main); we reuse that local ref name to mirror the reference
+// layout while staying unmistakably local-only.
+const metaRef = "refs/meta/local/main"
+
+// maxRefCASRetries bounds the ref-level compare-and-swap retry loop. A lost ref
+// race (another writer advanced refs/meta between our read and write) is
+// mechanical and retried; exhaustion is surfaced as an error, never a silent drop.
+const maxRefCASRetries = 5
+
 // ErrLockBusy is returned by TryUpdate/TryLock when another writer holds the
 // store's advisory lock. It is a normal outcome for a best-effort pass, not a
 // failure: the caller skips this round and tries again on the next one.
 var ErrLockBusy = errors.New("factgitmeta: git-meta store is locked by another writer")
 
-// MetaStore is the general-purpose local git-meta record store: the same bare
-// repository, advisory lock, ref (metaRef) and read-modify-CAS discipline the
-// fact-set Backend uses, exposed for other record namespaces (the entity ->
-// checkpoint index) so every local git-meta writer serializes against the SAME
+// MetaStore is the general-purpose local git-meta record store: one bare
+// repository, advisory lock, ref (metaRef) and read-modify-CAS discipline,
+// exposed for record namespaces (the entity -> checkpoint index) so every
+// local git-meta writer serializes against the SAME
 // lockfile and compare-and-swaps the SAME ref. A second, independent opener
 // would give the create path (go-git writes a nil-old-ref unconditionally) two
 // unsynchronized writers and silently drop one namespace's first commit.
 //
-// Key namespacing is the caller's responsibility; Backend already reserves
-// "brain:facts:".
-//
-// NOTE — deliberate duplication. Backend.Advance still runs its OWN copy of the
-// lock + read-materialize-CAS-retry loop (see backend.go); it was not
-// refactored onto MetaStore. What is genuinely shared is the lockfile and the
-// ref, which is what makes the two writers safe against each other; the loop
-// body is duplicated. Collapsing Backend onto MetaStore is a follow-up.
+// Key namespacing is the caller's responsibility. Existing stores may still
+// carry "brain:facts:" records left by the retired local-gitmeta sync backend
+// (COR-2236); treat that prefix as reserved.
 //
 // Because the two loops are separate, they must never NEST: both acquire the
 // same advisory lock through a FRESH descriptor, and flock(2) is held per open

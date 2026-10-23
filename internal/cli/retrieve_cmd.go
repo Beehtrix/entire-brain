@@ -63,7 +63,8 @@ type retrievalTaskHints struct {
 }
 
 // retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
-// search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
+// search (lexical), query (BM25 lexical; semantic retrieval was removed in
+// trail #278), vsearch (compatibility alias for query), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
 // text). What remains under `inspect` is only what the verbs can't do: symbol-graph
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
@@ -77,7 +78,7 @@ func newVsearchCommand(opts Options) *cobra.Command {
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (hybrid by default)")
+	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (BM25 lexical ranking)")
 }
 
 func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {

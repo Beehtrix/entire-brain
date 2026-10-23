@@ -275,11 +275,7 @@ works on the summaries unchanged.
 Arms:
   substring  the pre-BM25 coverage-gate scorer (the 1a baseline)
   bm25       the shipped FTS5 ranker; --cutoff sweeps its relevance cutoff
-  fused      bm25 + semantic (RRF k=60) over record summaries — the prospective
-             arm the alignment plan wants measured. Uses the configured
-             embedder (ENTIRE_BRAIN_EMBEDDER=ollama selects EmbeddingGemma);
-             every index record is embedded once per run, so the first fused
-             run over a large brain with a server-backed embedder is slow.`,
+  fused      removed with semantic retrieval (trail #278); the flag errors`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if strings.TrimSpace(tasksFile) == "" {

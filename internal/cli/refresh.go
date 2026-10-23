@@ -396,7 +396,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			if !needSemantic {
 				label := ": current"
 				if identityWarning != "" {
-					label = ": source unchanged; provider identity unverified"
+					// identityWarning today only ever carries the schema
+					// minor-skew detail (semanticRefreshNeeded), not an
+					// identity mismatch, so the label must not claim one.
+					label = ": source unchanged; see warning above"
 				}
 				semanticCheckTask.Update(refreshSemanticCheckLabel(manifest) + label)
 			}
@@ -746,16 +749,23 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	if err != nil {
 		return true, "", nil
 	}
+	// fetchGraphStore already refused a major schema mismatch; a newer
+	// supported-major minor is non-fatal, so it rides this identity-warning
+	// return rather than aborting the refresh.
+	var identityWarning string
+	if skew := semanticSchemaMinorSkewWarning(descriptor.Header.SchemaVersion); skew != nil {
+		identityWarning = skew.Detail
+	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
-		return true, "", nil
+		return true, identityWarning, nil
 	}
 	source := manifest.Sources.Semantic
 	// Ownership is published before migration completes. A stub or stale
 	// inventory must be repaired even when Graph already has the code store.
 	if source.GraphRepoRoot != repoDir || source.GeneratedAt.IsZero() || source.Commit != descriptor.Commit || source.Tree != descriptor.Tree || source.Files != descriptor.Files || source.Symbols != descriptor.Symbols || source.Relations != descriptor.Relations || source.Externals != descriptor.Externals {
-		return true, "", nil
+		return true, identityWarning, nil
 	}
-	return false, "", nil
+	return false, identityWarning, nil
 }
 
 // defaultRefreshAgent resolves `--agent auto`.

@@ -31,6 +31,8 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-24.04
+    outputs:
+      bare: ${{ steps.v.outputs.bare }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -108,9 +110,49 @@ jobs:
           path: dist/
           retention-days: 7
 
+  # Cross-compiling from one runner means nothing on the release path ever
+  # executes a Windows binary, and test.yml's Windows suite runs CGO_ENABLED=1
+  # for the race detector — not the pure-Go configuration that ships. This job
+  # tests that shipped configuration and smoke-runs the exact windows/amd64
+  # artifact the release will carry. publish requires it, so a release cannot
+  # ship untested Windows binaries. windows/arm64 is still only cross-compiled:
+  # no amd64 runner can execute it.
+  windows-verify:
+    name: verify windows
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af # Official current-main v7.0.0 bundle with the repeated-DOCTYPE parser fix.
+        with:
+          go-version: "1.27.x"
+
+      - name: Test the shipped pure-Go configuration
+        env:
+          CGO_ENABLED: "0"
+        run: go test -timeout 25m ./...
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-dist
+          path: dist
+
+      - name: Smoke-run the released windows/amd64 binary
+        shell: pwsh
+        env:
+          BARE: ${{ needs.build.outputs.bare }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Expand-Archive -LiteralPath "dist/entire-brain_${env:BARE}_windows_amd64.zip" -DestinationPath "$env:RUNNER_TEMP/release-windows"
+          tools/windows-sanity.ps1 -Binary "$env:RUNNER_TEMP/release-windows/entire-brain.exe"
+
   publish:
     name: publish
-    needs: build
+    needs: [build, windows-verify]
     # Only a real tag publishes. A pull_request run proves the build still works
     # without creating a release.
     if: github.event_name != 'pull_request'

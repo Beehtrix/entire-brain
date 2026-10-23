@@ -44,7 +44,7 @@ func checkedVersionedJSONHeader(data []byte, current int, label string) (int, er
 		return 0, fmt.Errorf("%s: %s cannot be parsed", memoryErrStateCorrupt, label)
 	}
 	if header.SchemaVersion > current {
-		return header.SchemaVersion, fmt.Errorf("%s: %s schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, label, header.SchemaVersion, current)
+		return header.SchemaVersion, fmt.Errorf("%s: %s schema version %d is newer than supported version %d — a newer entire-brain wrote it and this one leaves it untouched; upgrade with `entire plugin upgrade brain`", memoryErrUnsupportedVersion, label, header.SchemaVersion, current)
 	}
 	return header.SchemaVersion, nil
 }

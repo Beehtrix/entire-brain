@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // planTranscriptCacheSweep proves each live cached transcript can be recovered
@@ -45,7 +47,7 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 	backed := checkpointBackedSessions(manifest)
 	var retained map[string]bool
 	retain := func(rel, reason string) {
-		fmt.Fprintf(os.Stderr, "warning: retain transcript cache: %s for %s; keeping the cached copy\n", reason, rel)
+		tui.Warnf(os.Stderr, "retain transcript cache: %s for %s; keeping the cached copy", reason, rel)
 		if retained == nil {
 			retained = make(map[string]bool)
 		}

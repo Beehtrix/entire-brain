@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
 
@@ -175,7 +176,8 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 
 func (o semanticBenchOptions) progressPhase(phase string) {
 	if o.progress {
-		fmt.Fprintf(os.Stderr, "semantic bench: %s\n", phase)
+		r := tui.NewRenderer(os.Stderr)
+		fmt.Fprintln(os.Stderr, r.Dim(fmt.Sprintf("semantic bench: %s", phase)))
 	}
 }
 

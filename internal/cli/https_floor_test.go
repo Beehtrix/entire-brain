@@ -78,7 +78,7 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	t.Setenv("ENTIRE_API_TOKEN", "tok")
 	t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
 
-	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C")
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http")
 	if err == nil {
 		t.Fatalf("facts sync to %s succeeded; want refusal\n%s", evilPlaintextURL, out)
 	}

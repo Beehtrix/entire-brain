@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -141,11 +142,29 @@ func TestMemoriesSyncNoEgressSkipsConnectedDefault(t *testing.T) {
 	if queue, qerr := loadFactProposals(f.brainDir, "main"); qerr != nil || len(queue) != 0 {
 		t.Fatalf("a suppressed sync must not touch the review queue: %d entries, %v", len(queue), qerr)
 	}
+
+	// --json still answers in JSON: a machine caller must never get prose on
+	// stdout under exit 0.
+	jsonOut, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--json")
+	if err != nil {
+		t.Fatalf("suppressed --json sync: %v\n%s", err, jsonOut)
+	}
+	var payload struct {
+		Skipped bool   `json:"skipped"`
+		Reason  string `json:"reason"`
+	}
+	if jsonErr := json.Unmarshal([]byte(jsonOut), &payload); jsonErr != nil {
+		t.Fatalf("suppressed --json sync wrote non-JSON: %v\n%s", jsonErr, jsonOut)
+	}
+	if !payload.Skipped || !strings.Contains(payload.Reason, "ENTIRE_BRAIN_NO_EGRESS") {
+		t.Fatalf("suppressed --json payload = %+v", payload)
+	}
 }
 
-// TestMemoriesSyncUnconnectedDefaultsToLocal: without a binding nothing changes
-// — plain sync stays on the local git-meta store with zero egress.
-func TestMemoriesSyncUnconnectedDefaultsToLocal(t *testing.T) {
+// TestMemoriesSyncUnconnectedFailsGracefully: memory sync is hosted-only
+// (COR-2236), so a plain sync on an unconnected repo fails with the remedy —
+// and never touches the network.
+func TestMemoriesSyncUnconnectedFailsGracefully(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	f := newVerifyFixture(t)
 	f.opts.Env.PluginCacheDir = t.TempDir()
@@ -155,30 +174,56 @@ func TestMemoriesSyncUnconnectedDefaultsToLocal(t *testing.T) {
 	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
 
 	out, err := execute(t, NewRootCommand(f.opts), "memories", "sync")
-	if err != nil {
-		t.Fatalf("memories sync: %v\n%s", err, out)
+	if err == nil {
+		t.Fatalf("plain sync on an unconnected repo must fail with the remedy:\n%s", out)
 	}
-	if !strings.Contains(out, "local-gitmeta") {
-		t.Fatalf("unconnected default must be the local store, got %q", out)
+	if !strings.Contains(err.Error(), "not connected") || !strings.Contains(err.Error(), "connect") {
+		t.Fatalf("error must say the repo is unconnected and name the remedy, got %v", err)
 	}
 }
 
-// TestMemoriesSyncExplicitLocalBackendWinsOnConnectedRepo: an explicit
-// --memories-backend=local-gitmeta keeps its meaning on a connected repo.
-func TestMemoriesSyncExplicitLocalBackendWinsOnConnectedRepo(t *testing.T) {
+// TestMemoriesSyncLocalGitmetaBackendIsRemoved: the removed value fails with a
+// clear message — flag, legacy alias, and env spelling alike — and makes zero
+// requests (compat rule from COR-2233).
+func TestMemoriesSyncLocalGitmetaBackendIsRemoved(t *testing.T) {
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	fake := &hostedFake{}
-	f, _ := newHostedSyncCmdFixture(t, fake)
-	f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
-
-	out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--memories-backend", "local-gitmeta")
-	if err != nil {
-		t.Fatalf("memories sync: %v\n%s", err, out)
+	run := func(t *testing.T, f verifyFixture, args ...string) error {
+		t.Helper()
+		out, err := execute(t, NewRootCommand(f.opts), args...)
+		if err == nil {
+			t.Fatalf("the removed local-gitmeta backend must fail:\n%s", out)
+		}
+		if !strings.Contains(err.Error(), "removed") || !strings.Contains(err.Error(), "local-gitmeta") {
+			t.Fatalf("error must say the backend was removed, got %v", err)
+		}
+		return err
 	}
-	if fake.requestCount() != 0 {
-		t.Fatalf("explicit local backend must make zero requests, got %d", fake.requestCount())
-	}
-	if !strings.Contains(out, "local-gitmeta") {
-		t.Fatalf("output must name the local backend, got %q", out)
-	}
+	t.Run("flag on a connected repo", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
+		f.writeFacts(t, "main", []factRecord{hostedSyncTestFact("local fact A", now)})
+		run(t, f, "memories", "sync", "--memories-backend", "local-gitmeta")
+		if fake.requestCount() != 0 {
+			t.Fatalf("a refused backend must make zero requests, got %d", fake.requestCount())
+		}
+	})
+	t.Run("legacy --facts-backend alias", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
+		run(t, f, "memories", "sync", "--facts-backend", "local-gitmeta")
+	})
+	t.Run("env spelling", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
+		t.Setenv(envFactsBackend, "local-gitmeta")
+		run(t, f, "memories", "sync")
+	})
+	t.Run("unknown value names the one supported backend", func(t *testing.T) {
+		fake := &hostedFake{}
+		f, _ := newHostedSyncCmdFixture(t, fake)
+		out, err := execute(t, NewRootCommand(f.opts), "memories", "sync", "--memories-backend", "carrier-pigeon")
+		if err == nil || !strings.Contains(err.Error(), `"http"`) {
+			t.Fatalf("unknown backend must fail naming the supported one, got %v\n%s", err, out)
+		}
+	})
 }

@@ -224,9 +224,17 @@ func componentRebuiltSince(runs map[string]time.Time, name string, recordedAt ti
 
 func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord, componentRuns map[string]time.Time) []brainStatusComponent {
 	failures := map[string]setupComponent{}
+	// Skipped is layered exactly like failed: a component setup deliberately
+	// left out (an installed Graph without the store contract) must keep its
+	// reason and hint on the status row, and a bare "missing" from manifest
+	// absence would drop both.
+	skips := map[string]setupComponent{}
 	for _, component := range record.Components {
 		if component.failed() {
 			failures[component.Name] = component
+		}
+		if component.State == "skipped" {
+			skips[component.Name] = component
 		}
 	}
 	present := map[string]bool{}
@@ -257,9 +265,27 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	manifestBacked := []string{"sessions", "seed", "docs", "semantic", "history"}
 	components := make([]brainStatusComponent, 0, len(manifestBacked)+len(record.Components))
 	for _, name := range manifestBacked {
+		// A recorded failure or skip clears when the source proves itself
+		// newer than the record, and GeneratedAt is that proof — except for
+		// one semantic shape. A semantic source WITH a timestamp is a
+		// persisted snapshot, which can be the exact stale artifact the
+		// record warns about (the repo-key skew), so it keeps the timestamp
+		// rule. A semantic source WITHOUT one is the LIVE `graph store`
+		// descriptor (agent_surface.go), fetched moments ago: its presence IS
+		// current proof the store answers, and the timestamp rule would read
+		// its zero time as "older than the record" and pin a recorded skip
+		// forever, Graph upgrade or not.
+		rebuilt := present[name] && !generated[name].Before(record.UpdatedAt)
+		if name == brainComponentSemantic && present[name] && generated[name].IsZero() {
+			rebuilt = true
+		}
 		failure, hasFailure := failures[name]
-		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
+		if hasFailure && rebuilt {
 			hasFailure = false
+		}
+		skip, hasSkip := skips[name]
+		if hasSkip && rebuilt {
+			hasSkip = false
 		}
 		switch {
 		case hasFailure:
@@ -268,6 +294,13 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 				State:  "failed",
 				Detail: failure.Detail,
 				Hint:   failure.Hint,
+			})
+		case hasSkip:
+			components = append(components, brainStatusComponent{
+				Name:   name,
+				State:  "skipped",
+				Detail: skip.Detail,
+				Hint:   skip.Hint,
 			})
 		case present[name]:
 			components = append(components, brainStatusComponent{Name: name, State: "built"})
@@ -304,6 +337,8 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 			state = "failed"
 		} else if component.failed() {
 			detail, hint = "", ""
+		} else if component.State == "skipped" {
+			state = "skipped"
 		}
 		components = append(components, brainStatusComponent{
 			Name:   component.Name,

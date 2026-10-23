@@ -421,7 +421,10 @@ func setupBrainQueryable(components []setupComponent) bool {
 		return true
 	}
 	for _, component := range components {
-		if component.failed() {
+		// A skipped component is deliberately absent, which for THIS question
+		// is the same as failed: it is not a source a query can read, so it is
+		// no evidence the brain can answer.
+		if component.failed() || component.State == "skipped" {
 			continue
 		}
 		if setupContentComponents[component.Name] {

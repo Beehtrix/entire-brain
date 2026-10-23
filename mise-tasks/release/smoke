@@ -13,7 +13,7 @@
 #
 # Environment the runner must export (legs 6-7; never hardcode secrets):
 #   REPO_ID       region-local repo ULID of a STAGING brainstore repo
-#   API_URL       that repo's home-cell base URL, e.g. https://aws-us-west-2.api.partial.to/api/v1
+#   API_URL       that repo's home-cell base URL, e.g. https://<home-cell>.api.partial.to/api/v1
 #   AUTH_CONTEXT  optional saved `entire auth` login to mint the token from
 #                 (e.g. us.auth.partial.to); default: the active context
 #   ENTIRE_BRAIN_BIN  optional prebuilt entire-brain binary (skips go build)
@@ -342,6 +342,9 @@ pass
 leg 7
 
 git clone -q "$scratch" "$clone_b"
+# The clone's origin is the local $scratch path; machine B must derive the
+# same github-shaped repo key as machine A (see leg 1). Never fetched.
+git -C "$clone_b" remote set-url origin "https://github.com/entireio/release-smoke-$stamp.git"
 git -C "$clone_b" checkout -q "$smoke_branch"
 # Same explicit per-fact pin as the upload leg; connect binds, the explicit
 # sync pulls the branch's feed into B's local store.

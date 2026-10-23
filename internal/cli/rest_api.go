@@ -8,6 +8,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // A REST surface over the same listener as MCP.
@@ -80,7 +82,7 @@ func writeRESTRetrieval(w http.ResponseWriter, value any, policies ...retrievalP
 		}
 		// Once Write was attempted the status may already be committed. Do
 		// not append a JSON error to a partially delivered response.
-		fmt.Fprintf(os.Stderr, "warning: rest retrieval response withheld: %v\n", err)
+		tui.Warnf(os.Stderr, "rest retrieval response withheld: %v", err)
 	}
 }
 

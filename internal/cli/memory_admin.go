@@ -727,7 +727,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 	} else if state == shortTermStateCorrupt {
 		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrStateCorrupt, Action: "repair or rebuild the disposable overlay from canonical sessions"})
 	} else if state == shortTermStateUnsupported {
-		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrUnsupportedVersion, Action: "newer-version overlay is read-only for this binary; upgrade the binary"})
+		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrUnsupportedVersion, Action: "newer-version overlay is read-only for this binary; upgrade entire-brain with `entire plugin upgrade brain`"})
 	}
 	if source != nil {
 		receiptPath := filepath.ToSlash(strings.TrimSpace(source.ProjectionStatePath))

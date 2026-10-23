@@ -101,7 +101,7 @@ func projectionStateAction(state projectionStateReadState) string {
 	case projectionStateUnsafe:
 		return "run `" + brainCmd + " memory repair` — the unsafe receipt is never read; a fresh generation is rebuilt from canonical sessions"
 	case projectionStateUnsupported:
-		return "upgrade entire-brain; this newer receipt is left untouched"
+		return "this newer receipt is left untouched; upgrade entire-brain with `entire plugin upgrade brain` (local-dev installs: rebuild and reinstall)"
 	case projectionStateCorrupt:
 		return "inspect the reported receipt, then run `" + brainCmd + " memory repair` to rebuild disposable state"
 	default:

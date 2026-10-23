@@ -229,9 +229,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	if selected == nil {
 		if brainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
-				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export")
+				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export — unset " + noEgressToggleName() + " to allow it")
 			}
-			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery")
+			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery — unset " + noEgressToggleName() + " to allow it")
 		}
 		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
 		if err != nil {
@@ -910,7 +910,7 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
 		if brainNoEgressMode() {
-			return nil, []string{"no_egress: branch checkpoint fallback skipped"}, nil
+			return nil, []string{"no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while " + noEgressToggleName() + " is set"}, nil
 		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
@@ -920,7 +920,7 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 		return nil, nil, err
 	}
 	if brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while "+noEgressToggleName()+" is set")
 		return checkpoints, warnings, nil
 	}
 
@@ -1138,7 +1138,7 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 	}
 	warnings = append(warnings, refWarnings...)
 	if len(ids) == 0 && brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped")
+		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped — no checkpoints are visible without local refs while "+noEgressToggleName()+" is set")
 	}
 
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
@@ -1620,7 +1620,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 			return nil, warnings, err
 		}
-		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped while "+noEgressToggleName()+" is set")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 	return nil, warnings, err

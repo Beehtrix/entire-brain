@@ -99,7 +99,7 @@ func projectionStateAction(state projectionStateReadState) string {
 	case projectionStateStale:
 		return "run `" + brainCmd + " memory repair` to atomically publish a receipt matching current canonical sessions"
 	case projectionStateUnsafe:
-		return "inspect the manifest receipt path; remove the unsafe pointer before repair"
+		return "run `" + brainCmd + " memory repair` — the unsafe receipt is never read; a fresh generation is rebuilt from canonical sessions"
 	case projectionStateUnsupported:
 		return "this newer receipt is left untouched; upgrade entire-brain with `entire plugin upgrade brain` (local-dev installs: rebuild and reinstall)"
 	case projectionStateCorrupt:

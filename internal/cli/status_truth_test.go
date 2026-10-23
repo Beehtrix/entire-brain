@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,77 @@ func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	// everything, so the semantic mark must be the whole difference.
 	if restored := strings.Replace(instant, "- semantic", "+ semantic", 1); restored != healthyInstant {
 		t.Fatalf("a corrupt semantic store changed a mark other than semantic:\n before: %s\n  after: %s", healthyInstant, instant)
+	}
+}
+
+// TestStatusSurfacesGraphError pins defect (d): a Graph store that fails for a
+// reason other than "not installed" or "not indexed yet" used to be collapsed
+// into the same bare nil semantic source as those two ordinary, silent cases.
+// The error text must survive into the report instead -- for a plain command
+// failure, AND for every live-path version mismatch introduced alongside this
+// fix: a too-new contract, a too-old contract (the actionable case that was
+// still being silently dropped: it shares no sentinel with "Graph absent" but
+// previously did), and a hard schema-major refusal.
+func TestStatusSurfacesGraphError(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		response   *fakeCommandResponse
+		mutate     func(d *graphStoreDescriptor)
+		wantSubstr []string
+	}{
+		{
+			name:       "command_failure",
+			response:   &fakeCommandResponse{stderr: "disk I/O error", err: errors.New("exit status 1")},
+			wantSubstr: []string{"graph store unavailable", "disk I/O error"},
+		},
+		{
+			name:       "contract_newer",
+			mutate:     func(d *graphStoreDescriptor) { d.ContractVersion = 2 },
+			wantSubstr: []string{"graph store unavailable", "upgrade entire-brain", "contract"},
+		},
+		{
+			name:       "contract_older",
+			mutate:     func(d *graphStoreDescriptor) { d.ContractVersion = 0 },
+			wantSubstr: []string{"graph store unavailable", "upgrade Graph", "contract"},
+		},
+		{
+			name:       "schema_major",
+			mutate:     func(d *graphStoreDescriptor) { d.Header.SchemaVersion = "2.0" },
+			wantSubstr: []string{"graph store unavailable", semanticSupportedSchemaRange},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, repoDir, _ := statusTruthFixture(t)
+			if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+				t.Fatalf("index: %v", err)
+			}
+			runner := opts.Runner.(*fakeCommandRunner)
+			storeKey := fakeCommandKey("entire", "graph", "store", "--repo", repoDir, "--profile", "full")
+			if tc.response != nil {
+				runner.responses[storeKey] = *tc.response
+			} else {
+				d, err := fetchGraphStore(context.Background(), opts, repoDir, "", "full")
+				if err != nil {
+					t.Fatalf("fetch baseline descriptor: %v", err)
+				}
+				tc.mutate(&d)
+				overrideGraphStoreResponse(runner, repoDir, d)
+			}
+
+			report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+			if err != nil {
+				t.Fatalf("status report: %v", err)
+			}
+			if report.Semantic != nil {
+				t.Fatalf("a failing graph store must not report a semantic source: %+v", report.Semantic)
+			}
+			joined := strings.Join(report.Warnings, "\n")
+			for _, want := range tc.wantSubstr {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("status dropped or mis-surfaced the graph error (missing %q): %+v", want, report.Warnings)
+				}
+			}
+		})
 	}
 }
 

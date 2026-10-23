@@ -224,9 +224,17 @@ func componentRebuiltSince(runs map[string]time.Time, name string, recordedAt ti
 
 func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord, componentRuns map[string]time.Time) []brainStatusComponent {
 	failures := map[string]setupComponent{}
+	// Skipped is layered exactly like failed: a component setup deliberately
+	// left out (an installed Graph without the store contract) must keep its
+	// reason and hint on the status row, and a bare "missing" from manifest
+	// absence would drop both.
+	skips := map[string]setupComponent{}
 	for _, component := range record.Components {
 		if component.failed() {
 			failures[component.Name] = component
+		}
+		if component.State == "skipped" {
+			skips[component.Name] = component
 		}
 	}
 	present := map[string]bool{}
@@ -261,6 +269,10 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
 			hasFailure = false
 		}
+		skip, hasSkip := skips[name]
+		if hasSkip && present[name] && !generated[name].Before(record.UpdatedAt) {
+			hasSkip = false
+		}
 		switch {
 		case hasFailure:
 			components = append(components, brainStatusComponent{
@@ -268,6 +280,13 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 				State:  "failed",
 				Detail: failure.Detail,
 				Hint:   failure.Hint,
+			})
+		case hasSkip:
+			components = append(components, brainStatusComponent{
+				Name:   name,
+				State:  "skipped",
+				Detail: skip.Detail,
+				Hint:   skip.Hint,
 			})
 		case present[name]:
 			components = append(components, brainStatusComponent{Name: name, State: "built"})
@@ -304,6 +323,8 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 			state = "failed"
 		} else if component.failed() {
 			detail, hint = "", ""
+		} else if component.State == "skipped" {
+			state = "skipped"
 		}
 		components = append(components, brainStatusComponent{
 			Name:   component.Name,

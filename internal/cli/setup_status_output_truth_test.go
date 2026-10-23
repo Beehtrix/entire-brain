@@ -105,8 +105,8 @@ func TestSetupSummaryCallsEachComponentByOneName(t *testing.T) {
 	// substring search over prose -- "sessions" appears in the standing intro
 	// sentence, so that search passes on output that names nothing at all.
 	report := setupRenderFixtureReport()
-	built, failed := partitionSetupComponents(report.Instant.Components)
-	summary := setupComponentCountSummary(built, failed)
+	built, skipped, failed := partitionSetupComponents(report.Instant.Components)
+	summary := setupComponentCountSummary(built, skipped, failed)
 
 	named := false
 	for _, component := range failed {
@@ -446,7 +446,7 @@ func TestTheSetupSummaryStatesOneRemedyOnce(t *testing.T) {
 	// failures and sends the reader to doctor. setupComponentFailureDetails is
 	// where the dedup lives, so it is asserted there rather than through a
 	// renderer that never prints a hint at all.
-	_, failed := partitionSetupComponents(report.Instant.Components)
+	_, _, failed := partitionSetupComponents(report.Instant.Components)
 	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
 
 	if !strings.Contains(out, "refusing to seed") || !strings.Contains(out, "refusing to index") {
@@ -466,7 +466,7 @@ func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
 			{Name: "semantic", State: "failed", Detail: "b", Hint: "second remedy"},
 		}},
 	}
-	_, failed := partitionSetupComponents(report.Instant.Components)
+	_, _, failed := partitionSetupComponents(report.Instant.Components)
 	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
 	if n := strings.Count(out, "hint: "); n != 2 {
 		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)

@@ -201,6 +201,28 @@ func setupDirtyWorktreeHint(brainCmd string) string {
 		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
 }
 
+// setupGraphStoreUnsupportedHint is the ONE remedy for an installed Graph that
+// predates the read-only store contract (graph_store.go). Refresh already
+// forgives this state as degraded-optional — "Graph is encouraged, never
+// required" — and docs/graph-owned-store.md names the remedy: upgrade Graph.
+// No refresh, commit, or stash changes anything until the plugin is upgraded,
+// so no other remedy may be offered for it.
+func setupGraphStoreUnsupportedHint(brainCmd string) string {
+	return "the installed Graph predates the read-only store interface, so code inspection is skipped and every other brain source still builds; upgrade Graph with `entire plugin install graph`, then run `" +
+		setupBrainCommand(brainCmd) + " " + semanticIndexVerb + "`"
+}
+
+// setupIsGraphStoreUnsupported matches the two upgrade-Graph store sentinels in
+// graph_store.go (errGraphStoreUnsupported, errGraphStoreContractOlder) from a
+// PERSISTED component detail, where the error value is gone and only its text
+// survives. Both sentinels, and only those two, say "store contract" and
+// "upgrade Graph"; errGraphStoreContractNewer says "upgrade entire-brain" and
+// deliberately does not match — that one is this build's fault, and treating
+// it as an optional skip would hide a brain that needs upgrading.
+func setupIsGraphStoreUnsupported(detail string) bool {
+	return strings.Contains(detail, "store contract") && strings.Contains(detail, "upgrade Graph")
+}
+
 // setupNoSessionsHint covers the state EVERY repo is in between `entire enable`
 // and its first finished agent session: Entire has no checkpoints to hand over,
 // and when the checkpoint remote is also unreachable (offline, or not yet
@@ -254,6 +276,15 @@ func newSetupComponent(name string, err error, brainCmd string) setupComponent {
 	if err == nil {
 		return setupComponent{Name: name, State: "ok"}
 	}
+	// An installed Graph without the read-only store contract is a designed
+	// optional state, not a failure: refresh forgives it (semanticForgiven),
+	// docs/graph-owned-store.md calls it "unsupported for code inspection",
+	// and every other brain source builds without it. Recording it as "failed"
+	// put a hard ✗ on the status row and counted "semantic failed" into a
+	// verdict whose remedy (a dirty-tree commit, a refresh) cannot fix it.
+	if errors.Is(err, errGraphStoreUnsupported) || errors.Is(err, errGraphStoreContractOlder) {
+		return setupComponent{Name: name, State: "skipped", Detail: providerdetail.Flatten(err.Error()), Hint: setupGraphStoreUnsupportedHint(brainCmd)}
+	}
 	// Flatten is the CLASS guard, applied where EVERY component's detail is
 	// born rather than per component: a stage that shells out to another
 	// program hands us that program's whole stderr, and an unsummarised usage
@@ -293,39 +324,23 @@ func setupIsNoReadableSessions(detail string) bool {
 		strings.Contains(detail, "no readable checkpoint IDs")
 }
 
-// partitionSetupComponents splits the phase's outcome into what built and what
-// failed, in report order.
-func partitionSetupComponents(components []setupComponent) (built, failed []setupComponent) {
+// partitionSetupComponents splits the phase's outcome into what built, what was
+// deliberately skipped, and what failed, in report order. Skipped is its own
+// bucket because it is neither of the others: calling it built claims a source
+// that does not exist, and calling it failed turns a designed optional state
+// into an error every downstream surface then reports.
+func partitionSetupComponents(components []setupComponent) (built, skipped, failed []setupComponent) {
 	for _, component := range components {
-		if component.failed() {
+		switch {
+		case component.failed():
 			failed = append(failed, component)
-			continue
+		case component.State == "skipped":
+			skipped = append(skipped, component)
+		default:
+			built = append(built, component)
 		}
-		built = append(built, component)
 	}
-	return built, failed
-}
-
-func setupComponentNames(components []setupComponent) []string {
-	names := make([]string, 0, len(components))
-	for _, component := range components {
-		names = append(names, component.Name)
-	}
-	return names
-}
-
-// setupComponentSummary is the phase line's "what built, what failed" clause.
-// A phase that reports nothing (an injected instant step, an older build) gets
-// an empty clause rather than a misleading "built nothing".
-func setupComponentSummary(built, failed []setupComponent) string {
-	parts := make([]string, 0, 2)
-	if len(built) > 0 {
-		parts = append(parts, "built "+strings.Join(setupComponentNames(built), ", "))
-	}
-	if len(failed) > 0 {
-		parts = append(parts, "FAILED "+strings.Join(setupComponentNames(failed), ", "))
-	}
-	return strings.Join(parts, "; ")
+	return built, skipped, failed
 }
 
 // setupComponentFailureLine is the one line a degraded component gets: what
@@ -337,6 +352,12 @@ func setupComponentFailureLine(component setupComponent, dash, brainCmd string) 
 	detail := strings.TrimSpace(component.Detail)
 	if detail == "" {
 		detail = "no detail reported"
+	}
+	// A skipped component is a designed state, not a breakage: say "skipped",
+	// and skip the doctor referral — the detail and the hint below it already
+	// carry the whole remedy.
+	if component.State == "skipped" {
+		return fmt.Sprintf("%s skipped (%s)", setupComponentLabel(component.Name), detail)
 	}
 	// A hint that ends by naming `setup` closes a referral loop if this line
 	// also names `doctor`: doctor re-renders this same component with this
@@ -373,25 +394,35 @@ func setupHintReferralLoops(hint, brainCmd string) bool {
 // acts on is "did everything build, and if not, which one" — so the healthy
 // case is a count and a failure is named, because one name is a fact and nine
 // are a list.
-func setupComponentCountSummary(built, failed []setupComponent) string {
-	total := len(built) + len(failed)
+func setupComponentCountSummary(built, skipped, failed []setupComponent) string {
+	total := len(built) + len(skipped) + len(failed)
 	if total == 0 {
 		// The pre-component contract: an injected step or an older build
 		// reports nothing and built fine.
 		return "deterministic core built"
 	}
-	if len(failed) == 0 {
+	if len(failed) == 0 && len(skipped) == 0 {
 		return fmt.Sprintf("%d %s", total, setupComponentNoun(total))
 	}
 	// Labels, not raw ids: every other line setup prints calls a component
 	// by setupComponentLabel, and "sessions" here beside "session export"
 	// below is one component answering to two names in one run.
-	labels := make([]string, 0, len(failed))
-	for _, component := range failed {
-		labels = append(labels, setupComponentLabel(component.Name))
+	clause := fmt.Sprintf("%d of %d %s built", len(built), total, setupComponentNoun(total))
+	if len(skipped) > 0 {
+		labels := make([]string, 0, len(skipped))
+		for _, component := range skipped {
+			labels = append(labels, setupComponentLabel(component.Name))
+		}
+		clause += ", skipped " + strings.Join(labels, ", ")
 	}
-	return fmt.Sprintf("%d of %d %s built, FAILED %s",
-		len(built), total, setupComponentNoun(total), strings.Join(labels, ", "))
+	if len(failed) > 0 {
+		labels := make([]string, 0, len(failed))
+		for _, component := range failed {
+			labels = append(labels, setupComponentLabel(component.Name))
+		}
+		clause += ", FAILED " + strings.Join(labels, ", ")
+	}
+	return clause
 }
 
 func setupComponentNoun(n int) string {
@@ -937,7 +968,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// and no phase line carries it.
 	report.Warnings = append(report.Warnings, steps.stepOutput.Warnings()...)
 	seconds := elapsed.Seconds()
-	built, failed := partitionSetupComponents(components)
+	built, skipped, failed := partitionSetupComponents(components)
 	// Persist the outcome BEFORE deciding whether to continue: `status` and
 	// `doctor` must be able to name the failed component either way, and the
 	// hard-fail path is exactly where the reason is needed most.
@@ -1003,8 +1034,8 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// sources that are not there.
 	queryability := setupQueryabilityClause(components)
 	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
-		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
-		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
+		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, skipped, failed), queryability),
+		setupComponentFailureDetails(append(append([]setupComponent{}, skipped...), failed...), rend.Dash(), brainCmd)...)
 	if shortOutput {
 		setupui.RenderTerseBuild(cmd.OutOrStdout(), rend,
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
@@ -2339,7 +2370,7 @@ func readSetupInstantRecord(stateDir string) setupInstantRecord {
 // reproduced between a different pair of surfaces.
 func failedSetupComponents(stateDir, brainDir string) []setupComponent {
 	record := readSetupInstantRecord(stateDir)
-	_, failed := partitionSetupComponents(record.Components)
+	_, _, failed := partitionSetupComponents(record.Components)
 	return pruneRebuiltFailures(failed, componentRunTimes(brainDir), record.UpdatedAt)
 }
 

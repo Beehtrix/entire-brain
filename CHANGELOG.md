@@ -36,6 +36,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
   Persistent worktree code indexes are retired; use Graph queries without
   `--head` to inspect uncommitted code.
 
+- An installed Graph that predates the read-only store contract is reported as
+  a skipped optional capability, not a failure. `setup` records the semantic
+  component as skipped with the upgrade remedy, `status` renders it with the
+  skipped glyph, and the verdict names the Graph upgrade instead of pairing
+  "semantic failed" with a dirty-worktree remedy that cannot fix it. A store
+  contract newer than the running build still reports as failed: that one is
+  fixed by upgrading entire-brain.
+
 - Durable facts are now called memories on the command surface: the `facts`
   command group is renamed to `memories`, and help text, flag names
   (`--min-memories`, `--memories-backend`, `vitality --memory`) and human

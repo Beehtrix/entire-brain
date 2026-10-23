@@ -74,9 +74,29 @@ jobs:
         with:
           go-version: "1.27.x"
       - name: Test the shipped pure-Go configuration
-        # internal/cli alone is 1,700+ test roots in one binary (the per-PR suite
-        # shards it across eight runners; this gate runs it whole).
-        run: go test -timeout 30m ./...
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # internal/cli runs as a precompiled binary we own, not under go test:
+          # its tests re-exec os.Executable() to spawn detached workers, and a
+          # worker outliving the suite keeps cli.test.exe mapped on Windows, so
+          # go test's own temp cleanup fails the run with "unlinkat: Access is
+          # denied" after every test passed. The per-PR Windows harness runs the
+          # compiled binary directly for the same reason. The runner is
+          # ephemeral, so nobody needs to delete our copy.
+          $pkgs = (go list ./...) | Where-Object { $_ -notmatch '/internal/cli$' }
+          go test -timeout 20m $pkgs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go test -c -o "$env:RUNNER_TEMP/cli.test.exe" ./internal/cli
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location internal/cli
+          # =-joined, the way go test itself passes -test.* flags: a space-separated
+          # value leaks into os.Args as a positional and at least one test parses
+          # os.Args through cobra.
+          & "$env:RUNNER_TEMP/cli.test.exe" -test.timeout=25m
+          $code = $LASTEXITCODE
+          Pop-Location
+          exit $code
       - name: Build and smoke-run the CLI
         shell: pwsh
         run: |

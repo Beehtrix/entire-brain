@@ -54,7 +54,12 @@ const (
 	// once. Distillation is latency-bound (each call is an LLM round-trip plus an
 	// agent-CLI cold start); a small pool overlaps those waits without hammering
 	// provider rate limits or spawning an unbounded number of agent processes.
-	defaultDistillConcurrency = 4
+	// 8 measured best on a fixed 20-session corpus (COR-2214): extraction ran at
+	// effective concurrency 7.0 with zero failures, halving the 4-wide time. 16
+	// was SLOWER — parallel agent-CLI cold starts contend for local CPU and
+	// inflated the mean call 10.6s -> 17.6s — so raise this only after that
+	// per-call spawn cost is gone.
+	defaultDistillConcurrency = 8
 
 	// distillFlushCallInterval is how many agent calls may elapse between
 	// persistence flushes of the in-memory distill state (facts, proposals,

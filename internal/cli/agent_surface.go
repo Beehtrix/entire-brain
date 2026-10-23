@@ -4725,7 +4725,9 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case !live.Dirty:
 			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case !audit:
-			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; this overview does not fingerprint contents", Remedy: "run `" + brainInvocation(os.LookupEnv, "status") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
+			// `status` is the lightweight surface that produces this axis, so it
+			// must not be the remedy; `overview` runs the audited comparison.
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Remedy: "run `" + brainInvocation(os.LookupEnv, "overview") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {

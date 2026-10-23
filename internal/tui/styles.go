@@ -9,8 +9,8 @@ import (
 )
 
 // Theme is the color palette for the dashboard. Themes are selectable via the
-// --theme flag (or ENTIRE_BRAIN_THEME); the default is a neutral dark scheme
-// that works on any 256-color terminal.
+// --theme flag (or ENTIRE_BRAIN_THEME); the default is the entire CLI's
+// base16 palette, so `entire brain` output looks like the host binary's.
 type Theme struct {
 	Name    string
 	Border  lipgloss.Color // pane borders
@@ -31,8 +31,32 @@ type Theme struct {
 }
 
 var themes = map[string]Theme{
+	// "default" is the entire CLI's palette, copied from the entireio/cli repo:
+	// cmd/entire/cli/palette/palette.go @ bc9a821d (base16 ANSI slots with
+	// semantic aliases Accent=magenta, Muted=bright black, Success/Error/
+	// Warning/Info = green/red/yellow/cyan). Base16 slots follow the user's
+	// terminal theme, so nothing needs downsampling on a 256-color terminal.
+	// Text is empty on purpose: the CLI leaves body text unstyled so it
+	// inverts with the terminal background. If these drift, re-copy from that
+	// file and update this commit reference.
 	"default": {
 		Name:    "default",
+		Border:  lipgloss.Color("8"),  // palette.Muted
+		Accent:  lipgloss.Color("5"),  // palette.Accent
+		Text:    lipgloss.Color(""),   // terminal default foreground
+		Dim:     lipgloss.Color("8"),  // palette.Muted
+		Good:    lipgloss.Color("2"),  // palette.Success
+		OK:      lipgloss.Color("3"),  // palette.Warning (stale/partial)
+		Bad:     lipgloss.Color("1"),  // palette.Error
+		Flag:    lipgloss.Color("11"), // bright yellow: warnings outrank the OK amber
+		Link:    lipgloss.Color("6"),  // palette.Info
+		Heading: lipgloss.Color("5"),  // palette.Accent
+		Alt:     lipgloss.Color("13"), // palette.Accent2
+	},
+	// "neutral" is the pre-v0.2.0 default (256-color, dark-background scheme),
+	// kept so existing --theme/ENTIRE_BRAIN_THEME values keep working.
+	"neutral": {
+		Name:    "neutral",
 		Border:  lipgloss.Color("244"),
 		Accent:  lipgloss.Color("39"),
 		Text:    lipgloss.Color("231"), // bright white

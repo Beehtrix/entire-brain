@@ -1537,7 +1537,12 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 		}
 	} else if !semanticDelegated {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		warning := "semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
+		if hostCLIOnPath() && !semanticProviderOnHost() {
+			// Refresh cannot build what no installed provider produces.
+			warning = "semantic index missing: the graph provider is not installed, so code context and semantic queries are skipped — install it with `entire plugin install graph`, then run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
+		}
+		report.Warnings = append(report.Warnings, warning)
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
@@ -4530,14 +4535,25 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		manifestSchema = manifest.SchemaVersion
 	}
 	// Legacy graph artifacts are not consulted by status or brief. Graph is
-	// optional: retain all non-code Brain sources when it is absent.
+	// optional: retain all non-code Brain sources when it is absent, and "not
+	// installed" / "not indexed yet" stay silent here exactly as before (they
+	// already surface through the missing-semantic-index messaging below). A
+	// store that Graph IS able to describe but that this build cannot actually
+	// use -- a version mismatch, a corrupt descriptor, a command that failed
+	// outright -- is a different, actionable problem, and used to vanish along
+	// with the ordinary case. That one is recorded as a warning instead.
+	var graphStatusWarning string
 	if manifest != nil {
 		if manifest.Sources == nil {
 			manifest.Sources = &brainSources{}
 		}
 		profile := graphStoreProfile(manifest)
 		manifest.Sources.Semantic = nil
-		if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr == nil {
+		if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr != nil {
+			if !errors.Is(graphErr, errGraphStoreUnsupported) && !errors.Is(graphErr, errGraphStoreUnavailable) {
+				graphStatusWarning = "graph store unavailable: " + graphErr.Error()
+			}
+		} else {
 			manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
 		}
 	}
@@ -4552,6 +4568,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		},
 		Manifest: manifest,
 		Issues:   healthIssues,
+	}
+	if graphStatusWarning != "" {
+		report.Warnings = append(report.Warnings, graphStatusWarning)
 	}
 	if lightweight {
 		report.Integrity = "not_checked"
@@ -4585,7 +4604,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 						continue
 					}
 					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v", branch, err))
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, brainInvocation(os.LookupEnv, "refresh")))
 					}
 				}
 			} else {

@@ -445,8 +445,14 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if manifest.Sources != nil && manifest.Sources.History != nil {
+		// Only vNext receipts veto the commit: data this binary cannot decode
+		// must not be replaced by a down-converted generation. An UNSAFE
+		// receipt (hardlinked, symlinked, swapped) gets no such protection —
+		// this commit writes a brand-new generation and never reads the old
+		// one, and refusing turned the integrity guard into a permanent
+		// denial of service that no command could clear.
 		_, receiptState, receiptErr := loadProjectionStateChecked(outputDir, manifest.Sources.History)
-		if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+		if receiptState == projectionStateUnsupported {
 			if receiptErr != nil {
 				return nil, receiptErr
 			}
@@ -700,9 +706,11 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 		}
 		receiptPath := filepath.Join(dir, projectionStateFileName)
 		newer, schemaErr := projectionFileHasNewerSchema(receiptPath)
-		if schemaErr != nil || newer {
+		if newer || (schemaErr != nil && !errors.Is(schemaErr, errFileHardlinked)) {
 			continue // unknown-newer generations are never removed by this binary
 		}
+		// A hardlinked receipt is unreadable here forever, and removal only
+		// unlinks this directory's name — the other link keeps the bytes.
 		_ = removeHistoryProjectionDirectory(outputDir, dirRel)
 	}
 }
@@ -3038,7 +3046,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	}
 	defer f.Close()
 	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, err)
+		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, historyHardlinkRepairHint(err))
 	}
 	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
 	if err != nil {
@@ -3067,10 +3075,25 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 // refresh`"; a DECLARED index that is not on disk is the same sentence with the
 // artifact named. Every other failure keeps its own words.
 func historyIndexReadError(source *historySourceManifest, err error) error {
+	if errors.Is(err, errFileHardlinked) {
+		return historyHardlinkRepairHint(err)
+	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return declaredIndexDefect{Source: declaredIndexHistory, Path: source.IndexPath, Absent: true, Err: err}
+}
+
+// historyHardlinkRepairHint names the remedy for an externally hardlinked
+// history artifact. Backup and bench tooling hardlink-copies state trees, the
+// nlink>1 guard then refuses every read, and that silently drops history
+// context from every brief, recall, and query. The canonical sessions are
+// untouched, so one deterministic rebuild is always the fix.
+func historyHardlinkRepairHint(err error) error {
+	if err == nil || !errors.Is(err, errFileHardlinked) {
+		return err
+	}
+	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, brainInvocation(os.LookupEnv, "memory repair"))
 }
 
 func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {

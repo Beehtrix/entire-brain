@@ -697,25 +697,25 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 		case semanticDetailMeansBinaryNotExecutable(detail):
 			err = fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
-			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s; reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		}
 		if semanticDetailMeansProviderAbsent(detail) {
 			return semanticProviderAbsentError{err}
 		}
 		return err
 	case "provider_doctor_timeout":
-		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s; retry, or reinstall: `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_doctor_malformed":
-		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s; reinstall: `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_network_required":
-		return fmt.Errorf("%s: semantic provider graph binary %q reports it requires network access, which local-only indexing does not allow: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider graph binary %q requires network access, which local-only indexing forbids: %s; use `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_no_egress_unknown":
-		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s; upgrade it: `entire plugin install graph`", code, graphBinary, detail)
 	default:
 		if detail != "" {
-			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s", code, graphBinary, detail)
+			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s; reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		}
-		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q", code, graphBinary)
+		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q; reinstall the provider with `entire plugin install graph`", code, graphBinary)
 	}
 }
 

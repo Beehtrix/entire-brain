@@ -59,7 +59,7 @@ jobs:
     needs: changed
     if: needs.changed.outputs.should_release == 'true'
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CGO_ENABLED: "0"
     steps:
@@ -70,7 +70,9 @@ jobs:
         with:
           go-version: "1.27.x"
       - name: Test the shipped pure-Go configuration
-        run: go test -timeout 25m ./...
+        # internal/cli alone is 1,700+ test roots in one binary and needs >25m on a
+        # hosted Windows runner (the per-PR suite shards it; this gate does not).
+        run: go test -timeout 50m ./...
       - name: Build and smoke-run the CLI
         shell: pwsh
         run: |

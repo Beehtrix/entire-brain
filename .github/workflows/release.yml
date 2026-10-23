@@ -120,8 +120,12 @@ jobs:
   windows-verify:
     name: verify windows
     needs: build
-    runs-on: windows-latest
-    timeout-minutes: 90
+    # Depot, like every other Windows job in this repo: hosted windows-latest
+    # is 2-core for private repos and could not finish internal/cli (1,700+
+    # test roots in one binary) inside 50 minutes. This does put a Depot
+    # dependency on the publish path; during a Depot outage, releases wait.
+    runs-on: depot-windows-2025-8
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -134,9 +138,9 @@ jobs:
       - name: Test the shipped pure-Go configuration
         env:
           CGO_ENABLED: "0"
-        # internal/cli alone is 1,700+ test roots in one binary and needs >25m on a
-        # hosted Windows runner (the per-PR suite shards it; this gate does not).
-        run: go test -timeout 50m ./...
+        # internal/cli alone is 1,700+ test roots in one binary (the per-PR suite
+        # shards it across eight runners; this gate runs it whole).
+        run: go test -timeout 30m ./...
 
       - uses: actions/download-artifact@v8
         with:

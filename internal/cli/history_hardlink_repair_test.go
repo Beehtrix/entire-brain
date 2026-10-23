@@ -49,8 +49,14 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := activeHistoryProjection(t, storage.BrainDir)
+	// The real-world clone covers the whole history tree, so the short-term
+	// overlay is hardlinked too. Its identity capture runs during prepare and
+	// used to abort the very rebuild that supersedes it.
+	if err := saveHistoryShortTerm(storage.BrainDir, shortTermIndex{Files: map[string]shortTermFile{}}); err != nil {
+		t.Fatal(err)
+	}
 	cloneDir := t.TempDir()
-	for _, artifact := range []string{before.IndexPath, before.ProjectionStatePath} {
+	for _, artifact := range []string{before.IndexPath, before.ProjectionStatePath, historyShortTermPath} {
 		source := filepath.Join(storage.BrainDir, filepath.FromSlash(artifact))
 		if err := os.Link(source, filepath.Join(cloneDir, filepath.Base(artifact)+"-"+filepath.Base(filepath.Dir(artifact)))); err != nil {
 			t.Skipf("hardlinks unavailable: %v", err)
@@ -92,8 +98,11 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 	if _, err := os.Lstat(oldGeneration); !os.IsNotExist(err) {
 		t.Fatalf("hardlinked generation was not pruned: lstat err=%v", err)
 	}
+	if _, err := os.Lstat(filepath.Join(storage.BrainDir, filepath.FromSlash(historyShortTermPath))); !os.IsNotExist(err) {
+		t.Fatalf("hardlinked overlay was not cleared after the rebuild: lstat err=%v", err)
+	}
 	cloned, err := os.ReadDir(cloneDir)
-	if err != nil || len(cloned) != 2 {
+	if err != nil || len(cloned) != 3 {
 		t.Fatalf("external clone must keep its files: err=%v entries=%d", err, len(cloned))
 	}
 }

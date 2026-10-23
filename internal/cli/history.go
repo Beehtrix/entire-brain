@@ -1109,6 +1109,15 @@ func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, st
 func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
 	data, present, err := readMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
 	if err != nil {
+		// An externally hardlinked input is unreadable here, but it must not
+		// veto the rebuild that supersedes it: these inputs are disposable
+		// projections, the rebuild derives from canonical sessions only, and
+		// publish clears a corrupt-classed overlay afterwards. The constant
+		// keeps the prepare and commit identity captures agreeing while the
+		// file stays in that state; any content change still differs.
+		if errors.Is(err, errFileHardlinked) {
+			return "unsafe-hardlinked", nil
+		}
 		return "", err
 	}
 	if !present {

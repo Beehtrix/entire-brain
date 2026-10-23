@@ -53,10 +53,14 @@ const (
 	// stored delta by it and re-migrates when it changes). 1.3 added
 	// completeness.health (consumed: carried verbatim as the Completeness raw
 	// message and persisted on the manifest) and the partial-failure language
-	// field above. Leaving this at 1.1 fired provider_schema_newer_minor on
-	// EVERY index against a current entire-graph, telling users facts were
-	// dropped when they were not.
-	semanticSchemaVersion               = "1.3"
+	// field above. 1.4 added the derived relation provenance label (modeled on
+	// semanticRecord so the streaming filter round-trips it; the provider
+	// computes it from type and resolution, both already modeled, so it carries
+	// no information this build was missing). Leaving this at 1.1 fired
+	// provider_schema_newer_minor on EVERY index against a current
+	// entire-graph, telling users facts were dropped when they were not;
+	// leaving it at 1.3 against the released graph v0.5.0 pair did the same.
+	semanticSchemaVersion               = "1.4"
 	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
@@ -287,6 +291,11 @@ type semanticRecord struct {
 	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
 	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
 	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
+
+	// Schema 1.4 field. The provider derives it from Type and Resolution at
+	// marshal time, so it adds no information — but it must be modeled so the
+	// streaming filter round-trips the literal field.
+	Provenance string `json:"provenance,omitempty"` // relation record: EXTRACTED|INFERRED|AMBIGUOUS
 }
 
 // semanticEvidence is a single supporting span for a relation (schema 1.1).

@@ -425,14 +425,14 @@ func TestGraphStoreSchemaMajorRefused(t *testing.T) {
 }
 
 // TestGraphStoreSchemaMinorSkewWarns pins defect (b)'s warn half: a header one
-// supported-major minor ahead of this build (installed providers already
-// report 1.4 against brain's pinned 1.3) must reach BOTH live consumers of the
-// descriptor that previously never called semanticSchemaMinorSkewWarning at
-// all -- `refresh`'s identity warning and the stale-report ("status")
+// supported-major minor ahead of this build must reach BOTH live consumers of
+// the descriptor that previously never called semanticSchemaMinorSkewWarning
+// at all -- `refresh`'s identity warning and the stale-report ("status")
 // freshness axis -- instead of being silently dropped.
 func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
 	opts, repo, _, d := newGraphStoreFixture(t)
-	d.Header.SchemaVersion = "1.4"
+	newerMinor := semanticSchemaNewerMinor(t)
+	d.Header.SchemaVersion = newerMinor
 	overrideGraphStoreResponse(opts.Runner.(*fakeCommandRunner), repo, d)
 
 	report, err := semanticFreshnessReport(context.Background(), opts, repo, true)
@@ -450,7 +450,7 @@ func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh needed: %v", err)
 	}
-	if !strings.Contains(identityWarning, "1.4") || !strings.Contains(identityWarning, semanticSchemaVersion) {
+	if !strings.Contains(identityWarning, newerMinor) || !strings.Contains(identityWarning, semanticSchemaVersion) {
 		t.Fatalf("refresh did not surface the skew warning: %q", identityWarning)
 	}
 }

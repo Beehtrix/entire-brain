@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -89,25 +90,42 @@ func TestSemanticSchemaNewerMinorWarns(t *testing.T) {
 	}
 }
 
-// TestCurrentProviderSchemaDoesNotWarn pins COR-2007. entire-graph has shipped
-// schema 1.3 since 2026-09-13 while this build advertised 1.1, so EVERY index
-// against a current provider raised provider_schema_newer_minor and told the
-// user additive facts "may not have been ingested". They were ingested: 1.2's
-// identity_revision is consumed by internal/entityindex, and 1.3's
-// completeness.health rides through as the Completeness raw message.
+// semanticSchemaNewerMinor is the first minor after what this build reads.
+// Derived, not a literal: a hardcoded version stops meaning "newer than
+// supported" the moment semanticSchemaVersion is bumped past it, and silently
+// starts testing the wrong thing instead of failing (the COR-2007 bump turned
+// the hardcoded 1.4 fixtures stale exactly this way).
+func semanticSchemaNewerMinor(t *testing.T) string {
+	t.Helper()
+	major, minor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
+	if err != nil {
+		t.Fatalf("parse semanticSchemaVersion %q: %v", semanticSchemaVersion, err)
+	}
+	return fmt.Sprintf("%d.%d", major, minor+1)
+}
+
+// TestCurrentProviderSchemaDoesNotWarn pins COR-2007 and its 1.4 recurrence.
+// entire-graph shipped schema 1.3 on 2026-09-13 while this build advertised
+// 1.1, then shipped 1.4 (graph v0.5.0) while this build advertised 1.3 —
+// each time EVERY index against a current provider raised
+// provider_schema_newer_minor and told the user additive facts "may not have
+// been ingested". They were ingested: 1.2's identity_revision is consumed by
+// internal/entityindex, 1.3's completeness.health rides through as the
+// Completeness raw message, and 1.4's provenance is modeled on semanticRecord
+// (and is a pure derivation of type+resolution besides).
 //
 // The warning is still the right mechanism, so this also pins that a genuinely
 // newer minor keeps firing it. Bumping the constant without teaching the reader
 // the new fields would turn a true warning into a silent drop.
 func TestCurrentProviderSchemaDoesNotWarn(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{"1.0", "1.1", "1.2", "1.3"} {
+	for _, version := range []string{"1.0", "1.1", "1.2", "1.3", "1.4"} {
 		if w := semanticSchemaMinorSkewWarning(version); w != nil {
 			t.Fatalf("schema %q warned (%s: %s); this build ingests it in full",
 				version, w.Code, w.Effect)
 		}
 	}
-	for _, version := range []string{"1.4", "1.17"} {
+	for _, version := range []string{semanticSchemaNewerMinor(t), "1.17"} {
 		w := semanticSchemaMinorSkewWarning(version)
 		if w == nil {
 			t.Fatalf("schema %q did not warn; a minor this build has not been taught must warn", version)
@@ -144,5 +162,30 @@ func TestPartialFailureLanguageSurvivesDecoding(t *testing.T) {
 	}
 	if w.Effect != "rust symbols absent" {
 		t.Fatalf("provider effect alias regressed: %q", w.Effect)
+	}
+}
+
+// TestRelationProvenanceSurvivesRemarshal pins the one field schema 1.4 added.
+// The provider derives provenance from type and resolution at marshal time, so
+// no information was lost — but the streaming filter re-marshals every record
+// through semanticRecord, and an unmodeled field is silently stripped from the
+// stored snapshot, breaking the constant's "ingest in full" claim literally.
+func TestRelationProvenanceSurvivesRemarshal(t *testing.T) {
+	t.Parallel()
+	raw := `{"record_type":"relation","from_id":"a","to_id":"b","type":"CALLS",` +
+		`"resolution":"exact","provenance":"EXTRACTED"}`
+	var record semanticRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if record.Provenance != "EXTRACTED" {
+		t.Fatalf("provenance dropped on decode: got %q", record.Provenance)
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"provenance":"EXTRACTED"`) {
+		t.Fatalf("provenance dropped on re-marshal: %s", encoded)
 	}
 }

@@ -16,6 +16,12 @@ const fileLockRetryInterval = 10 * time.Millisecond
 
 var errFileLockTimeout = errors.New("file lock timeout")
 
+// errFileHardlinked classifies the nlink>1 refusal so callers can tell an
+// externally hardlinked state file (a backup or bench tool's cheap copy, which
+// a rebuild clears) from damage that needs different handling. The rendered
+// message is unchanged: "<label> must not be hardlinked: <path>".
+var errFileHardlinked = errors.New("must not be hardlinked")
+
 type fileLock struct {
 	path        string
 	file        *os.File
@@ -168,7 +174,10 @@ func (l *processFileLock) releaseReference() {
 }
 
 func fileLockTimeoutError(code, path string) error {
-	return fmt.Errorf("%s: timed out acquiring lock at %s%s: %w", code, path, describeFileLockHolder(path), errFileLockTimeout)
+	// The holder named below is ALIVE: these are flock/LockFileEx locks, which
+	// the kernel releases the moment their process exits, so a timeout can
+	// never be a stale lockfile. That is what licenses naming an action here.
+	return fmt.Errorf("%s: timed out acquiring lock at %s%s: %w — another entire-brain operation is still running; wait for it to finish or stop that process, then retry", code, path, describeFileLockHolder(path), errFileLockTimeout)
 }
 
 // fileLockMetadataMaxBytes bounds the read of an owner file.

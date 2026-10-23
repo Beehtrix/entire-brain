@@ -486,7 +486,7 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 		data    []byte
 		symlink bool
 	}{
-		{name: "unknown newer", state: "unsupported", code: memoryErrUnsupportedVersion, version: brainManifestSchemaVersion + 1, data: []byte("{\"schema_version\":4,\"future\":{\"preserve\":true}}\n")},
+		{name: "unknown newer", state: "unsupported", code: memoryErrUnsupportedVersion, version: brainManifestSchemaVersion + 1, data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"preserve\":true}}\n", brainManifestSchemaVersion+1))},
 		{name: "corrupt", state: "corrupt", code: memoryErrStateCorrupt, data: []byte("{not-json\n")},
 		{name: "unsafe symlink", state: "unsafe", code: memoryErrStateUnsafe, symlink: true, data: []byte("{\"schema_version\":3}\n")},
 	} {
@@ -603,7 +603,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	future := []byte("{\"schema_version\":4,\"future\":true}\n")
+	future := []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":true}\n", brainManifestSchemaVersion+1))
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportManifestFileName), future, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -653,7 +653,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if compiled["brain_manifest"] != float64(brainManifestSchemaVersion) {
 		t.Fatalf("compiled schema capabilities payload = %#v", compiled)
 	}
-	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, memoryErrUnsupportedVersion) || !strings.Contains(got.Detail, "schema 4") {
+	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, memoryErrUnsupportedVersion) || !strings.Contains(got.Detail, fmt.Sprintf("schema %d", brainManifestSchemaVersion+1)) {
 		t.Fatalf("observed schema health = %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(storage.BrainDir, memoryWorkDirRel)); !os.IsNotExist(err) {

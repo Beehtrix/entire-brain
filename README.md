@@ -133,28 +133,22 @@ Brain is set up is per [repository](docs/reference.md#3a-what-setup-needs-first-
 entire brain setup
 ```
 
-By default, `setup` indexes the repository, extracts facts from up to 25 past sessions in the background, and installs a watcher to keep the memory updated. The watcher runs as a persistent service on macOS and Linux with systemd.
+By default, `setup` indexes the repository, extracts facts from up to 25 past sessions in the background, installs a watcher to keep the memory updated, and installs the agent instructions. The watcher runs as a persistent service on macOS and Linux with systemd.
 
-Now install the agent instructions:
+The agent instructions live in these files, created or updated by `setup`:
 
-```sh
-entire graph init-agents   # only if Graph is installed; see the note below
-entire brain init-agents
-```
-
-The command creates or updates these files:
-
-- `.entire/agent-guide.md`: the agent instructions. Rerunning the command replaces this file.
+- `.entire/agent-guide.md`: the agent instructions. Rerunning setup replaces this file.
 - `AGENTS.md` and `CLAUDE.md`: references to the guide inside managed blocks. Your text outside those blocks is preserved.
 
 The guide is assembled from whichever products have been **activated**, and each
-product activates itself. `entire brain init-agents` on its own writes a
+product activates itself. `entire brain setup` on its own writes a
 Brain-only guide containing no Graph instructions at all — installing Graph does
 not change that, because activation is recorded in the guide rather than probed.
-Run Graph's `init-agents` too if you want both.
+Run `entire graph setup` too if you want both.
 
-Run Brain's **last**. Each product rewrites the shared guide file from its own
-copy of the text, so whichever you run last decides the wording.
+The two setups compose in **either order**. The guide text is mirrored between
+the two products, so both render the same combined guide; each run only adds its
+own product to the recorded activation.
 
 Review the generated files and commit them together when the instructions should apply to your team. Restart your agent or reload its repository instructions so it picks up the guide.
 
@@ -252,8 +246,8 @@ Semantic (embedding) retrieval was removed: a 1,748-run agent eval measured
 BM25 lexical ranking matching or beating the embedder stack end-to-end while
 cutting agent tokens 18-28%, query memory 96%, and 31 MB off the binary (see
 docs/eval_ledger.md and trail #278). `--keyword` is accepted for
-compatibility (it is the only mode); `--semantic` and `vsearch` return an
-error pointing here.
+compatibility (it is the only mode); `--semantic` and `vsearch` run the same
+BM25 ranking and print a stderr notice.
 
 Supply the query text positionally or with `--query`; flags can appear before or after it:
 
@@ -398,7 +392,6 @@ the binary.
 | --- | --- |
 | `entire brain setup` | Build the brain and start background updates |
 | `entire brain add` | Clone a repository, fetch its Entire history, and build its brain |
-| `entire brain init-agents` | Install coordinated agent instructions |
 | `entire brain agent-guide` | Preview repository-specific agent instructions |
 | `entire brain mcp` | Serve local brain tools over MCP |
 | `entire brain webhook` | Notify another service when this brain changes |
@@ -412,7 +405,7 @@ the binary.
 | --- | --- |
 | `entire brain overview` | Summarize the project, its structure, and decisions |
 | `entire brain brief` | Gather relevant context for a task |
-| `entire brain query` | Search the brain (hybrid by default) |
+| `entire brain query` | Search the brain (BM25 lexical) |
 | `entire brain get` | Fetch a brain item by ID |
 | `entire brain multi-get` | Fetch several brain items by ID in one call |
 | `entire brain dash` | Browse the brain in an interactive dashboard |

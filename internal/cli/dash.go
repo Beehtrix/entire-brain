@@ -512,6 +512,12 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 // (NDJSON: a header line followed by one record per line), reusing the snapshot
 // scanner and path validation. A missing snapshot yields no symbols.
 func loadSemanticSymbols(brainDir string, source *semanticSourceManifest, limit int) ([]semanticRecord, error) {
+	if source != nil && source.graphStore != nil {
+		if limit <= 0 {
+			limit = -1
+		}
+		return findSemanticSymbolsInSQLite(source.StorePath, "", limit, 0)
+	}
 	if source == nil || source.SnapshotPath == "" {
 		return nil, nil
 	}

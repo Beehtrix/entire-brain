@@ -8,6 +8,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/repoid"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // envBrainAllowHosted is the legacy env opt-in for hosted egress, kept as a
@@ -16,7 +17,7 @@ import (
 const envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
 
 // manualHostedTarget is the resolved destination for a manual hosted command
-// (publish, facts sync --facts-backend=http, facts proposals).
+// (publish, memories sync on the hosted backend).
 type manualHostedTarget struct {
 	repoID  string
 	baseURL string
@@ -58,7 +59,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run '%s', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, brainInvocation(os.LookupEnv, "connect"), envBrainAllowHosted)
 		}
 		if _, seen := securityToggleWarned.LoadOrStore(envBrainAllowHosted+":deprecated", struct{}{}); !seen {
-			fmt.Fprintf(os.Stderr, "warning: %s is deprecated; run '%s' or pass explicit target flags\n", envBrainAllowHosted, brainInvocation(os.LookupEnv, "connect"))
+			tui.Warnf(os.Stderr, "%s is deprecated; run '%s' or pass explicit target flags", envBrainAllowHosted, brainInvocation(os.LookupEnv, "connect"))
 		}
 	}
 

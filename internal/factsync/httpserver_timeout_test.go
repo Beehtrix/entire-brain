@@ -24,8 +24,8 @@ func TestDefaultSyncClientHasABound(t *testing.T) {
 }
 
 // TestDefaultSyncClientBoundsAWedgedEndpoint is the behavioural proof, on both the
-// read (Current) and the write (Advance) path, called with context.Background() —
-// the real CLI/daemon case, where there is no caller deadline.
+// read (FactsFeedPage) and the write (UpsertFacts) path, called with
+// context.Background() — the real CLI/daemon case, where there is no caller deadline.
 func TestDefaultSyncClientBoundsAWedgedEndpoint(t *testing.T) {
 	withShortSyncTimeouts(t)
 
@@ -34,12 +34,12 @@ func TestDefaultSyncClientBoundsAWedgedEndpoint(t *testing.T) {
 	t.Cleanup(func() { close(done); srv.Close() })
 
 	h := &HTTPServer{BaseURL: srv.URL, Token: "t"}
-	assertReturns(t, "Current", func() error {
-		_, _, _, err := h.Current(context.Background(), "repo", "main")
+	assertReturns(t, "FactsFeedPage", func() error {
+		_, err := h.FactsFeedPage(context.Background(), "repo", "", 100)
 		return err
 	})
-	assertReturns(t, "Advance", func() error {
-		_, err := h.Advance(context.Background(), "repo", "main", "", []byte("x"))
+	assertReturns(t, "UpsertFacts", func() error {
+		_, err := h.UpsertFacts(context.Background(), "repo", []byte("x"))
 		return err
 	})
 }

@@ -510,7 +510,7 @@ func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target strin
 }
 
 func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
-	brainDir, err := resolvePatternsBrainDir(ctx, opts, target)
+	repoDir, brainDir, err := resolvePatternsRepoAndBrain(ctx, opts, target)
 	if err != nil {
 		return err
 	}
@@ -519,7 +519,7 @@ func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, t
 		return err
 	}
 	// Explicit refresh is the stricter surface: a corpus failure is fatal here.
-	if err := buildPatternCorpus(brainDir, opts.Now().UTC()); err != nil {
+	if err := buildPatternCorpus(brainDir, opts.Now().UTC(), patternCorpusGraphContext{Context: ctx, Options: opts, RepoDir: repoDir}); err != nil {
 		return fmt.Errorf("pattern corpus: %w", err)
 	}
 	if asJSON {

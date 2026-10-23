@@ -454,7 +454,7 @@ func TestStatusAndDoctorAgreeOnAStaleFailure(t *testing.T) {
 	// doctor: must reach the same verdict from the same inputs. This mirrors
 	// the filter in failedSetupComponents; if that filter is removed, the two
 	// surfaces disagree again and this fails.
-	_, failed := partitionSetupComponents(record.Components)
+	_, _, failed := partitionSetupComponents(record.Components)
 	kept := pruneRebuiltFailures(failed, rebuilt, record.UpdatedAt)
 	if len(kept) != 0 {
 		t.Fatalf("doctor would still report %d stale failure(s) that status cleared: %+v", len(kept), kept)

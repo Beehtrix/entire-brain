@@ -16,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // MCP over HTTP.
@@ -203,7 +205,7 @@ func newMCPHTTPHandler(opts Options, cfg mcpHTTPConfig) http.Handler {
 			// here — but swallowing the error entirely left no trace anywhere
 			// that the response was malformed, which makes a client-side parse
 			// failure impossible to account for from this side.
-			fmt.Fprintf(os.Stderr, "warning: mcp http response for %s not fully written: %v\n", msg.Method, deliverErr)
+			tui.Warnf(os.Stderr, "mcp http response for %s not fully written: %v", msg.Method, deliverErr)
 		}
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

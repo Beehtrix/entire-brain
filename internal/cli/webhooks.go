@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // Webhooks: telling something else that a brain changed.
@@ -75,7 +77,7 @@ func webhookTimeout() time.Duration {
 	}
 	parsed, err := time.ParseDuration(raw)
 	if err != nil || parsed <= 0 {
-		fmt.Fprintf(os.Stderr, "warning: %s is not a positive duration; using %s\n", webhookTimeoutEnv, defaultWebhookTimeout)
+		tui.Warnf(os.Stderr, "%s is not a positive duration; using %s", webhookTimeoutEnv, defaultWebhookTimeout)
 		return defaultWebhookTimeout
 	}
 	return parsed

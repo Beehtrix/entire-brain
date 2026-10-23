@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
-"""Hermetic cross-binary contract test. No real plugins, state, or daemons are touched."""
+"""Hermetic cross-binary contract test. No real plugins, daemons, or token spend.
+
+Instruction install moved from the removed `init-agents` command into each
+product's `setup` (brain #444, graph #363). Brain's setup also builds the brain
+itself, so its runs here pass --no-backfill --no-daemon and need repositories
+with at least one commit; its instant phase may legitimately dispatch the host
+CLI for Graph delegation and session export, which the stub answers with a
+failure the phase degrades around. Hooks are product-specific (graph: Claude
+SubagentStart; brain: Claude PreToolUse), not part of the shared activation
+contract, so both setups run with their hook flag declined to keep repository
+snapshots product-symmetric.
+"""
 import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--graph-binary', required=True, type=Path)
 parser.add_argument('--brain-binary', required=True, type=Path)
 args = parser.parse_args()
 binaries = {'graph': args.graph_binary.resolve(), 'brain': args.brain_binary.resolve()}
-with tempfile.TemporaryDirectory(prefix='agent-coordination-') as tmp:
+# Not TemporaryDirectory: brain setup detaches a history-index worker whose
+# coordinator.json can land after the run ends, so teardown retries, then
+# shrugs — the leftovers are inside this run's private tree.
+tmp = tempfile.mkdtemp(prefix='agent-coordination-')
+try:
     root = Path(tmp)
     env = {k: v for k, v in os.environ.items() if not k.startswith(('ENTIRE_', 'GIT_'))}
     for key in ('HOME', 'XDG_STATE_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME'):
@@ -28,7 +45,7 @@ if [ "$#" != 2 ] || [ "$1" != plugin ] || [ "$2" != list ]; then exit 97; fi
 if [ "$TEST_LIST_FAILURE" = 1 ]; then exit 98; fi
 if [ -z "$TEST_PLUGINS" ]; then
   echo "No plugins installed in /fixture."
-  echo "Install one with 'entire plugin install <name|url|path>', or drop an entire-<name> binary anywhere on \u0024PATH."
+  echo "Install one with 'entire plugin install <name|url|path>', or drop an entire-<name> binary anywhere on $PATH."
 else
   echo "Managed plugin directory: /fixture"
   echo
@@ -42,10 +59,28 @@ fi
 
     def run(tool, repo, command, success=True, explicit=True, cwd=None, extra=()):
         argv = [str(binaries[tool]), command, *extra]
-        if explicit:
+        if command == 'setup':
+            if tool == 'brain':
+                # --agent none is defense in depth: no setup phase may resolve
+                # an agent CLI from the caller's PATH, so this test can never
+                # spend tokens even if a future default changes.
+                argv += ['--no-backfill', '--no-daemon', '--no-agent-hooks', '--agent', 'none']
+                if explicit:
+                    argv.append(str(repo))
+            else:
+                argv.append('--no-claude-hook')
+                if explicit:
+                    argv += ['--repo', str(repo)]
+        elif explicit:
             argv += ['--repo', str(repo)]
+        # Previews and graph setup are pure activation: they must never reach
+        # the host CLI. Brain setup is exempt — its brain-build phases may.
+        silent = command in ('agent-guide', 'guide') or (command == 'setup' and tool == 'graph')
+        calls_before = log.read_text() if silent else None
         result = subprocess.run(argv, cwd=cwd or root, env=env, capture_output=True, text=True)
         assert (result.returncode == 0) == success, (argv, result.stdout, result.stderr)
+        if silent:
+            assert log.read_text() == calls_before, (argv, 'dispatched the host CLI')
         return result.stdout
 
     def snapshot(repo):
@@ -56,6 +91,10 @@ fi
         repo.mkdir()
         subprocess.run(['git', 'init', '-q', str(repo)], env=env, check=True)
         subprocess.run(['git', '-C', str(repo), 'remote', 'add', 'origin', 'https://github.com/test/' + name], env=env, check=True)
+        # Brain's setup refuses a repository with no commits (nothing to index),
+        # and only installs instructions after the instant phase succeeds.
+        subprocess.run(['git', '-C', str(repo), '-c', 'user.name=t', '-c', 'user.email=t@test.invalid',
+                        'commit', '-q', '--allow-empty', '-m', 'init'], env=env, check=True)
         setup = Path(env['XDG_STATE_HOME']) / 'entire/repos/gh/test' / name / 'setup.json'
         if brain:
             setup.parent.mkdir(parents=True)
@@ -73,9 +112,11 @@ fi
         # not send an agent probing its own installation.
         for forbidden in ('entire plugin list', 'command -v', 'setup.json', 'if Brain is installed', 'entire graph version', 'entire brain version'):
             assert forbidden not in text
-        # The directive itself, and only verbs a released graph exposes (#323).
-        assert 'MUST be ONE Graph search' in text or product == 'brain', text[:400]
-        assert 'entire graph query' not in text
+        # The directive itself. `entire graph query` is no longer banned: the
+        # released graph exposes it and the guide now names it (#323 is history).
+        # Graph-only states a first-action absolute; the combined guide states one
+        # ordered sequence instead — both carry the every-question obligation.
+        assert 'MUST also go through Graph' in text or product == 'brain', text[:400]
         for name in ('AGENTS.md', 'CLAUDE.md'):
             content = (repo / name).read_text()
             assert content.count('<!-- entire-agent:begin -->') == 1
@@ -93,7 +134,7 @@ fi
         second = 'brain' if first == 'graph' else 'graph'
         before = None
         for product in (first, second, first, second):
-            run(product, repo, 'init-agents')
+            run(product, repo, 'setup')
             check(repo, product, 'Graph and Brain')
             assert run('graph', repo, 'agent-guide') == run('brain', repo, 'agent-guide')
             if before is not None:
@@ -102,26 +143,26 @@ fi
         content = (repo / 'AGENTS.md').read_text()
         for user_text in ('User prefix\n', '\nMiddle\n', '\nUser suffix\n'):
             assert user_text in content
-        assert sum('Begin substantive tasks' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
+        assert sum('Both tools run, in this order' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
         setup.unlink()
-        run('graph', repo, 'init-agents')
+        run('graph', repo, 'setup')
         check(repo, 'graph', 'Graph and Brain')
         # Runtime state removal must not remove repository activation.
-        run('brain', repo, 'init-agents')
+        run('brain', repo, 'setup')
         check(repo, 'brain', 'Graph and Brain')
 
     for product in ('graph', 'brain'):
         env['TEST_PLUGINS'] = product
         repo, _ = project('only-' + product)
-        run(product, repo, 'init-agents')
+        run(product, repo, 'setup')
         check(repo, product, product.title())
 
     env['TEST_PLUGINS'] = 'brain'
     repo, _ = project('json-report')
-    report = json.loads(run('brain', repo, 'init-agents', extra=('--json',)))
-    assert report['changed_files'] == ['.entire/agent-guide.md', 'AGENTS.md', 'CLAUDE.md']
-    report = json.loads(run('brain', repo, 'init-agents', extra=('--json',)))
-    assert report['changed_files'] == []
+    report = json.loads(run('brain', repo, 'setup', extra=('--json',)))
+    assert report['agent_instructions']['changed'] == ['.entire/agent-guide.md', 'AGENTS.md', 'CLAUDE.md']
+    report = json.loads(run('brain', repo, 'setup', extra=('--json',)))
+    assert report['agent_instructions'].get('changed', []) == []
 
     env['TEST_PLUGINS'] = 'graph brain'
     for first in ('graph', 'brain'):
@@ -130,27 +171,40 @@ fi
         # Preview must not persist activation.
         run(second, repo, 'agent-guide')
         assert snapshot(repo) == {}
-        run(first, repo, 'init-agents')
+        run(first, repo, 'setup')
         check(repo, first, first.title())
-        run(second, repo, 'init-agents')
+        run(second, repo, 'setup')
         check(repo, second, 'Graph and Brain')
         before = snapshot(repo)
         env['TEST_LIST_FAILURE'] = '1'
         for product in (first, second):
-            run(product, repo, 'init-agents')
+            run(product, repo, 'setup')
             assert snapshot(repo) == before
         del env['TEST_LIST_FAILURE']
 
     repo, setup = project('runtime-independent', brain=True)
     setup.write_text('{malformed runtime state')
-    run('graph', repo, 'init-agents')
+    # Graph activation is independent of brain runtime state. Brain's setup
+    # refuses a malformed setup record by design — acting on a lost daemon
+    # identity is the hazard — and refuses before writing anything.
+    run('graph', repo, 'setup')
     check(repo, 'graph', 'Graph')
+    before = snapshot(repo)
+    run('brain', repo, 'setup', success=False)
+    assert snapshot(repo) == before
+    setup.unlink()
+    run('brain', repo, 'setup')
+    check(repo, 'brain', 'Graph and Brain')
     before = snapshot(repo)
     guide_path = repo / '.entire/agent-guide.md'
     guide_path.write_text(guide_path.read_text().replace('"schema_version":1', '"schema_version":99'))
     damaged = snapshot(repo)
     for product in ('graph', 'brain'):
-        run(product, repo, 'init-agents', success=False)
+        # An unrecognized guide fails before writes. Graph's setup is only the
+        # installer, so it fails outright; brain's setup downgrades the wiring
+        # failure to a warning (the brain itself still built) but must leave
+        # the damaged guide untouched.
+        run(product, repo, 'setup', success=(product == 'brain'))
         run(product, repo, 'agent-guide', success=False)
         assert snapshot(repo) == damaged
     guide_path.write_bytes(before['.entire/agent-guide.md'])
@@ -162,9 +216,9 @@ fi
         before = snapshot(repo)
         preview = run(first, repo, 'agent-guide', extra=('--strict',))
         assert snapshot(repo) == before
-        run(first, repo, 'init-agents', extra=('--strict',))
+        run(first, repo, 'setup', extra=('--strict',))
         assert (repo / '.entire/agent-guide.md').read_text() == preview
-        run(second, repo, 'init-agents')
+        run(second, repo, 'setup')
         strict = (repo / '.entire/agent-guide.md').read_text()
         assert '"mode":"strict"' in strict
         assert 'ALWAYS run impact before editing' in strict
@@ -174,35 +228,38 @@ fi
             assert run(product, repo, 'agent-guide') == strict
             normal = run(product, repo, 'agent-guide', extra=('--normal',))
             assert '"mode":"strict"' not in normal
-            assert 'Skip ceremonial queries' in normal
+            assert 'ALWAYS run impact before editing' not in normal
             assert snapshot(repo) == before
-            run(product, repo, 'init-agents')
+            run(product, repo, 'setup')
             assert snapshot(repo) == before
-            for command in ('init-agents', 'agent-guide'):
+            for command in ('setup', 'agent-guide'):
                 run(product, repo, command, extra=('--strict', '--normal'), success=False)
                 assert snapshot(repo) == before
         assert run('brain', repo, 'guide') == strict
         assert run('brain', repo, 'guide', extra=('--normal',)) == normal
-        run(second, repo, 'init-agents', extra=('--normal',))
+        run(second, repo, 'setup', extra=('--normal',))
         assert (repo / '.entire/agent-guide.md').read_text() == normal
-        run(first, repo, 'init-agents')
+        run(first, repo, 'setup')
         assert run(first, repo, 'agent-guide') == normal
         assert run(second, repo, 'agent-guide') == normal
-        run(first, repo, 'init-agents', extra=('--strict',))
+        run(first, repo, 'setup', extra=('--strict',))
         assert run(second, repo, 'agent-guide') == strict
 
-    # Standalone binaries need neither the host nor any other executable on PATH.
+    # Standalone binaries need no host CLI. git stays reachable: brain's setup
+    # reads git history by design (that is the brain), so the claim under test
+    # is independence from `entire`, not from git.
     saved_path = env['PATH']
     no_host = root / 'no-host'
     no_host.mkdir()
+    os.symlink(shutil.which('git'), no_host / 'git')
     for product in ('graph', 'brain'):
         repo, _ = project('no-host-' + product, brain=True)
         env['PATH'] = str(no_host)
         calls_before = log.read_text()
-        run(product, repo, 'init-agents')
+        run(product, repo, 'setup')
         check(repo, product, product.title())
         before = snapshot(repo)
-        run(product, repo, 'init-agents')
+        run(product, repo, 'setup')
         assert snapshot(repo) == before
         assert log.read_text() == calls_before
         env['PATH'] = saved_path
@@ -211,7 +268,7 @@ fi
     repo, _ = project('context', brain=True)
     sub = repo / 'sub'
     sub.mkdir()
-    run('graph', repo, 'init-agents', explicit=False, cwd=sub)
+    run('graph', repo, 'setup', explicit=False, cwd=sub)
     check(repo, 'graph', 'Graph')
     env['ENTIRE_REPO_ROOT'] = str(repo)
     assert run('graph', repo, 'agent-guide', explicit=False) == (repo / '.entire/agent-guide.md').read_text()
@@ -219,20 +276,37 @@ fi
     calls_before = log.read_text()
     for product in ('graph', 'brain'):
         assert run(product, None, 'agent-guide', explicit=False).startswith('# Entire repository agent guide — ' + product.title() + '\n')
-        run(product, None, 'init-agents', explicit=False, success=False)
+        run(product, None, 'setup', explicit=False, success=False)
     assert log.read_text() == calls_before
-    assert log.read_text() == '', 'agent activation queried or dispatched a plugin'
+    # Brain's build phases dispatch the host by design; activation never
+    # consults the plugin inventory.
+    assert 'plugin' not in log.read_text(), 'agent activation queried the host plugin inventory'
+finally:
+    for _ in range(10):
+        try:
+            shutil.rmtree(tmp)
+            break
+        except OSError:
+            time.sleep(1)
+    else:
+        shutil.rmtree(tmp, ignore_errors=True)
 
-# Activation, rendering, and filesystem protections must remain mirrored.
-# Historical runtime-detection helpers already differ between these repositories
-# and no longer participate in agent activation.
+# Everything in agentsetup is byte-mirrored except the hook writers, which are
+# product-specific (graph: claude_hook*.go for the Claude SubagentStart hook;
+# brain: claudehooks*.go for the PreToolUse hook) and the wiring/product tests
+# that exercise only one side. Mirroring the renderer is what makes the render
+# parity above hold: both binaries install the same guide bytes, so the
+# installed guide no longer depends on which product ran setup last.
+product_specific = {
+    'claude_hook.go', 'claude_hook_test.go', 'claude_hook_unix_test.go',
+    'claudehooks.go', 'claudehooks_test.go', 'agents_wired_test.go',
+}
 brain_source = Path(__file__).resolve().parents[1] / 'internal/agentsetup'
 graph_source = Path(__file__).resolve().parents[2] / 'entire-graph/internal/agentsetup'
 if graph_source.exists():
-    legacy_runtime = {'brain_state.go', 'brain_manifest_test.go'}
-    brain_files = {p.name for p in brain_source.iterdir() if p.is_file()} - legacy_runtime
-    graph_files = {p.name for p in graph_source.iterdir() if p.is_file()} - legacy_runtime
+    brain_files = {p.name for p in brain_source.iterdir() if p.is_file()} - product_specific
+    graph_files = {p.name for p in graph_source.iterdir() if p.is_file()} - product_specific
     assert brain_files == graph_files, (brain_files ^ graph_files)
     for name in sorted(brain_files):
         assert (brain_source / name).read_bytes() == (graph_source / name).read_bytes(), name
-print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, strict/normal persistence, failures, preview parity, context, byte stability, no plugin dispatch')
+print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, strict/normal persistence, failures, preview parity, context, byte stability, no plugin inventory dispatch')

@@ -323,7 +323,7 @@ func doctorSemanticCoverage(ctx context.Context, opts Options, repoDir string, f
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return nil, err
 	}

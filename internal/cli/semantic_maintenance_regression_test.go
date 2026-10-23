@@ -27,45 +27,6 @@ func buildSemanticMaintenanceFixture(t *testing.T) (string, EntireEnv, *fakeComm
 	return repo, env, runner, opts
 }
 
-func TestSemanticRepairRebuildsCorruptGenerationAndKeepsSnapshotEvidence(t *testing.T) {
-	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	source := mustSemanticSource(t, env)
-	snapshotBefore, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	store := filepath.Join(brainDir, filepath.FromSlash(source.StorePath))
-	if err := os.WriteFile(store, []byte("corrupt sqlite"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	var repairOut bytes.Buffer
-	repairCmd := &cobra.Command{Use: "repair"}
-	repairCmd.SetOut(&repairOut)
-	if err := runSemanticRepair(context.Background(), repairCmd, opts, repo); err != nil {
-		t.Fatalf("repair: %v", err)
-	}
-	if !strings.Contains(repairOut.String(), "repaired semantic brain") {
-		t.Fatalf("repair output = %q", repairOut.String())
-	}
-	repaired := mustSemanticSource(t, env)
-	if repaired.SnapshotPath != source.SnapshotPath || repaired.Symbols != source.Symbols || repaired.Relations != source.Relations {
-		t.Fatalf("repair changed snapshot evidence: before=%+v after=%+v", source, repaired)
-	}
-	if got, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(repaired.SnapshotPath))); err != nil || !bytes.Equal(got, snapshotBefore) {
-		t.Fatalf("snapshot changed during repair: %v", err)
-	}
-	var queryOut bytes.Buffer
-	queryCmd := &cobra.Command{Use: "query"}
-	queryCmd.SetOut(&queryOut)
-	if err := runSemanticQuery(context.Background(), queryCmd, opts, semanticQueryOptions{limit: 10, json: true}, "ValidateToken"); err != nil {
-		t.Fatalf("query after repair: %v", err)
-	}
-	if !strings.Contains(queryOut.String(), "ValidateToken") {
-		t.Fatalf("query lost repaired evidence: %q", queryOut.String())
-	}
-}
-
 func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -93,45 +54,21 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 func TestSemanticResetRequiresForceBeforeTouchingState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	source := mustSemanticSource(t, env)
+	_ = mustSemanticSource(t, env)
 	err := runSemanticReset(context.Background(), &cobra.Command{Use: "reset"}, opts, semanticResetOptions{semanticOnly: true}, repo)
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("reset without force error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath))); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
 		t.Fatalf("state changed before force validation: %v", err)
-	}
-}
-
-func TestSemanticBundleExportFailureLeavesExistingOutputAndGeneration(t *testing.T) {
-	_, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	source := mustSemanticSource(t, env)
-	snapshot := filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath))
-	if err := os.WriteFile(snapshot, []byte("broken snapshot"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	output := filepath.Join(t.TempDir(), "bundle.tar")
-	if err := os.WriteFile(output, []byte("existing output"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	err := runSemanticBundleExport(context.Background(), &cobra.Command{Use: "bundle export"}, opts, output, false)
-	if err == nil || (!strings.Contains(err.Error(), "snapshot") && !strings.Contains(err.Error(), "schema")) {
-		t.Fatalf("export corruption diagnostic = %v", err)
-	}
-	if got, readErr := os.ReadFile(output); readErr != nil || string(got) != "existing output" {
-		t.Fatalf("failed export replaced output: %q, %v", got, readErr)
-	}
-	if got, readErr := os.ReadFile(snapshot); readErr != nil || string(got) != "broken snapshot" {
-		t.Fatalf("failed export changed snapshot: %q, %v", got, readErr)
 	}
 }
 
 func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testing.T) {
 	_, env, _, opts := buildSemanticMaintenanceFixture(t)
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	source := mustSemanticSource(t, env)
-	before, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath)))
+	_ = mustSemanticSource(t, env)
+	before, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +83,7 @@ func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testi
 		(!strings.Contains(err.Error(), "invalid tar") && !strings.Contains(err.Error(), "unexpected EOF") && !strings.Contains(err.Error(), "archive/tar")) {
 		t.Fatalf("malformed archive diagnostic = %v", err)
 	}
-	if got, readErr := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(source.SnapshotPath))); readErr != nil || !bytes.Equal(got, before) {
+	if got, readErr := os.ReadFile(filepath.Join(brainDir, exportManifestFileName)); readErr != nil || !bytes.Equal(got, before) {
 		t.Fatalf("failed import changed active snapshot: %v", readErr)
 	}
 }

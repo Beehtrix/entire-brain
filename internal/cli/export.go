@@ -86,6 +86,12 @@ type exportCommandOptions struct {
 	historyIndex    bool
 	debug           bool
 	progress        func(exportProgress)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended paths. The background memory worker drives this same export
+	// to keep short-term memory warm; nobody is watching its stderr to learn
+	// that files were deleted, so it must never delete them. User-invoked
+	// export/refresh still sweeps.
+	skipTranscriptSweep bool
 }
 
 type exportProgress struct {
@@ -229,9 +235,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	if selected == nil {
 		if brainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
-				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export")
+				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export — unset " + noEgressToggleName() + " to allow it")
 			}
-			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery")
+			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery — unset " + noEgressToggleName() + " to allow it")
 		}
 		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
 		if err != nil {
@@ -335,12 +341,15 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		if err != nil {
 			return err
 		}
-		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
-		if err != nil {
-			return err
-		}
-		if migration != nil {
-			defer migration.Close()
+		var migration *historySessionInventory
+		if !exportOpts.skipTranscriptSweep {
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+			if err != nil {
+				return err
+			}
+			if migration != nil {
+				defer migration.Close()
+			}
 		}
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
@@ -364,6 +373,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
+			// migration is nil when skipTranscriptSweep suppressed the plan above;
+			// sweepTranscriptCache(ctx, nil) is already a no-op.
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
@@ -583,8 +594,18 @@ func validateForcedOutputManifest(data []byte) error {
 		return err
 	}
 	normalizeBrainManifest(&manifest)
-	if manifest.SchemaVersion != brainManifestSchemaVersion {
-		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	// A floor, not a range. This explicit-output --force path exists only to
+	// confirm the target directory holds a genuine prior brain/export before
+	// wiping it, not to gate on whether THIS build can read everything the
+	// manifest contains. A manifest from a NEWER build still proves that: it
+	// is a real manifest this build cannot parse further, and --force is the
+	// deliberate destructive discard-and-rebuild escape hatch -- the only
+	// recovery available for exactly that case. Rejecting it here, the way
+	// equality once did, would make --force refuse the one case it exists for.
+	// Only a version below the oldest this build ever reads fails the "is this
+	// a brain store" check.
+	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")
@@ -910,7 +931,7 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
 		if brainNoEgressMode() {
-			return nil, []string{"no_egress: branch checkpoint fallback skipped"}, nil
+			return nil, []string{"no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while " + noEgressToggleName() + " is set"}, nil
 		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
@@ -920,7 +941,7 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 		return nil, nil, err
 	}
 	if brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while "+noEgressToggleName()+" is set")
 		return checkpoints, warnings, nil
 	}
 
@@ -1138,7 +1159,7 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 	}
 	warnings = append(warnings, refWarnings...)
 	if len(ids) == 0 && brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped")
+		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped — no checkpoints are visible without local refs while "+noEgressToggleName()+" is set")
 	}
 
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
@@ -1620,7 +1641,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 			return nil, warnings, err
 		}
-		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped while "+noEgressToggleName()+" is set")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 	return nil, warnings, err

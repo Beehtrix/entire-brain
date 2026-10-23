@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // securityToggleWarned dedups the unrecognized-value warning so a garbage env
@@ -20,7 +22,7 @@ func brainNoEgressMode() bool {
 	}
 	if securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY") {
 		if _, seen := securityToggleWarned.LoadOrStore("ENTIRE_BRAIN_LOCAL_ONLY:deprecated", struct{}{}); !seen {
-			fmt.Fprintln(os.Stderr, "warning: ENTIRE_BRAIN_LOCAL_ONLY is a deprecated alias; set ENTIRE_BRAIN_NO_EGRESS instead")
+			tui.Warnf(os.Stderr, "ENTIRE_BRAIN_LOCAL_ONLY is a deprecated alias; set ENTIRE_BRAIN_NO_EGRESS instead")
 		}
 		return true
 	}
@@ -61,7 +63,7 @@ func securityToggleEnabled(name string) bool {
 		return true
 	default:
 		if _, seen := securityToggleWarned.LoadOrStore(name, struct{}{}); !seen {
-			fmt.Fprintf(os.Stderr, "warning: %s is not a recognized boolean; treating as enabled (fail-closed)\n", name)
+			tui.Warnf(os.Stderr, "%s is not a recognized boolean; treating as enabled (fail-closed)", name)
 		}
 		return true
 	}

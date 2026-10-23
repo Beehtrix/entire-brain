@@ -148,7 +148,7 @@ func TestSemanticBoundaryReportsMissingLocalRepoDuringFreshnessCheck(t *testing.
 	var output bytes.Buffer
 	cmd.SetOut(&output)
 	err = runSemanticBoundary(cmd.Context(), cmd, opts, semanticBoundaryOptions{limit: 10, json: true}, semanticBoundarySpec{Name: "routes"})
-	if err == nil || !strings.Contains(err.Error(), "stale requires a local repository path") {
+	if err == nil || !strings.Contains(err.Error(), "status requires a local repository") {
 		t.Fatalf("missing local repo error=%v", err)
 	}
 	if output.Len() != 0 {

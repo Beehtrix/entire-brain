@@ -12,7 +12,7 @@ import (
 // directory to the NEAREST .git, which is right until a repository is nested
 // inside another. The documented build-from-source flow produces exactly that
 // shape: `git clone entire-brain` inside a project, `cd entire-brain`, install
-// — and leaves the shell inside the clone, so the next `init-agents` writes
+// — and leaves the shell inside the clone, so the next `setup` writes
 // AGENTS.md, CLAUDE.md and the guide into the clone instead of the project.
 // The clone is usually untracked by the outer repository, so the files are
 // invisible to the team the guide was meant for and nothing reports an error.

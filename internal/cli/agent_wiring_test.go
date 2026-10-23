@@ -130,7 +130,7 @@ func TestSetupAgentWiringFailureIsAWarningNotAFailedSetup(t *testing.T) {
 	if !strings.Contains(out, "agent instructions not written") {
 		t.Fatalf("a failed wiring must be reported, not swallowed:\n%s", out)
 	}
-	if !strings.Contains(out, "init-agents") {
+	if !strings.Contains(out, "setup") {
 		t.Fatalf("a failed wiring must name the command that repairs it:\n%s", out)
 	}
 }
@@ -706,5 +706,35 @@ func TestAgentsPhaseCountsAgentWiringAsWork(t *testing.T) {
 				t.Errorf("setupAgentsPhaseDidWork(%v, %+v) = %v, want %v", c.hookWired, c.agents, got, c.wantDidWork)
 			}
 		})
+	}
+}
+
+// TestSetupStrictModePersistsAcrossBareReruns: `setup --strict` saves the mode
+// in the guide's activation record — the job the removed init-agents command
+// used to do — and a bare re-run inherits it rather than resetting to normal.
+// `setup --normal` is the explicit way back.
+func TestSetupStrictModePersistsAcrossBareReruns(t *testing.T) {
+	f := newSetupTestFixture(t)
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	opts.noBackfill = true
+	opts.strict = true
+
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	guidePath := filepath.Join(f.repoDir, agentsetup.Path)
+	if guide := readFileString(t, guidePath); !strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("--strict did not persist in the activation record:\n%s", guide)
+	}
+
+	opts.strict = false
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	if guide := readFileString(t, guidePath); !strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("a bare re-run reset the saved strict mode:\n%s", guide)
+	}
+
+	opts.normal = true
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	if guide := readFileString(t, guidePath); strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("--normal did not reset the saved mode:\n%s", guide)
 	}
 }

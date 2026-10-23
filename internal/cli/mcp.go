@@ -845,7 +845,7 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, so use brain_index_repository with worktree=true when you need a dirty semantic snapshot. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
 			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD."), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
@@ -927,8 +927,8 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_index_repository",
-			"description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
-			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set."), "profile": stringArg("profile", "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default."), "worktree": boolArg("worktree", "Index dirty worktree content"), "force": boolArg("force", "Replace the current semantic snapshot")}),
+			"description": "Build Graph’s shared committed-tree code index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
+			"inputSchema": objectSchema(nil, map[string]any{"path": stringArg("path", "Local repository path (default: the bound repo). A relative path resolves inside the bound repository root, not the working directory; a path outside that root is refused unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set."), "profile": stringArg("profile", "Graph index profile (e.g. full, syntax-only); empty uses full."), "worktree": boolArg("worktree", "Deprecated: unsupported by the shared committed-tree store; use Graph working-tree queries"), "force": boolArg("force", "Force Graph to rebuild its committed-tree store")}),
 		},
 		{
 			"name":        "brain_list_projects",
@@ -1732,6 +1732,10 @@ func mcpRefreshOptions(args map[string]any) (refreshCommandOptions, error) {
 	refreshOpts.seed.force = force
 	refreshOpts.graphBinary = mcpGraphBinary()
 	refreshOpts.skipSessions = true
+	// skipSessions already keeps the export phase (and the sweep) out of this
+	// path today; this is defense-in-depth so brain_refresh stays safe if
+	// skipSessions is ever relaxed. The MCP caller has no stderr anyone reads.
+	refreshOpts.skipTranscriptSweep = true
 	refreshOpts.historyIndex = false
 	refreshOpts.semantic = semantic
 	refreshOpts.statusAfter = false

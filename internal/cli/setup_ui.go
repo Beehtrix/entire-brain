@@ -43,8 +43,8 @@ type setupSink struct {
 	progress *refreshProgress
 	rend     *setupui.Renderer
 	tty      bool
-	// quiet suppresses the permanent PHASE ROWS only. It exists because the
-	// short form replaced them, and the rows must stop WITHOUT the sink
+	// quiet suppresses verbose phase output. The short form drives its own
+	// live task and result lines, WITHOUT the sink
 	// pretending there is no terminal.
 	//
 	// The first attempt suppressed them by handing newProgress io.Discard.
@@ -145,9 +145,71 @@ func setupRenderWidth(caps tui.Caps, lookup tui.EnvLookup) int {
 // Renderer is the renderer every row in this run is composed with.
 func (s *setupSink) Renderer() *setupui.Renderer { return s.rend }
 
+// StartTask replaces the short form's active task. Verbose mode uses the
+// phase model instead; pipes get only the permanent results.
+func (s *setupSink) StartTask(label string) {
+	if s == nil || !s.quiet || !s.tty {
+		return
+	}
+	s.Suspend()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.task = s.progress.beginTimedPhase(label, tui.PhaseInstant)
+}
+
+// ShortWarning keeps failures in otherwise transient phases visible.
+func (s *setupSink) ShortWarning(detail, brainCmd string) {
+	if s == nil || !s.quiet {
+		return
+	}
+	s.Suspend()
+	s.progress.EmitLine("  " + s.rend.MarkGlyph(tui.MarkSkipped) + " " +
+		setupui.FlattenText(detail) + " — run `" + brainCmd + " setup --verbose` for details")
+}
+
+// BuildStep translates nested refresh output into the active task. SetLabel
+// is deliberately non-painting: nested output can hold the live-line lock.
+func (s *setupSink) BuildStep(label string) {
+	if s == nil || !s.quiet || !s.tty {
+		return
+	}
+	label = setupShortBuildLabel(label)
+	if label == "" {
+		return
+	}
+	s.mu.Lock()
+	task := s.task
+	s.mu.Unlock()
+	task.SetLabel("Building Brain " + s.rend.Dash() + " " + label + "…")
+}
+
+func setupShortBuildLabel(label string) string {
+	for _, suffix := range []string{" done", " skipped", " failed"} {
+		if strings.HasSuffix(label, suffix) {
+			return ""
+		}
+	}
+	for _, step := range []struct{ prefix, label string }{
+		{"export sessions", "reading past AI sessions"},
+		{"seed baseline", "scanning repository files"},
+		{"history index", "indexing session history"},
+		{"doc index", "indexing documentation"},
+		{"semantic index", "indexing code"},
+		{"reclassify facts", "organizing existing memories"},
+		{"pattern layer", "finding patterns in past sessions"},
+		{"entity index", "indexing code changes"},
+		{"memory coordinator", "updating memory state"},
+	} {
+		if label == step.prefix || strings.HasPrefix(label, step.prefix+":") {
+			return step.label
+		}
+	}
+	return ""
+}
+
 // Begin opens the phase's transient line.
 func (s *setupSink) Begin(accent tui.Phase, label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()
@@ -161,7 +223,7 @@ func (s *setupSink) Begin(accent tui.Phase, label string) {
 // again deadlocks the process. The spinner repaints the new label within
 // 100ms. See refreshProgressTask.SetLabel.
 func (s *setupSink) Live(label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()
@@ -359,7 +421,10 @@ func setupBrainQueryable(components []setupComponent) bool {
 		return true
 	}
 	for _, component := range components {
-		if component.failed() {
+		// A skipped component is deliberately absent, which for THIS question
+		// is the same as failed: it is not a source a query can read, so it is
+		// no evidence the brain can answer.
+		if component.failed() || component.State == "skipped" {
 			continue
 		}
 		if setupContentComponents[component.Name] {
@@ -599,12 +664,12 @@ func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, 
 	cmd := setupBrainCommand(brainCmd)
 	next := []setupui.NextStep{}
 	// FIRST when the wiring did not land. Every other step below assumes an
-	// agent can find this brain; until init-agents runs, nothing will, so
-	// naming it third would bury the only step that matters.
+	// agent can find this brain; until the agent instructions land, nothing
+	// will, so naming it third would bury the only step that matters.
 	if !agentsWired {
 		next = append(next, setupui.NextStep{
-			Command: cmd + " init-agents",
-			Why:     "write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this runs)",
+			Command: cmd + " setup",
+			Why:     "re-run to write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this lands)",
 		})
 	}
 	next = append(next, []setupui.NextStep{

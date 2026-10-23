@@ -105,7 +105,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 
 	addGrouped("setup", newSetupCommand(opts))
 	addGrouped("setup", newAddCommand(opts))
-	addGrouped("setup", newInitAgentsCommand(opts))
 	addGrouped("setup", newBrainGuideCommand(opts))
 	addGrouped("setup", newMCPCommand(opts))
 	addGrouped("setup", newWebhookCommand(opts))
@@ -175,6 +174,11 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
 	addHidden(newHookCommand(opts))
+
+	// Tombstone: `init-agents` was removed (folded into `setup`). Hidden so
+	// scripts calling the old name fail with a pointer to the replacement
+	// instead of cobra's generic "unknown command".
+	addHidden(newInitAgentsTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)

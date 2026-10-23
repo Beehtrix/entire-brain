@@ -27,9 +27,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/entireio/entire-brain/internal/entityindex"
-	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/providerdetail"
 )
 
 const (
@@ -104,6 +104,9 @@ func semanticRecordMaxBytes() int {
 }
 
 type semanticSourceManifest struct {
+	GraphRepoRoot    string `json:"graph_repo_root,omitempty"`
+	StoreOwner       string `json:"store_owner,omitempty"`
+	graphStore       *graphStoreDescriptor
 	GeneratedAt      time.Time         `json:"generated_at"`
 	Commit           string            `json:"commit,omitempty"`
 	Tree             string            `json:"tree,omitempty"`
@@ -377,7 +380,7 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 	indexOpts := semanticIndexOptions{graphBinary: "entire"}
 	cmd := &cobra.Command{
 		Use:   "index [path]",
-		Short: "Build a local semantic brain index",
+		Short: "Build Graph’s shared committed-tree code index",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -390,21 +393,21 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 			return runSemanticIndex(cmd.Context(), cmd, opts, indexOpts, target)
 		},
 	}
-	cmd.Flags().BoolVar(&indexOpts.force, "force", false, "Replace the current semantic snapshot even when one exists")
+	cmd.Flags().BoolVar(&indexOpts.force, "force", false, "Force Graph to rebuild its committed-tree store")
 	cmd.Flags().StringVar(&indexOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&indexOpts.skipGraph, "skip-graph", false, "Record semantic metadata without invoking the semantic provider")
-	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Index the dirty worktree instead of committed HEAD")
-	cmd.Flags().DurationVar(&indexOpts.timeout, "graph-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
-	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
-	cmd.Flags().StringVar(&indexOpts.profile, "profile", "", "Semantic provider snapshot profile (e.g. full, syntax-only); empty uses the provider default")
+	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Deprecated: persistent worktree indexing is unsupported; use Graph queries")
+	cmd.Flags().DurationVar(&indexOpts.timeout, "graph-timeout", 0, "Overall deadline for Graph indexing (0 uses the default)")
+	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Deprecated: unused by Graph-owned indexing; use --graph-timeout")
+	cmd.Flags().StringVar(&indexOpts.profile, "profile", "", "Graph index profile (e.g. full, syntax-only); empty uses full")
 	return cmd
 }
 
 func newSemanticRepairCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repair [path]",
-		Short: "Rebuild derived semantic indexes",
-		Long:  "Rebuild local semantic brain derived indexes",
+		Short: "Rebuild Graph's committed-tree code index",
+		Long:  "Ask Graph to rebuild its shared code store; Brain runtime observations are preserved.",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -437,645 +440,17 @@ func newSemanticResetCommand(opts Options) *cobra.Command {
 			return runSemanticReset(cmd.Context(), cmd, opts, resetOpts, target)
 		},
 	}
-	cmd.Flags().BoolVar(&resetOpts.semanticOnly, "semantic-only", false, "Remove only semantic artifacts and manifest source metadata")
+	cmd.Flags().BoolVar(&resetOpts.semanticOnly, "semantic-only", false, "Clear Brain semantic metadata, legacy artifacts and runtime observations")
 	cmd.Flags().BoolVar(&resetOpts.force, "force", false, "Confirm removal without an interactive prompt")
 	return cmd
 }
 
-// semanticIndexAlreadyCurrent answers the only question that makes a non-forced
-// `refresh index` a no-op: is the recorded index already the one this
-// invocation would build, and can it still be read?
-//
-// Readability is deliberately part of the question. An index whose manifest
-// matches HEAD but whose SQLite store no longer opens is not a reason to skip
-// work -- `refresh index` is the command that repairs exactly that -- so a
-// recorded-but-broken generation falls through to a rebuild instead of being
-// reported as current.
-//
-// The returned string is the reason to print; it is empty when ok is false.
-func semanticIndexAlreadyCurrent(brainDir string, source *semanticSourceManifest, indexOpts semanticIndexOptions, head, tree, worktreeHash string) (string, bool) {
-	if source == nil || head == "" || tree == "" {
-		return "", false
-	}
-	if source.Commit == "" || source.Commit != head || source.Tree == "" || source.Tree != tree {
-		return "", false
-	}
-	// A worktree index and a committed-HEAD index are different artifacts even
-	// at the same commit, so the two modes never satisfy each other.
-	if indexOpts.worktree != (source.WorktreeMode == semanticWorktreeModeName) {
-		return "", false
-	}
-	if indexOpts.worktree && (source.WorktreeHash == "" || source.WorktreeHash != worktreeHash) {
-		return "", false
-	}
-	// An explicitly requested profile that the recorded index was not built
-	// with is a different index, not the same one.
-	if profile := strings.TrimSpace(indexOpts.profile); profile != "" && profile != source.Profile {
-		return "", false
-	}
-	if err := semanticRecordedArtifactsReadable(brainDir, source); err != nil {
-		return "", false
-	}
-	reason := "commit " + head
-	if indexOpts.worktree {
-		reason += " (worktree overlay)"
-	}
-	return reason, true
-}
-
-// semanticRecordedArtifactsReadable re-reads the two files the recorded
-// semantic source points at -- the provider snapshot and the derived SQLite
-// store -- and reports the first that will not load. It answers "is what the
-// manifest claims actually still there and openable", which is the half of
-// freshness that a commit comparison cannot see.
-func semanticRecordedArtifactsReadable(brainDir string, source *semanticSourceManifest) error {
-	if source.SnapshotPath == "" {
-		return errors.New("semantic snapshot_path is missing")
-	}
-	snapshot, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshot); err != nil {
-		return err
-	}
-	info, err := os.Lstat(filepath.Join(brainDir, snapshot))
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("semantic snapshot must be a regular file: %s", source.SnapshotPath)
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return err
-	}
-	header, counts, err := readSemanticSnapshotSummary(filepath.Join(brainDir, snapshot), manifest.RepoKey)
-	if err != nil {
-		return err
-	}
-	if err := validateSemanticSourceMatchesSnapshot(source, header, counts); err != nil {
-		return err
-	}
-	if source.StorePath == "" {
-		return nil
-	}
-	generation, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	store, err := validateSemanticGenerationFilePath(source.StorePath, generation, semanticSQLiteName)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, store); err != nil {
-		return err
-	}
-	return validateSemanticSQLiteStore(filepath.Join(brainDir, store), source.Symbols, source.Relations)
-}
-
-// semanticIndexStageDeadline stops an index at a stage boundary when its caller's
-// deadline has already passed.
-//
-// A deadline that is only consulted after the work finishes is not a deadline.
-// brain_index_repository advertises a 60 second cap and returned at ~113 seconds,
-// because nothing between "verify the provider" and "write the manifest" ever
-// asked whether it was still wanted -- the cap chose the error, the work chose
-// the wall clock. Checking at each boundary, plus inside the store build's own
-// row loop (buildSemanticGeneration), means an expired index stops at the next
-// boundary instead of running to completion and then being thrown away.
-//
-// The stage name is in the error so a caller reading a debug log can see WHERE
-// the time went, not just that time ran out.
-func semanticIndexStageDeadline(ctx context.Context, stage string) error {
-	if ctx == nil {
-		return nil
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("semantic index stopped after %s: %w", stage, err)
-	}
-	return nil
-}
-
 func runSemanticIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {
-	if indexOpts.graphBinary == "" {
-		indexOpts.graphBinary = indexOpts.semBinary
-	}
-	if indexOpts.skipSem {
-		indexOpts.skipGraph = true
-	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return err
-	}
-	if !local {
-		return fmt.Errorf("semantic index requires a local repository path: %s", target)
-	}
-	if err := enforceIndexContainment(indexOpts.containRoot, repoDir); err != nil {
-		return err
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return err
-	}
-	if indexOpts.outputExplicit {
-		outputDir, err := filepath.Abs(indexOpts.outputDir)
-		if err != nil {
-			return fmt.Errorf("resolve output directory: %w", err)
-		}
-		storage.BrainDir = outputDir
-	}
-	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
-		return err
-	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	existing, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	ignore, err := loadBrainIgnore(repoDir)
-	if err != nil {
-		return err
-	}
-	providerIgnoreFiles, err := semanticProviderIgnoreFiles(repoDir)
-	if err != nil {
-		return err
-	}
-	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
-	if err != nil {
-		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for semantic index: %w", err))
-	}
-	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
-	if err != nil {
-		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD tree for semantic index: %w", err))
-	}
-	branch, _ := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
-	defaultBranch, defaultWarnings := detectDefaultBranch(ctx, opts.Runner, repoDir)
-	// The GATE reads worktreeGateIgnore, not the `ignore` the indexer uses
-	// below. They are deliberately different sets: Entire-authored config does
-	// not block the install, and it stays in the indexed corpus. See
-	// entireAuthoredGatePaths.
-	gateIgnore, err := worktreeGateIgnore(repoDir)
-	if err != nil {
-		return err
-	}
-	dirty, dirtyPaths, err := worktreeDirtyDetail(ctx, opts.Runner, repoDir, gateIgnore)
-	if err != nil {
-		return fmt.Errorf("check worktree dirtiness for semantic index: %w", err)
-	}
-	// ...and withdrawn again for a dirty --worktree index, because then they
-	// are not true of what was indexed.
-	//
-	// The stamp exists to fill in an identity the provider refused to compute;
-	// it must not invent one. In worktree mode the content indexed is the
-	// WORKING TREE, which by definition does not hash to HEAD^{tree}, and
-	// validateLiveSemanticHeader deliberately skips the tree comparison there
-	// (allowWorktreeTree) -- so a wrong tree would be written down and nothing
-	// downstream could catch it. Every later consumer treats tree as the
-	// content identity of the snapshot.
-	//
-	// Stamping the commit alone is not the answer either: a header with one
-	// and not the other is what the stamp's own contract calls a provider that
-	// answered inconsistently. So in this one case the snapshot stays
-	// identity-less and is refused -- with the provider's reason attached, so
-	// the reader learns it is a partial clone rather than a mystery.
-	if indexOpts.worktree && dirty {
-		indexOpts.localCommit = ""
-		indexOpts.localTree = ""
-	}
-	if dirty && !indexOpts.worktree {
-		return dirtyWorktreeRefusal("index", dirtyPaths)
-	}
-	worktreeHashBefore := ""
-	if indexOpts.worktree {
-		worktreeHashBefore, err = worktreeFingerprint(ctx, opts.Runner, repoDir)
-		if err != nil {
-			return fmt.Errorf("fingerprint worktree for semantic index: %w", err)
-		}
-	}
-	// Idempotent re-run. `refresh index` used to fail the moment ANY semantic
-	// source existed, which made the documented refresh sequence succeed once
-	// and exit 1 on every run after that -- a scripted loop containing the
-	// documented step could never be green twice. The decision is now made
-	// against what the index actually records rather than against its mere
-	// existence:
-	//
-	//   - already the index this invocation would produce, and readable:
-	//     nothing to do, say so and exit 0.
-	//   - present but stale, or present but unreadable: this is a REFRESH, so
-	//     rebuild it. That is what the caller asked for.
-	//   - --force: rebuild unconditionally, including when already current.
-	//
-	// Real failures below (no provider, dirty worktree without --worktree, a
-	// provider that errors) still exit nonzero; only "there is nothing to do"
-	// stopped being a failure.
-	if !indexOpts.force && existing.Sources != nil && existing.Sources.Semantic != nil {
-		if reason, ok := semanticIndexAlreadyCurrent(storage.BrainDir, existing.Sources.Semantic, indexOpts, head, tree, worktreeHashBefore); ok {
-			indexOpts.reportPhase("already current")
-			fmt.Fprintf(cmd.OutOrStdout(), "semantic index already current: %s\n", reason)
-			return nil
-		}
-	}
-
-	var header semanticHeader
-	var summary *semanticSummary
-	counts := semanticCounts{}
-	var streamCounts semanticStreamCounts
-	noEgress := false
-	var warnings []semanticWarning
-	for _, warning := range defaultWarnings {
-		warnings = append(warnings, semanticWarning{Code: "default_branch_unknown", Severity: "warning", Effect: "freshness", Detail: warning})
-	}
-
-	// Stream the filtered snapshot to a temp file rather than buffering it. The
-	// final snapshot path depends on the SHA-256 of the filtered output, so we
-	// hash while writing and rename into place once the digest is known.
-	snapshotsRoot := filepath.Join(storage.BrainDir, semanticDirName, semanticSnapshotsDir)
-	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, filepath.Join(semanticDirName, semanticSnapshotsDir)); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(snapshotsRoot, 0o700); err != nil {
-		return fmt.Errorf("create semantic snapshots dir: %w", err)
-	}
-	tmp, err := os.CreateTemp(snapshotsRoot, ".tmp-snapshot-*.ndjson")
-	if err != nil {
-		return fmt.Errorf("create semantic snapshot temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	tmpClosed := false
-	finalized := false
-	defer func() {
-		if !tmpClosed {
-			_ = tmp.Close()
-		}
-		if !finalized {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	hasher := sha256.New()
-	out := io.MultiWriter(tmp, hasher)
-
-	if indexOpts.skipGraph {
-		header = semanticHeader{
-			SchemaVersion: "1.0",
-			Provider:      "skipped",
-			RepoKey:       storage.Key,
-			Commit:        head,
-			Tree:          tree,
-			Warnings:      []semanticWarning{{Code: "provider_skipped", Severity: "warning", Effect: "semantic facts unavailable", Detail: "semantic provider was skipped"}},
-		}
-		headerLine, err := json.Marshal(header)
-		if err != nil {
-			return err
-		}
-		if err := writeNDJSONLine(out, headerLine); err != nil {
-			return err
-		}
-		warnings = append(warnings, header.Warnings...)
-	} else {
-		if strings.TrimSpace(indexOpts.graphBinary) == "" {
-			return errors.New("--graph-binary must not be empty")
-		}
-		var doctorWarnings []semanticWarning
-		var doctorReport semanticDoctorReport
-		indexOpts.reportPhase("verifying provider")
-		doctorReport, doctorWarnings = runSemanticDoctor(ctx, opts.Runner, repoDir, indexOpts.graphBinary)
-		noEgress = doctorReport.NoEgress
-		warnings = append(warnings, doctorWarnings...)
-		if !noEgress {
-			return semanticDoctorFailureError(indexOpts.graphBinary, doctorWarnings)
-		}
-		if err := semanticIndexStageDeadline(ctx, "verifying provider"); err != nil {
-			return err
-		}
-		indexOpts.reportPhase("parsing sources")
-		res, serr := streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, providerIgnoreFiles, ignore, out)
-		if serr != nil && len(providerIgnoreFiles) > 0 && semanticSnapshotRejectsIgnoreFile(serr) {
-			warnings = append(warnings, semanticWarning{
-				Code:     "provider_ignore_file_unsupported",
-				Severity: "warning",
-				Effect:   "semantic provider retried without .brainignore; local filtering still applies",
-				Detail:   serr.Error(),
-			})
-			if err := resetSnapshotTempFile(tmp, hasher); err != nil {
-				return err
-			}
-			res, serr = streamSemanticSnapshot(ctx, opts.Runner, repoDir, storage.Key, indexOpts, nil, ignore, out)
-		}
-		if serr != nil {
-			return serr
-		}
-		header = res.header
-		summary = res.summary
-		counts = res.counts
-		streamCounts = res.stream
-		warnings = append(warnings, res.extraWarnings...)
-		mergeSemanticSummary(&header, summary)
-		if err := verifySemanticWorktreeStable(ctx, opts.Runner, repoDir, indexOpts.worktree, dirty, worktreeHashBefore); err != nil {
-			return err
-		}
-		if err := validateSemanticSchema(header.SchemaVersion); err != nil {
-			return err
-		}
-		if skew := semanticSchemaMinorSkewWarning(header.SchemaVersion); skew != nil {
-			warnings = append(warnings, *skew)
-		}
-		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repoDir, storage.Key, res.providerRepoKey, doctorReport.RepoKey, indexOpts.graphBinary); err != nil {
-			return err
-		}
-		if err := validateLiveSemanticHeader(header, head, tree, repoDir, indexOpts.worktree && dirty); err != nil {
-			return err
-		}
-		header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
-		header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
-		warnings = append(warnings, header.Warnings...)
-		// Reconcile what the provider parsed against what the tree holds. A
-		// provider reports its own coverage, so a file it never considered
-		// appears in no warning and no partial failure -- it is simply absent,
-		// and the snapshot alone cannot tell absence from non-existence. See
-		// semantic_coverage.go for why this is narrow enough not to
-		// second-guess the provider's file-selection policy.
-		//
-		// Never fatal: a coverage check that cannot run must not fail an index
-		// that otherwise succeeded. A git listing that fails says nothing about
-		// the snapshot already on disk.
-		if tracked, terr := semanticTrackedFiles(ctx, opts.Runner, repoDir, head, indexOpts.worktree && dirty); terr == nil {
-			reported := append(append([]semanticWarning{}, header.Warnings...), header.PartialFailures...)
-			missing := semanticUnreportedSkips(tracked, res.parsedFiles, reported, ignore)
-			warnings = append(warnings, semanticUnreportedSkipWarnings(missing)...)
-		}
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("flush semantic snapshot temp file: %w", err)
-	}
-	tmpClosed = true
-	if header.Commit == "" {
-		header.Commit = head
-	}
-	if header.Tree == "" {
-		header.Tree = tree
-	}
-	if header.Provider == "" {
-		header.Provider = "entire-graph"
-	}
-	if header.RepoKey == "" {
-		header.RepoKey = storage.Key
-	}
-
-	sum := hasher.Sum(nil)
-	contentSuffix := hex.EncodeToString(sum[:8])
-	snapshotID := header.Commit
-	worktreeMode := "head"
-	worktreeHash := ""
-	if indexOpts.worktree && dirty {
-		snapshotID = "worktree-" + contentSuffix
-		worktreeMode = semanticWorktreeModeName
-		worktreeHash = worktreeHashBefore
-	} else if snapshotID == "" {
-		snapshotID = "unknown"
-	} else {
-		snapshotID = snapshotID + "-" + contentSuffix
-	}
-	snapshotRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, snapshotID, semanticSnapshotName))
-	snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(snapshotRel))
-	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(snapshotRel)); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o700); err != nil {
-		return fmt.Errorf("create semantic snapshot dir: %w", err)
-	}
-	if err := os.Rename(tmpPath, snapshotPath); err != nil {
-		return fmt.Errorf("write semantic snapshot: %w", err)
-	}
-	finalized = true
-	if err := os.Chmod(snapshotPath, 0o600); err != nil {
-		return fmt.Errorf("set semantic snapshot permissions: %w", err)
-	}
-	if err := semanticIndexStageDeadline(ctx, "writing snapshot"); err != nil {
-		return err
-	}
-	indexOpts.reportPhase("building store")
-	snapshotFile, err := os.Open(snapshotPath)
-	if err != nil {
-		return fmt.Errorf("open semantic snapshot for store build: %w", err)
-	}
-	generation, metrics, err := buildSemanticGeneration(ctx, storage.BrainDir, repoDir, snapshotID, snapshotFile, contentSuffix, header, counts, opts.Now().UTC())
-	_ = snapshotFile.Close()
-	if err != nil {
-		return err
-	}
-	if err := semanticIndexStageDeadline(ctx, "building store"); err != nil {
-		return err
-	}
-	overlayPath, err := writeSemanticBranchOverlay(ctx, opts.Runner, storage.BrainDir, repoDir, branch, defaultBranch, header.Commit, snapshotRel, opts.Now().UTC())
-	if err != nil {
-		return err
-	}
-	source := &semanticSourceManifest{
-		GeneratedAt:      opts.Now().UTC(),
-		Commit:           header.Commit,
-		Tree:             header.Tree,
-		Branch:           branch,
-		DefaultBranch:    defaultBranch,
-		DirtyWorktree:    dirty,
-		Provider:         header.Provider,
-		ProviderVersion:  header.ProviderVersion,
-		IdentityRevision: header.IdentityRevision,
-		SchemaVersion:    header.SchemaVersion,
-		SnapshotPath:     snapshotRel,
-		StorePath:        filepath.ToSlash(filepath.Join(generation, semanticSQLiteName)),
-		GenerationPath:   generation,
-		MetricsPath:      filepath.ToSlash(filepath.Join(generation, semanticMetricsName)),
-		ParseCachePath:   filepath.ToSlash(filepath.Join(generation, "parse-cache")),
-		OverlayPath:      overlayPath,
-		Symbols:          counts.Symbols,
-		Relations:        counts.Relations,
-		Files:            counts.Files,
-		Externals:        streamCounts.Externals,
-		Warnings:         sanitizeSemanticWarnings(warnings, repoDir),
-		PartialFailures:  sanitizeSemanticWarnings(header.PartialFailures, repoDir),
-		Capabilities:     header.Capabilities,
-		NoEgressVerified: noEgress || indexOpts.skipGraph,
-		WorktreeMode:     worktreeMode,
-		WorktreeHash:     worktreeHash,
-
-		Languages:               header.Languages,
-		LanguageTiers:           header.LanguageTiers,
-		Profile:                 header.Profile,
-		RelationSet:             header.RelationSet,
-		SkippedRelationFamilies: header.SkippedRelationFamilies,
-		Completeness:            header.Completeness,
-		ProfileLimits:           header.ProfileLimits,
-		Stats:                   header.Stats,
-		SummaryPresent:          summary != nil,
-		CompletenessLevel:       completenessLevelFromStats(header.Stats),
-		Trust:                   trustForCompleteness(completenessLevelFromStats(header.Stats)),
-	}
-	if err := semanticIndexStageDeadline(ctx, "writing branch overlay"); err != nil {
-		return err
-	}
-	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
-		return err
-	}
-	if err := writeSemanticSnapshotManifest(storage.BrainDir, snapshotID, source); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "indexed semantic brain: %s\n", storage.BrainDir)
-	fmt.Fprintf(cmd.OutOrStdout(), "snapshot: %s\n", snapshotRel)
-	fmt.Fprintf(cmd.OutOrStdout(), "symbols: %d\nrelations: %d\n", source.Symbols, source.Relations)
-	if source.CompletenessLevel != "" {
-		fmt.Fprintf(cmd.OutOrStdout(), "completeness: %s\ntrust: %s\n", source.CompletenessLevel, source.Trust)
-	}
-	if len(source.Warnings) > 0 || len(source.PartialFailures) > 0 {
-		fmt.Fprintf(cmd.OutOrStdout(), "warnings: %d\n", len(source.Warnings)+len(source.PartialFailures))
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", source.StorePath)
-	fmt.Fprintf(cmd.OutOrStdout(), "build_ms: %d\n", metrics.BuildMillis)
-	return nil
+	return runGraphOwnedIndex(ctx, cmd, opts, indexOpts, target)
 }
 
 func runSemanticRepair(ctx context.Context, cmd *cobra.Command, opts Options, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return err
-	}
-	if !local {
-		return fmt.Errorf("repair requires a local repository path: %s", target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return err
-	}
-	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
-		return err
-	}
-	unlock, err := acquireSemanticIndexLock(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return semanticIndexMissingError()
-	}
-	source := manifest.Sources.Semantic
-	// Repair is meant to regenerate a missing/corrupt generation from the
-	// durable snapshot; it must not run when the active generation is
-	// already healthy. Without this check, running `semantic repair`
-	// against a fine store (doctor suggests it defensively, and nothing
-	// stops a user or agent from invoking it speculatively) unconditionally
-	// rebuilds and rewrites a full new generation directory: on a real repo
-	// this duplicated a 178MB semantic.sqlite for no reason, and the old one
-	// is never cleaned up automatically (`semantic gc` is manual, defaults
-	// to a 30-day age cutoff, so a same-day duplicate is never pruned). See
-	// TestSemanticRepairIsNoOpWhenGenerationAlreadyValid.
-	if source.GenerationPath != "" && source.StorePath != "" {
-		if generationPath, genErr := validateSemanticGenerationPath(source.GenerationPath); genErr == nil {
-			if storePath, storeErr := validateSemanticGenerationFilePath(source.StorePath, generationPath, semanticSQLiteName); storeErr == nil {
-				if rejectSymlinkPathComponents(storage.BrainDir, storePath) == nil {
-					fullStorePath := filepath.Join(storage.BrainDir, storePath)
-					if validateSemanticSQLiteStore(fullStorePath, source.Symbols, source.Relations) == nil {
-						fmt.Fprintf(cmd.OutOrStdout(), "semantic generation already valid; nothing to repair: %s\n", storage.BrainDir)
-						fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", source.StorePath)
-						return nil
-					}
-				}
-			}
-		}
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(storage.BrainDir, snapshotRel); err != nil {
-		return err
-	}
-	snapshotPath := filepath.Join(storage.BrainDir, snapshotRel)
-	info, err := os.Lstat(snapshotPath)
-	if err != nil {
-		return fmt.Errorf("active semantic snapshot missing: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("active semantic snapshot must not be a symlink: %s", source.SnapshotPath)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("active semantic snapshot must be a file: %s", source.SnapshotPath)
-	}
-	raw, err := safeReadFile(snapshotPath, semanticSnapshotMaxBytes())
-	if err != nil {
-		return fmt.Errorf("read active semantic snapshot: %w", err)
-	}
-	header, counts, err := readSemanticSnapshotSummary(snapshotPath, storage.Key)
-	if err != nil {
-		return err
-	}
-	if err := validateSemanticSourceMatchesSnapshot(source, header, counts); err != nil {
-		return err
-	}
-	counts.Files = source.Files
-	if counts.Files == 0 {
-		counts.Files = semanticSnapshotFileCount(raw)
-	}
-	snapshotID := filepath.Base(filepath.Dir(snapshotRel))
-	if snapshotID == "." || snapshotID == string(filepath.Separator) || snapshotID == "" {
-		return fmt.Errorf("semantic snapshot path has no generation id: %s", source.SnapshotPath)
-	}
-	generation, metrics, err := buildSemanticGeneration(ctx, storage.BrainDir, repoDir, snapshotID, bytes.NewReader(raw), semanticGenerationContentSuffix(raw), header, counts, opts.Now().UTC())
-	if err != nil {
-		return err
-	}
-	repaired := *source
-	repaired.GeneratedAt = opts.Now().UTC()
-	repaired.StorePath = filepath.ToSlash(filepath.Join(generation, semanticSQLiteName))
-	repaired.GenerationPath = generation
-	repaired.MetricsPath = filepath.ToSlash(filepath.Join(generation, semanticMetricsName))
-	repaired.ParseCachePath = filepath.ToSlash(filepath.Join(generation, "parse-cache"))
-	repaired.Symbols = counts.Symbols
-	repaired.Relations = counts.Relations
-	repaired.Files = counts.Files
-	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, &repaired); err != nil {
-		return err
-	}
-	if err := writeSemanticSnapshotManifest(storage.BrainDir, snapshotID, &repaired); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "repaired semantic brain: %s\n", storage.BrainDir)
-	fmt.Fprintf(cmd.OutOrStdout(), "snapshot: %s\n", source.SnapshotPath)
-	fmt.Fprintf(cmd.OutOrStdout(), "store: %s\n", repaired.StorePath)
-	fmt.Fprintf(cmd.OutOrStdout(), "build_ms: %d\n", metrics.BuildMillis)
-	return nil
-}
-
-func semanticSnapshotFileCount(raw []byte) int {
-	files := map[string]struct{}{}
-	scanner := newSemanticScanner(bytes.NewReader(raw))
-	if !scanner.Scan() {
-		return 0
-	}
-	for scanner.Scan() {
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		var record semanticRecord
-		if err := json.Unmarshal(text, &record); err != nil {
-			continue
-		}
-		switch record.RecordType {
-		case "file", "symbol":
-			if path := record.semanticPath(); path != "" {
-				files[path] = struct{}{}
-			}
-		}
-	}
-	return len(files)
+	return runGraphOwnedIndex(ctx, cmd, opts, semanticIndexOptions{force: true}, target)
 }
 
 func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, resetOpts semanticResetOptions, target string) error {
@@ -1322,25 +697,25 @@ func semanticDoctorFailureError(graphBinary string, doctorWarnings []semanticWar
 		case semanticDetailMeansBinaryNotExecutable(detail):
 			err = fmt.Errorf("%s: graph binary %q could not be run: %s; check its permissions, or reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		default:
-			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s", code, graphBinary, detail)
+			err = fmt.Errorf("%s: semantic provider doctor failed to run graph binary %q: %s; reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		}
 		if semanticDetailMeansProviderAbsent(detail) {
 			return semanticProviderAbsentError{err}
 		}
 		return err
 	case "provider_doctor_timeout":
-		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q did not respond in time: %s; retry, or reinstall: `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_doctor_malformed":
-		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider doctor on graph binary %q returned output that could not be parsed: %s; reinstall: `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_network_required":
-		return fmt.Errorf("%s: semantic provider graph binary %q reports it requires network access, which local-only indexing does not allow: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider graph binary %q requires network access, which local-only indexing forbids: %s; use `entire plugin install graph`", code, graphBinary, detail)
 	case "provider_no_egress_unknown":
-		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s", code, graphBinary, detail)
+		return fmt.Errorf("%s: semantic provider graph binary %q did not confirm a no-egress guarantee: %s; upgrade it: `entire plugin install graph`", code, graphBinary, detail)
 	default:
 		if detail != "" {
-			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s", code, graphBinary, detail)
+			return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q: %s; reinstall the provider with `entire plugin install graph`", code, graphBinary, detail)
 		}
-		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q", code, graphBinary)
+		return fmt.Errorf("%s: semantic provider no-egress status is not verified for graph binary %q; reinstall the provider with `entire plugin install graph`", code, graphBinary)
 	}
 }
 
@@ -1457,224 +832,6 @@ func boolValue(data map[string]any, key string) bool {
 	}
 	b, _ := value.(bool)
 	return b
-}
-
-func semanticSnapshotRejectsIgnoreFile(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := strings.ToLower(err.Error())
-	return strings.Contains(text, "ignore-file") &&
-		(strings.Contains(text, "unknown") ||
-			strings.Contains(text, "unsupported") ||
-			strings.Contains(text, "unexpected") ||
-			strings.Contains(text, "flag provided but not defined"))
-}
-
-// validateLiveSemanticHeader checks the header the brain is about to persist:
-// that it names a commit and a tree, and that both agree with the live
-// repository.
-//
-// It deliberately does NOT check repo_key. scanSemanticStream has already
-// rewritten header.RepoKey to the brain's canonical storage key, so comparing it
-// against that same storage key here compared a value with itself and could not
-// fail for any input -- protection in appearance only. The two places where a
-// repo_key is genuinely untrusted each have a real check:
-//
-//	validateSemanticProviderRepoKey   the spelling the provider stamped
-//	readSemanticSnapshotSummary /     a key read back from an on-disk artifact
-//	validateImportedBundle            (another brain's bundle, an older snapshot)
-func validateLiveSemanticHeader(header semanticHeader, commit, tree, repoDir string, allowWorktreeTree bool) error {
-	if header.Commit == "" {
-		return fmt.Errorf("semantic snapshot header missing commit%s", semanticProviderRefusalContext(header, repoDir))
-	}
-	if header.Tree == "" {
-		return fmt.Errorf("semantic snapshot header missing tree%s", semanticProviderRefusalContext(header, repoDir))
-	}
-	if header.RepoKey == "" {
-		return fmt.Errorf("semantic snapshot header missing repo_key%s", semanticProviderRefusalContext(header, repoDir))
-	}
-	if header.Commit != "" && commit != "" && header.Commit != commit {
-		return fmt.Errorf("semantic snapshot commit %q does not match HEAD %q", header.Commit, commit)
-	}
-	if header.Tree != "" && tree != "" && header.Tree != tree && !allowWorktreeTree {
-		return fmt.Errorf("semantic snapshot tree %q does not match HEAD tree %q", header.Tree, tree)
-	}
-	return nil
-}
-
-// semanticProviderRefusalContext renders the provider's own explanation for an
-// identity-less snapshot, for appending to an otherwise bare refusal.
-//
-// A snapshot with no commit is almost never the provider malfunctioning: it is
-// the provider declining to run git and SAYING SO. The canonical case is a
-// promisor remote -- Entire's own `filtered_fetches: true` writes one -- which
-// makes entire-graph refuse git subprocesses to keep its no-egress guarantee
-// and fall back to a filesystem walk. It reports that as E_NO_GIT_HEAD, naming
-// the cause and the remedy.
-//
-// mergeSemanticSummary has already folded the trailing summary record into the
-// header by the time this runs, so those warnings are in hand. Reporting only
-// "header missing commit" throws away the one sentence that tells the reader
-// what to do, and turns a self-describing refusal into a mystery. That cost
-// four wrong hypotheses and an instrumented bisect to rediscover something the
-// provider had already printed.
-func semanticProviderRefusalContext(header semanticHeader, repoDir string) string {
-	best := ""
-	for _, w := range append(append([]semanticWarning(nil), header.Warnings...), header.PartialFailures...) {
-		detail := strings.TrimSpace(w.Detail)
-		if detail == "" {
-			detail = strings.TrimSpace(w.Effect)
-		}
-		if detail == "" {
-			continue
-		}
-		// This runs BEFORE sanitizeSemanticWarnings does -- validation is the
-		// gate the snapshot has not passed yet -- so the text here is exactly
-		// what the provider wrote, host paths and all. The error is printed,
-		// and the component detail built from it is recorded and can travel
-		// in a bundle, so it is redacted here rather than trusted to a later
-		// pass that this path never reaches.
-		detail = redactSemanticPathsInText(detail, repoDir)
-		line := w.Code + ": " + detail
-		// E_NO_GIT_HEAD is the one that names why identity is absent; prefer it
-		// over the worktree-fallback warning that merely reports the symptom.
-		if w.Code == "E_NO_GIT_HEAD" {
-			return "; the provider reported " + line
-		}
-		if best == "" {
-			best = line
-		}
-	}
-	if best == "" {
-		return ""
-	}
-	return "; the provider reported " + best
-}
-
-func filterSemanticSnapshot(raw []byte, ignore brainIgnore, repoDir string) (semanticHeader, semanticCounts, []byte, error) {
-	scanner := newSemanticScanner(bytes.NewReader(raw))
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return semanticHeader{}, semanticCounts{}, nil, err
-		}
-		return semanticHeader{}, semanticCounts{}, nil, errors.New("semantic snapshot missing header")
-	}
-	var header semanticHeader
-	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
-		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot header: %w", err)
-	}
-	header.RepoRoot = ""
-	header.Warnings, header.PartialFailures = ignore.filterIgnoredWarningLists(header.Warnings, header.PartialFailures)
-	header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
-	header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
-	headerLine, marshalErr := json.Marshal(header)
-	if marshalErr != nil {
-		return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode filtered semantic snapshot header: %w", marshalErr)
-	}
-	ignoredIDs := make(map[string]bool)
-	line := 1
-	for scanner.Scan() {
-		line++
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		var record semanticRecord
-		if err := json.Unmarshal(text, &record); err != nil {
-			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
-		}
-		if err := validateSemanticRecordPath(&record); err != nil {
-			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
-		}
-		if record.ID != "" && record.semanticPath() != "" {
-			ignoredIDs[record.ID] = ignoredIDs[record.ID] || ignore.Ignored(record.semanticPath())
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return semanticHeader{}, semanticCounts{}, nil, err
-	}
-	var filtered bytes.Buffer
-	filtered.Write(headerLine)
-	filtered.WriteByte('\n')
-	var counts semanticCounts
-	scanner = newSemanticScanner(bytes.NewReader(raw))
-	if !scanner.Scan() {
-		return semanticHeader{}, semanticCounts{}, nil, errors.New("semantic snapshot missing header")
-	}
-	line = 1
-	files := make(map[string]struct{})
-	for scanner.Scan() {
-		line++
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		recordRaw := append([]byte(nil), text...)
-		var record semanticRecord
-		if err := json.Unmarshal(recordRaw, &record); err != nil {
-			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
-		}
-		if err := validateSemanticRecordPath(&record); err != nil {
-			return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
-		}
-		switch record.RecordType {
-		case "file", "symbol", "relation":
-			if ignore.Ignored(record.semanticPath()) {
-				continue
-			}
-			if record.RecordType == "relation" && relationEndpointIgnored(record, header.RepoKey, ignore, ignoredIDs) {
-				continue
-			}
-			switch record.RecordType {
-			case "file":
-				if path := record.semanticPath(); path != "" {
-					files[path] = struct{}{}
-				}
-			case "symbol":
-				if path := record.semanticPath(); path != "" {
-					files[path] = struct{}{}
-				}
-				counts.Symbols++
-			case "relation":
-				counts.Relations++
-			}
-			filteredRecord, marshalErr := json.Marshal(record)
-			if marshalErr != nil {
-				return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode semantic snapshot line %d: %w", line, marshalErr)
-			}
-			filtered.Write(filteredRecord)
-			filtered.WriteByte('\n')
-		case "summary":
-			// The authoritative summary overrides the lean header for aggregate
-			// metadata. Preserve it (sanitized) and fold it into the returned
-			// header so re-ingestion paths report summary-accurate metadata.
-			var summary semanticSummary
-			if err := json.Unmarshal(recordRaw, &summary); err != nil {
-				return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("parse semantic snapshot summary (line %d): %w", line, err)
-			}
-			keptWarnings, keptFailures := ignore.filterIgnoredWarningLists(summary.Warnings, summary.PartialFailures)
-			summary.Warnings = sanitizeSemanticWarnings(keptWarnings, repoDir)
-			summary.PartialFailures = sanitizeSemanticWarnings(keptFailures, repoDir)
-			mergeSemanticSummary(&header, &summary)
-			encoded, marshalErr := json.Marshal(summary)
-			if marshalErr != nil {
-				return semanticHeader{}, semanticCounts{}, nil, fmt.Errorf("encode semantic snapshot summary (line %d): %w", line, marshalErr)
-			}
-			filtered.Write(encoded)
-			filtered.WriteByte('\n')
-		default:
-			// external + unknown future record types: preserve verbatim so the
-			// re-filtered snapshot stays forward compatible.
-			filtered.Write(recordRaw)
-			filtered.WriteByte('\n')
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return semanticHeader{}, semanticCounts{}, nil, err
-	}
-	counts.Files = len(files)
-	return header, counts, filtered.Bytes(), nil
 }
 
 func newSemanticScanner(r io.Reader) *bufio.Scanner {
@@ -1873,10 +1030,16 @@ func parseSemanticSchemaVersion(version string) (int, int, error) {
 func validateSemanticSchema(version string) error {
 	major, _, err := parseSemanticSchemaVersion(version)
 	if err != nil {
-		return fmt.Errorf("%w (this build reads %s)", err, semanticSupportedSchemaRange)
+		return fmt.Errorf("%w (this build reads %s); reinstall the provider with `entire plugin install graph`", err, semanticSupportedSchemaRange)
 	}
 	if strconv.Itoa(major) != semanticSupportedMajor {
-		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s", strconv.Itoa(major), semanticSupportedSchemaRange)
+		// Name which side of the pin is behind, so the reader upgrades the
+		// right binary instead of reinstalling the one that already works.
+		action := "the provider is behind this build; upgrade it with `entire plugin install graph`"
+		if supportedMajor, convErr := strconv.Atoi(semanticSupportedMajor); convErr == nil && major > supportedMajor {
+			action = "the provider is ahead of this build; upgrade entire-brain"
+		}
+		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s — %s", strconv.Itoa(major), semanticSupportedSchemaRange, action)
 	}
 	return nil
 }
@@ -1890,16 +1053,21 @@ func validateSemanticSchema(version string) error {
 // This is the single implementation of that rule, applied at every place a
 // schema_version crosses into this build alongside validateSemanticSchema:
 //
-//  1. runSemanticIndex — a live `entire graph snapshot` header, recorded as an
-//     index warning on the persisted manifest;
-//  2. semanticStaleReport — the "provider" freshness axis reported by brain
+//  1. graphStoreSource — the live Graph-owned store header, recorded on the
+//     semantic source manifest it assembles for index, refresh, status and
+//     brief;
+//  2. semanticFreshnessReport — the "graph" freshness axis reported by brain
 //     doctor/status and every semantic read command, degraded rather than ok;
-//  3. validateImportedBundle — an imported bundle manifest, warning appended to
+//  3. semanticRefreshNeeded — refresh's non-fatal identity warning;
+//  4. validateImportedBundle — an imported bundle manifest, warning appended to
 //     the semantic source that is then persisted.
 //
 // It returns nil for an unparseable or non-supported-major version:
-// validateSemanticSchema is the sole authority on rejecting those outright, and
-// each call site runs it first.
+// validateSemanticSchema is the sole authority on rejecting those outright.
+// validateImportedBundle runs it directly, first; the three live-path call
+// sites above never see a header validateSemanticSchema would reject, because
+// fetchGraphStore already ran it as a hard gate before producing the
+// descriptor they read schema_version from.
 func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 	major, minor, err := parseSemanticSchemaVersion(version)
 	if err != nil {
@@ -1922,150 +1090,6 @@ func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 	}
 }
 
-// buildSemanticGeneration ingests the filtered snapshot into a fresh SQLite
-// generation. snapshot is scanned record-by-record (never fully buffered);
-// contentSuffix is the hex digest fragment used to disambiguate the generation
-// directory when a base ID already exists.
-// buildSemanticGeneration takes a context because it is the LONGEST
-// UNINTERRUPTIBLE STAGE of an index, and an MCP call is bounded at 60 seconds.
-//
-// It used to take none. brain_index_repository's deadline therefore decided only
-// WHEN THE ERROR WAS CHOSEN, not when the call returned: the store build carried
-// on to completion and the 60 second cap was reported after ~113 seconds of wall
-// clock, on a call whose whole point was to protect a host configured to wait 60.
-// The cap bought six seconds out of a hundred and nineteen. Threading the
-// context here, and checking it inside the row loop, is what makes the advertised
-// number true.
-func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationID string, snapshot io.Reader, contentSuffix string, header semanticHeader, counts semanticCounts, now time.Time) (string, semanticBuildMetrics, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	start := time.Now()
-	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
-		return "", semanticBuildMetrics{}, fmt.Errorf("create semantic generations dir: %w", err)
-	}
-	finalID, err := semanticAvailableGenerationID(generationsRoot, generationID, contentSuffix)
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	tmpDir, err := os.MkdirTemp(generationsRoot, ".tmp-"+finalID+"-*")
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.RemoveAll(tmpDir)
-		}
-	}()
-
-	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, dbPath)
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		_ = db.Close()
-		return "", semanticBuildMetrics{}, err
-	}
-	metrics, err := populateSemanticSQLite(ctx, db, repoDir, finalID, snapshot, header, counts, now, tmpDir)
-	if closeErr := db.Close(); err == nil && closeErr != nil {
-		err = closeErr
-	}
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	info, err := os.Stat(dbPath)
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	metrics.StoreBytes = info.Size()
-	metrics.BuildMillis = time.Since(start).Milliseconds()
-	metricsData, err := json.MarshalIndent(metrics, "", "  ")
-	if err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	metricsData = append(metricsData, '\n')
-	if err := writeFileAtomic(filepath.Join(tmpDir, semanticMetricsName), metricsData, 0o600); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-
-	finalDir := filepath.Join(generationsRoot, finalID)
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, finalID)); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	if _, err := os.Lstat(finalDir); err == nil {
-		return "", semanticBuildMetrics{}, fmt.Errorf("semantic generation target already exists: %s", finalDir)
-	} else if !os.IsNotExist(err) {
-		return "", semanticBuildMetrics{}, err
-	}
-	if err := os.Rename(tmpDir, finalDir); err != nil {
-		return "", semanticBuildMetrics{}, err
-	}
-	cleanup = false
-	return filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, finalID)), metrics, nil
-}
-
-func semanticAvailableGenerationID(root, base, suffix string) (string, error) {
-	for i := 0; ; i++ {
-		candidate := base
-		if i == 1 {
-			candidate = base + "-" + suffix
-		} else if i > 1 {
-			candidate = fmt.Sprintf("%s-%s-%d", base, suffix, i-1)
-		}
-		_, err := os.Lstat(filepath.Join(root, candidate))
-		if os.IsNotExist(err) {
-			return candidate, nil
-		}
-		if err != nil {
-			return "", fmt.Errorf("inspect semantic generation candidate: %w", err)
-		}
-	}
-}
-
-func semanticGenerationContentSuffix(content []byte) string {
-	sum := sha256.Sum256(content)
-	return hex.EncodeToString(sum[:8])
-}
-
-func initializeSemanticSQLite(db *sql.DB) error {
-	statements := []string{
-		`PRAGMA journal_mode=WAL`,
-		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-		`CREATE TABLE files (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, language TEXT)`,
-		`CREATE TABLE symbols (id TEXT PRIMARY KEY, kind TEXT, name TEXT, qualified_name TEXT, file_path TEXT, start_line INTEGER, end_line INTEGER, signature TEXT, language TEXT, stable_id_version TEXT)`,
-		`CREATE TABLE relations (id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, to_id TEXT NOT NULL, type TEXT NOT NULL, confidence REAL, reason TEXT, warning_codes TEXT)`,
-		`CREATE TABLE reverse_relations (to_id TEXT NOT NULL, from_id TEXT NOT NULL, type TEXT NOT NULL)`,
-		`CREATE TABLE runtime_traces (id INTEGER PRIMARY KEY AUTOINCREMENT, imported_at TEXT NOT NULL, source_path TEXT NOT NULL, from_id TEXT NOT NULL, to_id TEXT NOT NULL, observed_type TEXT, matched_static_edge INTEGER NOT NULL)`,
-		`CREATE INDEX idx_symbols_name ON symbols(name)`,
-		`CREATE INDEX idx_symbols_qualified_name ON symbols(qualified_name)`,
-		`CREATE INDEX idx_symbols_file_path ON symbols(file_path)`,
-		`CREATE INDEX idx_relations_from ON relations(from_id)`,
-		`CREATE INDEX idx_relations_to ON relations(to_id)`,
-		`CREATE INDEX idx_reverse_to ON reverse_relations(to_id)`,
-		`CREATE INDEX idx_runtime_traces_from ON runtime_traces(from_id)`,
-		`CREATE INDEX idx_runtime_traces_to ON runtime_traces(to_id)`,
-		`CREATE TABLE symbol_fts (id TEXT PRIMARY KEY, text TEXT NOT NULL)`,
-		`CREATE TABLE parse_cache (path TEXT PRIMARY KEY, blob TEXT, content_hash TEXT, artifact_path TEXT NOT NULL)`,
-		`CREATE TABLE warnings (id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, severity TEXT, path TEXT, effect TEXT, detail TEXT, source TEXT)`,
-		`CREATE TABLE metrics (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-	}
-	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
-			return fmt.Errorf("initialize semantic sqlite: %w", err)
-		}
-	}
-	return nil
-}
-
 // semanticBuildCancelCheckEvery / semanticBuildCancelCheckEveryFile are how
 // often the store build asks whether its deadline has passed. Both are small
 // enough that a cancelled MCP index stops within a fraction of a second and
@@ -2081,259 +1105,6 @@ const (
 	semanticBuildCancelCheckEvery     = 1024
 	semanticBuildCancelCheckEveryFile = 16
 )
-
-func populateSemanticSQLite(ctx context.Context, db *sql.DB, repoDir, generationID string, snapshot io.Reader, header semanticHeader, counts semanticCounts, now time.Time, generationDir string) (semanticBuildMetrics, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return semanticBuildMetrics{}, err
-	}
-	commit := func(err error) (semanticBuildMetrics, error) {
-		if err != nil {
-			_ = tx.Rollback()
-			return semanticBuildMetrics{}, err
-		}
-		if err := tx.Commit(); err != nil {
-			return semanticBuildMetrics{}, err
-		}
-		return semanticBuildMetrics{}, nil
-	}
-
-	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES (?, ?), (?, ?), (?, ?), (?, ?)`,
-		"schema_version", header.SchemaVersion,
-		"provider", header.Provider,
-		"provider_version", header.ProviderVersion,
-		"generation_id", generationID,
-	); err != nil {
-		return commit(err)
-	}
-	for _, warning := range header.Warnings {
-		if err := insertSemanticWarning(tx, warning, "warning"); err != nil {
-			return commit(err)
-		}
-	}
-	for _, failure := range header.PartialFailures {
-		if err := insertSemanticWarning(tx, failure, "partial_failure"); err != nil {
-			return commit(err)
-		}
-	}
-
-	files := make(map[string]semanticRecord)
-	scanner := newSemanticScanner(snapshot)
-	if !scanner.Scan() {
-		return commit(errors.New("semantic snapshot missing header"))
-	}
-	// One check per batch of records, not per record: ctx.Err() is cheap but
-	// 200k of them is still work, and 1024 records is a small fraction of a
-	// second on any snapshot this code has seen.
-	scanned := 0
-	for scanner.Scan() {
-		if scanned++; scanned%semanticBuildCancelCheckEvery == 0 {
-			if err := ctx.Err(); err != nil {
-				return commit(err)
-			}
-		}
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		var record semanticRecord
-		if err := json.Unmarshal(text, &record); err != nil {
-			return commit(err)
-		}
-		switch record.RecordType {
-		case "file":
-			path := record.semanticPath()
-			if path != "" {
-				path, err = validateSemanticProviderPath(path)
-				if err != nil {
-					return commit(err)
-				}
-				record.setSemanticPath(path)
-				files[path] = record
-			}
-		case "symbol":
-			path := record.semanticPath()
-			if path != "" {
-				path, err = validateSemanticProviderPath(path)
-				if err != nil {
-					return commit(err)
-				}
-				record.setSemanticPath(path)
-				if existing, ok := files[path]; ok {
-					if strings.TrimSpace(existing.Language) == "" && strings.TrimSpace(record.Language) != "" {
-						existing.Language = record.Language
-						files[path] = existing
-					}
-				} else {
-					files[path] = semanticRecord{RecordType: "file", FilePath: path}
-				}
-			}
-			if err := insertSemanticSymbol(tx, record); err != nil {
-				return commit(err)
-			}
-		case "relation":
-			if err := insertSemanticRelation(tx, record); err != nil {
-				return commit(err)
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return commit(err)
-	}
-
-	parseCacheFiles := 0
-	for path, record := range files {
-		if parseCacheFiles%semanticBuildCancelCheckEveryFile == 0 {
-			if err := ctx.Err(); err != nil {
-				return commit(err)
-			}
-		}
-		contentHash := semanticFileContentHash(repoDir, path)
-		if contentHash == "" && record.Blob != "" {
-			contentHash = "git-blob:" + record.Blob
-		}
-		artifactRel, err := writeSemanticParseCacheArtifact(generationDir, path, record.Blob, contentHash)
-		if err != nil {
-			return commit(err)
-		}
-		parseCacheFiles++
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO files(path, blob, content_hash, language) VALUES (?, ?, ?, ?)`, path, record.Blob, contentHash, strings.TrimSpace(record.Language)); err != nil {
-			return commit(err)
-		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO parse_cache(path, blob, content_hash, artifact_path) VALUES (?, ?, ?, ?)`, path, record.Blob, contentHash, artifactRel); err != nil {
-			return commit(err)
-		}
-	}
-
-	metrics := semanticBuildMetrics{
-		GeneratedAt:     now,
-		GenerationID:    generationID,
-		Commit:          header.Commit,
-		Tree:            header.Tree,
-		Files:           len(files),
-		Symbols:         counts.Symbols,
-		Relations:       counts.Relations,
-		ReverseEdges:    counts.Relations,
-		Warnings:        len(header.Warnings),
-		PartialFailures: len(header.PartialFailures),
-		ParseCacheFiles: parseCacheFiles,
-	}
-	metricsJSON, _ := json.Marshal(metrics)
-	if _, err := tx.Exec(`INSERT OR REPLACE INTO metrics(key, value) VALUES (?, ?)`, "build", string(metricsJSON)); err != nil {
-		return commit(err)
-	}
-	if err := tx.Commit(); err != nil {
-		return semanticBuildMetrics{}, err
-	}
-	return metrics, nil
-}
-
-func insertSemanticWarning(tx *sql.Tx, warning semanticWarning, source string) error {
-	_, err := tx.Exec(`INSERT INTO warnings(code, severity, path, effect, detail, source) VALUES (?, ?, ?, ?, ?, ?)`,
-		warning.Code, warning.Severity, warning.Path, warning.Effect, warning.Detail, source)
-	return err
-}
-
-func insertSemanticSymbol(tx *sql.Tx, record semanticRecord) error {
-	if record.ID == "" {
-		return nil
-	}
-	_, err := tx.Exec(`INSERT OR REPLACE INTO symbols(id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		record.ID, record.Kind, record.Name, record.QualifiedName, record.FilePath, record.StartLine, record.EndLine, record.Signature, record.Language, record.StableIDVersion)
-	if err != nil {
-		return err
-	}
-	searchText := strings.Join([]string{record.Name, record.QualifiedName, record.Signature, record.FilePath, record.Kind, record.Language}, " ")
-	_, err = tx.Exec(`INSERT OR REPLACE INTO symbol_fts(id, text) VALUES (?, ?)`, record.ID, searchText)
-	return err
-}
-
-func insertSemanticRelation(tx *sql.Tx, record semanticRecord) error {
-	if record.FromID == "" || record.ToID == "" || record.Type == "" {
-		return nil
-	}
-	warningCodes, err := json.Marshal(record.WarningCodes)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`INSERT INTO relations(from_id, to_id, type, confidence, reason, warning_codes) VALUES (?, ?, ?, ?, ?, ?)`,
-		record.FromID, record.ToID, record.Type, record.Confidence, record.Reason, string(warningCodes)); err != nil {
-		return err
-	}
-	_, err = tx.Exec(`INSERT INTO reverse_relations(to_id, from_id, type) VALUES (?, ?, ?)`, record.ToID, record.FromID, record.Type)
-	return err
-}
-
-func semanticFileContentHash(repoDir, path string) string {
-	if path == "" {
-		return ""
-	}
-	clean, err := validateSemanticProviderPath(path)
-	if err != nil {
-		return ""
-	}
-	if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
-		return ""
-	}
-	f, err := os.Open(filepath.Join(repoDir, filepath.FromSlash(clean)))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	hasher := sha256.New()
-	limited := io.LimitReader(f, semanticParseCacheMaxFile+1)
-	n, err := io.Copy(hasher, limited)
-	if err != nil || n > semanticParseCacheMaxFile {
-		return ""
-	}
-	sum := hasher.Sum(nil)
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func writeSemanticParseCacheArtifact(generationDir, path, blob, contentHash string) (string, error) {
-	key := contentHash
-	if key == "" {
-		sum := sha256.Sum256([]byte(path + "\x00" + blob))
-		key = "sha256:" + hex.EncodeToString(sum[:])
-	}
-	if !strings.HasPrefix(key, "sha256:") {
-		sum := sha256.Sum256([]byte(path + "\x00" + blob + "\x00" + key))
-		key = "sha256:" + hex.EncodeToString(sum[:])
-	}
-	cleanKey := strings.TrimPrefix(key, "sha256:")
-	if len(cleanKey) < 4 {
-		cleanKey = hex.EncodeToString([]byte(cleanKey))
-	}
-	rel := filepath.Join("parse-cache", cleanKey[:2], cleanKey[2:4], cleanKey+".json")
-	payload := map[string]string{
-		"path":         path,
-		"blob":         blob,
-		"content_hash": key,
-	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(generationDir, rel), data, 0o600); err != nil {
-		return "", err
-	}
-	return filepath.ToSlash(rel), nil
-}
-
-func writeSemanticBranchOverlay(ctx context.Context, runner CommandRunner, brainDir, repoDir, branch, defaultBranch, head, snapshotRel string, now time.Time) (string, error) {
-	if branch == "" || defaultBranch == "" || head == "" || branch == defaultBranch {
-		return "", nil
-	}
-	base := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "refs/heads/"+defaultBranch)))
-	if base == "" {
-		base = strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
-	}
-	if base == "" || base == head {
-		return "", nil
-	}
-	return writeSemanticOverlayFile(brainDir, base, head, branch, snapshotRel, now)
-}
 
 func writeSemanticOverlayFile(brainDir, base, head, branch, snapshotRel string, now time.Time) (string, error) {
 	name := base + ".." + head + ".json"
@@ -2359,19 +1130,6 @@ func writeSemanticOverlayFile(brainDir, base, head, branch, snapshotRel string, 
 		return "", err
 	}
 	return rel, nil
-}
-
-func writeSemanticSnapshotManifest(brainDir, snapshotID string, source *semanticSourceManifest) error {
-	data, err := json.MarshalIndent(source, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	rel := filepath.Join(semanticDirName, semanticSnapshotsDir, snapshotID, semanticManifestName)
-	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(brainDir, rel), data, 0o600)
 }
 
 type brainIgnore struct {
@@ -2431,12 +1189,12 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 }
 
 // entireAuthoredGatePaths are the files ENTIRE'S OWN installers write into a
-// repository. `entire graph init-agents` creates AGENTS.md, CLAUDE.md and
+// repository. `entire graph setup` creates AGENTS.md, CLAUDE.md and
 // .claude/settings.json; brain itself writes .brainignore. So a user who runs
 // the documented install sequence arrives at the next command with a tree that
 // Entire dirtied, and BOTH components refuse it:
 //
-//	$ entire graph init-agents
+//	$ entire graph setup
 //	$ entire brain setup
 //	seed:     dirty_worktree: refusing to seed uncommitted content without --worktree
 //	semantic: dirty_worktree: refusing to index uncommitted content without --worktree
@@ -2453,7 +1211,7 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 //
 // The writers live across the whole product, not just this repo, which is why
 // "nothing in entire-brain writes it" is the wrong test for membership:
-// entire-graph's init-agents writes AGENTS.md, CLAUDE.md and
+// entire-graph's agent wiring writes AGENTS.md, CLAUDE.md and
 // .claude/settings.json; the cli writes .codex/hooks.json for
 // `entire enable --agent codex` (cmd/entire/cli/agent/codex/hook_root.go);
 // brain writes .brainignore. One install flow, one user, several repos.
@@ -2701,16 +1459,6 @@ func sanitizeSemanticWarnings(warnings []semanticWarning, repoDir string) []sema
 		sanitized = append(sanitized, warning)
 	}
 	return sanitized
-}
-
-func sanitizeSemanticSourceForExport(source *semanticSourceManifest, repoDir string) *semanticSourceManifest {
-	if source == nil {
-		return nil
-	}
-	sanitized := *source
-	sanitized.Warnings = sanitizeSemanticWarnings(source.Warnings, repoDir)
-	sanitized.PartialFailures = sanitizeSemanticWarnings(source.PartialFailures, repoDir)
-	return &sanitized
 }
 
 func sanitizeSemanticWarningPath(path string) string {
@@ -3247,74 +1995,6 @@ func dirtyWorktreeRefusal(verb string, paths []string) error {
 	return errors.New(message)
 }
 
-// dirtyWorktreeRefusalFor builds the refusal with the blocking paths named.
-// The lookup is best effort on purpose: we are already failing, and a git error
-// raised while composing the message must not replace the message itself.
-func dirtyWorktreeRefusalFor(ctx context.Context, runner CommandRunner, repoDir string, ignore brainIgnore, verb string) error {
-	paths, err := worktreeDirtyPaths(ctx, runner, repoDir, ignore)
-	if err != nil {
-		paths = nil
-	}
-	return dirtyWorktreeRefusal(verb, paths)
-}
-
-func verifySemanticWorktreeStable(ctx context.Context, runner CommandRunner, repoDir string, worktreeMode, dirtyBefore bool, hashBefore string) error {
-	dirtyAfter, err := worktreeDirty(ctx, runner, repoDir)
-	if err != nil {
-		return fmt.Errorf("recheck worktree dirtiness for semantic index: %w", err)
-	}
-	if !worktreeMode {
-		if dirtyAfter {
-			return errors.New("worktree_changed: worktree became dirty during semantic indexing")
-		}
-		return nil
-	}
-	if dirtyBefore != dirtyAfter {
-		return errors.New("worktree_changed: worktree dirtiness changed during semantic indexing")
-	}
-	hashAfter, err := worktreeFingerprint(ctx, runner, repoDir)
-	if err != nil {
-		return fmt.Errorf("fingerprint worktree after semantic index: %w", err)
-	}
-	if hashBefore != hashAfter {
-		return errors.New("worktree_changed: worktree content changed during semantic indexing")
-	}
-	return nil
-}
-
-// verifySemanticHeadStable re-resolves HEAD after the provider has run and
-// refuses the index when it no longer matches what brain resolved before the
-// run.
-//
-// Only the locally-stamped path needs this. Everywhere else the provider
-// stamps its own commit and validateLiveSemanticHeader compares it against the
-// pre-run value, so a HEAD that moved is already fatal. When brain supplies the
-// provenance it is comparing its own value with itself, so without this check
-// the snapshot would be published carrying a commit the indexed content does
-// not belong to -- and would say, in the disclosure warning, that the commit
-// had been verified unchanged.
-//
-// Refusing is the right outcome rather than restamping with the new HEAD: the
-// content that was actually indexed is a mixture of both, so neither commit
-// describes it.
-func verifySemanticHeadStable(ctx context.Context, runner CommandRunner, repoDir, commitBefore, treeBefore string) error {
-	commitAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
-	if err != nil {
-		return fmt.Errorf("recheck HEAD after semantic index: %w", err)
-	}
-	treeAfter, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD^{tree}")
-	if err != nil {
-		return fmt.Errorf("recheck HEAD tree after semantic index: %w", err)
-	}
-	if commitAfter != commitBefore {
-		return fmt.Errorf("head_changed: HEAD moved from %s to %s during semantic indexing", commitBefore, commitAfter)
-	}
-	if treeAfter != treeBefore {
-		return fmt.Errorf("head_changed: HEAD tree moved from %s to %s during semantic indexing", treeBefore, treeAfter)
-	}
-	return nil
-}
-
 func worktreeFingerprint(ctx context.Context, runner CommandRunner, repoDir string) (string, error) {
 	status, err := gitStatusPorcelainAll(ctx, runner, repoDir)
 	if err != nil {
@@ -3568,7 +2248,7 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -3603,13 +2283,6 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	return spots, nil
 }
 
-func semanticArtifactPresence(brainDir, rel string) staleAxis {
-	if err := verifyDeclaredBrainFile(brainDir, rel); err != nil {
-		return staleAxis{State: "unsafe", Detail: err.Error()}
-	}
-	return staleAxis{State: "present", Detail: rel + "; integrity not checked"}
-}
-
 func semanticStaleReport(ctx context.Context, opts Options, target string) (staleReport, error) {
 	return semanticFreshnessReport(ctx, opts, target, true)
 }
@@ -3621,7 +2294,7 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 		return staleReport{}, err
 	}
 	if !local {
-		return staleReport{}, fmt.Errorf("stale requires a local repository path: %s", target)
+		return staleReport{}, errors.New("status requires a local repository")
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
@@ -3631,138 +2304,25 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	if err != nil {
 		return staleReport{}, err
 	}
-	axes := map[string]staleAxis{}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		axes["semantic"] = staleAxis{State: "missing", Detail: "no semantic source in manifest"}
-		return staleReport{Severity: "unsafe", Axes: axes}, nil
+	d, err := fetchGraphStore(ctx, opts, repoDir, "", graphStoreProfile(manifest))
+	if err != nil {
+		return staleReport{Severity: "degraded", Axes: map[string]staleAxis{"graph": {State: "missing", Detail: err.Error()}}}, nil
 	}
-	source := manifest.Sources.Semantic
-	if source.SnapshotPath == "" {
-		axes["snapshot"] = staleAxis{State: "unsafe", Detail: "semantic snapshot_path is missing"}
-	} else if _, err := validateSemanticSnapshotPath(source.SnapshotPath); err != nil {
-		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
-	} else if err := rejectSymlinkPathComponents(storage.BrainDir, filepath.FromSlash(source.SnapshotPath)); err != nil {
-		axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
-	} else if !audit {
-		axes["snapshot"] = semanticArtifactPresence(storage.BrainDir, source.SnapshotPath)
-	} else {
-		snapshotPath := filepath.Join(storage.BrainDir, filepath.FromSlash(source.SnapshotPath))
-		snapshotHeader, snapshotCounts, snapshotErr := verifiedSnapshotSummary(snapshotPath, storage.Key)
-		if snapshotErr != nil {
-			axes["snapshot"] = staleAxis{State: "unsafe", Detail: snapshotErr.Error()}
-		} else if err := validateSemanticSourceMatchesSnapshot(source, snapshotHeader, snapshotCounts); err != nil {
-			axes["snapshot"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else {
-			axes["snapshot"] = staleAxis{State: "ok", Detail: source.SnapshotPath}
-		}
+	axes := map[string]staleAxis{"graph": {State: "ok", Current: d.Commit, Indexed: d.Commit, Detail: "Graph owns the committed-tree store"}}
+	var warnings []semanticWarning
+	// fetchGraphStore already refused a major mismatch; a newer supported-major
+	// minor reaches here and degrades the axis rather than failing the report,
+	// matching the warn-not-refuse half of ADR 0001 rule 3.
+	if skew := semanticSchemaMinorSkewWarning(d.Header.SchemaVersion); skew != nil {
+		warnings = append(warnings, *skew)
+		axes["graph"] = staleAxis{State: "degraded", Current: d.Commit, Indexed: d.Commit, Detail: skew.Detail}
 	}
-	if source.StorePath != "" {
-		if source.GenerationPath == "" {
-			axes["store"] = staleAxis{State: "unsafe", Detail: "semantic generation_path is missing"}
-		} else if generationPath, err := validateSemanticGenerationPath(source.GenerationPath); err != nil {
-			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if storePath, err := validateSemanticGenerationFilePath(source.StorePath, generationPath, semanticSQLiteName); err != nil {
-			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if err := rejectSymlinkPathComponents(storage.BrainDir, storePath); err != nil {
-			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else if !audit {
-			axes["store"] = semanticArtifactPresence(storage.BrainDir, source.StorePath)
-		} else if err := verifiedSQLiteStore(filepath.Join(storage.BrainDir, storePath), source.Symbols, source.Relations); err != nil {
-			axes["store"] = staleAxis{State: "unsafe", Detail: err.Error()}
-		} else {
-			axes["store"] = staleAxis{State: "ok", Detail: source.StorePath}
-		}
+	if dirty, err := worktreeDirty(ctx, opts.Runner, repoDir); err != nil {
+		return staleReport{}, err
+	} else if dirty {
+		axes["worktree"] = staleAxis{State: dirtyUnindexedAxisState, Detail: "Graph store describes committed HEAD"}
 	}
-	head, headErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
-	branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
-	dirty, dirtyErr := worktreeDirty(ctx, opts.Runner, repoDir)
-	currentWorktreeHash := ""
-	var currentWorktreeHashErr error
-	if audit && dirty && source.WorktreeHash != "" {
-		currentWorktreeHash, currentWorktreeHashErr = worktreeFingerprint(ctx, opts.Runner, repoDir)
-	}
-	if headErr != nil {
-		axes["head"] = staleAxis{State: "unsafe", Detail: "HEAD unavailable: " + headErr.Error(), Indexed: source.Commit}
-	} else if source.Commit == head {
-		axes["head"] = staleAxis{State: "ok", Current: head, Indexed: source.Commit}
-	} else {
-		axes["head"] = staleAxis{State: "stale", Current: head, Indexed: source.Commit}
-	}
-	if branchErr != nil {
-		axes["branch_tip"] = staleAxis{State: "unsafe", Detail: "branch unavailable: " + branchErr.Error(), Indexed: source.Branch}
-	} else if source.Branch == "" || source.Branch == branch {
-		axes["branch_tip"] = staleAxis{State: "ok", Current: branch, Indexed: source.Branch}
-	} else {
-		axes["branch_tip"] = staleAxis{State: "stale", Current: branch, Indexed: source.Branch}
-	}
-	switch {
-	case dirtyErr != nil:
-		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree status unavailable: " + dirtyErr.Error()}
-	case dirty && source.WorktreeMode != "worktree":
-		axes["worktree"] = staleAxis{
-			State:  dirtyUnindexedAxisState,
-			Detail: "semantic index is based on committed HEAD",
-			Remedy: setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
-		}
-	case !audit && dirty && source.WorktreeHash == "":
-		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree semantic snapshot has no verifiable fingerprint; refresh again with --worktree"}
-	case !audit && dirty:
-		axes["worktree"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents"}
-	case currentWorktreeHashErr != nil:
-		axes["worktree"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + currentWorktreeHashErr.Error()}
-	case dirty && source.WorktreeHash != "" && source.WorktreeHash != currentWorktreeHash:
-		axes["worktree"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since semantic indexing"}
-	case dirty:
-		axes["worktree"] = staleAxis{State: "dirty-indexed"}
-	case source.WorktreeMode == "worktree":
-		axes["worktree"] = staleAxis{State: "worktree-overlay-stale", Detail: "active semantic index was built from dirty content but worktree is now clean"}
-	default:
-		axes["worktree"] = staleAxis{State: "clean"}
-	}
-	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
-		axes["provider"] = staleAxis{State: "degraded", Detail: "semantic provider was skipped"}
-	} else if err := validateSemanticSchema(source.SchemaVersion); err != nil {
-		axes["provider"] = staleAxis{State: "unsafe", Detail: err.Error()}
-	} else if skew := semanticSchemaMinorSkewWarning(source.SchemaVersion); skew != nil {
-		// The recorded index came from a newer provider minor, so it is
-		// knowingly less complete than its snapshot. Every reader of this
-		// report (brain doctor/status and the semantic query, context, impact,
-		// changes, boundary and tests commands) must see that as degraded
-		// rather than a clean "ok".
-		axes["provider"] = staleAxis{State: "degraded", Detail: skew.Detail}
-	} else if !source.NoEgressVerified {
-		axes["provider"] = staleAxis{State: "degraded", Detail: "provider no-egress status was not verified"}
-	} else {
-		axes["provider"] = staleAxis{State: "ok", Detail: source.Provider + " " + source.ProviderVersion}
-		if audit {
-			revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
-			if identityErr != nil {
-				axes["provider"] = staleAxis{State: "degraded", Detail: identityErr.Error()}
-			} else if revision != source.IdentityRevision {
-				axes["provider"] = staleAxis{State: "stale", Detail: "Graph identity revision changed; run " + brainInvocation(os.LookupEnv, "refresh")}
-			}
-		} else {
-			axes["provider"] = staleAxis{State: "recorded", Detail: source.Provider + " " + source.ProviderVersion + "; live provider not probed"}
-		}
-	}
-	if source.Provider == "skipped" || semanticWarningsContainCode(source.Warnings, "provider_skipped") {
-		axes["semantic_completeness"] = staleAxis{State: "unsafe", Detail: "semantic facts unavailable"}
-	} else if len(source.PartialFailures) > 0 {
-		axes["semantic_completeness"] = semanticCompletenessAxis(source)
-	} else {
-		axes["semantic_completeness"] = staleAxis{State: "ok"}
-	}
-	severity := aggregateStaleSeverity(axes)
-	return staleReport{Severity: severity, Axes: axes, Warnings: source.Warnings}, nil
-}
-
-func semanticWarningsContainCode(warnings []semanticWarning, code string) bool {
-	for _, warning := range warnings {
-		if warning.Code == code {
-			return true
-		}
-	}
-	return false
+	return staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes, Warnings: warnings}, nil
 }
 
 const (
@@ -3795,52 +2355,6 @@ func semanticIntentionalSkipCode(code string) bool {
 // semantic source so they can still be inspected and acted on. Above it, the
 // volume is high enough to suspect a grammar/provider problem worth surfacing.
 const semanticParseErrorTolerance = 0.10
-
-// semanticCompletenessAxis classifies partial provider failures. Intentional
-// provider policy skips remain recorded but do not count against completeness.
-// Of the remaining failures, exclusively benign parse errors under the tolerance
-// fraction keep the axis ok; anything else (a non-parse failure code, an
-// uncountable file set, or too many parse errors) degrades the brain.
-func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
-	failures := len(source.PartialFailures)
-	completenessFailures := 0
-	parseErrors := 0
-	intentionalSkips := 0
-	for _, failure := range source.PartialFailures {
-		if semanticIntentionalSkipCode(failure.Code) {
-			intentionalSkips++
-			continue
-		}
-		completenessFailures++
-		if failure.Code == semanticParseErrorCode {
-			parseErrors++
-		}
-	}
-	if failures > 0 && source.Files <= 0 {
-		return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
-	}
-	if intentionalSkips > 0 && source.Files > 0 {
-		unparsedFiles := min(intentionalSkips, source.Files)
-		parsedFiles := source.Files - unparsedFiles
-		if parsedFiles < unparsedFiles {
-			return staleAxis{State: "unsafe", Detail: fmt.Sprintf("%d/%d files were intentionally skipped by semantic provider", unparsedFiles, source.Files)}
-		}
-		if parsedFiles > 0 && source.Symbols == 0 {
-			return staleAxis{State: "degraded", Detail: "semantic provider emitted zero symbols for parsed files"}
-		}
-	}
-	if completenessFailures == 0 {
-		return staleAxis{State: "ok"}
-	}
-	if parseErrors == completenessFailures && source.Files > 0 {
-		fraction := float64(parseErrors) / float64(source.Files)
-		if fraction < semanticParseErrorTolerance {
-			return staleAxis{State: "ok", Detail: fmt.Sprintf("%d/%d files had tolerated parse errors", parseErrors, source.Files)}
-		}
-		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", parseErrors, fraction*100)}
-	}
-	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
-}
 
 func aggregateStaleSeverity(axes map[string]staleAxis) string {
 	severity := "ok"
@@ -3998,7 +2512,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4009,13 +2523,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
 		return semanticIndexMissingError()
 	}
-	snapshotPath, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(storage.BrainDir, snapshotPath); err != nil {
-		return err
-	}
+	snapshotPath := ""
 	var results []semanticRecord
 	// Kept for the empty-result inventory below: explaining WHICH empty this is
 	// needs the store that was actually searched.
@@ -4124,7 +2632,7 @@ func semanticIndexKindInventory(storePath string) (total int, distinctKinds int,
 	if storePath == "" {
 		return 0, 0, nil
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return 0, 0, nil
 	}
@@ -4180,7 +2688,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4266,7 +2774,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4333,7 +2841,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4425,7 +2933,7 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4491,7 +2999,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4690,7 +3198,7 @@ func semanticRuntimeTraceFacts(brainDir string, source *semanticSourceManifest, 
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5112,6 +3620,9 @@ func loadSemanticBoundaryRecords(brainDir string, source *semanticSourceManifest
 }
 
 func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManifest) (string, error) {
+	if source.graphStore != nil {
+		return source.StorePath, nil
+	}
 	if source.GenerationPath == "" {
 		return "", errors.New("semantic generation_path is missing")
 	}
@@ -5363,7 +3874,7 @@ func semanticQueryLooksLikePath(query string) bool {
 }
 
 func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5470,7 +3981,7 @@ func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanti
 	if len(symbols) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5566,7 +4077,7 @@ func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string
 	if len(relationTypes) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5645,7 +4156,7 @@ func traverseSemanticImpactSQLite(storePath string, roots []semanticRecord, dept
 }
 
 func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord, error) {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5675,7 +4186,7 @@ func loadSemanticSymbolsByIDsSQLite(storePath string, ids []string) (map[string]
 	if len(ids) == 0 {
 		return out, nil
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -5844,7 +4355,7 @@ func findSemanticSymbolsForFilesSQLite(storePath string, files []string, limit i
 	if len(files) == 0 {
 		return nil, nil
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -6526,8 +5037,8 @@ func newSemanticBundleCommand(opts Options) *cobra.Command {
 		Long: `export writes one local archive containing this brain's layers so another
 machine can rebuild the same brain from it.
 
-Included by default: the semantic index (snapshot and derived store), seed,
-docs and facts.
+Included by default: seed, docs, facts and runtime observations.
+Code indexes stay with Graph and are rebuilt from the local checkout.
 
 Excluded by default: the session family -- captured transcripts and the two
 layers projected from them, history and patterns. Transcripts are verbatim
@@ -6638,6 +5149,7 @@ const (
 )
 
 var brainBundleLayers = []brainBundleLayer{
+	{name: "runtime_traces", dir: "semantic/traces"},
 	{name: bundleLayerSeed, dir: seedDirName},
 	{name: bundleLayerDocs, dir: docDirName},
 	{name: bundleLayerFacts, dir: factsDirName},
@@ -6761,47 +5273,15 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return semanticIndexMissingError()
-	}
-	if manifest.Sources.Semantic.WorktreeMode == "worktree" || manifest.Sources.Semantic.DirtyWorktree || manifest.Sources.Semantic.WorktreeHash != "" {
-		return errors.New("semantic bundle export does not support worktree-backed semantic indexes; refresh a clean semantic index first")
-	}
-	activeSnapshot, err := validateSemanticSnapshotPath(manifest.Sources.Semantic.SnapshotPath)
-	if err != nil {
+	if err := migrateLegacyGraphTraces(storage.BrainDir); err != nil {
 		return err
 	}
-	activeSnapshotPath := filepath.Join(storage.BrainDir, activeSnapshot)
-	info, err := os.Lstat(activeSnapshotPath)
-	if err != nil {
-		return fmt.Errorf("active semantic snapshot missing: %w", err)
+	if manifest.Sources == nil {
+		manifest.Sources = &brainSources{}
 	}
-	if err := rejectSymlinkPathComponents(storage.BrainDir, activeSnapshot); err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("active semantic snapshot must not be a symlink: %s", manifest.Sources.Semantic.SnapshotPath)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("active semantic snapshot must be a file: %s", manifest.Sources.Semantic.SnapshotPath)
-	}
-	if err := validateSnapshotFileSchema(activeSnapshotPath, storage.Key); err != nil {
-		return err
-	}
-	generationPaths, err := collectSemanticGenerationBundlePaths(storage.BrainDir, manifest.Sources.Semantic)
-	if err != nil {
-		return err
-	}
-	if manifest.Sources.Semantic.GenerationPath != "" {
-		if err := validateSemanticGenerationReferences(storage.BrainDir, manifest.Sources.Semantic); err != nil {
-			return err
-		}
-	}
-	// Decide the contents BEFORE opening the output, so a layer that cannot be
-	// read fails the export instead of producing a short bundle.
-	bundleSources := &brainSources{Semantic: sanitizeSemanticSourceForExport(manifest.Sources.Semantic, repoDir)}
+	bundleSources := &brainSources{}
 	bundleBranches := append([]exportBranch(nil), manifest.Branches...)
-	included := []string{bundleLayerSemantic}
+	included := []string{}
 	var omitted, sessionFamily []string
 	layerFiles := map[string][]string{}
 	var layerOrder []string
@@ -6900,24 +5380,6 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 		_ = f.Close()
 		return err
 	}
-	if err := addSanitizedSnapshotBundlePath(tw, storage.BrainDir, activeSnapshot, repoDir); err != nil {
-		_ = f.Close()
-		return err
-	}
-	for _, rel := range generationPaths {
-		if filepath.ToSlash(rel) == manifest.Sources.Semantic.StorePath {
-			generationID := pathpkg.Base(filepath.ToSlash(manifest.Sources.Semantic.GenerationPath))
-			if err := addSanitizedSemanticStoreBundlePath(tw, rel, activeSnapshotPath, repoDir, generationID, opts.Now()); err != nil {
-				_ = f.Close()
-				return err
-			}
-			continue
-		}
-		if err := addBundlePath(tw, storage.BrainDir, rel); err != nil {
-			_ = f.Close()
-			return err
-		}
-	}
 	transcriptStore := newTranscriptStore(opts.Runner, storage.BrainDir)
 	for _, name := range layerOrder {
 		for _, rel := range layerFiles[name] {
@@ -6978,87 +5440,6 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	return nil
 }
 
-func collectSemanticGenerationBundlePaths(brainDir string, source *semanticSourceManifest) ([]string, error) {
-	if source == nil || source.GenerationPath == "" {
-		return nil, nil
-	}
-	generationPath, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, generationPath); err != nil {
-		return nil, err
-	}
-	generationRoot := filepath.Join(brainDir, generationPath)
-	info, err := os.Lstat(generationRoot)
-	if err != nil {
-		return nil, fmt.Errorf("semantic generation missing: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("semantic generation must not be a symlink: %s", source.GenerationPath)
-	}
-	if !info.IsDir() {
-		return nil, fmt.Errorf("semantic generation must be a directory: %s", source.GenerationPath)
-	}
-	var paths []string
-	err = filepath.WalkDir(generationRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		rel, err := filepath.Rel(brainDir, path)
-		if err != nil {
-			return err
-		}
-		if err := rejectSymlinkPathComponents(brainDir, rel); err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		paths = append(paths, rel)
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	sort.Strings(paths)
-	return paths, nil
-}
-
-func validateSemanticGenerationReferences(brainDir string, source *semanticSourceManifest) error {
-	generationPath, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	for _, ref := range []struct {
-		name     string
-		path     string
-		basename string
-	}{
-		{name: "semantic sqlite store", path: source.StorePath, basename: semanticSQLiteName},
-		{name: "semantic metrics", path: source.MetricsPath, basename: semanticMetricsName},
-	} {
-		if ref.path == "" {
-			continue
-		}
-		clean, err := validateSemanticGenerationFilePath(ref.path, generationPath, ref.basename)
-		if err != nil {
-			return err
-		}
-		if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
-			return err
-		}
-		if info, err := os.Lstat(filepath.Join(brainDir, clean)); err != nil {
-			return fmt.Errorf("%s missing: %w", ref.name, err)
-		} else if info.IsDir() {
-			return fmt.Errorf("%s must be a file: %s", ref.name, ref.path)
-		} else if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s must not be a symlink: %s", ref.name, ref.path)
-		}
-	}
-	return nil
-}
-
 func addBundleManifest(tw *tar.Writer, manifest exportManifest) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -7101,123 +5482,6 @@ func addBundlePath(tw *tar.Writer, root, rel string) error {
 	}
 	_, err = tw.Write(data)
 	return err
-}
-
-func addSanitizedSnapshotBundlePath(tw *tar.Writer, root, rel, repoDir string) error {
-	if err := rejectSymlinkPathComponents(root, rel); err != nil {
-		return err
-	}
-	path := filepath.Join(root, rel)
-	info, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("bundle export refuses symlink: %s", rel)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("active semantic snapshot must be a file: %s", rel)
-	}
-	data, err := sanitizedSemanticSnapshotForBundle(path, repoDir)
-	if err != nil {
-		return err
-	}
-	header := &tar.Header{Name: filepath.ToSlash(rel), Mode: 0o600, Size: int64(len(data)), ModTime: info.ModTime()}
-	if err := tw.WriteHeader(header); err != nil {
-		return err
-	}
-	_, err = tw.Write(data)
-	return err
-}
-
-func addSanitizedSemanticStoreBundlePath(tw *tar.Writer, rel, snapshotPath, repoDir, generationID string, now time.Time) error {
-	raw, err := sanitizedSemanticSnapshotForBundle(snapshotPath, repoDir)
-	if err != nil {
-		return err
-	}
-	header, counts, raw, err := filterSemanticSnapshot(raw, brainIgnore{}, repoDir)
-	if err != nil {
-		return err
-	}
-	tmpDir, err := os.MkdirTemp("", "entire-brain-bundle-store-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpDir)
-	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, dbPath)
-	if err != nil {
-		return err
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		_ = db.Close()
-		return err
-	}
-	// Bundle export/import is not the deadline-bounded MCP path; it has no
-	// context of its own to honour.
-	_, err = populateSemanticSQLite(context.Background(), db, repoDir, generationID, bytes.NewReader(raw), header, counts, now, tmpDir)
-	if closeErr := db.Close(); err == nil && closeErr != nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(dbPath)
-	if err != nil {
-		return err
-	}
-	headerTar := &tar.Header{Name: filepath.ToSlash(rel), Mode: 0o600, Size: int64(len(data)), ModTime: now}
-	if err := tw.WriteHeader(headerTar); err != nil {
-		return err
-	}
-	_, err = tw.Write(data)
-	return err
-}
-
-func sanitizedSemanticSnapshotForBundle(path, repoDir string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	scanner := newSemanticScanner(f)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return nil, err
-		}
-		return nil, errors.New("semantic snapshot missing header")
-	}
-	var header semanticHeader
-	if err := json.Unmarshal(scanner.Bytes(), &header); err != nil {
-		return nil, fmt.Errorf("parse semantic snapshot header: %w", err)
-	}
-	header.RepoRoot = ""
-	header.Warnings = sanitizeSemanticWarnings(header.Warnings, repoDir)
-	header.PartialFailures = sanitizeSemanticWarnings(header.PartialFailures, repoDir)
-	headerLine, err := json.Marshal(header)
-	if err != nil {
-		return nil, err
-	}
-	var out bytes.Buffer
-	out.Write(headerLine)
-	out.WriteByte('\n')
-	idMap := make(map[string]string)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		sanitizedLine, err := sanitizeSemanticSnapshotRecordForBundle(line, repoDir, idMap)
-		if err != nil {
-			return nil, err
-		}
-		out.Write(sanitizedLine)
-		out.WriteByte('\n')
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
 }
 
 func sanitizeSemanticSnapshotRecordForBundle(line []byte, repoDir string, idMap map[string]string) ([]byte, error) {
@@ -7629,6 +5893,9 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
+	if err := migrateLegacyGraphTraces(tmpDir); err != nil {
+		return err
+	}
 	// Decide the overwrite question BEFORE the first byte is written, so a
 	// refusal leaves the destination brain exactly as it was rather than
 	// half-imported.
@@ -7668,46 +5935,6 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err := appendSemanticAuditLayers(storage.BrainDir, "bundle_import", archive, sum, conflicts); err != nil {
 		return err
 	}
-	if err := filepath.WalkDir(tmpDir, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(tmpDir, path)
-		if err != nil {
-			return err
-		}
-		if rel == exportManifestFileName {
-			return nil
-		}
-		relSlash := filepath.ToSlash(rel)
-		if relSlash != importManifest.Sources.Semantic.SnapshotPath {
-			return nil
-		}
-		content, err := safeReadFile(path, semanticSnapshotMaxBytes())
-		if err != nil {
-			return err
-		}
-		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
-			return err
-		}
-		return writeFileAtomic(filepath.Join(storage.BrainDir, rel), content, 0o600)
-	}); err != nil {
-		return err
-	}
-	if importManifest.Sources.Semantic.GenerationPath != "" {
-		if err := replaceImportedSemanticGeneration(storage.BrainDir, tmpDir, importManifest.Sources.Semantic); err != nil {
-			return err
-		}
-		if err := rebuildImportedSemanticStore(storage.BrainDir, repoDir, importManifest.Sources.Semantic, opts.Now()); err != nil {
-			return err
-		}
-	}
-	if err := writeBrainSemanticSource(storage.BrainDir, storage.Key, importManifest.Sources.Semantic); err != nil {
-		return err
-	}
 	restored, err := restoreBundleBrainLayers(storage.BrainDir, tmpDir)
 	if err != nil {
 		return err
@@ -7719,7 +5946,16 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	}
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
-	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(append([]string{bundleLayerSemantic}, restored...), ", "))
+	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(restored, ", "))
+	// brainBundleLayers carries no semantic layer: a 0.1.0-era bundle's code
+	// index (sources.semantic plus its semantic/snapshots|generations entries)
+	// is validated above but never restored. Without this, the import prints
+	// success and the operator finds out their code index is gone only when a
+	// later query comes back empty. slices.Contains guards against the notice
+	// going stale if a semantic layer is ever added to the table.
+	if importManifest.Sources.Semantic != nil && !slices.Contains(restored, bundleLayerSemantic) {
+		fmt.Fprintln(out, "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0")
+	}
 	return nil
 }
 
@@ -7826,164 +6062,6 @@ func writeBrainBundleLayerSources(brainDir, repoKey string, restored []string, b
 	return writeBrainManifestAndReadme(brainDir, *manifest)
 }
 
-func replaceImportedSemanticGeneration(brainDir, bundleRoot string, source *semanticSourceManifest) error {
-	generationPath, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	sourceRoot := filepath.Join(bundleRoot, generationPath)
-	info, err := os.Stat(sourceRoot)
-	if err != nil {
-		return fmt.Errorf("bundle missing semantic generation: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("bundle semantic generation must be a directory: %s", source.GenerationPath)
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, generationPath); err != nil {
-		return err
-	}
-	targetGenerationPath := generationPath
-	target := filepath.Join(brainDir, targetGenerationPath)
-	if _, err := os.Lstat(target); err == nil {
-		root := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
-		targetID, err := semanticAvailableGenerationID(root, pathpkg.Base(filepath.ToSlash(generationPath))+"-import", semanticGenerationContentSuffix([]byte(source.SnapshotPath+"\x00"+source.StorePath)))
-		if err != nil {
-			return err
-		}
-		targetGenerationPath = filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, targetID))
-		target = filepath.Join(brainDir, targetGenerationPath)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0o700); err != nil {
-		return err
-	}
-	staging, err := os.MkdirTemp(parent, ".import-"+filepath.Base(generationPath)+"-*")
-	if err != nil {
-		return err
-	}
-	cleanupStaging := true
-	defer func() {
-		if cleanupStaging {
-			_ = os.RemoveAll(staging)
-		}
-	}()
-	if err := copyImportedGenerationDir(sourceRoot, staging); err != nil {
-		return err
-	}
-	if _, err := os.Lstat(target); err == nil {
-		return fmt.Errorf("semantic import target already exists: %s", target)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Rename(staging, target); err != nil {
-		return err
-	}
-	cleanupStaging = false
-	rewriteSemanticGenerationRefs(source, targetGenerationPath)
-	return nil
-}
-
-func rewriteSemanticGenerationRefs(source *semanticSourceManifest, generationPath string) {
-	source.GenerationPath = filepath.ToSlash(generationPath)
-	source.StorePath = filepath.ToSlash(filepath.Join(generationPath, semanticSQLiteName))
-	source.MetricsPath = filepath.ToSlash(filepath.Join(generationPath, semanticMetricsName))
-	source.ParseCachePath = filepath.ToSlash(filepath.Join(generationPath, "parse-cache"))
-}
-
-func rebuildImportedSemanticStore(brainDir, repoDir string, source *semanticSourceManifest, now time.Time) error {
-	if source == nil || source.StorePath == "" {
-		return nil
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	generationRel, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	storeRel, err := validateSemanticGenerationFilePath(source.StorePath, generationRel, semanticSQLiteName)
-	if err != nil {
-		return err
-	}
-	raw, err := safeReadFile(filepath.Join(brainDir, snapshotRel), semanticSnapshotMaxBytes())
-	if err != nil {
-		return err
-	}
-	header, counts, raw, err := filterSemanticSnapshot(raw, brainIgnore{}, repoDir)
-	if err != nil {
-		return err
-	}
-	tmpDir, err := os.MkdirTemp("", "entire-brain-import-store-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpDir)
-	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, dbPath)
-	if err != nil {
-		return err
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		_ = db.Close()
-		return err
-	}
-	// Bundle export/import is not the deadline-bounded MCP path; it has no
-	// context of its own to honour.
-	_, err = populateSemanticSQLite(context.Background(), db, repoDir, pathpkg.Base(filepath.ToSlash(generationRel)), bytes.NewReader(raw), header, counts, now, filepath.Join(brainDir, generationRel))
-	if closeErr := db.Close(); err == nil && closeErr != nil {
-		err = closeErr
-	}
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(dbPath)
-	if err != nil {
-		return err
-	}
-	storePath := filepath.Join(brainDir, storeRel)
-	if err := os.Remove(storePath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return writeFileAtomic(storePath, data, 0o600)
-}
-
-func copyImportedGenerationDir(sourceRoot, targetRoot string) error {
-	return filepath.WalkDir(sourceRoot, func(path string, d os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == sourceRoot {
-			return nil
-		}
-		rel, err := filepath.Rel(sourceRoot, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(targetRoot, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o700)
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("bundle semantic generation entry must not be a symlink: %s", rel)
-		}
-		data, err := safeReadFile(path, semanticSnapshotMaxBytes())
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
-		}
-		return os.WriteFile(target, data, 0o600)
-	})
-}
-
 func readerSHA256(r io.Reader) (string, error) {
 	hasher := sha256.New()
 	if _, err := io.Copy(hasher, r); err != nil {
@@ -8001,6 +6079,12 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parse bundle manifest: %w", err)
 	}
+	// Checked first, ahead of repo_key and every other field: a bundle from a
+	// newer format must be refused before this build guesses at fields it has
+	// never seen, not after it has already decided they look fine.
+	if manifest.SchemaVersion > brainManifestSchemaVersion {
+		return nil, fmt.Errorf("bundle schema_version %d is newer than supported version %d; upgrade entire-brain to import this bundle", manifest.SchemaVersion, brainManifestSchemaVersion)
+	}
 	symbolsPresent, relationsPresent, err := bundleSemanticCountPresence(data)
 	if err != nil {
 		return nil, err
@@ -8011,9 +6095,13 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if !semanticRepoKeyEqual(manifest.RepoKey, repoKey) {
 		return nil, fmt.Errorf("bundle repo_key %q does not match current repo %q", manifest.RepoKey, repoKey)
 	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return nil, errors.New("bundle manifest missing semantic source")
+	if manifest.Sources == nil {
+		return nil, errors.New("bundle manifest missing sources")
 	}
+	if manifest.Sources.Semantic == nil {
+		return &manifest, nil
+	}
+
 	if err := validateSemanticSchema(manifest.Sources.Semantic.SchemaVersion); err != nil {
 		return nil, fmt.Errorf("bundle semantic schema unsupported: %w", err)
 	}
@@ -8269,22 +6357,6 @@ func validateSemanticGenerationFilePath(path, generationPath, basename string) (
 	return clean, nil
 }
 
-func semanticBundleGenerationRelAllowed(source *semanticSourceManifest, rel string) bool {
-	if source == nil || source.GenerationPath == "" {
-		return false
-	}
-	generationPath, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(rel, filepath.ToSlash(generationPath)+"/")
-}
-
-func validateSnapshotFileSchema(path, repoKey string) error {
-	_, _, err := readSemanticSnapshotSummary(path, repoKey)
-	return err
-}
-
 // The integrity checks over a generation — that the snapshot still matches the
 // manifest, and that the store holds the rows the manifest declares — answer
 // the same way for as long as the files do not change. Generations are
@@ -8361,20 +6433,6 @@ func fileIdentity(path string) string {
 		return "missing:" + err.Error()
 	}
 	return fmt.Sprintf("%d:%d", info.Size(), info.ModTime().UnixNano())
-}
-
-func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCounts, error) {
-	key := "snapshot\x00" + path + "\x00" + repoKey + "\x00" + fileIdentity(path)
-	if cached, ok := semanticIntegrityMemo.Load(key); ok {
-		verdict := cached.(semanticSnapshotVerdict)
-		return verdict.header, verdict.counts, verdict.err
-	}
-	header, counts, err := readSemanticSnapshotSummary(path, repoKey)
-	// I/O errors can recover without a size/mtime change, so only cache success.
-	if err == nil {
-		rememberSemanticIntegrity(key, semanticSnapshotVerdict{header: header, counts: counts})
-	}
-	return header, counts, err
 }
 
 // A wrapper gives successful (nil error) verdicts a concrete type too.

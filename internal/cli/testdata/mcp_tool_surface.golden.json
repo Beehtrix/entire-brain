@@ -15,7 +15,7 @@
     "name": "brain_status"
   },
   {
-    "description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, so use brain_index_repository with worktree=true when you need a dirty semantic snapshot. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+    "description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -421,12 +421,12 @@
     "name": "brain_code"
   },
   {
-    "description": "Build the local semantic index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
+    "description": "Build Graph’s shared committed-tree code index for a repository path. Local-only; does not publish artifacts. Replacing an index that already exists requires force=true. The path stays inside the bound repository root unless ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH is set. Calls are capped at 60 seconds, exactly as brain_refresh is: brain_refresh names this tool as the separate long-running step for a large repository, but the cap applies here too, so a repository that needs longer must be indexed from a shell with `entire brain refresh index`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "force": {
-          "description": "Replace the current semantic snapshot",
+          "description": "Force Graph to rebuild its committed-tree store",
           "title": "force",
           "type": "boolean"
         },
@@ -437,13 +437,13 @@
           "type": "string"
         },
         "profile": {
-          "description": "Semantic provider snapshot profile (e.g. full, syntax-only), forwarded to the provider unchanged; empty uses the provider default.",
+          "description": "Graph index profile (e.g. full, syntax-only); empty uses full.",
           "maxLength": 8192,
           "title": "profile",
           "type": "string"
         },
         "worktree": {
-          "description": "Index dirty worktree content",
+          "description": "Deprecated: unsupported by the shared committed-tree store; use Graph working-tree queries",
           "title": "worktree",
           "type": "boolean"
         }

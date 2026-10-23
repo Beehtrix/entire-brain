@@ -13,21 +13,19 @@ import (
 // A live round-trip against entire-api showed the drift these tests close: the server
 // answers a violated cap with an actionable body —
 //
-//	400 {"title":"Bad Request","status":400,"detail":"branch is 600 bytes, limit is 512"}
+//	400 {"title":"Bad Request","status":400,"detail":"batch exceeds 5000 records"}
 //
 // — and the client threw the body away, leaving the member with "unexpected status 400
 // Bad Request": no statement of what was wrong and no statement of the limit.
 //
 // The other half of the fix is that improving the MESSAGE must not disturb the
-// MEANING. Every status this transport reads is load-bearing control flow — 412/409
-// is the CAS-loss signal the retry loops in sync.go and proposals.go key on, and
-// 404/501/503 on the proposal endpoints is "this deployment has no queue", which
-// degrades to the local queue instead of failing a sync whose facts already landed.
-// So each surfacing test below has a sentinel test beside it, and the sentinel tests
-// assert errors.Is, not the string.
+// MEANING. The statuses this transport reads are load-bearing control flow — a 400
+// with a page token sent is the cursor-epoch signal (ErrInvalidPageToken) the pull
+// loop resets on. So the surfacing tests have sentinel tests beside them, and the
+// sentinel tests assert errors.Is, not the string.
 
 // serverDetail is the sentence the hosted API returns for the cap that exposed this.
-const serverDetail = "branch is 600 bytes, limit is 512"
+const serverDetail = "batch exceeds 5000 records"
 
 const humaCapBody = `{"title":"Bad Request","status":400,"detail":"` + serverDetail + `"}`
 
@@ -45,33 +43,15 @@ func statusServer(t *testing.T, status int, body string) *httptest.Server {
 
 // factsyncCalls is every method on HTTPServer that reads a status, keyed by name.
 // Each returns only the error, because that is the whole of what a member sees when
-// the server refuses.
+// the server refuses. FactsFeedPage is exercised WITHOUT a page token here, so a 400
+// is a plain refusal rather than the cursor-epoch sentinel.
 var factsyncCalls = map[string]func(context.Context, *HTTPServer) error{
-	"Current": func(ctx context.Context, h *HTTPServer) error {
-		_, _, _, err := h.Current(ctx, "repo", "main")
+	"UpsertFacts": func(ctx context.Context, h *HTTPServer) error {
+		_, err := h.UpsertFacts(ctx, "repo", []byte("fact:a\n"))
 		return err
 	},
-	"Advance": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.Advance(ctx, "repo", "main", "old", []byte("fact:a\n"))
-		return err
-	},
-	"ListProposals": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.ListProposals(ctx, "repo", "main")
-		return err
-	},
-	"GetProposal": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.GetProposal(ctx, "repo", "main", "prop-1234567890abcdef")
-		return err
-	},
-	"PublishProposals": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.PublishProposals(ctx, "repo", "main", "old", nil)
-		return err
-	},
-	"ResolveProposal": func(ctx context.Context, h *HTTPServer) error {
-		_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-			RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef",
-			Decision: Reject, FactsUnchanged: true,
-		})
+	"FactsFeedPage": func(ctx context.Context, h *HTTPServer) error {
+		_, err := h.FactsFeedPage(ctx, "repo", "", 100)
 		return err
 	},
 }
@@ -99,10 +79,10 @@ func TestEveryFactsyncCallSurfacesTheServersObjection(t *testing.T) {
 func TestFactsyncSurfacesA5xxObjection(t *testing.T) {
 	for name, call := range factsyncCalls {
 		t.Run(name, func(t *testing.T) {
-			srv := statusServer(t, http.StatusInternalServerError, `{"title":"Internal Server Error","detail":"fact-set store is read-only"}`)
+			srv := statusServer(t, http.StatusInternalServerError, `{"title":"Internal Server Error","detail":"fact store is read-only"}`)
 			h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
 			err := call(context.Background(), h)
-			if err == nil || !strings.Contains(err.Error(), "fact-set store is read-only") {
+			if err == nil || !strings.Contains(err.Error(), "fact store is read-only") {
 				t.Fatalf("%s: error = %v; want the server's 500 explanation", name, err)
 			}
 		})
@@ -135,87 +115,24 @@ func TestFactsyncNonJSONErrorPageIsBoundedAndReadable(t *testing.T) {
 	}
 }
 
-// SEMANTIC PRESERVATION 1/3 — 412 and 409 stay the CAS-loss signal.
-//
-// sync.go and proposals.go re-read and re-merge on errors.Is(err, ErrConflict). If the
-// surfacing replaced that sentinel with a plain formatted error, a lost race would
-// stop looking like a lost race and a converging sync would start failing instead.
-func TestConflictStatusesStayErrConflict(t *testing.T) {
-	for _, status := range []int{http.StatusPreconditionFailed, http.StatusConflict} {
-		for _, body := range []string{"", `{"title":"Conflict","detail":"head moved to facts-abc"}`} {
-			name := fmt.Sprintf("%d/body=%d", status, len(body))
-			t.Run(name, func(t *testing.T) {
-				srv := statusServer(t, status, body)
-				h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-
-				if _, err := h.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n")); !errors.Is(err, ErrConflict) {
-					t.Fatalf("Advance(%d) = %v; want ErrConflict", status, err)
-				}
-				if _, err := h.PublishProposals(context.Background(), "repo", "main", "old", nil); !errors.Is(err, ErrConflict) {
-					t.Fatalf("PublishProposals(%d) = %v; want ErrConflict", status, err)
-				}
-				_, err := h.ResolveProposal(context.Background(), ResolveProposalRequest{
-					RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef", Decision: Reject, FactsUnchanged: true,
-				})
-				if !errors.Is(err, ErrConflict) {
-					t.Fatalf("ResolveProposal(%d) = %v; want ErrConflict", status, err)
-				}
-				if body != "" && !strings.Contains(err.Error(), "head moved to facts-abc") {
-					t.Fatalf("ResolveProposal(%d) = %q; the server's explanation was dropped", status, err)
-				}
-			})
-		}
-	}
-}
-
-// SEMANTIC PRESERVATION 2/3 — 404/501/503 on the proposal endpoints stay
-// "this deployment has no queue", which facts_sync_cmd.go degrades on rather than
-// failing a sync whose head-advance already succeeded.
-func TestQueueUnsupportedStatusesStayUnsupported(t *testing.T) {
-	for _, status := range []int{http.StatusNotFound, http.StatusNotImplemented, http.StatusServiceUnavailable} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			srv := statusServer(t, status, `{"title":"Not Found","detail":"hosted brain is disabled for this repo"}`)
+// SEMANTIC PRESERVATION — a 400 with a page token sent stays the cursor-epoch
+// signal. The pull loop resets its cursor and cache on errors.Is(err,
+// ErrInvalidPageToken); if the surfacing replaced that sentinel with a plain
+// formatted error, a rotated keyset would stop looking like one and the pull
+// would fail instead of refetching from the start.
+func TestRejectedPageTokenStaysErrInvalidPageToken(t *testing.T) {
+	for _, body := range []string{"", `{"title":"Bad Request","detail":"page token epoch rotated"}`} {
+		t.Run(fmt.Sprintf("body=%d", len(body)), func(t *testing.T) {
+			srv := statusServer(t, http.StatusBadRequest, body)
 			h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-
-			_, listErr := h.ListProposals(context.Background(), "repo", "main")
-			if !errors.Is(listErr, ErrProposalQueueUnsupported) {
-				t.Fatalf("ListProposals(%d) = %v; want ErrProposalQueueUnsupported", status, listErr)
+			_, err := h.FactsFeedPage(context.Background(), "repo", "stale-token", 100)
+			if !errors.Is(err, ErrInvalidPageToken) {
+				t.Fatalf("FactsFeedPage(400, token sent) = %v; want ErrInvalidPageToken", err)
 			}
-			if !strings.Contains(listErr.Error(), "hosted brain is disabled for this repo") {
-				t.Fatalf("ListProposals(%d) = %q; the server's explanation was dropped", status, listErr)
-			}
-			_, pubErr := h.PublishProposals(context.Background(), "repo", "main", "old", nil)
-			if !errors.Is(pubErr, ErrProposalQueueUnsupported) {
-				t.Fatalf("PublishProposals(%d) = %v; want ErrProposalQueueUnsupported", status, pubErr)
-			}
-			if !strings.Contains(pubErr.Error(), "hosted brain is disabled for this repo") {
-				t.Fatalf("PublishProposals(%d) = %q; the server's explanation was dropped", status, pubErr)
+			if body != "" && !strings.Contains(err.Error(), "page token epoch rotated") {
+				t.Fatalf("FactsFeedPage(400, token sent) = %q; the server's explanation was dropped", err)
 			}
 		})
-	}
-}
-
-// SEMANTIC PRESERVATION 3/3 — a 404 on a single proposal stays "already settled",
-// which is a normal outcome the resolve loop skips past, not a failure.
-func TestProposalNotFoundStaysNotFound(t *testing.T) {
-	srv := statusServer(t, http.StatusNotFound, `{"title":"Not Found","detail":"proposal p1 was resolved by another member"}`)
-	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-
-	_, getErr := h.GetProposal(context.Background(), "repo", "main", "prop-1234567890abcdef")
-	if !errors.Is(getErr, ErrProposalNotFound) {
-		t.Fatalf("GetProposal(404) = %v; want ErrProposalNotFound", getErr)
-	}
-	if !strings.Contains(getErr.Error(), "resolved by another member") {
-		t.Fatalf("GetProposal(404) = %q; the server's explanation was dropped", getErr)
-	}
-	_, resErr := h.ResolveProposal(context.Background(), ResolveProposalRequest{
-		RepoID: "repo", Branch: "main", ProposalID: "prop-1234567890abcdef", Decision: Reject, FactsUnchanged: true,
-	})
-	if !errors.Is(resErr, ErrProposalNotFound) {
-		t.Fatalf("ResolveProposal(404) = %v; want ErrProposalNotFound", resErr)
-	}
-	if !strings.Contains(resErr.Error(), "resolved by another member") {
-		t.Fatalf("ResolveProposal(404) = %q; the server's explanation was dropped", resErr)
 	}
 }
 
@@ -225,11 +142,11 @@ func TestProposalNotFoundStaysNotFound(t *testing.T) {
 // still not.
 func TestErrorBodyReadingLeavesTheDialClassifierAlone(t *testing.T) {
 	ctx := context.Background()
-	ts := statusServer(t, http.StatusOK, `{"found":false}`)
+	ts := statusServer(t, http.StatusOK, `{"items":[],"nextPageToken":null}`)
 	flaky := &flakyDialTransport{failFirst: transientDialRetries, real: http.DefaultTransport}
 	h := &HTTPServer{BaseURL: ts.URL, Token: "tok", Client: &http.Client{Transport: flaky}}
-	if _, _, _, err := h.Current(ctx, "repo", "main"); err != nil {
-		t.Fatalf("Current with transient dial failures = %v; want the retry to still absorb them", err)
+	if _, err := h.FactsFeedPage(ctx, "repo", "", 100); err != nil {
+		t.Fatalf("FactsFeedPage with transient dial failures = %v; want the retry to still absorb them", err)
 	}
 	if got, want := flaky.callCount(), transientDialRetries+1; got != want {
 		t.Fatalf("round trips = %d, want %d", got, want)
@@ -237,10 +154,9 @@ func TestErrorBodyReadingLeavesTheDialClassifierAlone(t *testing.T) {
 
 	refused := &nonTransientDialTransport{}
 	h2 := &HTTPServer{BaseURL: "http://127.0.0.1:1", Token: "tok", Client: &http.Client{Transport: refused}}
-	if _, _, _, err := h2.Current(ctx, "repo", "main"); err == nil {
-		t.Fatal("Current succeeded against an always-refusing transport")
-	}
-	if refused.calls != 1 {
+	if _, err := h2.FactsFeedPage(ctx, "repo", "", 100); err == nil {
+		t.Fatal("FactsFeedPage succeeded against an always-refusing transport")
+	} else if refused.calls != 1 {
 		t.Fatalf("round trips = %d, want exactly 1 (a real connectivity error is not retried)", refused.calls)
 	}
 }
@@ -251,25 +167,25 @@ func TestErrorBodyReadingLeavesTheDialClassifierAlone(t *testing.T) {
 func TestFactsyncDoesNotRepeatTheStatusText(t *testing.T) {
 	srv := statusServer(t, http.StatusForbidden, `{"title":"Forbidden","detail":"Forbidden; pull-only"}`)
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	_, err := h.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n"))
+	_, err := h.UpsertFacts(context.Background(), "repo", []byte("fact:a\n"))
 	if err == nil {
-		t.Fatal("Advance(403) produced no error")
+		t.Fatal("UpsertFacts(403) produced no error")
 	}
 	if strings.Contains(err.Error(), "Forbidden: Forbidden") {
-		t.Fatalf("Advance(403) = %q; the status text is rendered twice", err)
+		t.Fatalf("UpsertFacts(403) = %q; the status text is rendered twice", err)
 	}
 	if !strings.Contains(err.Error(), "403 Forbidden: pull-only") {
-		t.Fatalf("Advance(403) = %q; the server's extra detail was dropped", err)
+		t.Fatalf("UpsertFacts(403) = %q; the server's extra detail was dropped", err)
 	}
 
 	pure := statusServer(t, http.StatusForbidden, `{"title":"Forbidden"}`)
 	h2 := &HTTPServer{BaseURL: pure.URL, Token: "tok"}
-	_, err = h2.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n"))
+	_, err = h2.UpsertFacts(context.Background(), "repo", []byte("fact:a\n"))
 	if err == nil {
-		t.Fatal("Advance(403, pure echo) produced no error")
+		t.Fatal("UpsertFacts(403, pure echo) produced no error")
 	}
 	if !strings.HasSuffix(err.Error(), "403 Forbidden") {
-		t.Fatalf("Advance(403, pure echo) = %q; want the status rendered exactly once, last", err)
+		t.Fatalf("UpsertFacts(403, pure echo) = %q; want the status rendered exactly once, last", err)
 	}
 }
 
@@ -277,11 +193,11 @@ func TestFactsyncDoesNotRepeatTheStatusText(t *testing.T) {
 func TestSilentRefusalKeepsACleanMessage(t *testing.T) {
 	srv := statusServer(t, http.StatusBadRequest, "")
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	_, err := h.Advance(context.Background(), "repo", "main", "old", []byte("fact:a\n"))
+	_, err := h.UpsertFacts(context.Background(), "repo", []byte("fact:a\n"))
 	if err == nil {
-		t.Fatal("Advance(400, empty body) produced no error")
+		t.Fatal("UpsertFacts(400, empty body) produced no error")
 	}
 	if strings.HasSuffix(err.Error(), ": ") || strings.HasSuffix(err.Error(), ":") {
-		t.Fatalf("Advance(400, empty body) = %q; an empty body left a dangling separator", err)
+		t.Fatalf("UpsertFacts(400, empty body) = %q; an empty body left a dangling separator", err)
 	}
 }

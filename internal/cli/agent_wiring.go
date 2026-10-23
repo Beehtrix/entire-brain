@@ -18,10 +18,10 @@ import (
 
 // agent_wiring.go closes the first-run gap that made a successful `setup`
 // invisible: the brain was built, indexed, watched and backfilled, and NO AGENT
-// EVER KNEW IT EXISTED. `setup` wrote no guide, no pointer and no hook, and
-// `init-agents` — the command that writes them — was never referenced from
-// setup.go at all. A user who ran only `setup` got a brain that every agent in
-// the repository would walk straight past.
+// EVER KNEW IT EXISTED. `setup` originally wrote no guide, no pointer and no
+// hook; a user who ran only `setup` got a brain that every agent in the
+// repository would walk straight past. This wiring is now a setup phase (the
+// former `init-agents` command, folded in).
 //
 // Two things make an agent aware of the brain:
 //
@@ -71,10 +71,14 @@ var agentWiringTargets = []string{agentsetup.Path, "AGENTS.md", "CLAUDE.md"}
 // idempotent by construction rather than by luck: the instruction files carry
 // a begin/end marker whose contents are replaced in place, and the settings
 // merge is skipped outright when an entry already invokes this hook.
-func wireAgentInstructions(repoDir string, wireHook bool) setupAgentsState {
+//
+// An empty mode inherits the repository's saved guidance mode; --strict and
+// --normal pass an explicit one, which the install persists in the guide's
+// activation record.
+func wireAgentInstructions(repoDir string, wireHook bool, mode agentsetup.Mode) setupAgentsState {
 	state := setupAgentsState{}
 	render := func() (string, error) {
-		return agentsetup.Preview(repoDir, "brain", agentsetup.Options{})
+		return agentsetup.Preview(repoDir, "brain", agentsetup.Options{Mode: mode})
 	}
 	changed, err := agentsetup.InstallChanged(repoDir, render)
 	if err != nil {

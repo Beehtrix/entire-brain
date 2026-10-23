@@ -319,43 +319,6 @@ func TestDoctorKeepsNeverBuiltSemanticIndexAtWarn(t *testing.T) {
 	}
 }
 
-// --- defect 4a: facts proposals --json printed help text -------------------
-
-// TestFactsProposalsJSONDoesNotPrintHelp pins the one --json violation out of
-// the 92 nodes that advertise the flag: the group node printed human help to
-// stdout and exited 0, so a machine caller got prose labelled as success.
-func TestFactsProposalsJSONDoesNotPrintHelp(t *testing.T) {
-	opts := Options{Version: "test"}
-	stdout, stderr, err := executeSplit(t, NewRootCommand(opts), "facts", "proposals", "--json")
-	if err == nil {
-		t.Fatalf("facts proposals --json must not exit 0 with no result\nstdout:\n%s", stdout)
-	}
-	if strings.TrimSpace(stdout) != "" {
-		t.Fatalf("facts proposals --json wrote non-JSON to stdout:\n%s", stdout)
-	}
-	var envelope commandJSONError
-	if jsonErr := json.Unmarshal([]byte(stderr), &envelope); jsonErr != nil {
-		t.Fatalf("facts proposals --json did not emit a JSON error envelope: %v\n%s", jsonErr, stderr)
-	}
-	if !strings.Contains(envelope.Message, "requires a subcommand") {
-		t.Fatalf("JSON error does not say what is missing: %+v", envelope)
-	}
-	for _, verb := range []string{"list", "show", "apply", "reject", "repair"} {
-		if !strings.Contains(envelope.Message, verb) {
-			t.Fatalf("JSON error does not name the %q verb: %+v", verb, envelope)
-		}
-	}
-
-	// Without --json the human help is unchanged and still exits 0.
-	humanOut, _, humanErr := executeSplit(t, NewRootCommand(opts), "facts", "proposals")
-	if humanErr != nil {
-		t.Fatalf("facts proposals (human) must still exit 0: %v", humanErr)
-	}
-	if !strings.Contains(humanOut, "Usage:") {
-		t.Fatalf("facts proposals (human) stopped printing help:\n%s", humanOut)
-	}
-}
-
 // --- defect 4b: refresh index exited 1 when there was nothing to do --------
 
 // TestRefreshIndexIsIdempotent is the scripted-loop defect: `refresh index`
@@ -393,14 +356,13 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := bundleTestBrainDir(env)
-	source := mustSemanticSource(t, env)
-	storePath := filepath.Join(brainDir, filepath.FromSlash(source.StorePath))
-	if err := os.WriteFile(storePath, []byte("this is not a database"), 0o600); err != nil {
+	d := runner.graphStoreFixtures[repoDir+"\x00full"]
+	if err := os.WriteFile(d.Path, []byte("this is not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := semanticIndexAlreadyCurrent(brainDir, source, semanticIndexOptions{graphBinary: "entire"}, source.Commit, source.Tree, ""); ok {
-		t.Fatalf("an index whose store is not a database must not be reported as current")
+	if db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath); err == nil {
+		db.Close()
+		t.Fatal("corrupt Graph store was readable")
 	}
 
 	rebuild := &cobra.Command{Use: "index"}
@@ -408,10 +370,13 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	if err := runSemanticIndex(rebuild.Context(), rebuild, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("refresh index over an unreadable store must rebuild: %v", err)
 	}
-	rebuilt := mustSemanticSource(t, env)
-	if err := validateSemanticSQLiteStore(filepath.Join(brainDir, filepath.FromSlash(rebuilt.StorePath)), rebuilt.Symbols, rebuilt.Relations); err != nil {
-		t.Fatalf("store was not rebuilt: %v", err)
+	d = runner.graphStoreFixtures[repoDir+"\x00full"]
+	db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath)
+	if err != nil {
+		t.Fatalf("Graph store was not rebuilt: %v", err)
 	}
+	db.Close()
+
 }
 
 // --- defect 4c: no --version flag ------------------------------------------

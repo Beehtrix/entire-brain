@@ -109,7 +109,7 @@ func TestBriefFactWarningOnlyNamesTheBranchRead(t *testing.T) {
 	}
 }
 
-func TestOverviewReportsUnreadableSemanticBoundaries(t *testing.T) {
+func TestOverviewIgnoresRetiredSemanticStore(t *testing.T) {
 	opts, brain := overviewHistoryFixture(t)
 	manifest, err := loadBrainManifest(brain)
 	if err != nil {
@@ -127,10 +127,8 @@ func TestOverviewReportsUnreadableSemanticBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, kind := range []string{"route", "tool", "workflow"} {
-			if !strings.Contains(out, kind+" boundaries unavailable") {
-				t.Fatalf("silent boundary failure: %s", out)
-			}
+		if strings.Contains(out, "boundaries unavailable") {
+			t.Fatalf("retired store leaked into overview: %s", out)
 		}
 	}
 }

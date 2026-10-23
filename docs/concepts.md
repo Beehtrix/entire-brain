@@ -78,7 +78,7 @@ requirements, and privacy/egress controls; see the
 plugin data `repos/<repo-key>`, separate from configuration, transient state, and
 caches. CLI retrieval and MCP tools consume these local layers; a brief combines
 selected knowledge with semantic navigation rather than treating the code graph
-as the text corpus. Build and embedder support can vary by retrieval source.
+as the text corpus.
 
 Configured Brain hooks can surface file-anchored facts before an edit or known
 pitfalls after a failure. They do not replace Entire's capture hooks or activate

@@ -1,0 +1,364 @@
+#!/bin/bash
+#MISE description="Release smoke: full user journey on scratch repos (enable, capture, distill, recall, graph, hosted sync up/down)"
+#
+# A tripwire, not a test suite: one assert per leg, each fails loudly.
+# Legs: 1 setup, 2 checkpoint capture, 3 distill, 4 recall, 5 graph query,
+#        6 hosted upload (staging), 7 pull+merge on a second clone.
+#
+# The entire-brain binary under test is built from this checkout (the RC SHA);
+# the host `entire` CLI and the entire-graph provider are the installed ones.
+# Brain state is isolated per "machine" via ENTIRE_PLUGIN_*_DIR, like
+# scripts/hosted-sync-smoke.sh; HOME and the host CLI's login stay real because
+# legs 3 and 6 need the real coding agent and the real staging auth.
+#
+# Environment the runner must export (legs 6-7; never hardcode secrets):
+#   REPO_ID       region-local repo ULID of a STAGING brainstore repo
+#   API_URL       that repo's home-cell base URL, e.g. https://<home-cell>.api.partial.to/api/v1
+#   AUTH_CONTEXT  optional saved `entire auth` login to mint the token from
+#                 (e.g. us.auth.partial.to); default: the active context
+#   ENTIRE_BRAIN_BIN  optional prebuilt entire-brain binary (skips go build)
+#
+# Evidence: a timestamped pass/fail summary (with brain/graph/host versions)
+# is written under .smoke-evidence/ with host paths redacted.
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+evidence_dir=${SMOKE_EVIDENCE_DIR:-"$repo_root/.smoke-evidence"}
+stamp=$(date +%Y%m%d-%H%M%S)
+evidence="$evidence_dir/release-smoke-$stamp.md"
+
+REPO_ID=${REPO_ID:?export REPO_ID (staging brainstore repo ULID) -- see header}
+API_URL=${API_URL:?export API_URL (staging cell base URL) -- see header}
+
+# Hosted sync fails closed under the egress kill switch; this suite exists to
+# exercise egress, so both spellings must be unset.
+unset ENTIRE_BRAIN_NO_EGRESS ENTIRE_BRAIN_LOCAL_ONLY
+# The claude CLI refuses to start inside another Claude Code session and names
+# unsetting CLAUDECODE as the bypass. Distill's child is non-interactive
+# (--print), so the bypass is safe; a normal terminal never has this set.
+unset CLAUDECODE
+
+command -v git >/dev/null || { echo "FATAL: git is required" >&2; exit 1; }
+command -v entire >/dev/null || { echo "FATAL: the entire CLI is required" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "FATAL: python3 is required" >&2; exit 1; }
+if ! command -v claude >/dev/null && ! command -v codex >/dev/null; then
+  echo "FATAL: leg 3 (distill) needs a coding agent on PATH (claude or codex)" >&2
+  exit 1
+fi
+
+# Released CLIs can print an update banner on stdout; the token is the last
+# non-empty line (same rule as the plugin's mintHostedToken).
+last_line() { awk 'NF {line=$0} END {print line}'; }
+if [ -n "${AUTH_CONTEXT:-}" ]; then
+  ENTIRE_TOKEN=$(entire auth token --context "$AUTH_CONTEXT" | last_line)
+else
+  ENTIRE_TOKEN=$(entire auth token | last_line)
+fi
+export ENTIRE_TOKEN
+
+work=$(mktemp -d)
+smoke_branch="smoke-$stamp"
+scratch="$work/a"
+clone_b="$work/b"
+
+declare -a leg_names=(
+  "1 setup: enable + brain setup healthy"
+  "2 capture: commit writes a checkpoint"
+  "3 distill: real agent writes >=1 fact"
+  "4 recall: distilled fact comes back"
+  "5 graph: fixture symbol resolves"
+  "6 upload: hosted sync up, fact visible remotely"
+  "7 pull: second clone pulls + merges the fact"
+)
+declare -a leg_status=(not-run not-run not-run not-run not-run not-run not-run)
+current_leg=0
+
+versions() {
+  printf -- '- host CLI: %s\n' "$(entire version 2>/dev/null | head -n 1)"
+  printf -- '- entire-brain (under test): %s\n' "$("$brain_bin" version 2>/dev/null || echo unknown)"
+  printf -- '- entire-graph: %s\n' "$(entire graph version --json 2>/dev/null || echo unknown)"
+}
+
+finalize() {
+  status=$?
+  trap - EXIT
+  [ "$status" -eq 0 ] || [ "$current_leg" -eq 0 ] || leg_status[current_leg - 1]=FAIL
+  mkdir -p "$evidence_dir"
+  {
+    echo "# release:smoke $stamp"
+    echo
+    echo "result: $([ "$status" -eq 0 ] && echo PASS || echo "FAIL (exit $status)")"
+    echo "rc sha: $(git -C "$repo_root" rev-parse HEAD)"
+    echo "staging repo: $REPO_ID @ $API_URL"
+    echo
+    versions
+    echo
+    for i in "${!leg_names[@]}"; do
+      echo "- [${leg_status[$i]}] ${leg_names[$i]}"
+    done
+  } | sed -e "s|$work|\$WORK|g" -e "s|$HOME|~|g" >"$evidence"
+  echo
+  echo "evidence: $evidence"
+  cat "$evidence"
+  if [ -n "${SMOKE_KEEP:-}" ]; then
+    echo "SMOKE_KEEP set: sandbox kept at $work"
+  else
+    rm -rf "$work"
+  fi
+  exit "$status"
+}
+trap finalize EXIT
+
+leg() {
+  current_leg=$1
+  printf '\n== leg %s: %s\n' "$1" "${leg_names[$1 - 1]#* }"
+}
+pass() { leg_status[current_leg - 1]=PASS; }
+fail() {
+  echo "SMOKE FAIL (leg $current_leg): $1" >&2
+  exit 1
+}
+
+# machine <a|b> <workdir> <cmd...>: run a command against one isolated
+# "machine" (its own plugin data/state/config/cache), real HOME and login.
+# GIT_TERMINAL_PROMPT=0 makes the commit hooks auto-link instead of prompting.
+machine() {
+  local m=$1 dir=$2
+  shift 2
+  (cd "$dir" && env \
+    ENTIRE_PLUGIN_DATA_DIR="$work/$m/data" \
+    ENTIRE_PLUGIN_STATE_DIR="$work/$m/state" \
+    ENTIRE_PLUGIN_CONFIG_DIR="$work/$m/config" \
+    ENTIRE_PLUGIN_CACHE_DIR="$work/$m/cache" \
+    ENTIRE_BRAIN_DAEMON_NO_REGISTER=1 \
+    GIT_TERMINAL_PROMPT=0 \
+    PAGER=cat GIT_PAGER=cat \
+    "$@")
+}
+
+brain_a() { machine a "$scratch" env ENTIRE_REPO_ROOT="$scratch" "$brain_bin" "$@"; }
+brain_b() { machine b "$clone_b" env ENTIRE_REPO_ROOT="$clone_b" "$brain_bin" "$@"; }
+
+json_has_fact() { # json_has_fact <needle>: stdin JSON contains <needle> in any string value
+  python3 -c '
+import json, sys
+needle = sys.argv[1]
+def walk(v):
+    if isinstance(v, str):
+        return needle in v
+    if isinstance(v, dict):
+        return any(walk(x) for x in v.values())
+    if isinstance(v, list):
+        return any(walk(x) for x in v)
+    return False
+sys.exit(0 if walk(json.load(sys.stdin)) else 1)' "$1"
+}
+
+echo "== build entire-brain from this checkout"
+brain_bin=${ENTIRE_BRAIN_BIN:-}
+if [ -n "$brain_bin" ]; then
+  [ -x "$brain_bin" ] || { echo "FATAL: ENTIRE_BRAIN_BIN=$brain_bin is not executable" >&2; exit 1; }
+else
+  command -v go >/dev/null || { echo "FATAL: go is required to build entire-brain (or set ENTIRE_BRAIN_BIN)" >&2; exit 1; }
+  brain_bin="$work/entire-brain"
+  (cd "$repo_root" && go build -o "$brain_bin" ./cmd/entire-brain)
+fi
+
+# ---------------------------------------------------------------- leg 1: setup
+leg 1
+
+# The remote must be github-shaped or entire-brain and entire-graph derive
+# different repo keys (see scripts/demo-agent-session.sh). Never fetched.
+git init -q -b main "$scratch"
+git -C "$scratch" config user.name 'Release Smoke'
+git -C "$scratch" config user.email 'release-smoke@example.invalid'
+git -C "$scratch" config commit.gpgsign false
+git -C "$scratch" remote add origin "https://github.com/entireio/release-smoke-$stamp.git"
+
+mkdir -p "$scratch/greet"
+cat >"$scratch/go.mod" <<'GOMOD'
+module example.com/smoke
+
+go 1.22
+GOMOD
+cat >"$scratch/greet/greet.go" <<'SRC'
+// Package greet formats greetings.
+package greet
+
+// Greet returns a greeting for name.
+func Greet(name string) string {
+	return "hello " + name
+}
+SRC
+git -C "$scratch" add -A
+git -C "$scratch" commit -qm 'feat: greeting package'
+git -C "$scratch" checkout -qb "$smoke_branch"
+
+machine a "$scratch" entire enable --agent claude-code
+machine a "$scratch" sh -c "git add .entire .claude && git commit -qm 'chore: enable Entire'"
+brain_a setup --no-backfill --no-daemon .
+brain_a status --json --fail-on degraded >/dev/null ||
+  fail "entire brain status reports a degraded brain right after setup"
+pass
+
+# -------------------------------------------------------------- leg 2: capture
+leg 2
+
+session_id=$(python3 -c 'import uuid; print(uuid.uuid4())')
+transcript="$work/$session_id.jsonl"
+hook() { # hook <verb> <payload-json>
+  printf '%s' "$2" | machine a "$scratch" entire hooks claude-code "$1"
+}
+
+# The fixture session: a real transcript in Claude Code's shape, with the model
+# substituted by this script. Hooks, session state machine and checkpoint
+# writer are the real ones. The decision/invariant/rationale wording is load
+# bearing: distill's extraction prompt defaults to emitting NOTHING, so a
+# session that reads as a routine fix legitimately yields zero facts and leg 3
+# cannot pass.
+cat >"$transcript" <<JSONL
+{"type":"user","message":{"role":"user","content":"Greet(\"\") returns \"hello \" with a dangling space. Decide how empty names should behave."},"timestamp":"2026-10-22T10:00:00.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"smoke-substituted-model","content":[{"type":"text","text":"Decision: an empty name greets \"there\" (Greet(\"\") == \"hello there\"). Rationale: the greeting is part of the public CLI contract, which guarantees non-empty, well-formed output, so a dangling \"hello \" is a contract violation, not a cosmetic issue. The guard lives inside Greet itself rather than at call sites so no caller can forget it. This is a permanent invariant of the greet package: Greet never returns a trailing space."}]},"timestamp":"2026-10-22T10:00:05.000Z"}
+JSONL
+
+hook session-start "{\"session_id\":\"$session_id\",\"transcript_path\":\"$transcript\",\"model\":\"smoke-substituted-model\",\"cwd\":\"$scratch\"}"
+hook user-prompt-submit "{\"session_id\":\"$session_id\",\"transcript_path\":\"$transcript\",\"prompt\":\"Make an empty name greet \\\"there\\\".\"}"
+
+cat >"$scratch/greet/greet.go" <<'SRC'
+// Package greet formats greetings.
+package greet
+
+// Greet returns a greeting for name. An empty name greets "there" rather than
+// producing a dangling "hello ", so no caller has to check first.
+func Greet(name string) string {
+	if name == "" {
+		return "hello there"
+	}
+	return "hello " + name
+}
+SRC
+cat >>"$transcript" <<JSONL
+{"type":"assistant","message":{"role":"assistant","model":"smoke-substituted-model","content":[{"type":"tool_use","id":"tu_1","name":"Edit","input":{"file_path":"$scratch/greet/greet.go","old_string":"return \"hello \" + name","new_string":"if name == \"\" {\n\t\treturn \"hello there\"\n\t}\n\treturn \"hello \" + name"}}]},"timestamp":"2026-10-22T10:00:10.000Z"}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"The file has been updated."}]},"timestamp":"2026-10-22T10:00:11.000Z"}
+{"type":"assistant","message":{"role":"assistant","model":"smoke-substituted-model","content":[{"type":"text","text":"Done. The empty-name guard is implemented inside Greet, and the invariant (Greet never returns a trailing space) should hold for all future changes to the greet package."}]},"timestamp":"2026-10-22T10:00:12.000Z"}
+JSONL
+hook stop "{\"session_id\":\"$session_id\",\"transcript_path\":\"$transcript\",\"model\":\"smoke-substituted-model\"}"
+
+# Commits auto-capture: the post-commit hook entire enable installed writes the
+# checkpoint. Never create checkpoints by hand.
+machine a "$scratch" sh -c "git add -A && git commit -qm 'fix(greet): greet \"there\" for an empty name'"
+hook session-end "{\"session_id\":\"$session_id\",\"transcript_path\":\"$transcript\",\"model\":\"smoke-substituted-model\",\"reason\":\"clear\"}"
+
+[ -n "$(git -C "$scratch" for-each-ref 'refs/entire/checkpoints/' 'refs/heads/entire/checkpoints/')" ] ||
+  fail "the commit produced no checkpoint ref"
+pass
+
+# -------------------------------------------------------------- leg 3: distill
+leg 3
+
+brain_a refresh sessions
+# Real extraction over the fixture session; --dry-run would only prove
+# planning. Cheap effort keeps the spend at one tiny chunk.
+distill_out=$(brain_a distill --branch "$smoke_branch" --effort low --json .)
+echo "$distill_out" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
+n = r.get("facts_written", r.get("memories_written", r.get("facts", 0)))
+if isinstance(n, list):
+    n = len(n)
+sys.exit(0 if n and int(n) >= 1 else 1)' ||
+  { echo "$distill_out" >&2; fail "distill wrote no facts from the fixture session"; }
+pass
+
+# --------------------------------------------------------------- leg 4: recall
+leg 4
+
+recall_out=$(brain_a recall "Greet empty name invariant trailing space" --branch "$smoke_branch" --json)
+fact_text=$(echo "$recall_out" | python3 -c '
+import json, sys
+facts = json.load(sys.stdin).get("facts") or []
+if not facts:
+    sys.exit(1)
+print(facts[0].get("text") or facts[0].get("content") or "")')
+[ -n "$fact_text" ] || { echo "$recall_out" >&2; fail "recall returned no facts on branch $smoke_branch"; }
+pass
+
+# ---------------------------------------------------------------- leg 5: graph
+leg 5
+
+# --head: the fixture code is committed, and the committed-tree path is the
+# cached one agents use by default.
+graph_out=$(machine a "$scratch" entire graph query --repo "$scratch" --head --profile full --format json --query "Greet returns a greeting for a name")
+echo "$graph_out" | grep -q 'greet\.go' ||
+  { echo "$graph_out" | head -c 2000 >&2; fail "graph query did not resolve the Greet fixture symbol"; }
+pass
+
+# --------------------------------------------------------------- leg 6: upload
+leg 6
+
+# Backend pinning (COR-2233/2234/2235/2236, merged in PR #452): memory sync is
+# hosted-only and --memories-backend=http IS the per-fact wire, so the explicit
+# flag below keeps this leg valid even if the default changes again. connect
+# records the binding (the consent moment) and runs the first sync; the
+# explicit sync after it is the exchange this leg asserts on.
+brain_a connect --repo-id "$REPO_ID" --api-url "$API_URL" ||
+  fail "connect failed"
+brain_a memories sync --memories-backend http --branch "$smoke_branch" --json >/dev/null ||
+  fail "hosted memories sync (up) failed"
+
+# Remote visibility, straight from the hosted store, on this run's unique
+# branch (per-fact feed endpoint per internal/factsync/perfact.go:
+# GET {base}/api/v1/repos/{id}/brain/facts, paginated).
+needle=$(printf '%s' "$fact_text" | cut -c1-60)
+remote_has_fact() { # remote_has_fact <branch> <needle>
+  python3 - "$API_URL" "$REPO_ID" "$1" "$2" <<'PY'
+import json, os, sys, urllib.parse, urllib.request
+api, repo, branch, needle = sys.argv[1:5]
+token = os.environ["ENTIRE_TOKEN"]
+page = ""
+for _ in range(100):
+    q = {"pageSize": "500"}
+    if page:
+        q["pageToken"] = page
+    url = f"{api}/repos/{repo}/brain/facts?{urllib.parse.urlencode(q)}"
+    # The staging WAF rejects urllib's default Python-urllib user agent (403).
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "entire-release-smoke/1",
+    })
+    body = json.load(urllib.request.urlopen(req))
+    for item in body.get("items") or []:
+        rec = item.get("record") or {}
+        if rec.get("branch") == branch and needle in (rec.get("text") or ""):
+            sys.exit(0)
+    page = body.get("nextPageToken") or ""
+    if not page:
+        break
+sys.exit(1)
+PY
+}
+remote_has_fact "$smoke_branch" "$needle" ||
+  fail "the distilled fact is not visible in the hosted store on branch $smoke_branch"
+pass
+
+# ----------------------------------------------------------------- leg 7: pull
+leg 7
+
+git clone -q "$scratch" "$clone_b"
+# The clone's origin is the local $scratch path; machine B must derive the
+# same github-shaped repo key as machine A (see leg 1). Never fetched.
+git -C "$clone_b" remote set-url origin "https://github.com/entireio/release-smoke-$stamp.git"
+git -C "$clone_b" checkout -q "$smoke_branch"
+# Same explicit per-fact pin as the upload leg; connect binds, the explicit
+# sync pulls the branch's feed into B's local store.
+brain_b connect --repo-id "$REPO_ID" --api-url "$API_URL" ||
+  fail "connect on machine B failed"
+brain_b memories sync --memories-backend http --branch "$smoke_branch" --json >/dev/null ||
+  fail "hosted memories sync (down) failed"
+brain_b recall "Greet empty name invariant trailing space" --branch "$smoke_branch" --json |
+  json_has_fact "$needle" ||
+  fail "the fact pulled on machine B did not merge into its local store"
+pass
+
+echo
+echo "release:smoke: all 7 legs passed"

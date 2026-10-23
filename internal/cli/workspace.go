@@ -847,7 +847,9 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return err
 	}
 	if full {
-		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir) }
+		// User-invoked (`entire brain workspace refresh <name> --full`): unlike
+		// the watch daemon's tick, this keeps the transcript cache sweep.
+		refreshRepo := func(repoDir string) error { return watchDeterministicRefresh(ctx, cmd, opts, repoDir, false) }
 		if err := workspaceFullRefresh(ctx, cmd.OutOrStdout(), opts, manifest, refreshRepo); err != nil {
 			return err
 		}
@@ -932,7 +934,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 			results = append(results, result)
 			continue
 		}
-		source, err := workspaceSemanticSource(brainDir)
+		source, err := workspaceSemanticSource(cmd.Context(), opts, repo, brainDir)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
@@ -990,7 +992,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 			results = append(results, result)
 			continue
 		}
-		source, err := workspaceSemanticSource(brainDir)
+		source, err := workspaceSemanticSource(cmd.Context(), opts, repo, brainDir)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
@@ -1103,13 +1105,14 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
-		source, err := workspaceSemanticSource(brainDir)
+		source, err := workspaceSemanticSource(ctx, opts, repo, brainDir)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
+
 		// Source-derived diagnostics (counts, languages, completeness/trust,
 		// language tiers) come from the manifest, not the store — set them now so
 		// a repo whose store fails to validate/open below still surfaces them
@@ -1127,7 +1130,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			results = append(results, result)
 			continue
 		}
-		db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+		db, err := openSemanticReadDB(storePath)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
@@ -3165,7 +3168,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 	// was already verified above, so semantic staleness here does NOT set PairingUnsafe — the scan
 	// (which reads raw sessions) is still safe to run; only the index is stale.
 	status.State = report.Severity
-	if axis, ok := report.Axes["snapshot"]; ok {
+	if axis, ok := report.Axes["graph"]; ok {
 		status.Detail = axis.Detail
 	}
 	status.ContractState = report.Severity
@@ -3187,15 +3190,28 @@ func workspaceRepoKeyMismatch(registered, hint string) bool {
 	return true
 }
 
-func workspaceSemanticSource(brainDir string) (*semanticSourceManifest, error) {
-	manifest, err := loadBrainManifest(brainDir)
+func workspaceSemanticSource(ctx context.Context, opts Options, repo workspaceRepo, brainDir string) (*semanticSourceManifest, error) {
+	if repo.LocalPathHint == "" {
+		return nil, errors.New("Graph inspection requires a local repository checkout")
+	}
+	manifest, err := loadGraphManifest(ctx, opts, repo.LocalPathHint, brainDir)
 	if err != nil {
 		return nil, err
 	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return nil, errors.New("semantic index missing")
+	source := manifest.Sources.Semantic
+	if !semanticRepoKeyEqual(source.graphStore.Header.RepoKey, repo.RepoKey) {
+		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repo.LocalPathHint)
+		if err != nil {
+			return nil, err
+		}
+		if !semanticRepoKeyEqual(storage.Key, repo.RepoKey) {
+			return nil, errors.New("Graph repository identity does not match workspace member")
+		}
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repo.LocalPathHint, repo.RepoKey, source.graphStore.Header.RepoKey, "", ""); err != nil {
+			return nil, err
+		}
 	}
-	return manifest.Sources.Semantic, nil
+	return source, nil
 }
 
 // workspaceDir resolves a workspace's home at <data>/workspaces/<name> — a
@@ -3690,7 +3706,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 	}
 	// Semantic source is optional: a sessions-only brain (no export manifest) still scans.
 	var semSource *semanticSourceManifest
-	if source, srcErr := workspaceSemanticSource(brainDir); srcErr == nil {
+	if source, srcErr := workspaceSemanticSource(ctx, opts, repo, brainDir); srcErr == nil {
 		semSource = source
 	}
 	// Capped, so a caller writing a summary sentence can qualify it. The
@@ -4008,6 +4024,7 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string
 		Repo        workspaceRepo   `json:"repo"`
 		Manifest    *exportManifest `json:"manifest"`
 		Unavailable bool            `json:"unavailable,omitempty"`
+		GraphDigest string          `json:"graph_digest,omitempty"`
 	}
 	members := make([]memberSource, 0, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
@@ -4018,7 +4035,23 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string
 		source, err := loadBrainManifest(brainDir)
 		// The builder reports source failures per member and still serves healthy
 		// repositories. Bind that degraded state too, so recovery invalidates it.
-		members = append(members, memberSource{Repo: repo, Manifest: source, Unavailable: err != nil})
+		member := memberSource{Repo: repo, Manifest: source, Unavailable: err != nil}
+		// Graph can be rebuilt independently of Brain. Bind derived cross-repo
+		// edges to the current provider entry, including its missing state.
+		if repo.LocalPathHint != "" {
+			d, graphErr := fetchGraphStore(context.Background(), Options{Runner: ExecRunner{}}, repo.LocalPathHint, "", "full")
+			if graphErr == nil {
+				member.GraphDigest = d.EntryDigest
+			} else {
+				// The reason matters, not just the fact of failure: collapsing
+				// every cause to the same "unavailable" sentinel meant a member
+				// that went from "Graph absent" to "Graph present but schema
+				// mismatched" (or vice versa) produced an unchanged digest, so
+				// the generation never invalidated the cross-repo cache.
+				member.GraphDigest = "unavailable: " + graphErr.Error()
+			}
+		}
+		members = append(members, member)
 	}
 	sort.Slice(members, func(i, j int) bool { return members[i].Repo.RepoKey < members[j].Repo.RepoKey })
 	data, err := json.Marshal(members)

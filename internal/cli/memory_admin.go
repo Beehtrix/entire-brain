@@ -453,9 +453,15 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				}
 			}
 			projection, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
-			if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+			if receiptState == projectionStateUnsupported {
 				return fail(receiptErr)
 			}
+			// An UNSAFE receipt (hardlinked, symlinked, swapped) is exactly what
+			// repair exists to clear: the rebuild below never reads it and
+			// derives a fresh generation from the canonical sessions. Failing
+			// here left the one state with a deterministic repair without any
+			// command that performs it. Only vNext receipts stay fatal — data
+			// this binary cannot decode must not be rebuilt over.
 			receiptsCurrent := receiptState == projectionStateCurrent
 			fingerprintCurrent := source != nil && sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir))
 			needsRebuild := !indexCurrent || !verifyAvailable || !verify.Clean || !receiptsCurrent || !fingerprintCurrent
@@ -721,7 +727,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 	} else if state == shortTermStateCorrupt {
 		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrStateCorrupt, Action: "repair or rebuild the disposable overlay from canonical sessions"})
 	} else if state == shortTermStateUnsupported {
-		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrUnsupportedVersion, Action: "newer-version overlay is read-only for this binary; upgrade the binary"})
+		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrUnsupportedVersion, Action: "newer-version overlay is read-only for this binary; upgrade entire-brain with `entire plugin upgrade brain`"})
 	}
 	if source != nil {
 		receiptPath := filepath.ToSlash(strings.TrimSpace(source.ProjectionStatePath))

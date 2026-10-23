@@ -41,13 +41,13 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	if !strings.Contains(readme, "`--source` (`all` | `fact` |") {
 		t.Fatal("README missing query source options")
 	}
-	for _, want := range []string{
-		"ENTIRE_BRAIN_CONVERSATION_FUSION",
-		"ENTIRE_BRAIN_BRIEF_CONVERSATION",
-	} {
-		if !strings.Contains(reference, want) {
-			t.Fatalf("docs/reference.md missing %q", want)
-		}
+	// ENTIRE_BRAIN_CONVERSATION_FUSION is gone with semantic retrieval
+	// (trail #278): the reference must not resurrect it.
+	if strings.Contains(reference, "ENTIRE_BRAIN_CONVERSATION_FUSION") {
+		t.Fatal("docs/reference.md documents the removed ENTIRE_BRAIN_CONVERSATION_FUSION flag")
+	}
+	if !strings.Contains(reference, "ENTIRE_BRAIN_BRIEF_CONVERSATION") {
+		t.Fatal(`docs/reference.md missing "ENTIRE_BRAIN_BRIEF_CONVERSATION"`)
 	}
 
 	// Privacy/retention claims: retention exists; the threat model must not

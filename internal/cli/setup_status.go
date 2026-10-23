@@ -32,8 +32,14 @@ const entireBinaryName = "entire"
 // factsBackfillStatus is the "facts: <distilled>/<total> sessions distilled"
 // counter plus whatever is known about a running backfill process.
 type factsBackfillStatus struct {
-	Sessions  int       `json:"sessions"`
-	Distilled int       `json:"distilled"`
+	Sessions  int `json:"sessions"`
+	Distilled int `json:"distilled"`
+	// Queued is how many sessions the CURRENT setup run's backfill will
+	// actually distill — Pending() capped by the spend budget. Transient:
+	// populated only while a setup run reports on the backfill it just
+	// started, so the summary can say "2 of 272" instead of claiming the
+	// whole pool.
+	Queued    int       `json:"queued,omitempty"`
 	Running   bool      `json:"running"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
@@ -79,9 +85,9 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
-	// AgentsUnwired reports that `init-agents` has not been run: the guide or
-	// the managed pointer in AGENTS.md / CLAUDE.md is absent, so no agent has
-	// been told this brain exists.
+	// AgentsUnwired reports that the agent instructions have not landed: the
+	// guide or the managed pointer in AGENTS.md / CLAUDE.md is absent, so no
+	// agent has been told this brain exists.
 	//
 	// This is the product's worst failure mode and it is SILENT -- setup
 	// succeeds, every source reads healthy, and the brain is simply never
@@ -218,9 +224,17 @@ func componentRebuiltSince(runs map[string]time.Time, name string, recordedAt ti
 
 func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord, componentRuns map[string]time.Time) []brainStatusComponent {
 	failures := map[string]setupComponent{}
+	// Skipped is layered exactly like failed: a component setup deliberately
+	// left out (an installed Graph without the store contract) must keep its
+	// reason and hint on the status row, and a bare "missing" from manifest
+	// absence would drop both.
+	skips := map[string]setupComponent{}
 	for _, component := range record.Components {
 		if component.failed() {
 			failures[component.Name] = component
+		}
+		if component.State == "skipped" {
+			skips[component.Name] = component
 		}
 	}
 	present := map[string]bool{}
@@ -251,9 +265,27 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	manifestBacked := []string{"sessions", "seed", "docs", "semantic", "history"}
 	components := make([]brainStatusComponent, 0, len(manifestBacked)+len(record.Components))
 	for _, name := range manifestBacked {
+		// A recorded failure or skip clears when the source proves itself
+		// newer than the record, and GeneratedAt is that proof — except for
+		// one semantic shape. A semantic source WITH a timestamp is a
+		// persisted snapshot, which can be the exact stale artifact the
+		// record warns about (the repo-key skew), so it keeps the timestamp
+		// rule. A semantic source WITHOUT one is the LIVE `graph store`
+		// descriptor (agent_surface.go), fetched moments ago: its presence IS
+		// current proof the store answers, and the timestamp rule would read
+		// its zero time as "older than the record" and pin a recorded skip
+		// forever, Graph upgrade or not.
+		rebuilt := present[name] && !generated[name].Before(record.UpdatedAt)
+		if name == brainComponentSemantic && present[name] && generated[name].IsZero() {
+			rebuilt = true
+		}
 		failure, hasFailure := failures[name]
-		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
+		if hasFailure && rebuilt {
 			hasFailure = false
+		}
+		skip, hasSkip := skips[name]
+		if hasSkip && rebuilt {
+			hasSkip = false
 		}
 		switch {
 		case hasFailure:
@@ -262,6 +294,13 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 				State:  "failed",
 				Detail: failure.Detail,
 				Hint:   failure.Hint,
+			})
+		case hasSkip:
+			components = append(components, brainStatusComponent{
+				Name:   name,
+				State:  "skipped",
+				Detail: skip.Detail,
+				Hint:   skip.Hint,
 			})
 		case present[name]:
 			components = append(components, brainStatusComponent{Name: name, State: "built"})
@@ -298,6 +337,8 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 			state = "failed"
 		} else if component.failed() {
 			detail, hint = "", ""
+		} else if component.State == "skipped" {
+			state = "skipped"
 		}
 		components = append(components, brainStatusComponent{
 			Name:   component.Name,
@@ -400,7 +441,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	// no agent knows about is healthy on every other line and useless in
 	// practice, and nothing else in this report would say so.
 	if onboarding.AgentsUnwired {
-		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s init-agents` so your agent uses this brain\n", brainCmd)
+		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s setup` so your agent uses this brain\n", brainCmd)
 		if len(onboarding.AgentsMissing) > 0 {
 			fmt.Fprintf(out, "          missing: %s\n", strings.Join(onboarding.AgentsMissing, ", "))
 		}

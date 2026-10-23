@@ -233,6 +233,17 @@ type statusHealth struct {
 	// the verdict must say so rather than naming a command that cannot repair
 	// what it just listed.
 	HostCLIMissing bool
+	// SemanticProviderAbsent reports that the semantic index is missing AND
+	// the host CLI cannot launch a graph provider, so the refresh remedy alone
+	// cannot build it — the honest next step is the plugin install. Set only
+	// when the host CLI itself is present.
+	SemanticProviderAbsent bool
+	// SemanticStoreUnsupported reports that a graph provider IS installed but
+	// predates the read-only store contract (graph_store.go), so no refresh,
+	// commit, or stash builds the semantic index — the only remedy is the
+	// Graph upgrade. Without this flag the dirty-tree override below claimed
+	// "commit or stash" as the fix for a failure committing cannot touch.
+	SemanticStoreUnsupported bool
 	// DirtyWorktree reports uncommitted changes in the working tree. Both stages
 	// `refresh --agent none` would rebuild REFUSE that state by design — seed
 	// with "dirty_worktree: refusing to seed uncommitted content without
@@ -269,9 +280,20 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 	// Only one of the two: "no brain" already implies "no semantic index", and
 	// a verdict that said both would be reporting one fact twice.
 	health.SemanticMissing = !health.BrainMissing && report.Semantic == nil
+	// Probe only in the state the answer changes: a missing semantic index is
+	// repaired by refresh when a provider is installed and by the plugin
+	// install when none is. With no `entire` on PATH the install hint would be
+	// unfollowable, so HostCLIMissing keeps owning that message.
+	health.SemanticProviderAbsent = health.SemanticMissing && hostCLIOnPath() && !semanticProviderOnHost()
 	if report.Onboarding != nil {
 		health.HostCLIMissing = report.Onboarding.HostCLIMissing
 		for _, component := range report.Onboarding.Components {
+			// Matched on the persisted detail, not the state: new records say
+			// "skipped", but a record written by an older build still says
+			// "failed" for the same condition, and both need the same remedy.
+			if component.Name == brainComponentSemantic && setupIsGraphStoreUnsupported(component.Detail) {
+				health.SemanticStoreUnsupported = true
+			}
 			if component.State == "failed" {
 				health.Failed = append(health.Failed, component.Name)
 				if setupIsNoReadableSessions(component.Detail) {
@@ -366,6 +388,18 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	switch {
 	case h.BrainMissing:
 		return command
+	case h.SemanticMissing && h.SemanticProviderAbsent:
+		// Refresh cannot build what no installed provider produces; naming it
+		// anyway sends the reader through an exit that changes nothing.
+		return "the graph provider is not installed, so code context and semantic queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + semanticIndexVerb + "`"
+	case h.SemanticMissing && h.SemanticStoreUnsupported:
+		// Same shape as the provider-absent case above, and it must outrank
+		// the dirty-tree override below: neither refresh nor a commit builds
+		// a store the installed Graph cannot produce, and pairing "semantic
+		// failed" with "commit or stash" was exactly the misattribution this
+		// case removes. The dirty tree, when present, still states its cause
+		// on the line underneath (statusFreshnessCause).
+		return setupGraphStoreUnsupportedHint(brainCmd)
 	case h.DirtyWorktree && h.repairCommand() == statusRemedyRefresh:
 		// The ONE remedy resolver for a dirty tree. Line() prints h.Cause
 		// directly underneath this, and the cause used to carry a SECOND,
@@ -534,14 +568,12 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
 	// FIRST, because it decides whether any other line is ever acted on. A
 	// brain no agent knows about reads healthy on every source and is never
-	// consulted; nothing else in this report would say so. The published guide
-	// teaches `setup` then `status` without `init-agents`, so a reader
-	// following it lands here by default.
+	// consulted; nothing else in this report would say so.
 	if onboarding.AgentsUnwired {
 		fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "agents",
 			render.Mark(tui.MarkFailed),
 			render.PhasePaint(tui.PhaseFailed,
-				fmt.Sprintf("not wired — run `%s init-agents` so your agent uses this brain", brainCmd)))
+				fmt.Sprintf("not wired — run `%s setup` so your agent uses this brain", brainCmd)))
 		if len(onboarding.AgentsMissing) > 0 {
 			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "",
 				render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
@@ -617,7 +649,12 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 		// carries it a third time.
 		said := map[string]bool{strings.TrimSpace(stated): true}
 		for _, component := range onboarding.Components {
-			if component.State != "failed" {
+			// A skipped component with a recorded reason reports too — the
+			// reason is the one thing the row's bare glyph cannot say — but
+			// with the skipped glyph and dim phase, because a designed skip
+			// rendered in failure red is the contradiction this distinguishes.
+			skippedWithReason := component.State == "skipped" && strings.TrimSpace(component.Detail) != ""
+			if component.State != "failed" && !skippedWithReason {
 				continue
 			}
 			detail := strings.TrimSpace(component.Detail)
@@ -626,9 +663,13 @@ func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report bra
 				// silence here would read as "no detail needed".
 				detail = "no reason recorded"
 			}
+			mark, phase := tui.MarkFailed, tui.PhaseFailed
+			if skippedWithReason {
+				mark, phase = tui.MarkSkipped, tui.PhaseSkipped
+			}
 			fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "",
-				render.Mark(tui.MarkFailed),
-				render.PhasePaint(tui.PhaseFailed, component.Name+": "+detail))
+				render.Mark(mark),
+				render.PhasePaint(phase, component.Name+": "+detail))
 			if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
 				said[hint] = true
 				fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "", render.Dim("hint: "+hint))

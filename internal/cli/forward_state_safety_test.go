@@ -223,7 +223,8 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 		data []byte
 		code string
 	}{
-		{name: "unknown-newer", data: []byte(`{"schema_version":5,"future":true}` + "\n"), code: memoryErrUnsupportedVersion},
+		// Derived, not a literal: see TestManifestNewerRefusedWithRemedy.
+		{name: "unknown-newer", data: []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1) + "\n"), code: memoryErrUnsupportedVersion},
 		{name: "additive-current", data: []byte(`{"schema_version":3,"future":true}` + "\n"), code: memoryErrStateCorrupt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

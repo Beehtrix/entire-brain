@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -55,7 +56,10 @@ func TestManifestV3StillReadable(t *testing.T) {
 // A manifest from a newer build must be refused, not misread, and the
 // message must tell the reader what to do about it.
 func TestManifestNewerRefusedWithRemedy(t *testing.T) {
-	dir := writeTestManifest(t, `{"schema_version":5}`)
+	// Derived, not a literal: a hardcoded "5" stops meaning "newer than
+	// supported" the moment brainManifestSchemaVersion is bumped to 5, and
+	// silently starts testing the wrong thing instead of failing.
+	dir := writeTestManifest(t, fmt.Sprintf(`{"schema_version":%d}`, brainManifestSchemaVersion+1))
 	_, err := loadBrainManifest(dir)
 	if err == nil {
 		t.Fatal("newer manifest must be refused")

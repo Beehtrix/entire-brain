@@ -149,7 +149,11 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 		{"trailing-garbage", `{"schema_version":3} garbage`, memoryErrStateCorrupt},
 		{"missing-version", `{}`, memoryErrUnsupportedVersion},
 		{"v4", `{"schema_version":4}`, ""},
-		{"newer", `{"schema_version":5,"future":true}`, memoryErrUnsupportedVersion},
+		// Derived, not a literal: a hardcoded "newer" value stops meaning
+		// "newer than supported" the moment brainManifestSchemaVersion catches
+		// up to it, and silently starts testing the wrong thing instead of
+		// failing.
+		{"newer", fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1), memoryErrUnsupportedVersion},
 		{"older", `{"schema_version":-1}`, memoryErrUnsupportedVersion},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

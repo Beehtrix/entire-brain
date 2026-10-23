@@ -1,13 +1,17 @@
-// Package factsync is the runner-side read-merge-CAS loop that syncs a member's
-// durable facts into the hosted, shared fact-set head. It is where the two P1.M2
-// halves meet: the deterministic merge engine (factmerge) and the hosted
-// atomic head (entire-api's FactSetStore, reached here through the Server seam).
+// Package factsync holds the two memory-sync transports:
 //
-// Per ADR-P1-E the MERGE runs on the runner (this package), not in the API server:
-// the server only stores encrypted blobs and compare-and-swaps the branch head, so
-// it never needs the cgo/SQLite-heavy brain merge core. Sync pulls the current head
-// in plaintext, keep-both promotes the member's local facts into it via factmerge,
-// and pushes the result back under CAS — retrying on a losing swap.
+//   - The read-merge-CAS loop (this file): Sync pulls the current fact-set head
+//     through the Server seam, keep-both promotes the member's local facts into
+//     it via factmerge, and pushes the result back under CAS — retrying on a
+//     losing swap. Since COR-2235 the seam's only implementor is the local
+//     git-meta store (internal/factgitmeta); the hosted branch-head CAS wire is
+//     retired.
+//   - The hosted per-fact wire (perfact.go, COR-2126): HTTPServer batch-upserts
+//     facts to brainstore and pulls the repo-wide delta feed. No CAS, no branch
+//     heads — conflicting facts live side by side and resolution is deferred to
+//     the async pipeline.
+//
+// Per ADR-P1-E the MERGE runs on the runner (this package), never server-side.
 package factsync
 
 import (
@@ -37,8 +41,8 @@ var ErrExhausted = errors.New("factsync: exceeded CAS retries")
 // instead of spinning forever.
 const maxAttempts = 32
 
-// Server is the runner's view of the hosted fact-set head (entire-api's FactSetStore
-// over HTTP). Current returns the branch head's content ref and the DECRYPTED facts
+// Server is the runner's view of a fact-set head store (the local git-meta
+// backend). Current returns the branch head's content ref and the facts
 // blob (found=false, nil blob when the branch has no head yet — merge into empty).
 // Advance seals+stores the merged plaintext and compare-and-swaps the head from oldRef
 // onto its content ref, returning ErrConflict on a losing swap and ErrNoChange when the
@@ -71,7 +75,7 @@ type Result struct {
 // merge raises (ProposedBy) so a cross-member conflict is attributable and routable.
 // A keep-both merge NEVER silently drops a member's fact (ADR-P1-G): identical facts
 // (same content id) union their provenance; genuine conflicts are kept and queued as
-// routed Proposals in the Result (resolve them with Resolve).
+// routed Proposals in the Result (the caller queues them for review).
 func Sync(ctx context.Context, srv Server, repoID, branch, memberID string, local []factmerge.Record, now time.Time) (Result, error) {
 	if memberID == "" {
 		// A blank memberID would stamp ProposedBy="" (dropped by omitempty), making a

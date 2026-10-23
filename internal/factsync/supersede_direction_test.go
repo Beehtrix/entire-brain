@@ -19,8 +19,7 @@ import (
 //	factsync.Sync         Promote(local, head, "keep-both") — source = THIS member's
 //	                      facts, target = the shared head, so a conflict yields
 //	                      Proposal{Candidate: the member's fact, Target: the head's}
-//	factsync.Resolve      Accept routes to factmerge.ApplyProposal
-//	factmerge.ApplyProposal
+//	factmerge.ApplyProposal (what accepting in review runs)
 //	                      supersede retires the TARGET and points it at the CANDIDATE
 //
 // Net effect: accepting retires the statement that was already in the shared head
@@ -74,9 +73,9 @@ func TestAcceptingASyncRaisedProposalRetiresTheHeadFactNotTheCorrection(t *testi
 	}
 
 	// Accept it, and check which side actually lost.
-	settled, err := Resolve(res.Facts, p, Accept, now)
+	settled, err := factmerge.ApplyProposal(res.Facts, p, now)
 	if err != nil {
-		t.Fatalf("Resolve(Accept): %v", err)
+		t.Fatalf("ApplyProposal: %v", err)
 	}
 	byID := map[string]factmerge.Record{}
 	for _, r := range settled {

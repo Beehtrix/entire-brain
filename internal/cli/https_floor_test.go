@@ -88,32 +88,6 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	}
 }
 
-// TestFactsProposalsRefusesPlaintextNonLoopbackAPIURL covers the third command that
-// accepts a base URL (the hosted proposal queue).
-func TestFactsProposalsRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
-	f, fake, proposal := newHostedProposalsFixture(t)
-	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
-	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
-
-	for _, args := range [][]string{
-		{"facts", "proposals", "list"},
-		{"facts", "proposals", "apply", proposal.ID},
-	} {
-		out, err := execute(t, NewRootCommand(f.opts), args...)
-		if err == nil {
-			t.Fatalf("%v to %s succeeded; want refusal\n%s", args, evilPlaintextURL, out)
-		}
-		assertNoNetworkAttempt(t, err)
-		if !strings.Contains(err.Error(), "insecure_api_url") {
-			t.Fatalf("%v error = %v; want an insecure_api_url refusal", args, err)
-		}
-	}
-	if n := fake.count(); n != 0 {
-		t.Fatalf("refused commands still made %d HTTP request(s)", n)
-	}
-}
-
 // TestHostedCommandsRejectMalformedAPIURL: a relative, schemeless, or non-HTTP base
 // URL is a configuration error refused up front rather than a confusing later
 // failure — and never a plaintext or non-HTTP egress.

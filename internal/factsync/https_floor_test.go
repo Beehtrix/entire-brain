@@ -17,26 +17,20 @@ func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 }
 
 // TestHTTPServerRefusesPlaintextNonLoopbackBaseURL is the transport-level floor: even
-// if a caller hands HTTPServer an http:// origin, no fact-set read, no fact-set
-// advance (which carries the merged fact-set), and no proposal call may leave the
-// machine in the clear — and the bearer token must never be put on the wire.
+// if a caller hands HTTPServer an http:// origin, no feed read and no fact upsert
+// (which carries the member's facts) may leave the machine in the clear — and the
+// bearer token must never be put on the wire.
 func TestHTTPServerRefusesPlaintextNonLoopbackBaseURL(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
 	rt := &countingTransport{}
 	h := &HTTPServer{BaseURL: "http://evil.example", Token: "tok", Client: &http.Client{Transport: rt}}
 	ctx := context.Background()
 
-	if _, _, _, err := h.Current(ctx, "repo", "main"); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
-		t.Fatalf("Current err = %v; want an insecure_api_url refusal", err)
+	if _, err := h.FactsFeedPage(ctx, "repo", "", 100); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
+		t.Fatalf("FactsFeedPage err = %v; want an insecure_api_url refusal", err)
 	}
-	if _, err := h.Advance(ctx, "repo", "main", "", []byte("{\"text\":\"secret\"}\n")); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
-		t.Fatalf("Advance err = %v; want an insecure_api_url refusal", err)
-	}
-	if _, err := h.ListProposals(ctx, "repo", "main"); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
-		t.Fatalf("ListProposals err = %v; want an insecure_api_url refusal", err)
-	}
-	if _, err := h.PublishProposals(ctx, "repo", "main", "", []OpenProposal{{ID: "p1"}}); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
-		t.Fatalf("PublishProposals err = %v; want an insecure_api_url refusal", err)
+	if _, err := h.UpsertFacts(ctx, "repo", []byte("{\"text\":\"secret\"}\n")); err == nil || !strings.Contains(err.Error(), "insecure_api_url") {
+		t.Fatalf("UpsertFacts err = %v; want an insecure_api_url refusal", err)
 	}
 	if rt.n != 0 {
 		t.Fatalf("%d request(s) reached the transport under a refusal; want 0", rt.n)
@@ -49,7 +43,7 @@ func TestHTTPServerAllowsLoopbackPlaintext(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
 	rt := &countingTransport{}
 	h := &HTTPServer{BaseURL: "http://127.0.0.1:9", Token: "tok", Client: &http.Client{Transport: rt}}
-	if _, _, _, err := h.Current(context.Background(), "repo", "main"); err != nil && strings.Contains(err.Error(), "insecure_api_url") {
+	if _, err := h.FactsFeedPage(context.Background(), "repo", "", 100); err != nil && strings.Contains(err.Error(), "insecure_api_url") {
 		t.Fatalf("loopback http refused: %v", err)
 	}
 	if rt.n == 0 {

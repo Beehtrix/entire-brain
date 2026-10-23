@@ -140,7 +140,7 @@ func registerRESTRoutes(mux *http.ServeMux, opts Options) {
 				"endpoints": []map[string]string{
 					{"method": "GET", "path": "/v1/status", "description": "brain freshness and source counts"},
 					{"method": "GET", "path": "/v1/facts", "description": "durable facts; ?limit= and ?branch="},
-					{"method": "GET", "path": "/v1/search", "description": "hybrid retrieval; ?q= required, ?limit=, ?source="},
+					{"method": "GET", "path": "/v1/search", "description": "BM25 lexical retrieval; ?q= required, ?limit=, ?source="},
 					{"method": "POST", "path": "/", "description": "MCP JSON-RPC (the same tools the CLI exposes)"},
 				},
 				"auth": "Bearer token, the same one the MCP endpoint uses",

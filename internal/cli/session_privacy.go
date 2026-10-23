@@ -2216,13 +2216,11 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	return advance(privacyStateComplete)
 }
 
-// purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: the
-// `facts sync` git-meta store (plugin cache, shared fact-set head). Its
-// keep-both merge model has no deletion semantics yet, so purged facts synced
-// there survive; and a later `facts sync` can merge them back into the local
-// store. Surfacing this explicitly beats silently claiming complete deletion;
-// real deletion semantics for the shared store are parked (see the plan repo's
-// parking lot).
+// purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: fact-set
+// heads the retired local-gitmeta `facts sync` backend (COR-2236) left in the
+// git-meta store under the plugin cache. Nothing syncs or merges them anymore,
+// but the bytes persist, so a purge must not silently claim complete deletion.
+// The store also holds the entity index, so it cannot simply be deleted here.
 func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePlan) []string {
 	if plan.FactsDeleted == 0 && plan.FactAnchorsStripped == 0 {
 		return nil
@@ -2235,7 +2233,7 @@ func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePla
 		return nil
 	}
 	return []string{fmt.Sprintf(
-		"a `facts sync` git-meta store exists at %s; previously synced copies of purged facts remain there and a future `facts sync` may merge them back; the shared fact-set store has no deletion semantics yet",
+		"a git-meta store exists at %s; copies of purged facts synced by the retired `facts sync` local-gitmeta backend may remain there (nothing reads or merges them anymore, but the store has no deletion semantics)",
 		gitDir,
 	)}
 }

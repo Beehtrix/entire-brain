@@ -6,8 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/factsync"
-
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +28,6 @@ func newFactsCommand(opts Options) *cobra.Command {
 	cmd.AddCommand(newFactsEvalGenCommand(opts))
 	cmd.AddCommand(newFactsEvalCompareCommand(opts))
 	cmd.AddCommand(newFactsReviewCommand(opts))
-	cmd.AddCommand(newFactsProposalsCommand(opts))
 	cmd.AddCommand(newFactsPromoteCommand(opts))
 	cmd.AddCommand(newFactsRetractCommand(opts))
 	cmd.AddCommand(newFactsGlobalCommand(opts))
@@ -170,22 +167,6 @@ func newFactsReviewCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// bulkDecisionVerb / targetedDecisionVerb name the `facts proposals` subcommand
-// that settles a shared proposal the same way the local flags asked for.
-func bulkDecisionVerb(act factsReviewActions) string {
-	if act.rejectAll {
-		return "reject"
-	}
-	return "apply"
-}
-
-func targetedDecisionVerb(act factsReviewActions) string {
-	if act.reject != "" {
-		return "reject"
-	}
-	return "apply"
-}
-
 type factsReviewActions struct {
 	apply, reject       string
 	applyAll, rejectAll bool
@@ -255,40 +236,10 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err != nil {
 			return err
 		}
-		// A proposal that has reached the shared open set must be settled THERE.
-		// Settling it only locally leaves the hosted copy open, so a teammate's
-		// later apply silently overrides this member's decision and the next sync
-		// mirrors their outcome back over it. The local queue also holds distill's
-		// private, never-shared backlog (no ProposedBy) — that stays settleable
-		// here, which is what keeps the single-user flow untouched.
-		shared, err := loadSharedProposalLedger(brainDir, branch)
-		if err != nil {
-			return err
-		}
-		isShared := func(p factProposal) bool {
-			if len(shared) == 0 {
-				return false
-			}
-			_, ok := shared[factsync.ProposalID(p)]
-			return ok
-		}
 		keep := proposals[:0:0]
 		for _, p := range proposals {
 			applyThis := act.applyAll || p.CandidateID == act.apply
 			rejectThis := act.rejectAll || p.CandidateID == act.reject
-			if (applyThis || rejectThis) && isShared(p) {
-				if act.applyAll || act.rejectAll {
-					// Bulk settle: skip the shared ones rather than fail the whole
-					// batch, so the private backlog still clears in one command.
-					fmt.Fprintf(cmd.ErrOrStderr(), "skip shared proposal %s: settle it with 'memories proposals %s %s' so every member sees the same outcome\n",
-						p.CandidateID, bulkDecisionVerb(act), p.CandidateID)
-					deferred++
-					keep = append(keep, p)
-					continue
-				}
-				return fmt.Errorf("proposal %s is shared with the team: settle it with 'memories proposals %s %s' instead, so the hosted queue and every member's memories agree (a local-only decision would be overridden by the next sync)",
-					p.CandidateID, targetedDecisionVerb(act), p.CandidateID)
-			}
 			switch {
 			case applyThis:
 				updated, applyErr := applyDistillReviewProposal(facts, p, now)

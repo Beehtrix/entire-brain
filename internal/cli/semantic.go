@@ -1047,16 +1047,21 @@ func validateSemanticSchema(version string) error {
 // This is the single implementation of that rule, applied at every place a
 // schema_version crosses into this build alongside validateSemanticSchema:
 //
-//  1. runSemanticIndex — a live `entire graph snapshot` header, recorded as an
-//     index warning on the persisted manifest;
-//  2. semanticStaleReport — the "provider" freshness axis reported by brain
+//  1. graphStoreSource — the live Graph-owned store header, recorded on the
+//     semantic source manifest it assembles for index, refresh, status and
+//     brief;
+//  2. semanticFreshnessReport — the "graph" freshness axis reported by brain
 //     doctor/status and every semantic read command, degraded rather than ok;
-//  3. validateImportedBundle — an imported bundle manifest, warning appended to
+//  3. semanticRefreshNeeded — refresh's non-fatal identity warning;
+//  4. validateImportedBundle — an imported bundle manifest, warning appended to
 //     the semantic source that is then persisted.
 //
 // It returns nil for an unparseable or non-supported-major version:
-// validateSemanticSchema is the sole authority on rejecting those outright, and
-// each call site runs it first.
+// validateSemanticSchema is the sole authority on rejecting those outright.
+// validateImportedBundle runs it directly, first; the three live-path call
+// sites above never see a header validateSemanticSchema would reject, because
+// fetchGraphStore already ran it as a hard gate before producing the
+// descriptor they read schema_version from.
 func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 	major, minor, err := parseSemanticSchemaVersion(version)
 	if err != nil {
@@ -2298,12 +2303,20 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 		return staleReport{Severity: "degraded", Axes: map[string]staleAxis{"graph": {State: "missing", Detail: err.Error()}}}, nil
 	}
 	axes := map[string]staleAxis{"graph": {State: "ok", Current: d.Commit, Indexed: d.Commit, Detail: "Graph owns the committed-tree store"}}
+	var warnings []semanticWarning
+	// fetchGraphStore already refused a major mismatch; a newer supported-major
+	// minor reaches here and degrades the axis rather than failing the report,
+	// matching the warn-not-refuse half of ADR 0001 rule 3.
+	if skew := semanticSchemaMinorSkewWarning(d.Header.SchemaVersion); skew != nil {
+		warnings = append(warnings, *skew)
+		axes["graph"] = staleAxis{State: "degraded", Current: d.Commit, Indexed: d.Commit, Detail: skew.Detail}
+	}
 	if dirty, err := worktreeDirty(ctx, opts.Runner, repoDir); err != nil {
 		return staleReport{}, err
 	} else if dirty {
 		axes["worktree"] = staleAxis{State: dirtyUnindexedAxisState, Detail: "Graph store describes committed HEAD"}
 	}
-	return staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes}, nil
+	return staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes, Warnings: warnings}, nil
 }
 
 const (

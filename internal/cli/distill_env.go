@@ -36,11 +36,15 @@ func withDistillAgentChildEnv(ctx context.Context, agent string) context.Context
 //     is set, and names unsetting it as the supported bypass. The child is a
 //     headless --print worker with --no-session-persistence, so none of the
 //     shared-session state the guard protects exists here.
+//     CLAUDE_CODE_ENTRYPOINT is dropped with it: only CLAUDECODE gates the
+//     refusal today (validated against a live session), but this package's own
+//     detectedAgentHarness reads either as "inside Claude Code", and the child
+//     is not.
 func distillClaudeChildEnv(environ []string) []string {
 	out := make([]string, 0, len(environ)+1)
 	hasThinkingBudget := false
 	for _, kv := range environ {
-		if strings.HasPrefix(kv, "CLAUDECODE=") {
+		if strings.HasPrefix(kv, "CLAUDECODE=") || strings.HasPrefix(kv, "CLAUDE_CODE_ENTRYPOINT=") {
 			continue
 		}
 		if strings.HasPrefix(kv, "MAX_THINKING_TOKENS=") {

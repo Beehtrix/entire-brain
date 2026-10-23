@@ -9,7 +9,7 @@ import (
 )
 
 func TestDistillClaudeChildEnvDisablesThinkingAndStripsClaudeCode(t *testing.T) {
-	got := distillClaudeChildEnv([]string{"PATH=/bin", "CLAUDECODE=1", "HOME=/u"})
+	got := distillClaudeChildEnv([]string{"PATH=/bin", "CLAUDECODE=1", "CLAUDE_CODE_ENTRYPOINT=cli", "HOME=/u"})
 	want := []string{"PATH=/bin", "HOME=/u", "MAX_THINKING_TOKENS=0"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %v, want %v", got, want)

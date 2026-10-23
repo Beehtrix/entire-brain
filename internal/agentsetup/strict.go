@@ -25,16 +25,21 @@ func SelectMode(strict, normal bool) (Mode, error) {
 	return "", nil
 }
 
-const strictCommonGuide = `Choose tools by question class, not convenience.
+const strictToolRules = `Choose tools by question class, not convenience.
 Knowing a file or symbol's location permits direct source inspection for that
 location; it NEVER exempts relationship questions from Graph or historical
 questions from Brain. Small edits, follow-ups, read-only reconnaissance, specs,
 and reviews are subject to the same rules for the enabled products.
-Do not re-read files or retrieved records that Graph or Brain already answered for.
+Do not re-read files or retrieved records merely to repeat an answer from the same
+unchanged source view.
 A follow-up read MUST address a specific missing fact, stale result, heuristic
-relationship, or the focused source inspection required before editing. Repeating
+relationship, or source the payload did not carry. A [complete] result already supplies
+its displayed body for the observed source view; the marker does not remove the need
+to check a stale result or required source outside that body. Repeating
 an answered question in source is not verification.
-` + verificationGuide + `
+`
+
+const strictFallbackRules = `
 Do not silently substitute source inspection, text search, or recollection for
 a required Graph or Brain query. Attempt the required tool first. Record missing
 or unsupported capabilities once per session; record query failures and coverage
@@ -42,6 +47,12 @@ gaps when encountered. Every fallback must trace to recorded evidence relevant
 to that question. State the limitation and fallback to the user.
 Do not automatically install, configure, or repair tools.
 `
+
+// strictCommonGuide closes brain-only strict guides with the neutral verification
+// opener; strictGraphCommonGuide closes graph-containing strict guides with the
+// [complete]-marker doctrine, mirroring commonGuide/graphCommonGuide in normal mode.
+const strictCommonGuide = strictToolRules + verificationGuide + strictFallbackRules
+const strictGraphCommonGuide = strictToolRules + graphVerificationGuide + strictFallbackRules
 
 const strictGraphWorkflow = `Use Graph for code discovery, structural understanding, and semantic change analysis.
 ALWAYS check Graph availability and version once per session, at the first
@@ -63,7 +74,7 @@ preflight because a file is known or a grep looks easier.
 
 Start needed code discovery with:
 
-    entire graph search --repo . --profile full --head --query "<task>"
+    ` + graphQueryCommand + `
 
 Code relationships — callers, callees, dependents, implementors, type consumers,
 routes, and blast radius — MUST be answered with Graph first, ALWAYS, even when
@@ -182,11 +193,11 @@ func guideFor(active map[string]bool, mode Mode) string {
 	if mode == ModeStrict {
 		if active["brain"] {
 			if active["graph"] {
-				return "# Entire repository agent guide — Graph and Brain\n\n" + strictCombinedWorkflow + "\n" + strictCommonGuide
+				return "# Entire repository agent guide — Graph and Brain\n\n" + strictCombinedWorkflow + "\n" + strictGraphCommonGuide
 			}
 			return "# Entire repository agent guide — Brain\n\n" + strictBrainWorkflow + "\nUse Brain's semantic inspection tools for relevant code questions.\n\n" + strictCommonGuide + "\n" + brainReference
 		}
-		return "# Entire repository agent guide — Graph\n\n" + strictGraphWorkflow + "\n" + strictCommonGuide
+		return "# Entire repository agent guide — Graph\n\n" + strictGraphWorkflow + "\n" + strictGraphCommonGuide
 	}
 	if active["brain"] {
 		if active["graph"] {

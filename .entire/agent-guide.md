@@ -85,7 +85,7 @@ preflight because a file is known or a grep looks easier.
 
 Start needed code discovery with:
 
-    entire graph query --repo . --profile full --head --query "<task>"
+    entire graph query --repo . --profile full --head --format agent --max-context-bytes 4096 --query "<task>"
 
 Code relationships — callers, callees, dependents, implementors, type consumers,
 routes, and blast radius — MUST be answered with Graph first, ALWAYS, even when
@@ -136,11 +136,26 @@ Knowing a file or symbol's location permits direct source inspection for that
 location; it NEVER exempts relationship questions from Graph or historical
 questions from Brain. Small edits, follow-ups, read-only reconnaissance, specs,
 and reviews are subject to the same rules for the enabled products.
-Do not re-read files or retrieved records that Graph or Brain already answered for.
+Do not re-read files or retrieved records merely to repeat an answer from the same
+unchanged source view.
 A follow-up read MUST address a specific missing fact, stale result, heuristic
-relationship, or the focused source inspection required before editing. Repeating
+relationship, or source the payload did not carry. A [complete] result already supplies
+its displayed body for the observed source view; the marker does not remove the need
+to check a stale result or required source outside that body. Repeating
 an answered question in source is not verification.
-Read focused source around useful locations before editing. Check related contracts
+Inspect the source Graph displays at useful locations before editing. A result marked [complete]
+certifies a structurally whole displayed body, unchanged by rendering, for the source
+view observed by that query. It does not certify dependencies, later source freshness,
+or task resolution. Do not reread the same unchanged span merely to duplicate it.
+The marker never waives a read your editing tool requires before it changes a file:
+when the tool requires one, perform that read. If you cannot establish that a span is
+unchanged since the query, treat it as changed and read it.
+An unmarked result is not certified: it may be a partial window or a whole body whose
+marker did not fit. Retrieve only the specific additional span, surrounding context,
+caller, contract, or second site required for the task. If edits, formatting, generation,
+checkout, or another writer may have changed the relevant source, verify that current
+span before reusing remembered output. A --head result does not cover working-tree
+changes absent from that snapshot. Check related contracts
 and make the smallest complete change. VERIFY before stopping: execute focused tests,
 a reproduction, or the most relevant build. If execution is unavailable, disclose
 that limit and perform a bounded source check. Prefer precise queries and line ranges,

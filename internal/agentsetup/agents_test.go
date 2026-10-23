@@ -24,8 +24,8 @@ func TestAgentGuidePrintsDoctrine(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"MUST be ONE Graph search",
-		"entire graph search",
+		"MUST be a Graph query",
+		"entire graph query",
 		"--profile full",
 		"VERIFY before stopping",
 		"never trade resolution for fewer turns",
@@ -61,7 +61,7 @@ func TestInitAgentsInstallsAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("guide not written: %v", err)
 	}
-	if !strings.Contains(string(guide), "MUST be ONE Graph search") {
+	if !strings.Contains(string(guide), "MUST be a Graph query") {
 		t.Fatalf("guide content wrong:\n%s", guide)
 	}
 

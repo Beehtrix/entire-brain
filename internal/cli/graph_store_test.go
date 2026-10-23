@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -317,5 +318,134 @@ func TestGraphOwnedMigrationRetriesAfterIndexFailure(t *testing.T) {
 	needed, _, err = semanticRefreshNeeded(context.Background(), opts, brain, repo, manifest, false, "")
 	if err != nil || needed {
 		t.Fatalf("completed migration should be reusable: needed=%v err=%v", needed, err)
+	}
+}
+
+// overrideGraphStoreResponse replaces the fixture's scripted `graph store`
+// descriptor so a test can probe fetchGraphStore's reaction to a specific,
+// otherwise-unreachable header or contract version.
+func overrideGraphStoreResponse(runner *fakeCommandRunner, repo string, d graphStoreDescriptor) {
+	data, _ := json.Marshal(d)
+	runner.responses[fakeCommandKey("entire", "graph", "store", "--repo", repo, "--profile", "full")] = fakeCommandResponse{stdout: string(data)}
+}
+
+// TestGraphStoreNewerContractNamesBrainUpgrade pins defect (a): a Graph build
+// newer than this binary understands must say which binary to upgrade.
+// Collapsing both directions into one message left an operator on a newer
+// Graph trying to "upgrade Graph" when entire-brain was the stale one.
+func TestGraphStoreNewerContractNamesBrainUpgrade(t *testing.T) {
+	opts, repo, _, d := newGraphStoreFixture(t)
+	d.ContractVersion = 2
+	overrideGraphStoreResponse(opts.Runner.(*fakeCommandRunner), repo, d)
+	_, err := fetchGraphStore(context.Background(), opts, repo, "", "full")
+	if err == nil {
+		t.Fatal("expected a contract-newer error")
+	}
+	if !strings.Contains(err.Error(), "upgrade entire-brain") || !strings.Contains(err.Error(), "contract") {
+		t.Fatalf("error does not name entire-brain and the store contract: %v", err)
+	}
+}
+
+// TestGraphStoreOlderContractNamesGraphUpgrade covers the other direction of
+// defect (a): an installed Graph that cannot speak the store contract at all
+// (a probe failure) or that reports an older one must still say "upgrade
+// Graph", and now also names the contract this build requires.
+func TestGraphStoreOlderContractNamesGraphUpgrade(t *testing.T) {
+	t.Run("probe_failure", func(t *testing.T) {
+		opts, repo, _, _ := newGraphStoreFixture(t)
+		runner := opts.Runner.(*fakeCommandRunner)
+		runner.responses[fakeCommandKey("entire", "graph", "store", "--repo", repo, "--profile", "full")] = fakeCommandResponse{stderr: `unknown command "graph" for "entire"`, err: errors.New("exit status 1")}
+		_, err := fetchGraphStore(context.Background(), opts, repo, "", "full")
+		if err == nil {
+			t.Fatal("expected an unsupported-store error")
+		}
+		if !strings.Contains(err.Error(), "upgrade Graph") || !strings.Contains(err.Error(), "contract") {
+			t.Fatalf("error does not name Graph and the required store contract: %v", err)
+		}
+	})
+	t.Run("older_contract", func(t *testing.T) {
+		opts, repo, _, d := newGraphStoreFixture(t)
+		d.ContractVersion = 0
+		overrideGraphStoreResponse(opts.Runner.(*fakeCommandRunner), repo, d)
+		_, err := fetchGraphStore(context.Background(), opts, repo, "", "full")
+		if err == nil {
+			t.Fatal("expected an unsupported-store error")
+		}
+		if !strings.Contains(err.Error(), "upgrade Graph") || !strings.Contains(err.Error(), "contract") {
+			t.Fatalf("error does not name Graph and the required store contract: %v", err)
+		}
+	})
+}
+
+// TestGraphStoreSchemaMajorRefused pins defect (b)'s hard-error half: a store
+// whose semantic schema major is newer than ADR 0001's supported range must be
+// refused with validateSemanticSchema's own wording, not silently copied in.
+func TestGraphStoreSchemaMajorRefused(t *testing.T) {
+	opts, repo, _, d := newGraphStoreFixture(t)
+	d.Header.SchemaVersion = "2.0"
+	overrideGraphStoreResponse(opts.Runner.(*fakeCommandRunner), repo, d)
+	_, err := fetchGraphStore(context.Background(), opts, repo, "", "full")
+	if err == nil {
+		t.Fatal("expected a schema-major error")
+	}
+	if !strings.Contains(err.Error(), semanticSupportedSchemaRange) {
+		t.Fatalf("error does not name the supported schema range: %v", err)
+	}
+}
+
+// TestGraphStoreSchemaMinorSkewWarns pins defect (b)'s warn half: a header one
+// supported-major minor ahead of this build (installed providers already
+// report 1.4 against brain's pinned 1.3) must reach BOTH live consumers of the
+// descriptor that previously never called semanticSchemaMinorSkewWarning at
+// all -- `refresh`'s identity warning and the stale-report ("status")
+// freshness axis -- instead of being silently dropped.
+func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
+	opts, repo, _, d := newGraphStoreFixture(t)
+	d.Header.SchemaVersion = "1.4"
+	overrideGraphStoreResponse(opts.Runner.(*fakeCommandRunner), repo, d)
+
+	report, err := semanticFreshnessReport(context.Background(), opts, repo, true)
+	if err != nil {
+		t.Fatalf("stale report: %v", err)
+	}
+	if report.Axes["graph"].State != "degraded" {
+		t.Fatalf("stale-report did not degrade the graph axis for a newer minor: %+v", report.Axes)
+	}
+	if len(report.Warnings) != 1 || report.Warnings[0].Code != "provider_schema_newer_minor" {
+		t.Fatalf("stale-report did not carry the skew warning: %+v", report.Warnings)
+	}
+
+	_, identityWarning, err := semanticRefreshNeeded(context.Background(), opts, "", repo, nil, false, "")
+	if err != nil {
+		t.Fatalf("refresh needed: %v", err)
+	}
+	if !strings.Contains(identityWarning, "1.4") || !strings.Contains(identityWarning, semanticSchemaVersion) {
+		t.Fatalf("refresh did not surface the skew warning: %q", identityWarning)
+	}
+}
+
+// TestGraphStoreViewMismatchNamesBothBinaries pins defect (c): if Graph
+// renames or drops one of the brain_*_v1 views the CREATE TEMP VIEW aliasing
+// relies on, the raw sqlite "no such table" error does not say which binary
+// is wrong -- either direction can cause it -- so the wrapped error must name
+// both entire-brain and Graph instead.
+func TestGraphStoreViewMismatchNamesBothBinaries(t *testing.T) {
+	_, _, brain, d := newGraphStoreFixture(t)
+	db, err := sql.Open(sqliteDriverName, d.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("DROP VIEW brain_symbols_v1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = openSemanticReadDB(graphStoreSource(d, brain).StorePath)
+	if err == nil {
+		t.Fatal("expected a view-mismatch error")
+	}
+	if !strings.Contains(err.Error(), "entire-brain") || !strings.Contains(err.Error(), "Graph") || !strings.Contains(err.Error(), "schema") {
+		t.Fatalf("error does not name both binaries and the schema disagreement: %v", err)
 	}
 }

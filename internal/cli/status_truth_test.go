@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,32 @@ func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	// everything, so the semantic mark must be the whole difference.
 	if restored := strings.Replace(instant, "- semantic", "+ semantic", 1); restored != healthyInstant {
 		t.Fatalf("a corrupt semantic store changed a mark other than semantic:\n before: %s\n  after: %s", healthyInstant, instant)
+	}
+}
+
+// TestStatusSurfacesGraphError pins defect (d): a Graph store that fails for a
+// reason other than "not installed" or "not indexed yet" (a command that
+// errors outright) used to be collapsed into the same bare nil semantic
+// source as those two ordinary, silent cases. The error text must survive
+// into the report instead.
+func TestStatusSurfacesGraphError(t *testing.T) {
+	opts, repoDir, _ := statusTruthFixture(t)
+	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	runner := opts.Runner.(*fakeCommandRunner)
+	runner.responses[fakeCommandKey("entire", "graph", "store", "--repo", repoDir, "--profile", "full")] = fakeCommandResponse{stderr: "disk I/O error", err: errors.New("exit status 1")}
+
+	report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+	if err != nil {
+		t.Fatalf("status report: %v", err)
+	}
+	if report.Semantic != nil {
+		t.Fatalf("a failing graph store must not report a semantic source: %+v", report.Semantic)
+	}
+	joined := strings.Join(report.Warnings, "\n")
+	if !strings.Contains(joined, "graph store unavailable") || !strings.Contains(joined, "disk I/O error") {
+		t.Fatalf("status dropped the graph error instead of surfacing it: %+v", report.Warnings)
 	}
 }
 

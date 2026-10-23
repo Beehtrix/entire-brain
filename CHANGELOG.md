@@ -15,6 +15,17 @@ All notable changes to `entire-brain` are recorded here. The format follows
   naming a `setup` re-run as the repair. `agent-guide` remains the read-only
   preview.
 
+- Semantic (embedding) memory retrieval. A 1,748-run agent eval measured BM25
+  lexical ranking matching or beating the embedder stack end-to-end (see
+  `docs/eval_ledger.md` and trail #278), so the Model2Vec vector arm is gone
+  and the cgo build dependency was stripped (#416). BM25 lexical is the only
+  ranking. `query --semantic`, `vsearch`, MCP `brain_vsearch`, and
+  `recall --no-semantic` are accepted as no-op compatibility aliases that run
+  the same BM25 ranking; `--semantic` and `vsearch` print a stderr notice.
+  `entire brain capabilities --json` reports `semantic_compiled: false`.
+  Graph's semantic code retrieval (`brain_code`, `brain_context`,
+  `brain_impact`) is unaffected.
+
 ### Changed
 
 - Code inspection reads Graph's shared committed-tree store. `refresh index`

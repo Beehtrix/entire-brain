@@ -11,21 +11,17 @@ import (
 	"github.com/entireio/entire-brain/internal/httpx"
 )
 
-// Every fact-set and proposal 200 used to be read with
+// Every per-fact 200 used to be read with
 //
 //	json.NewDecoder(resp.Body).Decode(&out)
 //
-// which streams the PARSE but allocates the VALUES in full. The head's `data` field
-// is a base64 []byte, so a peer answering a well-formed
-// `{"found":true,"ref":"r","data":"<8 GiB of base64>"}` allocates gigabytes on the
-// member's machine. Measured against a mock that does exactly that, `facts sync`
-// peaked at 9.8 GB RSS and the proposal list at 10 GB before failing — an OOM on a
-// laptop, and the workspace daemon is long-lived. The request timeout does not help:
-// it bounds time, and a LAN peer delivers tens of gigabytes inside five minutes.
-//
-// The ceiling must also REFUSE rather than truncate. A fact-set head cut short at a
-// record boundary parses cleanly as a shorter fact set, and the next CAS would push
-// that shortened set back as the head — silently deleting other members' facts.
+// which streams the PARSE but allocates the VALUES in full, so a peer answering
+// a well-formed JSON object with one multi-gigabyte string field allocates
+// gigabytes on the member's machine — an OOM on a laptop, and the workspace
+// daemon is long-lived. The request timeout does not help: it bounds time, and
+// a LAN peer delivers tens of gigabytes inside five minutes. The ceiling must
+// REFUSE rather than truncate, so a cut-short feed page can never be mistaken
+// for a complete one.
 
 // oversizedBody streams a well-formed JSON object whose one string field is padded
 // past the limit, so the refusal is about SIZE and not about malformed JSON.
@@ -54,72 +50,54 @@ func withSmallBodyLimit(t *testing.T, limit int64) {
 	t.Cleanup(func() { httpx.MaxJSONBodyBytes = prev })
 }
 
-func TestCurrentRefusesAnOversizedHead(t *testing.T) {
+func TestFactsFeedRefusesAnOversizedPage(t *testing.T) {
 	withSmallBodyLimit(t, 64<<10)
-	srv := httptest.NewServer(oversizedBody(t, `{"found":true,"ref":"r1","version":1,"data":"`))
+	srv := httptest.NewServer(oversizedBody(t, `{"items":[],"nextPageToken":"`))
 	defer srv.Close()
 
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	_, plaintext, found, err := h.Current(t.Context(), "01HZZPROBE0000000000000000", "main")
+	page, err := h.FactsFeedPage(t.Context(), "01HZZPROBE0000000000000000", "", 100)
 	if err == nil {
-		t.Fatalf("Current accepted an oversized head (found=%v, %d bytes); it must refuse", found, len(plaintext))
+		t.Fatalf("FactsFeedPage accepted an oversized page (%d items); it must refuse", len(page.Items))
 	}
 	if !errors.Is(err, httpx.ErrBodyTooLarge) {
-		t.Errorf("Current failed with %v; want it to wrap httpx.ErrBodyTooLarge so the cause is distinguishable", err)
-	}
-	if found || plaintext != nil {
-		t.Errorf("Current returned data alongside its refusal (found=%v, %d bytes); a partial head must never reach the merge", found, len(plaintext))
+		t.Errorf("FactsFeedPage failed with %v; want it to wrap httpx.ErrBodyTooLarge so the cause is distinguishable", err)
 	}
 }
 
-func TestAdvanceRefusesAnOversizedResponse(t *testing.T) {
+func TestUpsertFactsRefusesAnOversizedResponse(t *testing.T) {
 	withSmallBodyLimit(t, 64<<10)
-	srv := httptest.NewServer(oversizedBody(t, `{"newRef":"`))
+	srv := httptest.NewServer(oversizedBody(t, `{"added":1,"detail":"`))
 	defer srv.Close()
 
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	ref, err := h.Advance(t.Context(), "01HZZPROBE0000000000000000", "main", "old", []byte("{}\n"))
+	counts, err := h.UpsertFacts(t.Context(), "01HZZPROBE0000000000000000", []byte("{}\n"))
 	if err == nil {
-		t.Fatalf("Advance accepted an oversized response (ref %q)", ref)
+		t.Fatalf("UpsertFacts accepted an oversized response (%+v)", counts)
 	}
 	if !errors.Is(err, httpx.ErrBodyTooLarge) {
-		t.Errorf("Advance failed with %v; want httpx.ErrBodyTooLarge", err)
-	}
-}
-
-func TestListProposalsRefusesAnOversizedQueue(t *testing.T) {
-	withSmallBodyLimit(t, 64<<10)
-	srv := httptest.NewServer(oversizedBody(t, `{"ref":"`))
-	defer srv.Close()
-
-	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	set, err := h.ListProposals(t.Context(), "01HZZPROBE0000000000000000", "main")
-	if err == nil {
-		t.Fatalf("ListProposals accepted an oversized queue (%d proposals); it must refuse", len(set.Proposals))
-	}
-	if !errors.Is(err, httpx.ErrBodyTooLarge) {
-		t.Errorf("ListProposals failed with %v; want httpx.ErrBodyTooLarge", err)
+		t.Errorf("UpsertFacts failed with %v; want httpx.ErrBodyTooLarge", err)
 	}
 }
 
 // A body AT the ceiling is still served: the bound exists to stop the absurd, not to
 // shrink the real payload, and a refusal that also rejected legitimate responses
-// would be traded one failure for another.
-func TestCurrentAcceptsABodyWithinTheLimit(t *testing.T) {
+// would have traded one failure for another.
+func TestFactsFeedAcceptsABodyWithinTheLimit(t *testing.T) {
 	withSmallBodyLimit(t, 1<<20)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		// 300 KiB of base64 -> ~225 KiB of plaintext, comfortably inside 1 MiB.
-		_, _ = io.WriteString(w, `{"found":true,"ref":"r1","version":1,"data":"`+strings.Repeat("QUJD", 76800)+`"}`)
+		// ~300 KiB page token, comfortably inside 1 MiB.
+		_, _ = io.WriteString(w, `{"items":[],"nextPageToken":"`+strings.Repeat("QUJD", 76800)+`"}`)
 	}))
 	defer srv.Close()
 
 	h := &HTTPServer{BaseURL: srv.URL, Token: "tok"}
-	ref, plaintext, found, err := h.Current(t.Context(), "01HZZPROBE0000000000000000", "main")
+	page, err := h.FactsFeedPage(t.Context(), "01HZZPROBE0000000000000000", "", 100)
 	if err != nil {
-		t.Fatalf("Current refused a body inside the limit: %v", err)
+		t.Fatalf("FactsFeedPage refused a body inside the limit: %v", err)
 	}
-	if !found || ref != "r1" || len(plaintext) == 0 {
-		t.Fatalf("Current lost a valid head: found=%v ref=%q bytes=%d", found, ref, len(plaintext))
+	if page.NextPageToken == nil || len(*page.NextPageToken) == 0 {
+		t.Fatalf("FactsFeedPage lost a valid page token")
 	}
 }

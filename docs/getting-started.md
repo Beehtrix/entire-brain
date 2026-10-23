@@ -407,7 +407,7 @@ Every result carries an `id` you can fetch in full with `get`.
 ```sh
 entire brain overview                          # what the project is: stack, commands, recent decisions
 entire brain brief "add rate limiting to the API"   # a bounded, task-shaped context packet
-entire brain query "how does checkpointing work"    # hybrid lexical + vector search across the brain
+entire brain query "how does checkpointing work"    # BM25 lexical search across the brain
 entire brain query --keyword "checkpoint"               # exact keyword search
 entire brain recall "why did we pick this default"  # durable facts for the current branch
 entire brain get fact:<id>                     # fetch one item in full
@@ -710,30 +710,27 @@ available to the next agent.
 ### Ask Across Facts, History, And Docs
 
 When the question is not tied to one symbol, use the unified retrieval layer.
-`query` is the normal hybrid path over durable facts, indexed history, and docs.
-Use `query --keyword` for exact keywords, `query --semantic` for semantic matches, and
-`get`/`multi-get` when a result returns an id worth reading in full.
+`query` searches durable facts, indexed history, and docs with BM25 lexical
+ranking — the only ranking; semantic (embedding) retrieval was removed (trail
+#278). Use `get`/`multi-get` when a result returns an id worth reading in full.
 
 ```sh
 entire brain query "how does checkpointing work" --json
-entire brain query --keyword "checkpoint" --json
-entire brain query --semantic "preventing data races" --json
 entire brain get fact:<id> --json
 ```
 
-Use `entire brain query "text"` for default hybrid retrieval. Select keyword
-matching with `--keyword` or semantic matching with `--semantic`; the two
-flags are mutually exclusive and belong only to the query command.
-Text may instead be supplied as `--query "text"`. Flags work before or after
-positional text; combining positional text and `--query` is an error.
-For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+`--keyword` and `--semantic` are accepted for compatibility and are mutually
+exclusive; both run the same BM25 ranking (`--semantic` prints a stderr
+notice). Text may instead be supplied as `--query "text"`. Flags work before
+or after positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --query "RetryPolicy" --json`.
 
 Workspace retrieval supports the same forms:
-`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+`entire brain workspace query <workspace> --query "retry policy"`.
 The old `search` and `vsearch` commands remain hidden compatibility aliases.
-MCP agents should use `brain_query` with optional, mutually exclusive
-`keyword: true` or `semantic: true` arguments; `brain_search` and
-`brain_vsearch` remain compatibility tools.
+MCP agents should use `brain_query`; its `keyword` and `semantic` booleans and
+the `brain_search` / `brain_vsearch` tools are compatibility aliases for the
+same BM25 ranking.
 
 For durable facts specifically, use `recall`. `recall --expand` is an
 agent-assisted query expansion path, so it belongs behind the same egress
@@ -935,20 +932,14 @@ entire brain bench semantic .
 entire brain status --json
 ```
 
-### Tune Retrieval
+### Retrieval Ranking
 
-The default vector arm uses the bundled local Model2Vec embedder. For higher
-semantic recall, opt into a local transformer embedder served by Ollama or a
-compatible loopback endpoint:
-
-```sh
-ollama pull embeddinggemma
-ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
-```
-
-Keep this distinction clear: changing the embedder changes retrieval behavior,
-not the underlying source of truth. Facts, history, docs, and semantic records
-still come from the local brain.
+Memory retrieval (facts, history, docs) is ranked by BM25 lexical scoring —
+there is no embedder to tune. Semantic (embedding) retrieval was removed after
+a 1,748-run agent eval measured BM25 matching or beating it end-to-end (see
+`docs/eval_ledger.md` and trail #278). Graph's semantic code retrieval
+(`brain_code`, `brain_context`, `brain_impact`) is a separate layer and is
+unaffected.
 
 ## Privacy And Egress
 

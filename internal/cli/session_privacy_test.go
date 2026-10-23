@@ -474,7 +474,7 @@ func TestPurgeReportsGitmetaSyncCaveat(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := purgeGitmetaSyncCaveats(env, "gh/o/r", plan)
-	if len(got) != 1 || !strings.Contains(got[0], "facts sync") || !strings.Contains(got[0], "no deletion semantics") {
+	if len(got) != 1 || !strings.Contains(got[0], "git-meta store") || !strings.Contains(got[0], "no deletion semantics") {
 		t.Fatalf("caveat = %v", got)
 	}
 

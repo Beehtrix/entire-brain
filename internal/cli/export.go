@@ -594,13 +594,18 @@ func validateForcedOutputManifest(data []byte) error {
 		return err
 	}
 	normalizeBrainManifest(&manifest)
-	// A range, not equality: a v3 (or any still-supported-for-read) manifest
-	// from an older build must remain removable by --force. Equality here once
-	// rejected exactly the stores this check exists to let a user discard --
-	// the --force removal is itself the remedy memory_admin.go recommends for a
-	// manifest this build cannot otherwise rewrite.
-	if manifest.SchemaVersion < brainManifestMinSchemaVersion || manifest.SchemaVersion > brainManifestSchemaVersion {
-		return fmt.Errorf("schema_version %d is outside the supported range [%d, %d]", manifest.SchemaVersion, brainManifestMinSchemaVersion, brainManifestSchemaVersion)
+	// A floor, not a range. This explicit-output --force path exists only to
+	// confirm the target directory holds a genuine prior brain/export before
+	// wiping it, not to gate on whether THIS build can read everything the
+	// manifest contains. A manifest from a NEWER build still proves that: it
+	// is a real manifest this build cannot parse further, and --force is the
+	// deliberate destructive discard-and-rebuild escape hatch -- the only
+	// recovery available for exactly that case. Rejecting it here, the way
+	// equality once did, would make --force refuse the one case it exists for.
+	// Only a version below the oldest this build ever reads fails the "is this
+	// a brain store" check.
+	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -597,6 +598,53 @@ func TestRemoveForcedOutputDirAcceptsOlderSupportedSchemaVersion(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outputDir); !os.IsNotExist(statErr) {
 		t.Fatalf("v3 output directory was not removed: %v", statErr)
+	}
+}
+
+// --force is the deliberate destructive discard-and-rebuild escape hatch, and
+// for a manifest a NEWER build wrote it is the only recovery available: this
+// build cannot parse the rest of it, let alone rewrite it. The schema check
+// here only confirms the target is a genuine brain store; a newer
+// schema_version still satisfies that, so --force must not refuse it.
+func TestRemoveForcedOutputDirAcceptsNewerSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	newer := []byte(fmt.Sprintf(`{"schema_version":%d,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}`, brainManifestSchemaVersion+1) + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), newer, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "marker.txt")
+	if err := os.WriteFile(marker, []byte("marker"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	if err := removeForcedOutputDir(outputDir, ""); err != nil {
+		t.Fatalf("removeForcedOutputDir rejected a newer manifest: %v", err)
+	}
+	if _, statErr := os.Stat(outputDir); !os.IsNotExist(statErr) {
+		t.Fatalf("newer-schema output directory was not removed: %v", statErr)
+	}
+}
+
+// A version below the oldest this build has ever read is the genuine
+// not-a-brain-store signal validateForcedOutputManifest exists to catch --
+// unlike a newer schema_version, --force must still refuse this.
+func TestRemoveForcedOutputDirRejectsBelowMinimumSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	tooOld := []byte(`{"schema_version":-1,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), tooOld, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "marker.txt")
+	if err := os.WriteFile(marker, []byte("marker"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	err := removeForcedOutputDir(outputDir, "")
+	if err == nil || !strings.Contains(err.Error(), "older than the first supported version") {
+		t.Fatalf("expected below-minimum rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("below-minimum manifest output was removed: %v", statErr)
 	}
 }
 

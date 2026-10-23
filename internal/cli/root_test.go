@@ -263,6 +263,28 @@ func TestRedundantAliasesAreRemoved(t *testing.T) {
 	}
 }
 
+func TestInitAgentsTombstone(t *testing.T) {
+	cmd := NewRootCommand(Options{Version: "test-version"})
+	_, err := execute(t, cmd, "init-agents")
+	if err == nil {
+		t.Fatal("init-agents should fail; the command was removed")
+	}
+	for _, want := range []string{"entire brain setup", "--strict", "--normal"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("init-agents error should mention %q, got: %v", want, err)
+		}
+	}
+
+	cmd = NewRootCommand(Options{Version: "test-version"})
+	out, err := execute(t, cmd, "--help")
+	if err != nil {
+		t.Fatalf("root --help: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "init-agents") {
+		t.Fatalf("init-agents should stay hidden from --help:\n%s", out)
+	}
+}
+
 func TestRefreshExposesBuildStageSubcommands(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd, "refresh", "--help")

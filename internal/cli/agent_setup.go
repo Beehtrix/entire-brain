@@ -1,11 +1,28 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/spf13/cobra"
 )
+
+// newInitAgentsTombstoneCommand reports that `init-agents` was removed:
+// its behavior moved into `entire brain setup`, which took over
+// `--strict`/`--normal`. Hidden so no-argument help never advertises a dead
+// command, but still dispatchable so the old invocation fails loud instead
+// of hitting cobra's generic "unknown command".
+func newInitAgentsTombstoneCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:    "init-agents",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return errors.New("init-agents was removed; its behavior moved into `entire brain setup` (--strict/--normal now live there)")
+		},
+	}
+	return cmd
+}
 
 // newBrainGuideCommand is the read-only preview of the agent instructions
 // `setup` installs. Installation lives in setup's agents phase; saving a

@@ -488,7 +488,9 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 			}
 			return err
 		},
-		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir) },
+		// The daemon's own tick is unattended: nobody watches its stderr, so it
+		// must not run the destructive transcript sweep.
+		refresh: func(c context.Context) error { return watchDeterministicRefresh(c, cmd, opts, repoDir, true) },
 		seed:    func(c context.Context) error { return watchSeed(c, cmd, opts, w, repoDir) },
 		distill: func(c context.Context) error { return watchDistill(c, cmd, opts, w, repoDir) },
 		factsSync: func(c context.Context) (bool, error) {
@@ -667,8 +669,14 @@ func watchFingerprint(ctx context.Context, runner CommandRunner, repoDir string)
 // agent ALWAYS "none", then durably reconciles long-term conversation work.
 // The coordinator owns projection publication, retries, and crash recovery;
 // watch only nudges it. Agent seed synthesis remains a separate gated step.
-func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string) error {
-	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil)
+//
+// skipTranscriptSweep is the caller's own: this function is shared by the
+// watch daemon's unattended per-tick consolidation (skip) and
+// `workspace refresh --full`'s user-invoked per-member refresh (sweep), so the
+// decision cannot live inside this shared body -- see
+// watchDeterministicRefreshComponents.
+func watchDeterministicRefresh(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, skipTranscriptSweep bool) error {
+	return watchDeterministicRefreshComponents(ctx, cmd, opts, repoDir, watchTickBuildsHistoryProjection, false, nil, skipTranscriptSweep)
 }
 
 // watchDeterministicRefreshComponents runs the free refresh with explicit failure
@@ -713,17 +721,19 @@ func watchDeterministicRefreshOptions(historyIndex bool) refreshCommandOptions {
 	}
 }
 
-func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error)) error {
+// skipTranscriptSweep classifies by INVOKER, not by this function: the watch
+// daemon's tick is unattended and passes true; `setup` and
+// `workspace refresh --full` are user-invoked and pass false, same as
+// `refresh`/`path --ensure`/`export`. Hardcoding a value here once silently
+// disabled the sweep for setup.go:1925 and workspace.go's runWorkspaceRefresh
+// too, neither of which is unattended.
+func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command, opts Options, repoDir string, historyIndex, bestEffort bool, component func(name string, err error), skipTranscriptSweep bool) error {
 	perRepo := opts
 	perRepo.Env.RepoRoot = repoDir
 	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
 	refreshOpts.component = component
 	refreshOpts.bestEffort = bestEffort
-	// Shared by the watch daemon's per-tick consolidation and `setup`'s one-shot
-	// onboarding build -- both unattended, neither with anyone watching stderr
-	// for a deleted-files notice. Only user-invoked `refresh`/`path --ensure`
-	// sweep the transcript cache.
-	refreshOpts.skipTranscriptSweep = true
+	refreshOpts.skipTranscriptSweep = skipTranscriptSweep
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())

@@ -154,11 +154,51 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	if err := watchDeterministicRefresh(context.Background(), cmd, opts, repoDir); err != nil {
+	// true: this models the daemon's own tick (watch.go's watchStepsForRepo),
+	// which is unattended and always skips the sweep.
+	if err := watchDeterministicRefresh(context.Background(), cmd, opts, repoDir, true); err != nil {
 		t.Fatalf("watch consolidation refresh: %v", err)
 	}
 
 	if _, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(sweepable))); err != nil {
 		t.Fatalf("watch consolidation refresh swept the transcript cache: %v", err)
+	}
+}
+
+// `entire brain workspace refresh <name> --full` is user-invoked, not a
+// background daemon tick, even though it shares watchDeterministicRefresh
+// with the watch daemon's unattended consolidation step. The classification
+// is per-invoker: this path must keep sweeping, with the notice, like
+// `refresh`, `path --ensure`, `export`, and `setup`.
+func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
+	opts, repoDir, storage, _ := watchCommandFixture(t)
+	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+
+	// Establish the persistent brain the same way a real first refresh does.
+	if out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once"); err != nil {
+		t.Fatalf("watch once: %v\n%s", err, out)
+	}
+
+	manifest := workspaceManifest{
+		SchemaVersion: workspaceSchemaVersion,
+		Name:          "sweep-fixture",
+		Repos:         []workspaceRepo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
+	}
+	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	sweepable := "sessions/main/stale.jsonl"
+	if err := writeTranscriptFile(storage.BrainDir, sweepable, []byte("stale")); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := execute(t, NewRootCommand(opts), "workspace", "refresh", manifest.Name, "--full")
+	if err != nil {
+		t.Fatalf("workspace refresh --full: %v\n%s", err, out)
+	}
+
+	if _, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(sweepable))); !os.IsNotExist(err) {
+		t.Fatalf("user-invoked workspace refresh --full did not sweep the transcript cache: %v", err)
 	}
 }

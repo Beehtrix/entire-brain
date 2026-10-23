@@ -543,8 +543,6 @@ func commitForCheckpoint(cache entityIndexCache, checkpointID string) (string, b
 	return best, best != ""
 }
 
-// openEntityIndexStore resolves the repository, its brain storage, and the
-// shared local git-meta store the index lives in.
 // gitmetaDirForKey resolves the local git-meta store path for a repo key
 // (<cache>/brain/<key>/gitmeta.git), mirroring brainDirForKey's key handling but
 // rooted in the plugin CACHE tree. The store holds the entity index's meta
@@ -565,6 +563,8 @@ func gitmetaDirForKey(env EntireEnv, key string) (string, error) {
 	return filepath.Join(root, filepath.FromSlash(key), "gitmeta.git"), nil
 }
 
+// openEntityIndexStore resolves the repository, its brain storage, and the
+// shared local git-meta store the index lives in.
 func openEntityIndexStore(ctx context.Context, opts Options, target string) (string, repoStorage, *factgitmeta.MetaStore, error) {
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {

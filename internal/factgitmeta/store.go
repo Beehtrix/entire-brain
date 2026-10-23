@@ -41,14 +41,9 @@ var ErrLockBusy = errors.New("factgitmeta: git-meta store is locked by another w
 // would give the create path (go-git writes a nil-old-ref unconditionally) two
 // unsynchronized writers and silently drop one namespace's first commit.
 //
-// Key namespacing is the caller's responsibility; Backend already reserves
-// "brain:facts:".
-//
-// NOTE — deliberate duplication. Backend.Advance still runs its OWN copy of the
-// lock + read-materialize-CAS-retry loop (see backend.go); it was not
-// refactored onto MetaStore. What is genuinely shared is the lockfile and the
-// ref, which is what makes the two writers safe against each other; the loop
-// body is duplicated. Collapsing Backend onto MetaStore is a follow-up.
+// Key namespacing is the caller's responsibility. Existing stores may still
+// carry "brain:facts:" records left by the retired local-gitmeta sync backend
+// (COR-2236); treat that prefix as reserved.
 //
 // Because the two loops are separate, they must never NEST: both acquire the
 // same advisory lock through a FRESH descriptor, and flock(2) is held per open

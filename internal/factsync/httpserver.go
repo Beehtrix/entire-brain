@@ -17,10 +17,8 @@ import (
 
 // HTTPServer is the hosted-sync HTTP client: it drives the per-fact wire
 // (perfact.go — brainstore's batch upsert and repo-wide delta feed) under the
-// member's bearer token. The name survives from when it also implemented the
-// Server CAS seam against entire-api's branch-head endpoints; that wire is
-// retired client-side (COR-2235) and the Server seam's only implementor now is
-// the local git-meta backend (internal/factgitmeta).
+// member's bearer token. The name survives from when it also drove the retired
+// branch-head CAS wire against entire-api (COR-2235/COR-2236).
 type HTTPServer struct {
 	BaseURL string       // entire-api origin, e.g. https://api.entire.io (no trailing slash needed); must clear apiurl.Validate — https, or http only to loopback
 	Token   string       // bearer token; sent as Authorization: Bearer <token> when non-empty

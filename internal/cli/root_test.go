@@ -264,18 +264,34 @@ func TestRedundantAliasesAreRemoved(t *testing.T) {
 }
 
 func TestInitAgentsTombstone(t *testing.T) {
-	cmd := NewRootCommand(Options{Version: "test-version"})
-	_, err := execute(t, cmd, "init-agents")
-	if err == nil {
-		t.Fatal("init-agents should fail; the command was removed")
-	}
-	for _, want := range []string{"entire brain setup", "--strict", "--normal"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("init-agents error should mention %q, got: %v", want, err)
+	// brainInvocation renders the host-dispatched spelling ("entire brain
+	// setup") only when the plugin dispatcher's env var is set; pin that mode
+	// so the assertions below don't depend on ambient environment.
+	t.Setenv(envCLIVersion, "0.3.0")
+
+	for _, args := range [][]string{
+		{"init-agents"},
+		// The removed command's main invocation shapes carried flags. Cobra
+		// parses flags before RunE, so without DisableFlagParsing these would
+		// die as a generic "unknown flag" instead of naming the replacement.
+		{"init-agents", "--strict"},
+	} {
+		cmd := NewRootCommand(Options{Version: "test-version"})
+		_, err := execute(t, cmd, args...)
+		if err == nil {
+			t.Fatalf("%v should fail; the command was removed", args)
+		}
+		for _, want := range []string{"entire brain setup", "--strict", "--normal"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%v error should mention %q, got: %v", args, want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "unknown flag") {
+			t.Errorf("%v should reach the removal remedy, not cobra's unknown-flag error: %v", args, err)
 		}
 	}
 
-	cmd = NewRootCommand(Options{Version: "test-version"})
+	cmd := NewRootCommand(Options{Version: "test-version"})
 	out, err := execute(t, cmd, "--help")
 	if err != nil {
 		t.Fatalf("root --help: %v\n%s", err, out)

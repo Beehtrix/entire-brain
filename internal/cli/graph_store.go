@@ -312,6 +312,11 @@ func migrateBrainGraphStorage(brainDir, repoKey string) error {
 		if err = writeBrainSemanticSource(brainDir, repoKey, source); err != nil {
 			return err
 		}
+		if err = removeLegacyGraphArtifacts(brainDir); err != nil {
+			return err
+		}
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+		return nil
 	}
 	return removeLegacyGraphArtifacts(brainDir)
 }

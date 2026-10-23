@@ -533,7 +533,7 @@ func watchShortTermDelta(ctx context.Context, cmd *cobra.Command, opts Options, 
 	deltaCmd.SetOut(io.Discard)
 	deltaCmd.SetErr(io.Discard)
 	deltaCmd.SetContext(ctx)
-	return runRefreshDeltaStats(deltaCmd, perRepo, true)
+	return runRefreshDeltaStats(deltaCmd, perRepo, true, false)
 }
 
 // watchShouldSpend decides whether the token-spending agent work (seed and/or distill) runs this tick:

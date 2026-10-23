@@ -19,7 +19,7 @@ func TestMemoryStatusPlainRendererHasDeterministicJSONSectionParity(t *testing.T
 
 	// Use a forward-version manifest so parity also covers partial status and
 	// its typed issue without allowing the renderer to rewrite newer state.
-	future := []byte(`{"schema_version":4,"future":{"preserve":true}}` + "\n")
+	future := []byte(`{"schema_version":5,"future":{"preserve":true}}` + "\n")
 	manifestPath := filepath.Join(brainDir, exportManifestFileName)
 	if err := os.WriteFile(manifestPath, future, 0o600); err != nil {
 		t.Fatal(err)

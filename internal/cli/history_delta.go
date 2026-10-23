@@ -964,7 +964,7 @@ recallable near-real-time.`,
 }
 
 func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
-	stats, err := runRefreshDeltaStats(cmd, opts, export)
+	stats, err := runRefreshDeltaStats(cmd, opts, export, false)
 	if err != nil {
 		return err
 	}
@@ -980,14 +980,20 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 // runRefreshDeltaStats is the delta core: incremental export (optional) plus
 // the short-term overlay build, returning the stats so watch can escalate to
 // consolidation on a full buffer.
-func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool) (shortTermStats, error) {
+//
+// skipTranscriptSweep is threaded through to the export so the auto-launched
+// background memory worker (memoryWorkerPrepass) never runs the destructive
+// transcript cache sweep: nobody is watching that process's stderr to learn
+// that files were deleted. User-invoked delta/refresh passes false.
+func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTranscriptSweep bool) (shortTermStats, error) {
 	ctx := cmd.Context()
 	if export {
 		exportOpts := exportCommandOptions{
-			outputDir:       defaultExportDir,
-			checkpointLimit: defaultCheckpointLimit,
-			entireBinary:    "entire",
-			scope:           exportScopeAll,
+			outputDir:           defaultExportDir,
+			checkpointLimit:     defaultCheckpointLimit,
+			entireBinary:        "entire",
+			scope:               exportScopeAll,
+			skipTranscriptSweep: skipTranscriptSweep,
 		}
 		if err := runExport(ctx, cmd, opts, exportOpts); err != nil {
 			return shortTermStats{}, fmt.Errorf("delta session export: %w", err)

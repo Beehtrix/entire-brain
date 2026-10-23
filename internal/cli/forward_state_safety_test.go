@@ -223,7 +223,7 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 		data []byte
 		code string
 	}{
-		{name: "unknown-newer", data: []byte(`{"schema_version":4,"future":true}` + "\n"), code: memoryErrUnsupportedVersion},
+		{name: "unknown-newer", data: []byte(`{"schema_version":5,"future":true}` + "\n"), code: memoryErrUnsupportedVersion},
 		{name: "additive-current", data: []byte(`{"schema_version":3,"future":true}` + "\n"), code: memoryErrStateCorrupt},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

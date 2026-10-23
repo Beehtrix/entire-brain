@@ -86,6 +86,12 @@ type exportCommandOptions struct {
 	historyIndex    bool
 	debug           bool
 	progress        func(exportProgress)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended paths. The background memory worker drives this same export
+	// to keep short-term memory warm; nobody is watching its stderr to learn
+	// that files were deleted, so it must never delete them. User-invoked
+	// export/refresh still sweeps.
+	skipTranscriptSweep bool
 }
 
 type exportProgress struct {
@@ -335,12 +341,15 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		if err != nil {
 			return err
 		}
-		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
-		if err != nil {
-			return err
-		}
-		if migration != nil {
-			defer migration.Close()
+		var migration *historySessionInventory
+		if !exportOpts.skipTranscriptSweep {
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+			if err != nil {
+				return err
+			}
+			if migration != nil {
+				defer migration.Close()
+			}
 		}
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
@@ -363,6 +372,9 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			}
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
+			}
+			if exportOpts.skipTranscriptSweep {
+				return nil
 			}
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {

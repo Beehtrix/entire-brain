@@ -148,7 +148,8 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 		{"trailing-json", `{"schema_version":3} {}`, memoryErrStateCorrupt},
 		{"trailing-garbage", `{"schema_version":3} garbage`, memoryErrStateCorrupt},
 		{"missing-version", `{}`, memoryErrUnsupportedVersion},
-		{"newer", `{"schema_version":4,"future":true}`, memoryErrUnsupportedVersion},
+		{"v4", `{"schema_version":4}`, ""},
+		{"newer", `{"schema_version":5,"future":true}`, memoryErrUnsupportedVersion},
 		{"older", `{"schema_version":-1}`, memoryErrUnsupportedVersion},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

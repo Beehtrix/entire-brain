@@ -4700,7 +4700,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		report.SeedMode = seed.WorktreeMode
 		switch {
 		case live.Head == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable", Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so seed freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
 			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
@@ -4721,17 +4721,19 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
-			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case !audit:
-			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Current: live.Head, Indexed: seed.Commit}
+			// `status` is the lightweight surface that produces this axis, so it
+			// must not be the remedy; `overview` runs the audited comparison.
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Remedy: "run `" + brainInvocation(os.LookupEnv, "overview") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {
-				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Current: live.Head, Indexed: seed.Commit}
+				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild the snapshot", Current: live.Head, Indexed: seed.Commit}
 			} else if currentHash != seed.WorktreeHash {
-				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Current: currentHash, Indexed: seed.WorktreeHash}
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
 			} else {
 				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "seed and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
 			}
@@ -4750,15 +4752,17 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			// must not claim "ok" for a docs layer that will contribute nothing.
 			state := "unsafe"
 			detail := "docs index declared in the manifest but unreadable: " + err.Error()
+			remedy := "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"
 			if os.IsNotExist(err) {
 				state = "missing"
 				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"
+				remedy = ""
 			}
-			axes["docs"] = staleAxis{State: state, Detail: detail}
+			axes["docs"] = staleAxis{State: state, Detail: detail, Remedy: remedy}
 		} else if docs.GeneratedAt.IsZero() {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"}
 		} else if manifest.Sources.Seed == nil {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
 			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {

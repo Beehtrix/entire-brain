@@ -72,17 +72,23 @@ func fetchGraphStore(ctx context.Context, opts Options, repoDir, binary, profile
 	}
 	// A contract mismatch names the binary that is behind: a NEWER contract than
 	// this build supports means Graph has moved on and entire-brain must catch
-	// up; anything else (older contract, or a probe that could not even ask)
-	// means the installed Graph predates the read-only store interface brain
-	// needs, so Graph is the one to upgrade.
+	// up; an OLDER contract means the installed Graph predates the interface
+	// brain needs, so Graph is the one to upgrade. Both are a present, responding
+	// Graph reporting an incompatible version -- distinct from errGraphStoreUnsupported,
+	// which means Graph never answered the store command at all (effectively
+	// absent) and is handled separately above.
 	if d.ContractVersion > graphStoreSupportedContract {
 		return d, fmt.Errorf("%w (Graph reports store contract %d, this build supports %d)", errGraphStoreContractNewer, d.ContractVersion, graphStoreSupportedContract)
 	}
 	if d.ContractVersion != graphStoreSupportedContract {
-		return d, fmt.Errorf("%w (Graph reports store contract %d)", errGraphStoreUnsupported, d.ContractVersion)
+		return d, fmt.Errorf("%w (Graph reports store contract %d, this build requires %d)", errGraphStoreContractOlder, d.ContractVersion, graphStoreSupportedContract)
 	}
 	if err := validateSemanticSchema(d.Header.SchemaVersion); err != nil {
-		return d, fmt.Errorf("Graph store schema unsupported: %w", err)
+		// validateSemanticSchema's own text names what this build reads but not
+		// who's asking; naming both Graph (the header's source) and entire-brain
+		// (what rejected it) here matches the other version-mismatch messages in
+		// this file.
+		return d, fmt.Errorf("Graph's semantic schema is unsupported by this entire-brain build: %w", err)
 	}
 	if !filepath.IsAbs(d.Path) || d.EntryDigest == "" || d.Commit == "" || d.Tree == "" {
 		return d, errors.New("Graph returned an unsupported or incomplete store descriptor")
@@ -102,6 +108,15 @@ var errGraphStoreUnsupported = fmt.Errorf("installed Graph lacks the read-only s
 // moved past the contract this build understands. The fix is the other
 // direction from errGraphStoreUnsupported: upgrade entire-brain, not Graph.
 var errGraphStoreContractNewer = errors.New("Graph's read-only store contract is newer than this build of entire-brain supports; upgrade entire-brain")
+
+// errGraphStoreContractOlder flags an installed Graph that DOES answer the
+// store command but reports a contract version older than this build
+// requires -- a present, responding Graph with an incompatible version. This
+// is deliberately a different sentinel from errGraphStoreUnsupported (the
+// command didn't exist at all, i.e. Graph is effectively absent): status
+// treats "absent" as the ordinary, silent case and must not collapse this
+// actionable version mismatch into the same bucket.
+var errGraphStoreContractOlder = errors.New("Graph's read-only store contract is older than this build of entire-brain requires; upgrade Graph")
 
 var errGraphStoreUnavailable = errors.New("Graph store unavailable")
 
@@ -209,9 +224,12 @@ func openSemanticReadDB(handle string) (*sql.DB, error) {
 
 // graphStoreViewMismatchError names both binaries: either direction can rename
 // or drop a brain_*_v1 view, so a raw sqlite "no such table" does not say
-// which one is wrong.
+// which one is wrong. The cause is only wrapped, not inspected -- a schema
+// mismatch is the likely reason but not the only one a view can fail to
+// resolve (a corrupted or concurrently-locked store can too), so the message
+// hedges between both remedies instead of asserting a diagnosis it can't verify.
 func graphStoreViewMismatchError(brainView string, cause error) error {
-	return fmt.Errorf("Graph store and entire-brain disagree on the store schema (missing view %s): %w; upgrade entire-brain or Graph to matching versions", brainView, cause)
+	return fmt.Errorf("Graph store view %s could not be resolved: %w (upgrade entire-brain or Graph to matching versions if this is a schema mismatch, or refresh the index if the store is corrupted)", brainView, cause)
 }
 
 func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, indexOpts semanticIndexOptions, target string) error {

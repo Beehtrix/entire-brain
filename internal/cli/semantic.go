@@ -1054,12 +1054,14 @@ func validateSemanticSchema(version string) error {
 //     doctor/status and every semantic read command, degraded rather than ok;
 //  3. semanticRefreshNeeded — refresh's non-fatal identity warning;
 //  4. validateImportedBundle — an imported bundle manifest, warning appended to
-//     the semantic source that is then persisted;
-//  5. readSemanticSnapshotSummary — a legacy NDJSON snapshot header.
+//     the semantic source that is then persisted.
 //
 // It returns nil for an unparseable or non-supported-major version:
-// validateSemanticSchema is the sole authority on rejecting those outright, and
-// each call site runs it first.
+// validateSemanticSchema is the sole authority on rejecting those outright.
+// validateImportedBundle runs it directly, first; the three live-path call
+// sites above never see a header validateSemanticSchema would reject, because
+// fetchGraphStore already ran it as a hard gate before producing the
+// descriptor they read schema_version from.
 func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 	major, minor, err := parseSemanticSchemaVersion(version)
 	if err != nil {

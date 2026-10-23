@@ -391,6 +391,9 @@ func TestGraphStoreSchemaMajorRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), semanticSupportedSchemaRange) {
 		t.Fatalf("error does not name the supported schema range: %v", err)
 	}
+	if !strings.Contains(err.Error(), "Graph") || !strings.Contains(err.Error(), "entire-brain") {
+		t.Fatalf("error does not name both binaries: %v", err)
+	}
 }
 
 // TestGraphStoreSchemaMinorSkewWarns pins defect (b)'s warn half: a header one

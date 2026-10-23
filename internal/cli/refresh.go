@@ -390,7 +390,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			if !needSemantic {
 				label := ": current"
 				if identityWarning != "" {
-					label = ": source unchanged; provider identity unverified"
+					// identityWarning today only ever carries the schema
+					// minor-skew detail (semanticRefreshNeeded), not an
+					// identity mismatch, so the label must not claim one.
+					label = ": source unchanged; see warning above"
 				}
 				semanticCheckTask.Update(refreshSemanticCheckLabel(manifest) + label)
 			}

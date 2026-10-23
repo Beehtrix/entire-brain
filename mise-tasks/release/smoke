@@ -293,16 +293,15 @@ pass
 # --------------------------------------------------------------- leg 6: upload
 leg 6
 
-# Backend pinning (COR-2233/2234/2235/2236): the hosted path for a connected
-# repo is the per-fact wire, and today `entire brain connect` is the only CLI
-# verb that triggers it (hostedFactsSyncAndPull; the others are the session-end
-# hook and the watcher). The legacy `memories sync --memories-backend http`
-# CAS loop cannot be used here: staging brainstore retired its facts/advance
-# endpoint when the per-fact protocol replaced it (404 today). When the
-# COR-2233 family exposes an explicit per-fact backend flag on `memories
-# sync`, move these two legs onto that flag.
+# Backend pinning (COR-2233/2234/2235/2236, merged in PR #452): memory sync is
+# hosted-only and --memories-backend=http IS the per-fact wire, so the explicit
+# flag below keeps this leg valid even if the default changes again. connect
+# records the binding (the consent moment) and runs the first sync; the
+# explicit sync after it is the exchange this leg asserts on.
 brain_a connect --repo-id "$REPO_ID" --api-url "$API_URL" ||
-  fail "connect (hosted sync up) failed"
+  fail "connect failed"
+brain_a memories sync --memories-backend http --branch "$smoke_branch" --json >/dev/null ||
+  fail "hosted memories sync (up) failed"
 
 # Remote visibility, straight from the hosted store, on this run's unique
 # branch (per-fact feed endpoint per internal/factsync/perfact.go:
@@ -344,10 +343,12 @@ leg 7
 
 git clone -q "$scratch" "$clone_b"
 git -C "$clone_b" checkout -q "$smoke_branch"
-# connect doubles as the first pull on a fresh clone; same per-fact pin as the
-# upload leg (COR-2233 family).
+# Same explicit per-fact pin as the upload leg; connect binds, the explicit
+# sync pulls the branch's feed into B's local store.
 brain_b connect --repo-id "$REPO_ID" --api-url "$API_URL" ||
-  fail "connect (hosted sync down) failed"
+  fail "connect on machine B failed"
+brain_b memories sync --memories-backend http --branch "$smoke_branch" --json >/dev/null ||
+  fail "hosted memories sync (down) failed"
 brain_b recall "Greet empty name invariant trailing space" --branch "$smoke_branch" --json |
   json_has_fact "$needle" ||
   fail "the fact pulled on machine B did not merge into its local store"

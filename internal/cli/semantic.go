@@ -5928,6 +5928,15 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
 	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(restored, ", "))
+	// brainBundleLayers carries no semantic layer: a 0.1.0-era bundle's code
+	// index (sources.semantic plus its semantic/snapshots|generations entries)
+	// is validated above but never restored. Without this, the import prints
+	// success and the operator finds out their code index is gone only when a
+	// later query comes back empty. slices.Contains guards against the notice
+	// going stale if a semantic layer is ever added to the table.
+	if importManifest.Sources.Semantic != nil && !slices.Contains(restored, bundleLayerSemantic) {
+		fmt.Fprintln(out, "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0")
+	}
 	return nil
 }
 
@@ -6050,6 +6059,12 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	var manifest exportManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parse bundle manifest: %w", err)
+	}
+	// Checked first, ahead of repo_key and every other field: a bundle from a
+	// newer format must be refused before this build guesses at fields it has
+	// never seen, not after it has already decided they look fine.
+	if manifest.SchemaVersion > brainManifestSchemaVersion {
+		return nil, fmt.Errorf("bundle schema_version %d is newer than supported version %d; upgrade entire-brain to import this bundle", manifest.SchemaVersion, brainManifestSchemaVersion)
 	}
 	symbolsPresent, relationsPresent, err := bundleSemanticCountPresence(data)
 	if err != nil {

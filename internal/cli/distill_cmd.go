@@ -1427,6 +1427,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
+			stampFactExtractor(records, distillOpts.agent, distillOpts.model, distillOpts.effort)
 			// Sharpen provenance where the entity index can place the fact's
 			// locus; a no-op (and never an error) when the index is absent.
 			records = applyEntityProvenance(records, distillOpts.entityProvenance)

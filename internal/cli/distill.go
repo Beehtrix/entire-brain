@@ -336,6 +336,16 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 	return records, warnings
 }
 
+// stampFactExtractor records which agent/model/effort generated the facts, so
+// eval runs can compare fact quality across extraction models.
+func stampFactExtractor(records []factRecord, agent, model, effort string) {
+	for i := range records {
+		records[i].Agent = strings.TrimSpace(agent)
+		records[i].Model = strings.TrimSpace(model)
+		records[i].Effort = strings.TrimSpace(effort)
+	}
+}
+
 // firstNonBlankLine returns the first line of s that is not blank, for use in a
 // diagnostic that has to show what the agent actually said.
 func firstNonBlankLine(s string) string {

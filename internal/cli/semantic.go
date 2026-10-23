@@ -1030,10 +1030,16 @@ func parseSemanticSchemaVersion(version string) (int, int, error) {
 func validateSemanticSchema(version string) error {
 	major, _, err := parseSemanticSchemaVersion(version)
 	if err != nil {
-		return fmt.Errorf("%w (this build reads %s)", err, semanticSupportedSchemaRange)
+		return fmt.Errorf("%w (this build reads %s); reinstall the provider with `entire plugin install graph`", err, semanticSupportedSchemaRange)
 	}
 	if strconv.Itoa(major) != semanticSupportedMajor {
-		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s", strconv.Itoa(major), semanticSupportedSchemaRange)
+		// Name which side of the pin is behind, so the reader upgrades the
+		// right binary instead of reinstalling the one that already works.
+		action := "the provider is behind this build; upgrade it with `entire plugin install graph`"
+		if supportedMajor, convErr := strconv.Atoi(semanticSupportedMajor); convErr == nil && major > supportedMajor {
+			action = "the provider is ahead of this build; upgrade entire-brain"
+		}
+		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s — %s", strconv.Itoa(major), semanticSupportedSchemaRange, action)
 	}
 	return nil
 }
@@ -1047,16 +1053,21 @@ func validateSemanticSchema(version string) error {
 // This is the single implementation of that rule, applied at every place a
 // schema_version crosses into this build alongside validateSemanticSchema:
 //
-//  1. runSemanticIndex — a live `entire graph snapshot` header, recorded as an
-//     index warning on the persisted manifest;
-//  2. semanticStaleReport — the "provider" freshness axis reported by brain
+//  1. graphStoreSource — the live Graph-owned store header, recorded on the
+//     semantic source manifest it assembles for index, refresh, status and
+//     brief;
+//  2. semanticFreshnessReport — the "graph" freshness axis reported by brain
 //     doctor/status and every semantic read command, degraded rather than ok;
-//  3. validateImportedBundle — an imported bundle manifest, warning appended to
+//  3. semanticRefreshNeeded — refresh's non-fatal identity warning;
+//  4. validateImportedBundle — an imported bundle manifest, warning appended to
 //     the semantic source that is then persisted.
 //
 // It returns nil for an unparseable or non-supported-major version:
-// validateSemanticSchema is the sole authority on rejecting those outright, and
-// each call site runs it first.
+// validateSemanticSchema is the sole authority on rejecting those outright.
+// validateImportedBundle runs it directly, first; the three live-path call
+// sites above never see a header validateSemanticSchema would reject, because
+// fetchGraphStore already ran it as a hard gate before producing the
+// descriptor they read schema_version from.
 func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 	major, minor, err := parseSemanticSchemaVersion(version)
 	if err != nil {
@@ -2298,12 +2309,20 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 		return staleReport{Severity: "degraded", Axes: map[string]staleAxis{"graph": {State: "missing", Detail: err.Error()}}}, nil
 	}
 	axes := map[string]staleAxis{"graph": {State: "ok", Current: d.Commit, Indexed: d.Commit, Detail: "Graph owns the committed-tree store"}}
+	var warnings []semanticWarning
+	// fetchGraphStore already refused a major mismatch; a newer supported-major
+	// minor reaches here and degrades the axis rather than failing the report,
+	// matching the warn-not-refuse half of ADR 0001 rule 3.
+	if skew := semanticSchemaMinorSkewWarning(d.Header.SchemaVersion); skew != nil {
+		warnings = append(warnings, *skew)
+		axes["graph"] = staleAxis{State: "degraded", Current: d.Commit, Indexed: d.Commit, Detail: skew.Detail}
+	}
 	if dirty, err := worktreeDirty(ctx, opts.Runner, repoDir); err != nil {
 		return staleReport{}, err
 	} else if dirty {
 		axes["worktree"] = staleAxis{State: dirtyUnindexedAxisState, Detail: "Graph store describes committed HEAD"}
 	}
-	return staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes}, nil
+	return staleReport{Severity: aggregateStaleSeverity(axes), Axes: axes, Warnings: warnings}, nil
 }
 
 const (
@@ -5928,6 +5947,15 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
 	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(restored, ", "))
+	// brainBundleLayers carries no semantic layer: a 0.1.0-era bundle's code
+	// index (sources.semantic plus its semantic/snapshots|generations entries)
+	// is validated above but never restored. Without this, the import prints
+	// success and the operator finds out their code index is gone only when a
+	// later query comes back empty. slices.Contains guards against the notice
+	// going stale if a semantic layer is ever added to the table.
+	if importManifest.Sources.Semantic != nil && !slices.Contains(restored, bundleLayerSemantic) {
+		fmt.Fprintln(out, "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0")
+	}
 	return nil
 }
 
@@ -6050,6 +6078,12 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	var manifest exportManifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, fmt.Errorf("parse bundle manifest: %w", err)
+	}
+	// Checked first, ahead of repo_key and every other field: a bundle from a
+	// newer format must be refused before this build guesses at fields it has
+	// never seen, not after it has already decided they look fine.
+	if manifest.SchemaVersion > brainManifestSchemaVersion {
+		return nil, fmt.Errorf("bundle schema_version %d is newer than supported version %d; upgrade entire-brain to import this bundle", manifest.SchemaVersion, brainManifestSchemaVersion)
 	}
 	symbolsPresent, relationsPresent, err := bundleSemanticCountPresence(data)
 	if err != nil {

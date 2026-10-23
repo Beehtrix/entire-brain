@@ -22,20 +22,12 @@ const echoedToken = "entire_pat_0123456789abcdef"
 
 func TestFactSetErrorsDoNotEchoTheBearerToken(t *testing.T) {
 	cases := map[string]func(*HTTPServer) error{
-		"Current": func(h *HTTPServer) error {
-			_, _, _, err := h.Current(t.Context(), "01HZZPROBE0000000000000000", "main")
+		"UpsertFacts": func(h *HTTPServer) error {
+			_, err := h.UpsertFacts(t.Context(), "01HZZPROBE0000000000000000", []byte("{}\n"))
 			return err
 		},
-		"Advance": func(h *HTTPServer) error {
-			_, err := h.Advance(t.Context(), "01HZZPROBE0000000000000000", "main", "old", []byte("{}\n"))
-			return err
-		},
-		"ListProposals": func(h *HTTPServer) error {
-			_, err := h.ListProposals(t.Context(), "01HZZPROBE0000000000000000", "main")
-			return err
-		},
-		"GetProposal": func(h *HTTPServer) error {
-			_, err := h.GetProposal(t.Context(), "01HZZPROBE0000000000000000", "main", "prop-1234567890abcdef")
+		"FactsFeedPage": func(h *HTTPServer) error {
+			_, err := h.FactsFeedPage(t.Context(), "01HZZPROBE0000000000000000", "", 100)
 			return err
 		},
 	}

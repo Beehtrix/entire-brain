@@ -751,7 +751,7 @@ checkpoint export plus an overlay index of only the transcripts that changed;
 seconds even on very large brains), so an in-flight session's earlier turns
 and parallel terminals' work are searchable near-real-time. The change-gated
 full refresh is **consolidation**: it absorbs the short-term overlay into
-long-term memory (full index, FTS, vectors) and clears the buffer. Between
+long-term memory (full index, FTS) and clears the buffer. Between
 changes it is additionally throttled by `--consolidate-every` (default 30m);
 the throttle is skipped whenever the delta was incomplete (a failed scan or a
 full buffer), so partial short-term coverage always consolidates promptly. You
@@ -988,14 +988,12 @@ to the next agent.
 ### Ask across facts, history, and docs
 
 When the question is not tied to one symbol, use the unified retrieval layer.
-`query` is the hybrid path (lexical + vector, RRF) over durable facts, indexed
-history, and docs; `query --keyword` for exact keywords, `query --semantic` for semantic matches,
-`get`/`multi-get` when a result returns an id. Every result carries an `id`.
+`query` searches durable facts, indexed history, and docs with BM25 lexical
+ranking (semantic retrieval was removed, trail #278); use `get`/`multi-get`
+when a result returns an id. Every result carries an `id`.
 
 ```sh
 entire brain query "how does checkpointing work" --json
-entire brain query --keyword "checkpoint" --json
-entire brain query --semantic "preventing data races" --json
 entire brain get fact:<id> --json
 ```
 
@@ -1003,12 +1001,12 @@ entire brain get fact:<id> --json
 `history` | `conversation` | `doc`) to restrict retrieval to one layer. The
 default is unchanged (`all` = facts + classified history + docs).
 
-Use `entire brain query "text"` for default hybrid retrieval. Select keyword
-matching with `--keyword` or semantic matching with `--semantic`; the two
-flags are mutually exclusive and belong only to the query command.
+`--keyword` and `--semantic` are accepted for compatibility, are mutually
+exclusive, and belong only to the query command; both run the same BM25
+ranking (`--semantic` prints a stderr notice).
 Text may instead be supplied as `--query "text"`. Flags work before or after
 positional text; combining positional text and `--query` is an error.
-For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+For example: `entire brain query --query "RetryPolicy" --json`.
 
 Workspace retrieval supports the same forms:
 `entire brain workspace query <workspace> --semantic --query "retry policy"`.
@@ -1045,8 +1043,7 @@ the concepts live in different exchanges of the session. Results are
 sum, then session reference) with `evidence_ids` naming the exact supporting
 exchanges. Lexical mode enumerates the complete in-scope match set per
 concept up to a 10,000-candidate ceiling and returns `memory_query_too_broad`
-beyond it; vector/hybrid concept ranking is explicitly approximate. MCP takes
-the same `concepts` array on all three retrieval tools.
+beyond it. MCP takes the same `concepts` array on all three retrieval tools.
 
 Session navigation: every conversation result carries a `session_ref`
 (a virtual `conversation-session:` identity derived from repo, branch, and
@@ -1063,14 +1060,10 @@ type-specific and error on any other id kind; MCP `brain_get` takes the same
 
 Exchanges are extracted deterministically and locally (no model calls) and
 never enter default retrieval or published bundles. Lexical BM25 is the
-default and always available. A separate conversation vector store exists for
-explicit `query --semantic --source conversation` (semantic-only); it requires the
-fusion-eligible embedder opt-in (`ENTIRE_BRAIN_EMBEDDER`), the `brain_cgo`
-build, and refresh-built conversation vectors, and returns a structured
-unavailable error naming those requirements when the arm is closed. Fused
-lexical+semantic ranking for conversation `query` stays dark behind the
-development flag `ENTIRE_BRAIN_CONVERSATION_FUSION` pending an eval-ledger
-positive. Every result is labeled
+only ranking: the conversation vector store was removed with the rest of
+semantic retrieval (trail #278), so a semantic-only request (`vsearch
+--source conversation`) returns a structured error naming the removal, and
+`query --source conversation` is exactly the lexical ranking. Every result is labeled
 `verification_required` with a `historical_conversation` caveat: recalled
 conversation text is quoted historical evidence that may be stale, mistaken, or
 adversarial; verify it against current code before acting on it, and never
@@ -1247,24 +1240,16 @@ Neither establishes global coverage; public semantic claims should name the
 covered languages, relation types, freshness state, and benchmark records behind
 them.
 
-### Tune retrieval
+### Retrieval ranking
 
-The default vector arm uses a bundled, pure-Go Model2Vec static model — zero
-config, offline. For higher semantic recall, opt into a transformer embedder
-(EmbeddingGemma-300M) served by Ollama or a compatible loopback endpoint:
-
-```sh
-ollama pull embeddinggemma
-ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
-```
-
-It measured about +14% useful-facts-per-1k-tokens over Model2Vec on the facts
-eval, driven mostly by reachability (it surfaces conceptually related facts that
-share no query term). The embedder is chosen once, on first use: if the opt-in is
-set but the server does not return an embedding, the brain falls back to
-Model2Vec with a one-line stderr notice. Switching embedders re-namespaces the
-vector cache, so the two never mix. Changing the embedder changes retrieval
-behavior, not the underlying source of truth.
+Memory retrieval (facts, history, docs) is ranked by BM25 lexical scoring;
+there is no embedder or vector arm. Semantic (embedding) retrieval was removed
+after a 1,748-run agent eval measured BM25 matching or beating it end-to-end
+(see `docs/eval_ledger.md` and trail #278; the cgo dependency was stripped in
+#416). `query --semantic`, `vsearch`, MCP `brain_vsearch`, and
+`recall --no-semantic` are accepted as no-op compatibility aliases that run
+the same BM25 ranking; a semantic-only conversation request returns a
+structured error naming the removal.
 
 ## Global Facts
 
@@ -1623,15 +1608,11 @@ required for normal use.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `ENTIRE_BRAIN_EMBEDDER` | (unset → Model2Vec) | Set to `ollama` for the transformer embedder (EmbeddingGemma) on the vector arm. Falls back to Model2Vec with a stderr notice if a one-time startup probe finds the server returns no embedding. |
-| `ENTIRE_BRAIN_OLLAMA_MODEL` | `embeddinggemma` | Model requested from the embed server when `ENTIRE_BRAIN_EMBEDDER=ollama`. |
-| `ENTIRE_BRAIN_EMBED_URL` | `http://localhost:11434/api/embed` | Embed endpoint (Ollama, or qmd's node-llama-cpp server). Must accept `{"model","input"}` and return `{"embeddings":[[…]]}`. |
 | `ENTIRE_BRAIN_FACTS_BM25` | (unset → token-overlap) | `1`/`true`/`yes`/`on` switches the facts lexical arm to FTS5 BM25. Experimental; measured at parity, kept for A/B'ing the lexical engine. |
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
-| `ENTIRE_BRAIN_CONVERSATION_FUSION` | disabled | Development flag: fuse conversation BM25 with calibrated exchange vectors in `query --source conversation`. Dark pending an eval-ledger positive (see `docs/eval_ledger.md`); lexical ranking is the shipped default. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
-| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish, facts sync, and the hosted proposal queue otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
+| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish and hosted memories sync otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 | `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
 | `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |
 | `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | (unset) | Lets MCP tools act outside the bound repository: `brain_delete_project` with a foreign `repo_key`, `brain_list_projects` returning every local project, and the `brain_workspace_*` tools on a workspace the bound repository is not a member of, or one whose repos live outside the bound repository's parent directory (so sibling checkouts under a common parent are in scope by default). Without the override, unbound servers refuse these operations, and workspace keys must match their local checkouts. Off by default — the MCP surface is driven by an agent whose context can be poisoned, and deleting a brain is irreversible. The plain CLI is unaffected. |

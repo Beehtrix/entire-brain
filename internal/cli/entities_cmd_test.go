@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/entityindex"
-	"github.com/entireio/entire-brain/internal/factgitmeta"
 )
 
 // entityIndexFixture wires a fake repository whose git and `entire graph diff`
@@ -722,43 +721,6 @@ func TestEntityProvenanceFallsBackWhenUnresolvable(t *testing.T) {
 	records = []factRecord{{Text: "unrelated", Locus: []string{"nothinghere"}, Provenance: []factAnchor{fallback}}}
 	if got := applyEntityProvenance(records, resolver); got[0].Provenance[0] != fallback {
 		t.Fatalf("an unresolvable locus changed the anchor: %+v", got[0].Provenance[0])
-	}
-}
-
-// TestEntityIndexSharesTheFactSyncGitMetaStore proves the index and the
-// fact-set head live on the same local ref under the same lock, rather than in
-// two unsynchronized stores over one git dir.
-func TestEntityIndexSharesTheFactSyncGitMetaStore(t *testing.T) {
-	fixture := newEntityIndexFixture(t)
-	fixture.run(t, "entities", "backfill", "--json")
-
-	gitDir, err := gitmetaDirForKey(fixture.opts.Env, fixture.storage.Key)
-	if err != nil {
-		t.Fatalf("gitmeta dir: %v", err)
-	}
-	backend, err := factgitmeta.NewLocalBackend(gitDir, fixture.storage.Key, fixture.opts.Now)
-	if err != nil {
-		t.Fatalf("open fact backend: %v", err)
-	}
-	if _, err := backend.Advance(context.Background(), fixture.storage.Key, "main", "", []byte("{\"id\":\"x\"}\n")); err != nil {
-		t.Fatalf("fact advance over the shared store: %v", err)
-	}
-	// The fact write moved the shared ref; the entity index must still read
-	// back intact (a separate ref or a clobbering write would lose it).
-	store, err := factgitmeta.OpenMetaStore(gitDir, fixture.opts.Now)
-	if err != nil {
-		t.Fatalf("open meta store: %v", err)
-	}
-	state, err := store.State()
-	if err != nil {
-		t.Fatalf("state: %v", err)
-	}
-	snap := entityindex.Load(state)
-	if got := snap.Commits("internal/pay/charge.go#function#ChargeCard"); len(got) != 2 {
-		t.Fatalf("entity index lost records across a fact-set write: %v", got)
-	}
-	if _, _, found, err := backend.Current(context.Background(), fixture.storage.Key, "main"); err != nil || !found {
-		t.Fatalf("fact head lost across the shared store: found=%v err=%v", found, err)
 	}
 }
 

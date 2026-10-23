@@ -373,9 +373,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
-			if exportOpts.skipTranscriptSweep {
-				return nil
-			}
+			// migration is nil when skipTranscriptSweep suppressed the plan above;
+			// sweepTranscriptCache(ctx, nil) is already a no-op.
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
@@ -595,8 +594,13 @@ func validateForcedOutputManifest(data []byte) error {
 		return err
 	}
 	normalizeBrainManifest(&manifest)
-	if manifest.SchemaVersion != brainManifestSchemaVersion {
-		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	// A range, not equality: a v3 (or any still-supported-for-read) manifest
+	// from an older build must remain removable by --force. Equality here once
+	// rejected exactly the stores this check exists to let a user discard --
+	// the --force removal is itself the remedy memory_admin.go recommends for a
+	// manifest this build cannot otherwise rewrite.
+	if manifest.SchemaVersion < brainManifestMinSchemaVersion || manifest.SchemaVersion > brainManifestSchemaVersion {
+		return fmt.Errorf("schema_version %d is outside the supported range [%d, %d]", manifest.SchemaVersion, brainManifestMinSchemaVersion, brainManifestSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")

@@ -719,6 +719,11 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	refreshOpts := watchDeterministicRefreshOptions(historyIndex)
 	refreshOpts.component = component
 	refreshOpts.bestEffort = bestEffort
+	// Shared by the watch daemon's per-tick consolidation and `setup`'s one-shot
+	// onboarding build -- both unattended, neither with anyone watching stderr
+	// for a deleted-files notice. Only user-invoked `refresh`/`path --ensure`
+	// sweep the transcript cache.
+	refreshOpts.skipTranscriptSweep = true
 	sub := &cobra.Command{}
 	sub.SetContext(ctx)
 	sub.SetOut(cmd.OutOrStdout())

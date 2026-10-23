@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,5 +118,47 @@ func TestWatchTickSkipsTranscriptSweep(t *testing.T) {
 
 	if _, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(sweepable))); err != nil {
 		t.Fatalf("background watch tick swept the transcript cache: %v", err)
+	}
+}
+
+// The watch daemon's full refresh (consolidation) runs in the SAME unattended
+// launchd tick as the delta: on the first tick, on every --consolidate-every
+// elapsed tick, and immediately whenever the short-term buffer overflows.
+// TestWatchTickSkipsTranscriptSweep alone over-claims coverage here -- it
+// drives only the delta half. This drives watchDeterministicRefresh (the
+// consolidation step itself, watch.go's steps.refresh) directly, after a real
+// tick has already established the persistent brain, and proves it leaves a
+// stale cached transcript alone too.
+func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
+	opts, repoDir, storage, _ := watchCommandFixture(t)
+	// An empty, successful routed checkpoint catalog: the fixture's local git
+	// refs are unmocked, so every export phase falls through to routed
+	// discovery via the "entire" binary. Without this, the FIRST tick's export
+	// failure is silently papered over as "degraded, fall back to seed" (no
+	// manifest exists yet to make it fatal), while the SECOND direct refresh
+	// call below has a manifest by then and the identical failure turns fatal
+	// -- hiding what this test means to exercise behind an unrelated fixture gap.
+	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+
+	// Establish the persistent brain the way the real daemon's first-ever tick
+	// does (the first refresh always runs).
+	if out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once"); err != nil {
+		t.Fatalf("watch once: %v\n%s", err, out)
+	}
+
+	sweepable := "sessions/main/stale.jsonl"
+	if err := writeTranscriptFile(storage.BrainDir, sweepable, []byte("stale")); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := &cobra.Command{}
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	if err := watchDeterministicRefresh(context.Background(), cmd, opts, repoDir); err != nil {
+		t.Fatalf("watch consolidation refresh: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(storage.BrainDir, filepath.FromSlash(sweepable))); err != nil {
+		t.Fatalf("watch consolidation refresh swept the transcript cache: %v", err)
 	}
 }

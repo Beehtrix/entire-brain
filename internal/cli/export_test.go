@@ -565,11 +565,38 @@ func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
 	}
 
 	err := removeForcedOutputDir(outputDir, "")
-	if err == nil || !strings.Contains(err.Error(), "schema_version") {
+	// Normalized SchemaVersion 0 -> 1 is within the supported read range, so an
+	// arbitrary file with no recognized brain sources is now rejected on that
+	// basis, not on schema_version.
+	if err == nil || !strings.Contains(err.Error(), "missing recognized brain sources") {
 		t.Fatalf("expected arbitrary manifest rejection, got %v", err)
 	}
 	if _, statErr := os.Stat(oldPath); statErr != nil {
 		t.Fatalf("arbitrary manifest output was removed: %v", statErr)
+	}
+}
+
+// --force must still be able to discard a manifest an older build wrote: a v3
+// store from before the v4 schema bump is exactly the "store we promise not to
+// break" that memory_admin.go's own remedy for an unrewritable manifest sends
+// a user to --force rebuild from. Equality against the current schema version
+// once refused this.
+func TestRemoveForcedOutputDirAcceptsOlderSupportedSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	v3Manifest := []byte(`{"schema_version":3,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), v3Manifest, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "stale.txt")
+	if err := os.WriteFile(marker, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	if err := removeForcedOutputDir(outputDir, ""); err != nil {
+		t.Fatalf("removeForcedOutputDir rejected a v3 manifest: %v", err)
+	}
+	if _, statErr := os.Stat(outputDir); !os.IsNotExist(statErr) {
+		t.Fatalf("v3 output directory was not removed: %v", statErr)
 	}
 }
 

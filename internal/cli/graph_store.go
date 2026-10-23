@@ -263,8 +263,12 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if err = writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
 		return err
 	}
-	if err = removeLegacyGraphArtifacts(storage.BrainDir); err != nil {
+	removed, err := removeLegacyGraphArtifacts(storage.BrainDir)
+	if err != nil {
 		return err
+	}
+	if removed {
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
 	}
 
 	var indexed struct {
@@ -279,16 +283,27 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	return nil
 }
 
-func removeLegacyGraphArtifacts(brainDir string) error {
+// removeLegacyGraphArtifacts deletes the pre-Graph-ownership semantic store
+// directories, if present, and reports whether it actually deleted anything --
+// the one signal callers need to announce a real, one-time destructive
+// removal rather than a routine no-op on an already-migrated brain.
+func removeLegacyGraphArtifacts(brainDir string) (bool, error) {
+	removed := false
 	for _, rel := range []string{"semantic/generations", "semantic/snapshots"} {
 		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-			return err
+			return removed, err
 		}
-		if err := os.RemoveAll(filepath.Join(brainDir, rel)); err != nil {
-			return err
+		path := filepath.Join(brainDir, rel)
+		if _, err := os.Lstat(path); err == nil {
+			removed = true
+		} else if !os.IsNotExist(err) {
+			return removed, err
+		}
+		if err := os.RemoveAll(path); err != nil {
+			return removed, err
 		}
 	}
-	return nil
+	return removed, nil
 }
 
 func migrateBrainGraphStorage(brainDir, repoKey string) error {
@@ -312,11 +327,13 @@ func migrateBrainGraphStorage(brainDir, repoKey string) error {
 		if err = writeBrainSemanticSource(brainDir, repoKey, source); err != nil {
 			return err
 		}
-		if err = removeLegacyGraphArtifacts(brainDir); err != nil {
-			return err
-		}
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
-		return nil
 	}
-	return removeLegacyGraphArtifacts(brainDir)
+	removed, err := removeLegacyGraphArtifacts(brainDir)
+	if err != nil {
+		return err
+	}
+	if removed {
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+	}
+	return nil
 }

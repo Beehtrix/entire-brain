@@ -233,6 +233,11 @@ type statusHealth struct {
 	// the verdict must say so rather than naming a command that cannot repair
 	// what it just listed.
 	HostCLIMissing bool
+	// SemanticProviderAbsent reports that the semantic index is missing AND
+	// the host CLI cannot launch a graph provider, so the refresh remedy alone
+	// cannot build it — the honest next step is the plugin install. Set only
+	// when the host CLI itself is present.
+	SemanticProviderAbsent bool
 	// DirtyWorktree reports uncommitted changes in the working tree. Both stages
 	// `refresh --agent none` would rebuild REFUSE that state by design — seed
 	// with "dirty_worktree: refusing to seed uncommitted content without
@@ -269,6 +274,11 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 	// Only one of the two: "no brain" already implies "no semantic index", and
 	// a verdict that said both would be reporting one fact twice.
 	health.SemanticMissing = !health.BrainMissing && report.Semantic == nil
+	// Probe only in the state the answer changes: a missing semantic index is
+	// repaired by refresh when a provider is installed and by the plugin
+	// install when none is. With no `entire` on PATH the install hint would be
+	// unfollowable, so HostCLIMissing keeps owning that message.
+	health.SemanticProviderAbsent = health.SemanticMissing && hostCLIOnPath() && !semanticProviderOnHost()
 	if report.Onboarding != nil {
 		health.HostCLIMissing = report.Onboarding.HostCLIMissing
 		for _, component := range report.Onboarding.Components {
@@ -366,6 +376,10 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	switch {
 	case h.BrainMissing:
 		return command
+	case h.SemanticMissing && h.SemanticProviderAbsent:
+		// Refresh cannot build what no installed provider produces; naming it
+		// anyway sends the reader through an exit that changes nothing.
+		return "the graph provider is not installed, so code context and semantic queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + semanticIndexVerb + "`"
 	case h.DirtyWorktree && h.repairCommand() == statusRemedyRefresh:
 		// The ONE remedy resolver for a dirty tree. Line() prints h.Cause
 		// directly underneath this, and the cause used to carry a SECOND,

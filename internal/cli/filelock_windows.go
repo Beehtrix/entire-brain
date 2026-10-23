@@ -20,7 +20,7 @@ func rejectOpenFileHardlink(path string, f *os.File, _ os.FileInfo, label string
 		return err
 	}
 	if info.NumberOfLinks > 1 {
-		return fmt.Errorf("%s must not be hardlinked: %s", label, path)
+		return fmt.Errorf("%s %w: %s", label, errFileHardlinked, path)
 	}
 	return nil
 }

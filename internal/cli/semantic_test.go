@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2934,6 +2935,92 @@ func TestBundleImportRejectsChecksumMismatch(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
 		t.Fatalf("import err = %v", err)
 	}
+}
+
+// TestBundleImportRefusesNewerSchema pins that the bundle's own manifest
+// schema_version -- a different field from sources.semantic.schema_version,
+// which validateSemanticSchema already enforces -- is checked before any
+// other validation in validateImportedBundle. The fixture manifest omits
+// repo_key, which would otherwise fail first; if the version check ever moved
+// behind that check, this test would start seeing "missing repo_key" instead.
+func TestBundleImportRefusesNewerSchema(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	archive := filepath.Join(t.TempDir(), "newer-schema.tar")
+	writeTestBundle(t, archive, map[string]string{
+		exportManifestFileName: `{"schema_version":99}`,
+	})
+	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
+	if err == nil {
+		t.Fatal("import err = nil, want rejection of a newer bundle schema")
+	}
+	msg := err.Error()
+	for _, want := range []string{"99", strconv.Itoa(brainManifestSchemaVersion), "upgrade entire-brain"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("import err = %q, want it to contain %q", msg, want)
+		}
+	}
+}
+
+func TestBundleImportAcceptsOlderSchema(t *testing.T) {
+	repoDir := t.TempDir()
+	env := semanticTestEnv(t, repoDir)
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+	archive := filepath.Join(t.TempDir(), "current-schema.tar")
+	writeTestBundle(t, archive, map[string]string{
+		exportManifestFileName: fmt.Sprintf(`{"schema_version":%d,"repo_key":"gh/example/repo","sources":{}}`, brainManifestSchemaVersion),
+	})
+	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+}
+
+// TestBundleImportNoticesDiscardedCodeIndex pins that a bundle carrying a
+// semantic source (the 0.1.0 bundle shape, before restoreBundleBrainLayers
+// grew its own layer table) tells the operator its code index was discarded
+// instead of silently dropping it while printing success.
+func TestBundleImportNoticesDiscardedCodeIndex(t *testing.T) {
+	const notice = "code index was not imported"
+
+	t.Run("with semantic payload", func(t *testing.T) {
+		repoDir := t.TempDir()
+		env := semanticTestEnv(t, repoDir)
+		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+		archive := filepath.Join(t.TempDir(), "legacy-semantic.tar")
+		writeTestBundle(t, archive, map[string]string{
+			exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
+			"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
+		})
+		cmd := &cobra.Command{Use: "bundle import"}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		if err := runSemanticBundleImport(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
+			t.Fatalf("import: %v", err)
+		}
+		if !strings.Contains(out.String(), notice) {
+			t.Fatalf("import output = %q, want it to contain %q", out.String(), notice)
+		}
+	})
+
+	t.Run("without semantic payload", func(t *testing.T) {
+		repoDir := t.TempDir()
+		env := semanticTestEnv(t, repoDir)
+		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
+		archive := filepath.Join(t.TempDir(), "no-semantic.tar")
+		writeTestBundle(t, archive, map[string]string{
+			exportManifestFileName: `{"schema_version":3,"repo_key":"gh/example/repo","sources":{}}`,
+		})
+		cmd := &cobra.Command{Use: "bundle import"}
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		if err := runSemanticBundleImport(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
+			t.Fatalf("import: %v", err)
+		}
+		if strings.Contains(out.String(), notice) {
+			t.Fatalf("import output = %q, want no discarded-code-index notice without a semantic payload", out.String())
+		}
+	})
 }
 
 func TestBundleImportChecksumCoversTrailingBytes(t *testing.T) {

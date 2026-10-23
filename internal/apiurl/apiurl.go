@@ -3,7 +3,7 @@
 //
 // Everything that flows to that base URL is sensitive: `brain publish` ships the
 // whole brain artifact bundle (semantic snapshots, branch overlays, durable facts,
-// manifest), `facts sync` ships the merged fact-set, the hosted proposal queue ships
+// manifest), `memories sync` ships the member's facts, the delta feed ships
 // cross-member proposals, and every one of them puts the member's bearer token in an
 // Authorization header. Without a floor, a base URL of "http://evil.example" sends
 // all of that — token included — in the clear to whatever that name resolves to.

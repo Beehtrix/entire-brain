@@ -78,39 +78,13 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	t.Setenv("ENTIRE_API_TOKEN", "tok")
 	t.Setenv("ENTIRE_REPO_ID", "repo-01HZZ")
 
-	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http", "--member", "member-C")
+	out, err := execute(t, NewRootCommand(f.opts), "facts", "sync", "--facts-backend", "http")
 	if err == nil {
 		t.Fatalf("facts sync to %s succeeded; want refusal\n%s", evilPlaintextURL, out)
 	}
 	assertNoNetworkAttempt(t, err)
 	if !strings.Contains(err.Error(), "insecure_api_url") {
 		t.Fatalf("facts sync error = %v; want an insecure_api_url refusal", err)
-	}
-}
-
-// TestFactsProposalsRefusesPlaintextNonLoopbackAPIURL covers the third command that
-// accepts a base URL (the hosted proposal queue).
-func TestFactsProposalsRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
-	f, fake, proposal := newHostedProposalsFixture(t)
-	t.Setenv("ENTIRE_BRAIN_ALLOW_INSECURE_API_URL", "")
-	t.Setenv("ENTIRE_BRAIN_ALLOW_HOSTED", "1")
-	t.Setenv("ENTIRE_API_URL", evilPlaintextURL)
-
-	for _, args := range [][]string{
-		{"facts", "proposals", "list"},
-		{"facts", "proposals", "apply", proposal.ID},
-	} {
-		out, err := execute(t, NewRootCommand(f.opts), args...)
-		if err == nil {
-			t.Fatalf("%v to %s succeeded; want refusal\n%s", args, evilPlaintextURL, out)
-		}
-		assertNoNetworkAttempt(t, err)
-		if !strings.Contains(err.Error(), "insecure_api_url") {
-			t.Fatalf("%v error = %v; want an insecure_api_url refusal", args, err)
-		}
-	}
-	if n := fake.count(); n != 0 {
-		t.Fatalf("refused commands still made %d HTTP request(s)", n)
 	}
 }
 

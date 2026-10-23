@@ -174,6 +174,11 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
 	addHidden(newHookCommand(opts))
 
+	// Tombstone: `init-agents` was removed (folded into `setup`). Hidden so
+	// scripts calling the old name fail with a pointer to the replacement
+	// instead of cobra's generic "unknown command".
+	addHidden(newInitAgentsTombstoneCommand())
+
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)
 

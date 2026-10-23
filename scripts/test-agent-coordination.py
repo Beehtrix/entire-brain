@@ -61,9 +61,9 @@ fi
         argv = [str(binaries[tool]), command, *extra]
         if command == 'setup':
             if tool == 'brain':
-                # --agent none matters: without it setup detaches a memory
-                # worker that launches whatever agent CLI it finds on PATH,
-                # spending real tokens and outliving the temporary directory.
+                # --agent none is defense in depth: no setup phase may resolve
+                # an agent CLI from the caller's PATH, so this test can never
+                # spend tokens even if a future default changes.
                 argv += ['--no-backfill', '--no-daemon', '--no-agent-hooks', '--agent', 'none']
                 if explicit:
                     argv.append(str(repo))
@@ -114,7 +114,9 @@ fi
             assert forbidden not in text
         # The directive itself. `entire graph query` is no longer banned: the
         # released graph exposes it and the guide now names it (#323 is history).
-        assert 'MUST be a Graph query' in text or product == 'brain', text[:400]
+        # Graph-only states a first-action absolute; the combined guide states one
+        # ordered sequence instead — both carry the every-question obligation.
+        assert 'MUST also go through Graph' in text or product == 'brain', text[:400]
         for name in ('AGENTS.md', 'CLAUDE.md'):
             content = (repo / name).read_text()
             assert content.count('<!-- entire-agent:begin -->') == 1
@@ -141,7 +143,7 @@ fi
         content = (repo / 'AGENTS.md').read_text()
         for user_text in ('User prefix\n', '\nMiddle\n', '\nUser suffix\n'):
             assert user_text in content
-        assert sum('Begin substantive tasks' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
+        assert sum('Both tools run, in this order' in p.read_text() for p in (repo / '.entire').glob('*.md')) == 1
         setup.unlink()
         run('graph', repo, 'setup')
         check(repo, 'graph', 'Graph and Brain')
@@ -289,21 +291,22 @@ finally:
     else:
         shutil.rmtree(tmp, ignore_errors=True)
 
-# The activation and installer core must remain byte-mirrored. The renderer and
-# its tests (guide.go, strict.go, preview.go, migration.go, brain-reference.md)
-# have deliberately diverged — guide wording currently evolves in graph first —
-# and the hook writers are product-specific (graph: claude_hook.go, brain:
-# claudehooks.go), so the mirror is pinned to the files that guard filesystem
-# safety and activation semantics.
-mirrored = [
-    'activation.go', 'activation_test.go', 'adapter_test.go',
-    'agents_hardlink_unix.go', 'agents_hardlink_windows.go', 'agents_notwindows.go',
-    'agents_reparse.go', 'agents_reparse_test.go', 'agents_windows.go', 'agents_windows_test.go',
-    'files.go', 'nested.go', 'nested_test.go', 'paths.go', 'report.go',
-]
+# Everything in agentsetup is byte-mirrored except the hook writers, which are
+# product-specific (graph: claude_hook*.go for the Claude SubagentStart hook;
+# brain: claudehooks*.go for the PreToolUse hook) and the wiring/product tests
+# that exercise only one side. Mirroring the renderer is what makes the render
+# parity above hold: both binaries install the same guide bytes, so the
+# installed guide no longer depends on which product ran setup last.
+product_specific = {
+    'claude_hook.go', 'claude_hook_test.go', 'claude_hook_unix_test.go',
+    'claudehooks.go', 'claudehooks_test.go', 'agents_wired_test.go',
+}
 brain_source = Path(__file__).resolve().parents[1] / 'internal/agentsetup'
 graph_source = Path(__file__).resolve().parents[2] / 'entire-graph/internal/agentsetup'
 if graph_source.exists():
-    for name in mirrored:
+    brain_files = {p.name for p in brain_source.iterdir() if p.is_file()} - product_specific
+    graph_files = {p.name for p in graph_source.iterdir() if p.is_file()} - product_specific
+    assert brain_files == graph_files, (brain_files ^ graph_files)
+    for name in sorted(brain_files):
         assert (brain_source / name).read_bytes() == (graph_source / name).read_bytes(), name
 print('PASS: compiled CLI modes, standalone without host, both orders, migration, regeneration, removal, strict/normal persistence, failures, preview parity, context, byte stability, no plugin inventory dispatch')

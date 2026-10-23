@@ -146,8 +146,9 @@ Brain-only guide containing no Graph instructions at all — installing Graph do
 not change that, because activation is recorded in the guide rather than probed.
 Run `entire graph setup` too if you want both.
 
-Run Brain's **last**. Each product rewrites the shared guide file from its own
-copy of the text, so whichever you run last decides the wording.
+The two setups compose in **either order**. The guide text is mirrored between
+the two products, so both render the same combined guide; each run only adds its
+own product to the recorded activation.
 
 Review the generated files and commit them together when the instructions should apply to your team. Restart your agent or reload its repository instructions so it picks up the guide.
 

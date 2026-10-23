@@ -13,7 +13,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
   phase runs. The agent wiring stays best-effort — a repository that will not
   accept the instruction files still gets a working brain and one warning
   naming a `setup` re-run as the repair. `agent-guide` remains the read-only
-  preview.
+  preview. The removed command fails with an error naming `setup` as the
+  replacement (#453).
 
 - Semantic (embedding) memory retrieval. A 1,748-run agent eval measured BM25
   lexical ranking matching or beating the embedder stack end-to-end (see
@@ -25,6 +26,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
   `entire brain capabilities --json` reports `semantic_compiled: false`.
   Graph's semantic code retrieval (`brain_code`, `brain_context`,
   `brain_impact`) is unaffected.
+
+- The gitmeta memory-sync backend and the branch-head CAS sync client: the
+  `--memories-backend` flag, the hosted proposals queue, and the
+  `memories proposals` command. One sync mechanism remains — the hosted
+  per-fact wire. A connected repository syncs hosted by default (connecting is
+  the consent); an unconnected repository keeps memories local and
+  `memories sync` fails with an error naming `connect`. Removed flag values
+  fail with a clear message (#452).
 
 ### Changed
 
@@ -43,6 +52,26 @@ All notable changes to `entire-brain` are recorded here. The format follows
   alias and the old flag names are accepted. JSON output keys, record ids
   (`fact:<hex>`), on-disk file names, the sync wire, and the eval harness are
   unchanged (tracked in COR-2190).
+- The brain manifest schema is v4. Older stores migrate forward on first use;
+  destructive migrations run only in the foreground, never from background
+  jobs (#459).
+- Bundle import rejects a bundle whose schema is newer than the binary and
+  announces discarded code indexes instead of silently dropping them (#454).
+- Every degraded-state warning names the command that repairs it, including
+  the previously dead-end "history index must not be hardlinked" failure, and
+  Graph-store version errors name the right binary and the command that
+  installs it (#457, #458, #461).
+- The default terminal theme is the Entire CLI palette, so brain output
+  matches the host CLI. The previous neutral 256-color scheme remains
+  available as a named theme via `--theme` / `ENTIRE_BRAIN_THEME` (#460).
+
+### Added
+
+- `mise run release:smoke`: an end-to-end release gate that exercises setup,
+  capture, distill, recall, graph query, hosted upload, and second-clone
+  pull/merge on scratch repositories (#451).
+- Nightly and release publishing are gated on a Windows verification job, so
+  Windows artifacts no longer ship untested (#455).
 
 ## [0.1.0] - 2026-09-19
 

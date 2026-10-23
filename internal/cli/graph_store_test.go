@@ -377,6 +377,34 @@ func TestGraphStoreOlderContractNamesGraphUpgrade(t *testing.T) {
 	})
 }
 
+// TestGraphIndexFailsFastOnOlderContract pins runGraphOwnedIndex's fail-fast
+// probe: an installed-but-older-contract Graph must be refused with the clear
+// "upgrade Graph (contract N)" message from fetchGraphStore's probe BEFORE the
+// real `graph index` command ever runs, not after it runs against an
+// incompatible Graph. The probe only checked errGraphStoreUnsupported after
+// the contract-newer/older sentinels were split; this pins that it also
+// checks errGraphStoreContractOlder. Asserting on the runner's call log
+// (rather than just the error text) matters here: the fixture's `graph index`
+// response always reports success regardless of contract version, so a test
+// that only inspected the returned error would pass even if the probe never
+// fired and a later fetchGraphStore call happened to produce the same text.
+func TestGraphIndexFailsFastOnOlderContract(t *testing.T) {
+	opts, repo, _, d := newGraphStoreFixture(t)
+	d.ContractVersion = 0
+	runner := opts.Runner.(*fakeCommandRunner)
+	overrideGraphStoreResponse(runner, repo, d)
+	err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{}, repo)
+	if err == nil {
+		t.Fatal("expected an unsupported-store error")
+	}
+	if !strings.Contains(err.Error(), "upgrade Graph") || !strings.Contains(err.Error(), "contract") {
+		t.Fatalf("error does not name Graph and the required store contract: %v", err)
+	}
+	if fakeRunnerCalled(runner, "entire", "graph", "index", "--repo", repo, "--head", "--profile", "full", "--format", "json") {
+		t.Fatal("index ran the real graph index command instead of failing fast on the probe")
+	}
+}
+
 // TestGraphStoreSchemaMajorRefused pins defect (b)'s hard-error half: a store
 // whose semantic schema major is newer than ADR 0001's supported range must be
 // refused with validateSemanticSchema's own wording, not silently copied in.

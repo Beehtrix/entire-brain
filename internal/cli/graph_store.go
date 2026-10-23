@@ -300,7 +300,14 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if !ok {
 		return errors.New("Graph indexing requires a runner supporting per-command environment")
 	}
-	if _, probeErr := fetchGraphStore(ctx, opts, repoDir, binary, profile); errors.Is(probeErr, errGraphStoreUnsupported) {
+	// Fail fast with the clear, specific message instead of letting an
+	// incompatible Graph run the real index command and surface a muddier
+	// binary-sourced error. Covers both directions reported by an installed
+	// Graph that actually answered (errGraphStoreContractOlder) and the case
+	// where it didn't answer at all (errGraphStoreUnsupported, Graph absent).
+	// errGraphStoreContractNewer is deliberately not fail-fasted here: Graph
+	// is ahead, not broken, and the real index command is Graph's own concern.
+	if _, probeErr := fetchGraphStore(ctx, opts, repoDir, binary, profile); errors.Is(probeErr, errGraphStoreUnsupported) || errors.Is(probeErr, errGraphStoreContractOlder) {
 		return probeErr
 	}
 	timeout := indexOpts.timeout

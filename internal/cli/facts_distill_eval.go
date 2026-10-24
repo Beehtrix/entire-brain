@@ -65,5 +65,6 @@ func newFactsDistillEvalCommand(opts Options) *cobra.Command {
 	}
 	cmd.AddCommand(newDistillEvalCorpusCommand(opts))
 	cmd.AddCommand(newDistillEvalRunCommand(opts))
+	cmd.AddCommand(newDistillEvalLabelsCommand(opts))
 	return cmd
 }

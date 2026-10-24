@@ -243,6 +243,37 @@ func TestDistillEvalRunProducesArtifactsInSandbox(t *testing.T) {
 	}
 }
 
+// run.json must hash the template the CHILD uses: the child env strips
+// ENTIRE_BRAIN_DISTILL_TEMPLATE, so with no --template the hash is the
+// embedded template's, regardless of the parent's env.
+func TestDistillEvalTemplateSHAIgnoresEnvOverride(t *testing.T) {
+	override := filepath.Join(t.TempDir(), "alt.md")
+	if err := os.WriteFile(override, []byte("OVERRIDE ${TAXONOMY_BLOCK}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envDistillTemplate, override)
+
+	got, err := distillEvalTemplateSHA("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv(envDistillTemplate)
+	embedded, err := distillEvalTemplateSHA("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != embedded {
+		t.Errorf("template sha honored the parent env override the child never sees: %s != %s", got, embedded)
+	}
+	fromOverride, err := distillEvalTemplateSHA(override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == fromOverride {
+		t.Error("sha matches the override template; it must match the embedded one")
+	}
+}
+
 func TestDistillEvalRunRefusesWithoutCorpus(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope.json")
 	_, err := runDistillEvalCommand(t, t.TempDir(), "run", "--corpus", missing, "--name", "x")

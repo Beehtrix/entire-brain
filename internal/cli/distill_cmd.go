@@ -342,12 +342,14 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				}
 				ps.chunks = chunkTranscript(distillInput, distillOpts.maxChunkBytes)
 				ps.chunkHashes = distillChunkHashes(ps.chunks, distillOpts.cacheSalt)
-				if !distillOpts.force {
+				if !distillOpts.force && distillOpts.rawFactsOut == "" {
 					// Re-dispatch only chunks the cache has not seen succeed.
 					// Facts from skipped chunks are already in the store, and
 					// upsert-by-content-id makes even a stale skip harmless. A
 					// force run bypasses reuse: it just DROPPED the distilled
-					// facts it is about to regenerate.
+					// facts it is about to regenerate. Raw eval mode also
+					// bypasses it: its output IS the deliverable, and a
+					// filtered chunk would silently undercount facts/chunks.
 					if done := prevCache.chunkSet(distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)); len(done) > 0 {
 						kept := ps.chunks[:0]
 						for i := range ps.chunks {

@@ -141,6 +141,67 @@ func TestDistillRawFactsOutLeavesCacheAndManifestUntouched(t *testing.T) {
 	}
 }
 
+// TestDistillRawFactsOutIgnoresChunkCache: a partly cached session (stale
+// fingerprint, some chunk hashes still current) must re-emit EVERY chunk in
+// raw mode — chunk-cache filtering would silently undercount facts and chunks.
+func TestDistillRawFactsOutIgnoresChunkCache(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	s1ChunkLines := func(rawPath string) int {
+		chunks, _ := readRawEvalLines(t, rawPath)
+		n := 0
+		for _, c := range chunks {
+			if c.SessionID == "s1" {
+				n++
+			}
+		}
+		return n
+	}
+
+	// Control: raw run on a fresh store with the extended transcript.
+	freshBrain := writeDistillFixture(t, now)
+	extend := func(brainDir string) {
+		path := filepath.Join(brainDir, "sessions", "main", "s1.jsonl")
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("turn three\n"); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+	}
+	extend(freshBrain)
+	freshRaw := filepath.Join(t.TempDir(), "fresh.jsonl")
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: 12, timeout: time.Minute, rawFactsOut: freshRaw}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), freshBrain, opts, now); err != nil {
+		t.Fatalf("fresh raw run: %v", err)
+	}
+	want := s1ChunkLines(freshRaw)
+	if want < 2 {
+		t.Fatalf("fixture too small to exercise chunk cache: %d chunks", want)
+	}
+
+	// Primed store: a normal run caches s1's original chunks, then the
+	// transcript grows, so the fingerprint misses but old chunk hashes hit.
+	primedBrain := writeDistillFixture(t, now)
+	primeOpts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: 12, timeout: time.Minute}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), primedBrain, primeOpts, now); err != nil {
+		t.Fatalf("priming run: %v", err)
+	}
+	extend(primedBrain)
+	primedRaw := filepath.Join(t.TempDir(), "primed.jsonl")
+	opts.rawFactsOut = primedRaw
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), primedBrain, opts, now); err != nil {
+		t.Fatalf("primed raw run: %v", err)
+	}
+	if got := s1ChunkLines(primedRaw); got != want {
+		t.Errorf("raw run on primed store emitted %d s1 chunk lines, want %d (chunk cache must not filter raw output)", got, want)
+	}
+}
+
 func TestDistillRawFactsOutFlagIsHidden(t *testing.T) {
 	cmd := newDistillCommand(Options{})
 	flag := cmd.Flags().Lookup("raw-facts-out")

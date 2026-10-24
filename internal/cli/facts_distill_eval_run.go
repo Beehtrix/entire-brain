@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	entirebrain "github.com/entireio/entire-brain"
 	"github.com/spf13/cobra"
 )
 
@@ -344,25 +345,26 @@ growth, because production reconciliation discards about half of proposals.`,
 	return cmd
 }
 
-// distillEvalTemplateSHA hashes the template BODY the run will use (override
-// file when given, embedded default otherwise), frontmatter stripped — the
-// same bytes distillTemplate() hands the agent path.
+// distillEvalTemplateSHA hashes the template BODY the CHILD run will use:
+// the override file when given, else the embedded template read directly —
+// NOT distillTemplate(), which honors the parent's ENTIRE_BRAIN_DISTILL_TEMPLATE
+// env; the child env strips that variable, so hashing through it could record
+// a template the child never used.
 func distillEvalTemplateSHA(templatePath string) (string, error) {
-	var body string
+	var raw []byte
+	var err error
 	if templatePath != "" {
-		data, err := os.ReadFile(templatePath)
+		raw, err = os.ReadFile(templatePath)
 		if err != nil {
 			return "", fmt.Errorf("read template %s: %w", templatePath, err)
 		}
-		body = stripTemplateFrontmatter(string(data))
 	} else {
-		var err error
-		body, err = distillTemplate()
+		raw, err = entirebrain.Templates.ReadFile(distillTemplateName)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("read embedded distill template: %w", err)
 		}
 	}
-	sum := sha256.Sum256([]byte(body))
+	sum := sha256.Sum256([]byte(stripTemplateFrontmatter(string(raw))))
 	return hex.EncodeToString(sum[:]), nil
 }
 

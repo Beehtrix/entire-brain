@@ -1534,7 +1534,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		if semantic.Branch != "" {
 			fmt.Fprintf(&b, "- Branch: `%s`\n", semantic.Branch)
 		}
-		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific semantic context.")
+		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific code context.")
 	}
 	var warnings []string
 	warnings = append(warnings, manifest.Warnings...)

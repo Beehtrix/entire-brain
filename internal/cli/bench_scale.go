@@ -267,7 +267,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		// brain instead of the absence of one, which is the confusion this
 		// whole command exists to avoid.
 		return fmt.Errorf(
-			"--skip-index found no semantic index for %s; run `%s` first, or drop --skip-index to build one",
+			"--skip-index found no code index for %s; run `%s` first, or drop --skip-index to build one",
 			repoDir, brainInvocation(os.LookupEnv, semanticIndexVerb))
 	}
 
@@ -729,7 +729,7 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		// "each" to report; the per-mode sample counts below still are.
 		fmt.Fprintf(out, "\nquery latency (%d queries)\n", len(r.Queries))
 	}
-	fmt.Fprintf(out, "  code_search runs against the semantic index (%s symbols).\n", humanCount(int64(r.Symbols)))
+	fmt.Fprintf(out, "  code_search runs against the code index (%s symbols).\n", humanCount(int64(r.Symbols)))
 	knowledgeCount := humanCount(int64(r.KnowledgeRecords))
 	if r.KnowledgeRecords < 0 {
 		knowledgeCount = "unknown"

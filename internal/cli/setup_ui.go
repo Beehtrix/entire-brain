@@ -194,7 +194,7 @@ func setupShortBuildLabel(label string) string {
 		{"seed baseline", "scanning repository files"},
 		{"history index", "indexing session history"},
 		{"doc index", "indexing documentation"},
-		{"semantic index", "indexing code"},
+		{"code index", "indexing code"},
 		{"reclassify facts", "organizing existing memories"},
 		{"pattern layer", "finding patterns in past sessions"},
 		{"entity index", "indexing code changes"},

@@ -234,7 +234,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		// Semantic symbols (snapshot.ndjson).
 		if sem := manifest.Sources.Semantic; sem != nil {
 			if syms, err := loadSemanticSymbols(brainDir, sem, limit); err != nil {
-				markSourceUnreadable(&snap.Home, "Semantic", "semantic unavailable: "+err.Error())
+				markSourceUnreadable(&snap.Home, "Code", "code index unavailable: "+err.Error())
 			} else {
 				snap.Semantic = dashSemanticViews(syms, repoDir)
 				snap.Notes = appendCapNote(snap.Notes, "semantic symbols", sem.Symbols, len(snap.Semantic))
@@ -285,7 +285,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	home.Sources = []tui.SourceHealth{
 		{Name: "Seed", Present: present.Seed, Detail: detail["seed"]},
 		{Name: "Sessions", Present: present.Sessions, Detail: detail["sessions"]},
-		{Name: "Semantic", Present: present.Semantic, Detail: detail["semantic"]},
+		{Name: "Code", Present: present.Semantic, Detail: detail["semantic"]},
 		{Name: "History", Present: present.History, Detail: detail["history"]},
 		{Name: "Facts", Present: present.Facts, Detail: detail["facts"]},
 	}

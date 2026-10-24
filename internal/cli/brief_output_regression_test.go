@@ -229,7 +229,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("corrupt semantic store should degrade: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
+		for _, warning := range []string{"code context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("semantic warning %q absent: %s", warning, out)
 			}

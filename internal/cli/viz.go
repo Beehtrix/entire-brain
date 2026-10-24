@@ -975,7 +975,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "no code graph — run `"+brainInvocation(os.LookupEnv, semanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -985,7 +985,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	// budget below, not mid-file here.
 	syms, err := semanticSymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
 	if err != nil {
-		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
+		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1252,7 +1252,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	syms, err := s.semanticSymbolPool(sem, pool)
 	if err != nil {
-		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
+		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1351,7 +1351,7 @@ func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
 	}
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph")
+		resp.Warnings = append(resp.Warnings, "no code graph")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}

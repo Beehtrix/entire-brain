@@ -117,7 +117,7 @@ func TestDashHomeViewSourcesAndNotBuilt(t *testing.T) {
 	}
 	var semDetail string
 	for _, s := range home.Sources {
-		if s.Name == "Semantic" {
+		if s.Name == "Code" {
 			semDetail = s.Detail
 		}
 	}

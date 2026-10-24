@@ -218,7 +218,7 @@ func TestReportSeparatesCodeSearchFromKnowledgeRetrieval(t *testing.T) {
 	}
 	// And it has to say what each one searched, or a reader cannot tell that
 	// the fast number came from an empty store.
-	if !strings.Contains(out, "semantic index") {
+	if !strings.Contains(out, "code index") {
 		t.Fatalf("the report does not say what code_search runs against:\n%s", out)
 	}
 	if !strings.Contains(out, "do not grow with the codebase") {
@@ -428,7 +428,7 @@ func TestSkipIndexRefusesARepositoryWithNoIndex(t *testing.T) {
 	if err == nil {
 		t.Fatal("a repository with no index was measured and reported as zeros")
 	}
-	if !strings.Contains(err.Error(), "no semantic index") {
+	if !strings.Contains(err.Error(), "no code index") {
 		t.Fatalf("the error does not name the cause: %v", err)
 	}
 	// And it must say what to do about it, with a command that RUNS: this

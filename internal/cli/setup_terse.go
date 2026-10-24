@@ -16,7 +16,7 @@ import (
 // in the short form: an id like "entities" tells a reader nothing they can act
 // on, and `doctor` already lists every component by name.
 var terseCapabilityLabels = map[string]string{
-	brainComponentSemantic: "semantic search",
+	brainComponentSemantic: "code context",
 	brainComponentHistory:  "history search",
 	brainComponentDocs:     "docs search",
 	// Session export earns a label for one reason: its commonest failure is

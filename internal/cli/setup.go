@@ -99,7 +99,7 @@ var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
 	brainComponentSeed:           "seed baseline",
 	brainComponentDocs:           "doc index",
-	brainComponentSemantic:       "semantic index",
+	brainComponentSemantic:       "code index",
 	brainComponentHistory:        "history index",
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",

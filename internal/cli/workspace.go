@@ -3651,7 +3651,7 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
 		return "no export manifest — scanned raw sessions only (run `" + brainInvocation(os.LookupEnv, "refresh") + "` for a full brain)"
 	case "missing-semantic":
-		return "semantic index missing — scanned raw sessions only"
+		return "code index missing — scanned raw sessions only"
 	case "unknown":
 		detail := f.Detail
 		if detail == "" {

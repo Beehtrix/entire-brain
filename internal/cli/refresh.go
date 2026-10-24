@@ -78,13 +78,13 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
-	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local code index after session and seed refresh")
 	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: persistent worktree code indexing is unsupported")
 	// The deprecation notice is the last thing a user of the old flag reads, so
 	// it has to name a command that runs. It named "entire brain index", which
 	// never existed in either spelling.
 	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
-		fmt.Sprintf("use `%s --worktree` for an explicit semantic worktree snapshot", brainInvocation(os.LookupEnv, semanticIndexVerb)))
+		fmt.Sprintf("use `%s --worktree` for an explicit worktree code index", brainInvocation(os.LookupEnv, semanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -408,9 +408,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				needSemantic = true
 			}
 			if needSemantic {
-				semanticTask := progress.Begin("semantic index")
+				semanticTask := progress.Begin("code index")
 				semanticProgress := func(phase string) {
-					semanticTask.Update("semantic index: " + phase)
+					semanticTask.Update("code index: " + phase)
 				}
 				// The provider does not announce how many files it is about to
 				// emit, so the bar is scaled by the PREVIOUS generation's file
@@ -622,7 +622,7 @@ func pluralUnit(unit string, count int) string {
 // the uncommitted content instead of resolving it) does, so the remedy is git's
 // — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
 func refreshWorktreeSemanticSkipNote(brainCmd string) string {
-	return "note: semantic index not rebuilt -- --worktree refreshes seed and docs only;" +
+	return "note: code index not rebuilt -- --worktree refreshes seed and docs only;" +
 		" commit or stash the working tree, then run `" + brainCmd + " refresh` to index it"
 }
 
@@ -686,16 +686,16 @@ func refreshHistoryLabel(source *historySourceManifest) string {
 func refreshSemanticCheckLabel(manifest *exportManifest) string {
 	source := existingSemanticSource(manifest)
 	if source == nil {
-		return "check semantic index"
+		return "check code index"
 	}
-	return "check semantic index: " + refreshSemanticCounts(source)
+	return "check code index: " + refreshSemanticCounts(source)
 }
 
 func refreshSemanticLabel(source *semanticSourceManifest) string {
 	if source == nil {
-		return "semantic index"
+		return "code index"
 	}
-	return "semantic index: " + refreshSemanticCounts(source)
+	return "code index: " + refreshSemanticCounts(source)
 }
 
 func refreshSemanticCounts(source *semanticSourceManifest) string {
@@ -916,7 +916,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
-		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
+		return errors.New("code index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

@@ -52,7 +52,7 @@ func (t Tab) String() string {
 	case TabHistory:
 		return "History"
 	case TabSemantic:
-		return "Semantic"
+		return "Code"
 	case TabSearch:
 		return "Search"
 	default:

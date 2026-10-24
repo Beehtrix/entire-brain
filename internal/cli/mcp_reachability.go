@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,8 +68,15 @@ func probeMCPToolSurface(ctx context.Context, binary string, timeout time.Durati
 	if err != nil {
 		return mcpSurfaceProbe{}, fmt.Errorf("open stdout from %s: %w", binary, err)
 	}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	// os/exec spawns its own goroutine to copy into a Stderr that is not an
+	// *os.File, and documents that Wait must happen before the destination is
+	// read. The error paths below read it BEFORE Wait on purpose -- the
+	// server's own message is the most useful thing it leaves behind -- so the
+	// sink has to be safe for a concurrent read. It was a plain
+	// strings.Builder first, which `go test -race` caught as a real data race
+	// between exec's copier and mcpProbeExitError.
+	stderr := &lockedBuilder{}
+	cmd.Stderr = stderr
 	// Bound Wait as well as the context. CommandContext kills the process it
 	// started, but not that process's children, and a surviving grandchild
 	// keeps the stdout pipe open -- so a drain-and-Wait in the defer blocks on
@@ -98,19 +106,19 @@ func probeMCPToolSurface(ctx context.Context, binary string, timeout time.Durati
 		return err
 	}
 	if err := request(1, "initialize"); err != nil {
-		return mcpSurfaceProbe{}, mcpProbeExitError("write initialize", binary, err, &stderr)
+		return mcpSurfaceProbe{}, mcpProbeExitError("write initialize", binary, err, stderr)
 	}
 	if err := request(2, "tools/list"); err != nil {
-		return mcpSurfaceProbe{}, mcpProbeExitError("write tools/list", binary, err, &stderr)
+		return mcpSurfaceProbe{}, mcpProbeExitError("write tools/list", binary, err, stderr)
 	}
 
 	reader := bufio.NewReader(stdout)
 	if _, err := readMCPFrame(reader); err != nil {
-		return mcpSurfaceProbe{}, mcpProbeExitError("read the initialize response", binary, err, &stderr)
+		return mcpSurfaceProbe{}, mcpProbeExitError("read the initialize response", binary, err, stderr)
 	}
 	frame, err := readMCPFrame(reader)
 	if err != nil {
-		return mcpSurfaceProbe{}, mcpProbeExitError("read the tools/list response", binary, err, &stderr)
+		return mcpSurfaceProbe{}, mcpProbeExitError("read the tools/list response", binary, err, stderr)
 	}
 
 	var envelope struct {
@@ -135,10 +143,30 @@ func probeMCPToolSurface(ctx context.Context, binary string, timeout time.Durati
 	return mcpSurfaceProbe{Tools: tools}, nil
 }
 
+// lockedBuilder is a strings.Builder that tolerates the concurrent write
+// os/exec performs from its copier goroutine while a caller reads what has
+// arrived so far.
+type lockedBuilder struct {
+	mu      sync.Mutex
+	builder strings.Builder
+}
+
+func (b *lockedBuilder) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.builder.Write(p)
+}
+
+func (b *lockedBuilder) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.builder.String()
+}
+
 // mcpProbeExitError turns a pipe failure into the reason the server went away,
 // because a closed pipe is the symptom and the server's own stderr is usually
 // the cause.
-func mcpProbeExitError(step, binary string, cause error, stderr *strings.Builder) error {
+func mcpProbeExitError(step, binary string, cause error, stderr *lockedBuilder) error {
 	detail := firstLine(strings.TrimSpace(stderr.String()))
 	if detail == "" {
 		return fmt.Errorf("could not %s from the MCP server at %s: %w", step, binary, cause)

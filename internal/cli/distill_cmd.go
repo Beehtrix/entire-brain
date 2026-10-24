@@ -518,6 +518,11 @@ type distillCommandOptions struct {
 	legacyCacheSalt     string
 	checkpointBacked    bool
 	transcriptMode      string
+	// rawFactsOut puts the run in extraction-only eval mode: parsed chunk
+	// output streams to this JSONL path, and nothing else happens — no
+	// reconcile, no store writes, no cache fingerprints — so a rerun
+	// re-processes every session and the real store is never touched.
+	rawFactsOut string
 	// newestFirst distills the most recent sessions BEFORE older ones. The
 	// default (false) keeps the established oldest-first order, where a later
 	// session's fact naturally supersedes an earlier one's. Newest-first is for
@@ -780,6 +785,8 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful memories land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
 	cmd.Flags().StringVar(&distillOpts.callTracePath, "call-trace", "", "Write one JSON line per extraction agent call (latency, slot wait, tokens) to this file for profiling")
+	cmd.Flags().StringVar(&distillOpts.rawFactsOut, "raw-facts-out", "", "Extraction-only eval mode: stream parsed chunk output to this JSONL path; skip reconcile, store writes, and cache fingerprints")
+	_ = cmd.Flags().MarkHidden("raw-facts-out")
 	return cmd
 }
 
@@ -1050,6 +1057,18 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return resolveDistillBranch(manifest, session)
 	})
 
+	var rawFactsEnc *json.Encoder
+	if distillOpts.rawFactsOut != "" {
+		rawFile, err := os.Create(distillOpts.rawFactsOut)
+		if err != nil {
+			return nil, fmt.Errorf("create raw facts output: %w", err)
+		}
+		// Unbuffered file writes: each encoded line hits disk, so a killed run
+		// keeps every completed chunk.
+		defer rawFile.Close()
+		rawFactsEnc = json.NewEncoder(rawFile)
+	}
+
 	byBranch := map[string][]factRecord{}
 	baselineByBranch := map[string][]factRecord{}
 	proposalsByBranch := map[string][]factProposal{}
@@ -1281,6 +1300,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	batchTotals := reconcileBatchStats{}
 	reconcileBranch := func(b string) {
+		if rawFactsEnc != nil {
+			return // extraction-only eval mode: raw output is the deliverable
+		}
 		reconcileStarted := time.Now()
 		updated, pending, stats, recWarnings := reconcileStagedCandidates(ctx, distillOpts.run, reconcileArgs, byBranch[b], append(append([]factProposal(nil), queuedByBranch[b]...), proposalsByBranch[b]...), repoDir, distillOpts.timeout, distillOpts.concurrency, now)
 		if stats.Candidates == 0 {
@@ -1460,6 +1482,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			// locus; a no-op (and never an error) when the index is absent.
 			records = applyEntityProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
+			if rawFactsEnc != nil {
+				writeRawEvalLines(rawFactsEnc, session, branch, chunkIdx, len(ps.chunks), records, &warnings)
+				if len(records) > 0 {
+					factsFound += len(records)
+					chunksDistilled++
+				}
+				continue
+			}
 			if len(records) == 0 {
 				maybeFlush()
 				continue
@@ -1484,8 +1514,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		// Only cache a session as distilled when every chunk succeeded, so a
 		// session whose agent calls failed is retried on the next run rather
-		// than being silently treated as done.
-		if !sessionFailed {
+		// than being silently treated as done. Raw eval mode never caches:
+		// nothing was persisted, so a rerun must re-process the session.
+		if !sessionFailed && rawFactsEnc == nil {
 			doneKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			newCache.Sessions[doneKey] = ps.fingerprint
 			if newCache.Chunks == nil {
@@ -2347,6 +2378,54 @@ func grandfatheredDistillFingerprint(cache distillCache, session exportSession, 
 		}
 	}
 	return false
+}
+
+// distillRawChunkLine and distillRawFactLine are the two JSONL line types
+// `--raw-facts-out` emits; the distill-eval harness consumes them. chunk_index
+// is 1-based. checkpoint_id carries the chunk anchor's heuristic stamp and
+// must not be trusted for per-checkpoint attribution.
+type distillRawChunkLine struct {
+	Type         string `json:"type"`
+	SessionID    string `json:"session_id"`
+	Branch       string `json:"branch"`
+	ChunkIndex   int    `json:"chunk_index"`
+	ChunkCount   int    `json:"chunk_count"`
+	FactsEmitted int    `json:"facts_emitted"`
+	Cap          int    `json:"cap"`
+}
+
+type distillRawFactLine struct {
+	Type         string   `json:"type"`
+	SessionID    string   `json:"session_id"`
+	Branch       string   `json:"branch"`
+	ChunkIndex   int      `json:"chunk_index"`
+	FactID       string   `json:"fact_id"`
+	Kind         string   `json:"kind"`
+	Paths        []string `json:"paths"`
+	Text         string   `json:"text"`
+	CheckpointID string   `json:"checkpoint_id"`
+}
+
+func writeRawEvalLines(enc *json.Encoder, session exportSession, branch string, chunkIdx, chunkCount int, records []factRecord, warnings *[]string) {
+	lines := make([]any, 0, len(records)+1)
+	lines = append(lines, distillRawChunkLine{
+		Type: "chunk", SessionID: session.SessionID, Branch: branch,
+		ChunkIndex: chunkIdx + 1, ChunkCount: chunkCount,
+		FactsEmitted: len(records), Cap: factsMaxPerChunkValue(),
+	})
+	for _, r := range records {
+		lines = append(lines, distillRawFactLine{
+			Type: "fact", SessionID: session.SessionID, Branch: branch,
+			ChunkIndex: chunkIdx + 1, FactID: r.ID, Kind: r.Kind,
+			Paths: r.Paths, Text: r.Text, CheckpointID: r.Provenance[0].CheckpointID,
+		})
+	}
+	for _, line := range lines {
+		if err := enc.Encode(line); err != nil {
+			*warnings = append(*warnings, fmt.Sprintf("raw facts output write failed: %v", err))
+			return
+		}
+	}
 }
 
 func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {

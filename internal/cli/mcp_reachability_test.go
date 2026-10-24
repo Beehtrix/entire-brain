@@ -23,13 +23,20 @@ func mcpFakeServer(t *testing.T, body string) string {
 		t.Skip("the fake server is a POSIX shell script")
 	}
 	path := filepath.Join(t.TempDir(), "fake-brain")
-	// The fake drains stdin in the background and stays alive until the probe
-	// closes it. A fake that printf'd and exited immediately raced the probe's
-	// own write: on a fast machine the script was gone before `initialize` was
-	// written, the write hit EPIPE, and the test failed with "broken pipe"
-	// instead of exercising anything. It passed locally on timing luck and
-	// failed on CI, which is the whole reason this comment exists.
-	script := "#!/bin/sh\ncat >/dev/null &\n" + body + "\nwait\n"
+	// The fake drains stdin and stays alive until the probe closes it. A fake
+	// that printf'd and exited immediately raced the probe's own write: the
+	// script was gone before `initialize` was written, the write hit EPIPE,
+	// and the test failed with "broken pipe" instead of exercising anything.
+	//
+	// The `exec 3<&0` is load-bearing and not a style choice. POSIX gives a
+	// BACKGROUND job's stdin /dev/null before any explicit redirection, so a
+	// plain `cat >/dev/null &` reads nothing, exits at once, and `wait`
+	// returns immediately -- the script dies anyway. Reproduced in dash, which
+	// is what /bin/sh is on the CI runners: the plain form returns from `wait`
+	// immediately, the fd-dup form returns only once stdin closes. macOS's
+	// /bin/sh happened to behave the other way, which is why the plain form
+	// passed every local run and failed only on CI.
+	script := "#!/bin/sh\nexec 3<&0\ncat <&3 >/dev/null &\n" + body + "\nwait\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -292,5 +299,70 @@ func TestMCPProbeWaitsForAServersLateReason(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "the brain store is locked by another process") {
 		t.Fatalf("the server's reason arrived after its stdout closed and was lost; got: %v", err)
+	}
+}
+
+// TestFakeServerDrainKeepsStdinOpen asserts the SHELL PROPERTY the fakes
+// depend on, not the probe, because the probe end of it is a race that depends
+// on machine load and cannot be made to fail on demand.
+//
+// POSIX gives a background job's stdin /dev/null before any explicit
+// redirection. So `cat >/dev/null &` drains nothing, exits at once, and the
+// following `wait` returns immediately -- the fake dies regardless of the
+// drain, and the probe's write then hits EPIPE. `exec 3<&0` plus `cat <&3`
+// gives the background reader an explicit redirection from the real stdin,
+// which overrides that default.
+//
+// This is asserted against dash as well as /bin/sh, because the two disagree:
+// the plain form passed every local run on macOS and failed only on the CI
+// runners, where /bin/sh is dash. Measuring the difference directly is what
+// turns that into a local guard.
+func TestFakeServerDrainKeepsStdinOpen(t *testing.T) {
+	t.Parallel()
+	shells := []string{"/bin/sh"}
+	if dash, err := exec.LookPath("dash"); err == nil {
+		shells = append(shells, dash)
+	}
+	// waited reports whether `wait` blocked until stdin closed, which is the
+	// property a fake needs to outlive the prober's writes.
+	waited := func(t *testing.T, shell, drain string) bool {
+		t.Helper()
+		script := filepath.Join(t.TempDir(), "drain.sh")
+		if err := os.WriteFile(script, []byte("#!"+shell+"\n"+drain+"\nwait\necho done\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(script)
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		done := make(chan struct{})
+		go func() { _ = cmd.Wait(); close(done) }()
+		// Hold stdin open. A shell that drains correctly cannot finish yet.
+		select {
+		case <-done:
+			_ = stdin.Close()
+			return false
+		case <-time.After(400 * time.Millisecond):
+		}
+		_ = stdin.Close()
+		select {
+		case <-done:
+			return true
+		case <-time.After(5 * time.Second):
+			t.Fatal("the script never exited after stdin closed")
+			return false
+		}
+	}
+	for _, shell := range shells {
+		if waited(t, shell, "cat >/dev/null &") {
+			t.Logf("%s: the plain background drain happens to work here", shell)
+		}
+		if !waited(t, shell, "exec 3<&0\ncat <&3 >/dev/null &") {
+			t.Fatalf("%s: the fd-dup drain did NOT keep stdin open, so a fake cannot outlive the prober's writes", shell)
+		}
 	}
 }

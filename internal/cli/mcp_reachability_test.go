@@ -23,7 +23,13 @@ func mcpFakeServer(t *testing.T, body string) string {
 		t.Skip("the fake server is a POSIX shell script")
 	}
 	path := filepath.Join(t.TempDir(), "fake-brain")
-	script := "#!/bin/sh\n" + body
+	// The fake drains stdin in the background and stays alive until the probe
+	// closes it. A fake that printf'd and exited immediately raced the probe's
+	// own write: on a fast machine the script was gone before `initialize` was
+	// written, the write hit EPIPE, and the test failed with "broken pipe"
+	// instead of exercising anything. It passed locally on timing luck and
+	// failed on CI, which is the whole reason this comment exists.
+	script := "#!/bin/sh\ncat >/dev/null &\n" + body + "\nwait\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -263,5 +269,28 @@ func TestMCPSurfaceCheckNeverSpawnsTheTestBinary(t *testing.T) {
 	}
 	if strings.Contains(details[0], self) {
 		t.Fatalf("the check probed the TEST BINARY, which re-runs this package: %v", details[0])
+	}
+}
+
+// TestMCPProbeWaitsForAServersLateReason makes the stderr wait provable
+// locally instead of only on CI.
+//
+// os/exec copies stderr on its own goroutine, so whether a reason has arrived
+// by the time an error path reads it is pure timing. The flaw this guards
+// shipped once and passed every local run: on macOS the copier happened to win
+// the race, and only CI's timing exposed it. This fake removes the race from
+// the other side -- it closes stdout FIRST, so the probe is already in its
+// error path, and only then writes the reason. Without the wait, the probe
+// reads an empty buffer and reports the symptom (EOF / broken pipe) instead of
+// the cause, which is the one thing this whole check exists to do.
+func TestMCPProbeWaitsForAServersLateReason(t *testing.T) {
+	t.Parallel()
+	server := mcpFakeServer(t, "exec 1>&-\nsleep 0.4\necho 'the brain store is locked by another process' >&2\nexit 9\n")
+	_, err := probeMCPToolSurface(context.Background(), server, 10*time.Second)
+	if err == nil {
+		t.Fatal("a server that closed stdout and exited 9 must not probe clean")
+	}
+	if !strings.Contains(err.Error(), "the brain store is locked by another process") {
+		t.Fatalf("the server's reason arrived after its stdout closed and was lost; got: %v", err)
 	}
 }

@@ -91,14 +91,27 @@ func probeMCPToolSurface(ctx context.Context, binary string, timeout time.Durati
 		// hides: the path does not exist any more.
 		return mcpSurfaceProbe{}, fmt.Errorf("could not start the MCP server at %s: %w", binary, err)
 	}
-	defer func() {
+	// settle closes the pipes and reaps the process, at most once. The error
+	// paths below call it BEFORE reading stderr, which matters: os/exec copies
+	// stderr on its own goroutine, so a probe that failed in microseconds (a
+	// server that answered and exited, say) would otherwise read an empty
+	// buffer and report "broken pipe" instead of the reason the server gave.
+	// Naming the cause is the entire point of this check, so it waits for the
+	// cause to arrive. WaitDelay bounds that wait.
+	var settled bool
+	settle := func() {
+		if settled {
+			return
+		}
+		settled = true
 		// Close stdin first so a well-behaved server exits on EOF, then let
-		// WaitDelay deal with one that does not. Nothing drains stdout here:
+		// WaitDelay deal with one that does not. Nothing drains stdout:
 		// draining is what made this unbounded.
 		_ = stdin.Close()
 		_ = stdout.Close()
 		_ = cmd.Wait()
-	}()
+	}
+	defer settle()
 
 	request := func(id int, method string) error {
 		payload := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"method":%q,"params":{}}`, id, method)
@@ -106,18 +119,22 @@ func probeMCPToolSurface(ctx context.Context, binary string, timeout time.Durati
 		return err
 	}
 	if err := request(1, "initialize"); err != nil {
+		settle()
 		return mcpSurfaceProbe{}, mcpProbeExitError("write initialize", binary, err, stderr)
 	}
 	if err := request(2, "tools/list"); err != nil {
+		settle()
 		return mcpSurfaceProbe{}, mcpProbeExitError("write tools/list", binary, err, stderr)
 	}
 
 	reader := bufio.NewReader(stdout)
 	if _, err := readMCPFrame(reader); err != nil {
+		settle()
 		return mcpSurfaceProbe{}, mcpProbeExitError("read the initialize response", binary, err, stderr)
 	}
 	frame, err := readMCPFrame(reader)
 	if err != nil {
+		settle()
 		return mcpSurfaceProbe{}, mcpProbeExitError("read the tools/list response", binary, err, stderr)
 	}
 

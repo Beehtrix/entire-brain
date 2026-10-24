@@ -403,7 +403,7 @@ func newSemanticIndexCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&indexOpts.force, "force", false, "Force Graph to rebuild its committed-tree store")
 	cmd.Flags().StringVar(&indexOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
-	cmd.Flags().BoolVar(&indexOpts.skipGraph, "skip-graph", false, "Record semantic metadata without invoking the semantic provider")
+	cmd.Flags().BoolVar(&indexOpts.skipGraph, "skip-graph", false, "Record code-index metadata without invoking the graph provider")
 	cmd.Flags().BoolVar(&indexOpts.worktree, "worktree", false, "Deprecated: persistent worktree indexing is unsupported; use Graph queries")
 	cmd.Flags().DurationVar(&indexOpts.timeout, "graph-timeout", 0, "Overall deadline for Graph indexing (0 uses the default)")
 	cmd.Flags().DurationVar(&indexOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Deprecated: unused by Graph-owned indexing; use --graph-timeout")
@@ -448,7 +448,7 @@ func newSemanticResetCommand(opts Options) *cobra.Command {
 			return runSemanticReset(cmd.Context(), cmd, opts, resetOpts, target)
 		},
 	}
-	cmd.Flags().BoolVar(&resetOpts.semanticOnly, "semantic-only", false, "Clear Brain semantic metadata, legacy artifacts and runtime observations")
+	cmd.Flags().BoolVar(&resetOpts.semanticOnly, "semantic-only", false, "Clear Brain code-index metadata, legacy artifacts and runtime observations")
 	cmd.Flags().BoolVar(&resetOpts.force, "force", false, "Confirm removal without an interactive prompt")
 	return cmd
 }
@@ -498,12 +498,12 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 			return err
 		}
 		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
-			return fmt.Errorf("remove semantic artifacts: %w", err)
+			return fmt.Errorf("remove code-index artifacts: %w", err)
 		}
 		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "reset semantic brain: %s\n", storage.BrainDir)
+		fmt.Fprintf(cmd.OutOrStdout(), "reset code index: %s\n", storage.BrainDir)
 		return nil
 	}
 	unlockBrain, err := acquireBrainWriteLock(storage.BrainDir)
@@ -2566,7 +2566,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if len(results) == 0 {
 		printSemanticNoSymbolMatch(cmd, storePathForInventory, query)
@@ -2589,7 +2589,7 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 // in prose; this is that same idiom, extended with the query so an empty index
 // stays distinguishable from an unlucky search term.
 func printSemanticNoMatch(cmd *cobra.Command, kind, query string) {
-	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index for %q\n", kind, query)
+	fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the code index for %q\n", kind, query)
 }
 
 // printSemanticNoSymbolMatch adds the one thing the bare message cannot say:
@@ -2613,7 +2613,7 @@ func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	}
 	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "note: the semantic index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, "refresh")+" --semantic`")
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the code index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, semanticIndexVerb)+"`")
 		return
 	}
 	shown := strings.Join(kinds, ", ")
@@ -2702,7 +2702,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return err
 	}
 	if contextOpts.includeContent && freshness.Severity != "ok" {
-		return fmt.Errorf("semantic context content requires fresh semantic data: %s", freshness.Severity)
+		return fmt.Errorf("code context content requires fresh index data: %s", freshness.Severity)
 	}
 	symbols, relations, neighbors, err := semanticContextFacts(storage.BrainDir, manifest.Sources.Semantic, query, contextOpts.limit, contextOpts.offset)
 	if err != nil {
@@ -2740,7 +2740,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if len(result.Symbols) == 0 && len(result.Relations) == 0 && len(result.Neighbors) == 0 && len(result.Content) == 0 {
 		printSemanticNoMatch(cmd, "context", query)
@@ -2816,7 +2816,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if len(symbols) == 0 && len(relations) == 0 {
 		printSemanticNoMatch(cmd, "impact", query)
@@ -2905,7 +2905,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if report.Clean {
 		fmt.Fprintln(cmd.OutOrStdout(), "no changes since the indexed HEAD")
@@ -2965,12 +2965,12 @@ func runSemanticBoundary(ctx context.Context, cmd *cobra.Command, opts Options, 
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if len(result.Boundaries) == 0 && len(result.Relations) == 0 && len(result.Handlers) == 0 {
 		// Distinguish "the index has no such boundaries" from a silent failure:
 		// these surfaces only exist if the semantic provider emitted them.
-		fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the semantic index\n", spec.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "no %s found in the code index\n", spec.Name)
 		return nil
 	}
 	for _, boundary := range result.Boundaries {
@@ -3049,7 +3049,7 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 		return nil
 	}
 	if freshness.Severity != "ok" {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic freshness: %s\n", freshness.Severity)
+		fmt.Fprintf(cmd.OutOrStdout(), "code index freshness: %s\n", freshness.Severity)
 	}
 	if len(result.Suggestions) == 0 {
 		printSemanticNoMatch(cmd, "tests", query)

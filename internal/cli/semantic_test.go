@@ -620,7 +620,7 @@ func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T
 	if err != nil {
 		t.Fatalf("reset semantic-only: %v", err)
 	}
-	if !strings.Contains(out, "reset semantic brain") {
+	if !strings.Contains(out, "reset code index") {
 		t.Fatalf("reset output = %q", out)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
@@ -1833,7 +1833,7 @@ func TestSemanticContextIncludeContentRequiresFreshness(t *testing.T) {
 	}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n"}
 	err := runSemanticContext(cmd.Context(), cmd, opts, semanticContextOptions{limit: 10, includeContent: true}, "ValidateToken")
-	if err == nil || !strings.Contains(err.Error(), "requires fresh semantic data") {
+	if err == nil || !strings.Contains(err.Error(), "requires fresh index data") {
 		t.Fatalf("context err = %v", err)
 	}
 }

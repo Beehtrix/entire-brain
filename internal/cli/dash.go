@@ -237,7 +237,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 				markSourceUnreadable(&snap.Home, "Code", "code index unavailable: "+err.Error())
 			} else {
 				snap.Semantic = dashSemanticViews(syms, repoDir)
-				snap.Notes = appendCapNote(snap.Notes, "semantic symbols", sem.Symbols, len(snap.Semantic))
+				snap.Notes = appendCapNote(snap.Notes, "code symbols", sem.Symbols, len(snap.Semantic))
 			}
 		}
 	}
@@ -537,7 +537,7 @@ func printDashPlain(cmd *cobra.Command, snap tui.Snapshot) {
 	if snap.Home.Freshness != "" {
 		fmt.Fprintf(out, "freshness: %s\n", snap.Home.Freshness)
 	}
-	fmt.Fprintf(out, "\nFacts (%d) · Sessions (%d) · History (%d) · Semantic (%d)\n",
+	fmt.Fprintf(out, "\nFacts (%d) · Sessions (%d) · History (%d) · Code (%d)\n",
 		len(snap.Facts), len(snap.Sessions), len(snap.History), len(snap.Semantic))
 	for _, bs := range snap.Home.BlindSpots {
 		fmt.Fprintf(out, "  blind spot: %s\n", bs)

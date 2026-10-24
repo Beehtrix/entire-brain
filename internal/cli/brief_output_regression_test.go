@@ -148,7 +148,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("missing optional indexes: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic index missing", "history index missing"} {
+		for _, warning := range []string{"code context unavailable", "history index missing"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("missing input warning %q absent: %s", warning, out)
 			}

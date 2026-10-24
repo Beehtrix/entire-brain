@@ -376,7 +376,7 @@ func (o semanticIndexOptions) reportPhase(phase string) {
 // spelling of this binary the reader actually reached, so it is runnable as
 // printed. TestEveryCommandPrintedInSourceResolves holds that.
 func semanticIndexMissingError() error {
-	return fmt.Errorf("semantic index missing; run `%s`", brainInvocation(os.LookupEnv, semanticIndexVerb))
+	return fmt.Errorf("code index missing; run `%s`", brainInvocation(os.LookupEnv, semanticIndexVerb))
 }
 
 type semanticResetOptions struct {

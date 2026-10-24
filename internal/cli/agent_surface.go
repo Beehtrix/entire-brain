@@ -21,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -1388,6 +1389,27 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 }
 
+// brainBriefCodeContextWarning names why the brief has no code-context section
+// and the one runnable fix. A graph that answered "store unavailable" wins: it
+// is installed regardless of what the host PATH probe says, and its detail
+// names its own fix (COR-2257) — the index verb is appended only when graph
+// sent none. The brain-side snapshot copy retired with COR-2217 is never the
+// remedy.
+func brainBriefCodeContextWarning(storeMissing bool, storeDetail string, providerAbsent bool) string {
+	indexCmd := brainInvocation(os.LookupEnv, semanticIndexVerb)
+	switch {
+	case storeMissing:
+		if storeDetail == "" {
+			storeDetail = "the graph store cannot serve this commit; run `" + indexCmd + "`"
+		}
+		return "code context unavailable: " + storeDetail
+	case providerAbsent:
+		return "code context unavailable: the graph plugin is not installed; install it with `" + providerdetail.InstallGraphCommand + "`, then run `" + indexCmd + "`"
+	default:
+		return "code context unavailable; run `" + indexCmd + "`"
+	}
+}
+
 type brainBriefRawHistoryMatcher func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error)
 
 func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string) error {
@@ -1544,22 +1566,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 		}
 	} else if !semanticDelegated {
-		warning := "semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
-		switch {
-		case graphStoreMissing:
-			// Graph answered, so it is installed regardless of what the host
-			// PATH probe says; the remedy is building the graph-owned store,
-			// never the brain-side snapshot copy retired with COR-2217. Graph's
-			// detail names its own fix; add one only when it sent none.
-			if graphStoreMissingDetail == "" {
-				graphStoreMissingDetail = "the graph store cannot serve this commit; run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
-			}
-			warning = "code context unavailable: " + graphStoreMissingDetail
-		case hostCLIOnPath() && !semanticProviderOnHost():
-			// Refresh cannot build what no installed provider produces.
-			warning = "semantic index missing: the graph provider is not installed, so code context and semantic queries are skipped — install it with `entire plugin install graph`, then run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
-		}
-		report.Warnings = append(report.Warnings, warning)
+		providerAbsent := hostCLIOnPath() && !semanticProviderOnHost()
+		report.Warnings = append(report.Warnings, brainBriefCodeContextWarning(graphStoreMissing, graphStoreMissingDetail, providerAbsent))
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History

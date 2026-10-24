@@ -94,7 +94,6 @@ type evalRunConfig struct {
 	Judge                 bool   `json:"judge"`
 	JudgeSourceMatches    bool   `json:"judge_source_matches,omitempty"`
 	Expand                bool   `json:"expand"`
-	Semantic              bool   `json:"semantic"`
 	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
 	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
 	LabelPolicy           string `json:"label_policy"`
@@ -451,7 +450,6 @@ The tasks file is a JSON array:
 				Judge:                 judge,
 				JudgeSourceMatches:    judgeSource,
 				Expand:                expand,
-				Semantic:              semantic,
 				JudgeCachePath:        judgeCache,
 				ExpansionCachePath:    expandCache,
 				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",

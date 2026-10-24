@@ -206,29 +206,6 @@ func doctorDirectoryFinding(label string, health memoryInstallDirectoryHealth) d
 // neither installs nor repairs -- rather than any artifact in this brain.
 const doctorSemanticProviderAxis = "provider"
 
-// doctorSemanticArtifactAxes are the freshness axes that describe persisted
-// semantic artifacts this brain CLAIMS to have: the provider snapshot on disk
-// and the derived SQLite store. An `unsafe` reading on one of these is not a
-// staleness observation and not a host-environment observation -- it is this
-// brain's own recorded data failing to load.
-//
-// The `semantic` axis is deliberately NOT here. Its only state is "missing"
-// ("no semantic source in manifest"), which is the ordinary condition of a
-// brain that has not run `refresh index` yet. Promoting never-built to `error`
-// would fail the gate on every fresh brain, which is the same mistake in the
-// opposite direction.
-var doctorSemanticArtifactAxes = map[string]bool{
-	"snapshot": true,
-	"store":    true,
-}
-
-// semanticAxisBroken reports an axis state that means "what the manifest points
-// at could not be read", as opposed to "this is behind" (stale, dirty-*),
-// "this is incomplete" (degraded), or "this was never built" (missing).
-func semanticAxisBroken(state string) bool {
-	return state == "unsafe"
-}
-
 // semanticAxisCurrent mirrors freshnessSummary's notion of an axis with nothing
 // to say.
 func semanticAxisCurrent(state string) bool {
@@ -285,9 +262,7 @@ func semanticDoctorFindings(report staleReport) []doctorCheckResult {
 			continue
 		}
 		brainParts = append(brainParts, semanticAxisPart(name, axis))
-		if doctorSemanticArtifactAxes[name] && semanticAxisBroken(axis.State) {
-			brainState = "error"
-		} else if brainState != "error" {
+		if brainState != "error" {
 			brainState = "warn"
 		}
 	}

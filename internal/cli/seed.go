@@ -1517,7 +1517,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		semantic := manifest.Sources.Semantic
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "## Semantic Index")
+		fmt.Fprintln(&b, "## Code Index (Graph-owned)")
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Generated at: `%s`\n", semantic.GeneratedAt.Format(time.RFC3339))
 		fmt.Fprintf(&b, "- Provider: `%s`", semantic.Provider)
@@ -1526,7 +1526,6 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		}
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Schema: `%s`\n", semantic.SchemaVersion)
-		fmt.Fprintf(&b, "- Snapshot: `%s`\n", semantic.SnapshotPath)
 		fmt.Fprintf(&b, "- Symbols: %d\n", semantic.Symbols)
 		fmt.Fprintf(&b, "- Relations: %d\n", semantic.Relations)
 		if semantic.Commit != "" {

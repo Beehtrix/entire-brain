@@ -2211,8 +2211,11 @@ func TestSemanticOnlyBrainReadmeDescribesSemanticIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read readme: %v", err)
 	}
-	if !strings.Contains(string(readme), "Semantic Index") || strings.Contains(string(readme), "Session Export") {
+	if !strings.Contains(string(readme), "Code Index (Graph-owned)") || strings.Contains(string(readme), "Session Export") {
 		t.Fatalf("semantic README not rendered correctly:\n%s", readme)
+	}
+	if strings.Contains(string(readme), "- Snapshot:") {
+		t.Fatalf("README still advertises a snapshot nothing writes:\n%s", readme)
 	}
 }
 

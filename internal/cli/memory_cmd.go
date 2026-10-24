@@ -802,20 +802,8 @@ type memoryWorkerStats struct {
 	// itself. The condition is durable, so the honest answer is to stop rather
 	// than keep a failing pass running once a minute for a day.
 	PrepassGaveUp  bool     `json:"prepass_gave_up,omitempty"`
-	VectorPending  bool     `json:"vector_pending,omitempty"`
 	HealthDegraded bool     `json:"health_degraded,omitempty"`
 	HealthIssues   []string `json:"health_issues,omitempty"`
-	// VectorContinue reports that vector work remains AND the pass ended in a
-	// state worth continuing immediately: either it completed a batch or it hit
-	// the deliberate lane deadline. It is deliberately narrower than
-	// VectorPending, which is also true after a FAILED sync. The fast relaunch
-	// exists to keep embedding batches after a lane yield, never as a retry
-	// mechanism: retrying a permanent failure (embed server down, corrupt
-	// progress leaf, privacy-epoch mismatch) at that cadence re-spawns the
-	// worker about ten times a second for as long as the failure lasts. Real
-	// retries come from the next trigger (watch tick, lifecycle hint, job
-	// schedule), which are all rate-limited.
-	VectorContinue bool `json:"-"`
 }
 
 func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) bool {
@@ -1198,19 +1186,6 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		}
 	}
 	return stats, err
-}
-
-func runMemoryVectorLane(ctx context.Context, brainDir string, now time.Time, owner string) memoryWorkerStats {
-	var stats memoryWorkerStats
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
-		return stats
-	}
-	// Semantic retrieval was removed (trail #278); the vector lane is a no-op
-	// kept only so lane sequencing and worker logs stay shaped as before.
-	if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_complete", owner); logErr != nil {
-		stats.addHealthIssue("memory_worker_log_write_failed")
-	}
-	return stats
 }
 
 func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now time.Time, owner string) (memoryWorkerStats, error) {
@@ -1610,11 +1585,6 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				return err
 			}
 			stats.add(abstractStats)
-			stats.add(runMemoryVectorLane(cmd.Context(), storage.BrainDir, opts.Now().UTC(), coordinator.token))
-			if stats.VectorContinue {
-				vectorDelay := 100 * time.Millisecond
-				relaunchDelay = &vectorDelay
-			}
 			if next, ok, err := nextMemoryWorkerDelay(storage.BrainDir, opts.Now().UTC()); err != nil {
 				outcome = "failed"
 				return err
@@ -1656,8 +1626,6 @@ func (s *memoryWorkerStats) add(other memoryWorkerStats) {
 	s.AlreadyActive = s.AlreadyActive || other.AlreadyActive
 	s.PrepassFailed = s.PrepassFailed || other.PrepassFailed
 	s.PrepassGaveUp = s.PrepassGaveUp || other.PrepassGaveUp
-	s.VectorPending = s.VectorPending || other.VectorPending
-	s.VectorContinue = s.VectorContinue || other.VectorContinue
 	s.HealthDegraded = s.HealthDegraded || other.HealthDegraded
 	for _, issue := range other.HealthIssues {
 		s.addHealthIssue(issue)

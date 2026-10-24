@@ -1,9 +1,7 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -508,65 +506,16 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 	return out
 }
 
-// loadSemanticSymbols reads the symbol records from the active semantic snapshot
-// (NDJSON: a header line followed by one record per line), reusing the snapshot
-// scanner and path validation. A missing snapshot yields no symbols.
+// loadSemanticSymbols reads the symbol records from Graph's live store. A
+// brain without a usable store just yields no symbols rather than an error.
 func loadSemanticSymbols(brainDir string, source *semanticSourceManifest, limit int) ([]semanticRecord, error) {
-	if source != nil && source.graphStore != nil {
-		if limit <= 0 {
-			limit = -1
-		}
-		return findSemanticSymbolsInSQLite(source.StorePath, "", limit, 0)
-	}
-	if source == nil || source.SnapshotPath == "" {
+	if source == nil || source.graphStore == nil {
 		return nil, nil
 	}
-	rel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		limit = -1
 	}
-	full := filepath.Join(brainDir, rel)
-	// A missing snapshot is not an error: an inconsistent or not-yet-built brain
-	// just yields no symbols rather than a scary warning.
-	if _, statErr := os.Stat(full); os.IsNotExist(statErr) {
-		return nil, nil
-	}
-	if err := rejectSymlinkPathComponents(brainDir, rel); err != nil {
-		return nil, err
-	}
-	f, err := os.Open(full)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-	scanner := newSemanticScanner(f)
-	first := true
-	var out []semanticRecord
-	for scanner.Scan() {
-		if first { // skip the header line
-			first = false
-			continue
-		}
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		var rec semanticRecord
-		if err := json.Unmarshal(text, &rec); err != nil {
-			return nil, err
-		}
-		if rec.RecordType != "symbol" {
-			continue
-		}
-		out = append(out, rec)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-	return out, scanner.Err()
+	return findSemanticSymbolsInSQLite(source.StorePath, "", limit, 0)
 }
 
 // printDashPlain renders the snapshot as plain text for non-TTY / --plain use,

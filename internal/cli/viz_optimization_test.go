@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,16 +15,13 @@ import (
 	"time"
 )
 
-const vizOptimizationSnapshotPath = "semantic/snapshots/viz-test/snapshot.ndjson"
-
-func writeVizOptimizationSnapshot(t *testing.T, brainDir string, records []semanticRecord) *semanticSourceManifest {
+// writeVizOptimizationStore builds a Graph-owned store fixture (sqlite with the
+// brain_*_v1 views and entry digest) and returns its live source descriptor,
+// the only shape the viz read path accepts since the snapshot reader retired.
+func writeVizOptimizationStore(t *testing.T, brainDir string, records []semanticRecord) *semanticSourceManifest {
 	t.Helper()
-	path := filepath.Join(brainDir, filepath.FromSlash(vizOptimizationSnapshotPath))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	var body strings.Builder
-	body.WriteString("{\"record_type\":\"header\"}\n")
+	body.WriteString(`{"schema_version":"1.0","provider":"entire-graph","provider_version":"0.1.0","repo_key":"gh/example/repo","commit":"c1","tree":"t1","capabilities":["go"],"warnings":[],"partial_failures":[]}` + "\n")
 	for _, record := range records {
 		line, err := json.Marshal(record)
 		if err != nil {
@@ -30,19 +30,39 @@ func writeVizOptimizationSnapshot(t *testing.T, brainDir string, records []seman
 		body.Write(line)
 		body.WriteByte('\n')
 	}
-	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+	repoDir := t.TempDir()
+	ignore, err := loadBrainIgnore(repoDir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var symbols, relations int
-	for _, record := range records {
-		switch record.RecordType {
-		case "symbol":
-			symbols++
-		case "relation":
-			relations++
+	header, counts, filtered, err := filterSemanticSnapshot([]byte(body.String()), ignore, repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerDir := t.TempDir()
+	generation, _, err := buildSemanticGeneration(context.Background(), providerDir, repoDir, "viz", bytes.NewReader(filtered), "viz", header, counts, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(providerDir, generation, semanticSQLiteName)
+	db, err := sql.Open(sqliteDriverName, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"symbols", "relations", "files", "reverse_relations", "symbol_fts"} {
+		if _, err = db.Exec("CREATE VIEW brain_" + table + "_v1 AS SELECT * FROM " + table); err != nil {
+			db.Close()
+			t.Fatal(err)
 		}
 	}
-	return &semanticSourceManifest{SnapshotPath: vizOptimizationSnapshotPath, Symbols: symbols, Relations: relations}
+	raw, _ := json.Marshal("viz-fixture")
+	_, err = db.Exec("INSERT INTO meta(key,value) VALUES('entry_digest',?)", string(raw))
+	db.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := graphStoreDescriptor{ContractVersion: 1, Path: path, EntryDigest: "viz-fixture", Commit: header.Commit, Tree: header.Tree, Header: header, Files: counts.Files, Symbols: counts.Symbols, Relations: counts.Relations}
+	return graphStoreSource(d, brainDir)
 }
 
 func vizOptimizationSemanticRecords() []semanticRecord {
@@ -61,7 +81,7 @@ func vizOptimizationSemanticRecords() []semanticRecord {
 
 func TestVizGraphSelectsConnectedSymbolsAndStableEdges(t *testing.T) {
 	brainDir := t.TempDir()
-	sem := writeVizOptimizationSnapshot(t, brainDir, vizOptimizationSemanticRecords())
+	sem := writeVizOptimizationStore(t, brainDir, vizOptimizationSemanticRecords())
 	srv := &vizServer{brainDir: brainDir, branch: "main", manifest: &exportManifest{Sources: &brainSources{Semantic: sem}}}
 
 	request := func(target string) (*httptest.ResponseRecorder, vizGraphResp) {
@@ -107,7 +127,7 @@ func TestVizGraphSelectsConnectedSymbolsAndStableEdges(t *testing.T) {
 
 func TestVizNodeAndReplayReturnContainedSemanticSubgraphs(t *testing.T) {
 	brainDir := t.TempDir()
-	sem := writeVizOptimizationSnapshot(t, brainDir, vizOptimizationSemanticRecords())
+	sem := writeVizOptimizationStore(t, brainDir, vizOptimizationSemanticRecords())
 	manifest := &exportManifest{Sources: &brainSources{
 		Semantic: sem,
 		Sessions: &sessionSourceManifest{Sessions: []exportSession{{
@@ -123,7 +143,9 @@ func TestVizNodeAndReplayReturnContainedSemanticSubgraphs(t *testing.T) {
 	if err := json.Unmarshal(nodeRec.Body.Bytes(), &node); err != nil {
 		t.Fatal(err)
 	}
-	if nodeRec.Code != http.StatusOK || node.Symbol.ID != "hub" || node.Snippet != "func Hub() { Peer() }" {
+	// No snippet assertion: the Graph-owned store carries blobs on file records,
+	// not symbols, so the live path serves node details without a snippet.
+	if nodeRec.Code != http.StatusOK || node.Symbol.ID != "hub" {
 		t.Fatalf("node response = %d %+v", nodeRec.Code, node)
 	}
 	if len(node.Neighbors) != 2 {

@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -4940,21 +4939,11 @@ func parseBrainLiveStatus(status []byte) (staged, unstaged, untracked []string) 
 }
 
 func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifest, idOrName string) (semanticRecord, error) {
-	if source.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(brainDir, source)
-		if err != nil {
-			return semanticRecord{}, err
-		}
-		return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
-	}
-	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
 	if err != nil {
 		return semanticRecord{}, err
 	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
-		return semanticRecord{}, err
-	}
-	return findSemanticRecordByIDOrNameSnapshot(filepath.Join(brainDir, snapshotPath), idOrName)
+	return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
@@ -4974,31 +4963,6 @@ LIMIT 1`, idOrName, idOrName, idOrName, idOrName, idOrName, idOrName)
 		return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 	}
 	return record, nil
-}
-
-func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return semanticRecord{}, fmt.Errorf("open semantic snapshot: %w", err)
-	}
-	defer f.Close()
-	decoder := json.NewDecoder(f)
-	for {
-		var record semanticRecord
-		if err := decoder.Decode(&record); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return semanticRecord{}, err
-		}
-		if record.RecordType != "symbol" {
-			continue
-		}
-		if record.ID == idOrName || record.Name == idOrName || record.QualifiedName == idOrName {
-			return record, nil
-		}
-	}
-	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 }
 
 type brainBriefRawScanObservation struct {

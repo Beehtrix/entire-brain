@@ -15,49 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 )
-
-// semanticIndexAlreadyCurrent answers the only question that makes a non-forced
-// `refresh index` a no-op: is the recorded index already the one this
-// invocation would build, and can it still be read?
-//
-// Readability is deliberately part of the question. An index whose manifest
-// matches HEAD but whose SQLite store no longer opens is not a reason to skip
-// work -- `refresh index` is the command that repairs exactly that -- so a
-// recorded-but-broken generation falls through to a rebuild instead of being
-// reported as current.
-//
-// The returned string is the reason to print; it is empty when ok is false.
-func semanticIndexAlreadyCurrent(brainDir string, source *semanticSourceManifest, indexOpts semanticIndexOptions, head, tree, worktreeHash string) (string, bool) {
-	if source == nil || head == "" || tree == "" {
-		return "", false
-	}
-	if source.Commit == "" || source.Commit != head || source.Tree == "" || source.Tree != tree {
-		return "", false
-	}
-	// A worktree index and a committed-HEAD index are different artifacts even
-	// at the same commit, so the two modes never satisfy each other.
-	if indexOpts.worktree != (source.WorktreeMode == semanticWorktreeModeName) {
-		return "", false
-	}
-	if indexOpts.worktree && (source.WorktreeHash == "" || source.WorktreeHash != worktreeHash) {
-		return "", false
-	}
-	// An explicitly requested profile that the recorded index was not built
-	// with is a different index, not the same one.
-	if profile := strings.TrimSpace(indexOpts.profile); profile != "" && profile != source.Profile {
-		return "", false
-	}
-	if err := semanticRecordedArtifactsReadable(brainDir, source); err != nil {
-		return "", false
-	}
-	reason := "commit " + head
-	if indexOpts.worktree {
-		reason += " (worktree overlay)"
-	}
-	return reason, true
-}
 
 // semanticIndexStageDeadline stops an index at a stage boundary when its caller's
 // deadline has already passed.
@@ -334,18 +292,4 @@ func semanticCompletenessAxis(source *semanticSourceManifest) staleAxis {
 		return staleAxis{State: "degraded", Detail: fmt.Sprintf("%d partial failures in %.0f%% of files", parseErrors, fraction*100)}
 	}
 	return staleAxis{State: "degraded", Detail: strconv.Itoa(failures) + " partial failures"}
-}
-
-func verifiedSnapshotSummary(path, repoKey string) (semanticHeader, semanticCounts, error) {
-	key := "snapshot\x00" + path + "\x00" + repoKey + "\x00" + fileIdentity(path)
-	if cached, ok := semanticIntegrityMemo.Load(key); ok {
-		verdict := cached.(semanticSnapshotVerdict)
-		return verdict.header, verdict.counts, verdict.err
-	}
-	header, counts, err := readSemanticSnapshotSummary(path, repoKey)
-	// I/O errors can recover without a size/mtime change, so only cache success.
-	if err == nil {
-		rememberSemanticIntegrity(key, semanticSnapshotVerdict{header: header, counts: counts})
-	}
-	return header, counts, err
 }

@@ -1234,7 +1234,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "no code graph yet — run `"+brainInvocation(os.LookupEnv, semanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1257,7 +1257,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(syms) == 0 {
-		resp.Warnings = append(resp.Warnings, "the semantic snapshot has no symbols yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "the code index has no symbols yet — run `"+brainInvocation(os.LookupEnv, semanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1425,54 +1425,22 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // that need both endpoints inside filter the result themselves. Mirrors the
 // SQLite-vs-snapshot branch semanticContextFacts uses (semantic.go).
 func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []semanticRecord, limit int) ([]semanticRecord, error) {
-	if sem.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
-		if err != nil {
-			return nil, err
-		}
-		return findSemanticRelationsForSymbolsInSQLite(storePath, syms, limit)
-	}
-	full, err := s.snapshotFullPath(sem)
+	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, err
 	}
-	return findSemanticRelationsForSymbols(full, syms, limit)
+	return findSemanticRelationsForSymbolsInSQLite(storePath, syms, limit)
 }
 
 // nodeDetail resolves one symbol by exact id plus its relations and neighbors,
 // mirroring semanticContextFacts but seeded by id rather than a search query.
 func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanticRecord, []semanticRecord, []semanticRecord, error) {
 	const limit = 80
-	if sem.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		byID, err := loadSemanticSymbolsByIDsSQLite(storePath, []string{id})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		node, ok := byID[id]
-		if !ok {
-			return nil, nil, nil, nil
-		}
-		rels, err := findSemanticRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
-			return loadSemanticSymbolsByIDsSQLite(storePath, ids)
-		}, limit)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return &node, neighbors, rels, nil
-	}
-	full, err := s.snapshotFullPath(sem)
+	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	byID, err := loadSemanticSymbolsByIDsSnapshot(full, []string{id})
+	byID, err := loadSemanticSymbolsByIDsSQLite(storePath, []string{id})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1480,12 +1448,12 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 	if !ok {
 		return nil, nil, nil, nil
 	}
-	rels, err := findSemanticRelationsForSymbols(full, []semanticRecord{node}, limit*4)
+	rels, err := findSemanticRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
-		return loadSemanticSymbolsByIDsSnapshot(full, ids)
+		return loadSemanticSymbolsByIDsSQLite(storePath, ids)
 	}, limit)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1503,17 +1471,6 @@ func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord,
 		return nil, err
 	}
 	return resolveContextNeighbors([]semanticRecord{node}, rels, byID, limit), nil
-}
-
-func (s *vizServer) snapshotFullPath(sem *semanticSourceManifest) (string, error) {
-	snap, err := validateSemanticSnapshotPath(sem.SnapshotPath)
-	if err != nil {
-		return "", err
-	}
-	if err := rejectSymlinkPathComponents(s.brainDir, snap); err != nil {
-		return "", err
-	}
-	return filepath.Join(s.brainDir, snap), nil
 }
 
 func writeJSONHTTP(w http.ResponseWriter, code int, v any) {

@@ -145,7 +145,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addHidden(newDaemonReregisterCommand(opts))
 	addGrouped("operations", newStopCommand(opts))
 	addGrouped("operations", newStartCommand(opts))
-	addGrouped("operations", newSemanticGCCommand(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))

@@ -257,11 +257,6 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	// the wire manifest). Order within each kind is stable so re-publishing an
 	// unchanged brain produces a byte-identical request (idempotent).
 	var blobs []publishArtifact
-	snapshots, err := collectSnapshotArtifacts(art, storage.BrainDir)
-	if err != nil {
-		return publishRequestBody{}, "", err
-	}
-	blobs = append(blobs, snapshots...)
 	overlays, err := collectOverlayArtifacts(art, storage.BrainDir)
 	if err != nil {
 		return publishRequestBody{}, "", err
@@ -372,39 +367,6 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 		total += int64(base64.StdEncoding.EncodedLen(len(a.Data)))
 	}
 	return total
-}
-
-// collectSnapshotArtifacts reads semantic/snapshots/<commit>/snapshot.ndjson,
-// keying each by its commit, and registers a SnapshotRef on art.
-func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, semanticSnapshotsDir), "publish snapshots")
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read snapshots: %w", err)
-	}
-	commits := subdirNames(entries)
-	sort.Strings(commits)
-
-	var out []publishArtifact
-	for _, commit := range commits {
-		rel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, commit, semanticSnapshotName))
-		data, ok, err := readBrainBlob(brainDir, rel)
-		if err != nil {
-			return nil, fmt.Errorf("read snapshot %s: %w", commit, err)
-		}
-		if !ok {
-			continue
-		}
-		digest := contentDigest(data)
-		art.AddSnapshot(brainwire.SnapshotRef{
-			Commit:  commit,
-			Content: brainwire.ContentRef{Digest: digest, Size: int64(len(data)), MediaType: mediaTypeNDJSON, Path: rel},
-		})
-		out = append(out, publishArtifact{Kind: brainKindSnapshot, Ref: commit, Digest: digest, Data: data})
-	}
-	return out, nil
 }
 
 // collectOverlayArtifacts reads semantic/overlays/<base>..<head>.json, keying

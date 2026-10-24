@@ -194,10 +194,15 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	// Background context otherwise).
 	ctx, stop := watchSignalContext(ctx)
 	defer stop()
-	fmt.Fprintf(cmd.OutOrStdout(), "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
+	// Every line this daemon writes carries its clock and its repo; watch.log
+	// is the only record of what it did (see watchLogPrefixWriter). The banner
+	// is stamped here; watchLoop stamps the ticks, so neither nests inside the
+	// other and no line is stamped twice.
+	logOut := newWatchLogPrefixWriter(cmd.OutOrStdout(), storage.Key, now)
+	fmt.Fprintf(logOut, "[watch] %s — interval %s, distill=%v (every %s, agent=%s, jobs=%d, model=%q, max-sessions=%s, run-budget=%s)\n",
 		storage.Key, w.interval, w.distill, w.distillEvery, w.distillAgent, w.distillJobs, w.model,
 		watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
-	return watchLoop(ctx, cmd.OutOrStdout(), w, cursorPath, steps)
+	return watchLoop(ctx, cmd.OutOrStdout(), storage.Key, now, w, cursorPath, steps)
 }
 
 // watchCapLabel renders a cap where a non-positive value means "no cap".
@@ -222,7 +227,13 @@ func watchSignalContext(ctx context.Context) (context.Context, context.CancelFun
 	return signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 }
 
-func watchLoop(ctx context.Context, out io.Writer, w watchCommandOptions, cursorPath string, steps watchSteps) error {
+// watchLoop drives the single-repo daemon. It owns the attribution of the
+// lines its ticks write -- clock and repo key, stamped once per line by
+// watchLogPrefixWriter -- so a tick cannot forget it and a line added later
+// inherits it. out must be the RAW sink: wrapping it again outside would
+// stamp every line twice.
+func watchLoop(ctx context.Context, out io.Writer, repoKey string, now func() time.Time, w watchCommandOptions, cursorPath string, steps watchSteps) error {
+	out = newWatchLogPrefixWriter(out, repoKey, now)
 	agentCalls := 0
 	for {
 		if ctx.Err() != nil {

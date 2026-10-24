@@ -51,6 +51,9 @@ func newDistillEvalCompareCommand(opts Options) *cobra.Command {
 			if a.CorpusSHA256 != b.CorpusSHA256 && !allowCorpusMismatch {
 				return fmt.Errorf("corpus fingerprints differ (A=%s, B=%s); rerun on the same corpus or pass --allow-corpus-mismatch", a.CorpusSHA256, b.CorpusSHA256)
 			}
+			if a.GoldenOnly != b.GoldenOnly && !allowCorpusMismatch {
+				return fmt.Errorf("golden-only coverage differs (A=%t, B=%t); the runs scored different session sets — rerun with matching coverage or pass --allow-corpus-mismatch", a.GoldenOnly, b.GoldenOnly)
+			}
 			if a.JudgeConfig != "" && b.JudgeConfig != "" && a.JudgeConfig != b.JudgeConfig && !allowJudgeMismatch {
 				return fmt.Errorf("judge configs differ (A=%s, B=%s); precision is only comparable under one judge — pass --allow-judge-mismatch to override", a.JudgeConfig, b.JudgeConfig)
 			}

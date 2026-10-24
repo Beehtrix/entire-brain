@@ -116,6 +116,31 @@ func TestDistillRawFactsOutSkipsReconcileAndStore(t *testing.T) {
 	}
 }
 
+func TestDistillRawFactsOutLeavesCacheAndManifestUntouched(t *testing.T) {
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	brainDir := writeDistillFixture(t, now)
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		return "project.tooling.stack\tThe project uses Go.\n", nil
+	}
+	opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, rawFactsOut: filepath.Join(t.TempDir(), "raw.jsonl")}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+		t.Fatalf("raw run: %v", err)
+	}
+	if cache := loadDistillCache(brainDir); len(cache.Sessions) != 0 {
+		t.Errorf("raw run persisted distill cache entries: %+v", cache.Sessions)
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Sources != nil && manifest.Sources.Facts != nil {
+		t.Errorf("raw run stamped manifest facts source: %+v", manifest.Sources.Facts)
+	}
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(factsTaxonomyPath))); err == nil {
+		t.Error("raw run wrote the facts taxonomy")
+	}
+}
+
 func TestDistillRawFactsOutFlagIsHidden(t *testing.T) {
 	cmd := newDistillCommand(Options{})
 	flag := cmd.Flags().Lookup("raw-facts-out")

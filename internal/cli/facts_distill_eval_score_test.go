@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -132,6 +133,63 @@ func TestDistillEvalScorePooledPrecisionGoldenOverridesJudge(t *testing.T) {
 	}
 	if s.JudgeConfig != "claude-code/claude-fable-5" {
 		t.Errorf("judge config = %q", s.JudgeConfig)
+	}
+}
+
+func TestDistillEvalScoreGoldenOnlyRestrictsSessions(t *testing.T) {
+	raw := `{"type":"chunk","session_id":"s1","branch":"main","chunk_index":1,"chunk_count":1,"facts_emitted":1,"cap":6}
+{"type":"fact","session_id":"s1","branch":"main","chunk_index":1,"fact_id":"f1","kind":"gotcha","paths":["a.b.c"],"text":"alpha beta","checkpoint_id":"cp"}
+`
+	runDir, corpusPath := writeScoreFixture(t, t.TempDir(), []string{"s1", "s2", "s3"}, raw, "")
+	// Mark the run golden-only (writeScoreFixture marks only s1 golden in the corpus).
+	metaPath := filepath.Join(runDir, "run.json")
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var meta distillEvalRunMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatal(err)
+	}
+	meta.GoldenOnly = true
+	data, _ = json.Marshal(meta)
+	if err := os.WriteFile(metaPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out := filepath.Join(runDir, "summary.json")
+	if _, err := runDistillEvalCommand(t, t.TempDir(), "score", "--run", runDir, "--corpus", corpusPath, "--out", out); err != nil {
+		t.Fatalf("score: %v", err)
+	}
+	s := loadScoreSummary(t, out)
+	if !s.GoldenOnly {
+		t.Error("summary must be stamped golden_only")
+	}
+	if len(s.Sessions) != 1 || s.Sessions[0].SessionID != "s1" {
+		t.Errorf("golden-only score must cover only golden sessions, got %+v", s.Sessions)
+	}
+}
+
+func TestDistillEvalScoreRefusesIncompleteSessions(t *testing.T) {
+	// s1: chunk_count says 2, only one chunk line arrived (a failed chunk).
+	// s2: chunk line claims 2 facts, only one fact line survived.
+	raw := `{"type":"chunk","session_id":"s1","branch":"main","chunk_index":1,"chunk_count":2,"facts_emitted":1,"cap":6}
+{"type":"fact","session_id":"s1","branch":"main","chunk_index":1,"fact_id":"f1","kind":"gotcha","paths":["a.b.c"],"text":"alpha beta","checkpoint_id":"cp"}
+{"type":"chunk","session_id":"s2","branch":"main","chunk_index":1,"chunk_count":1,"facts_emitted":2,"cap":6}
+{"type":"fact","session_id":"s2","branch":"main","chunk_index":1,"fact_id":"f2","kind":"gotcha","paths":["a.b.c"],"text":"gamma delta","checkpoint_id":"cp"}
+`
+	runDir, corpusPath := writeScoreFixture(t, t.TempDir(), []string{"s1", "s2"}, raw, "")
+	out := filepath.Join(runDir, "summary.json")
+	_, err := runDistillEvalCommand(t, t.TempDir(), "score", "--run", runDir, "--corpus", corpusPath, "--out", out)
+	if err == nil || !strings.Contains(err.Error(), "s1") || !strings.Contains(err.Error(), "s2") {
+		t.Fatalf("expected incomplete-session error naming s1 and s2, got %v", err)
+	}
+	if _, err := runDistillEvalCommand(t, t.TempDir(), "score", "--run", runDir, "--corpus", corpusPath, "--out", out, "--allow-incomplete"); err != nil {
+		t.Fatalf("--allow-incomplete should pass: %v", err)
+	}
+	s := loadScoreSummary(t, out)
+	if len(s.IncompleteSessions) != 2 {
+		t.Errorf("summary must list incomplete sessions, got %+v", s.IncompleteSessions)
 	}
 }
 

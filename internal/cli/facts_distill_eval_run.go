@@ -229,6 +229,10 @@ func newDistillEvalRunCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run",
 		Short: "Run one distillation variant over the corpus in a sandbox",
+		Long: `Run one distillation variant over the corpus in a scratch-store sandbox.
+
+Output is RAW pre-reconcile extraction: volume numbers read roughly 2x store
+growth, because production reconciliation discards about half of proposals.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if name == "" {
 				return errors.New("--name is required")
@@ -313,6 +317,7 @@ func newDistillEvalRunCommand(opts Options) *cobra.Command {
 					MaxChunkBytes: maxChunkBytes, CapPerChunk: effectiveCap,
 				},
 				CorpusSHA256: corpus.CorpusSHA256,
+				GoldenOnly:   goldenOnly,
 				StartedAt:    started,
 				WallSeconds:  time.Since(started).Seconds(),
 			}

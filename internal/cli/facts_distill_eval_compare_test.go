@@ -70,6 +70,21 @@ func TestDistillEvalCompareRefusesJudgeMismatch(t *testing.T) {
 	}
 }
 
+func TestDistillEvalCompareRefusesGoldenOnlyMismatch(t *testing.T) {
+	dir := t.TempDir()
+	sa := compareFixtureSummary("sha", "", []int{1, 1, 1, 1})
+	sa.GoldenOnly = true
+	a := writeCompareSummary(t, dir, "a.json", sa)
+	b := writeCompareSummary(t, dir, "b.json", compareFixtureSummary("sha", "", []int{1, 1, 1, 1}))
+	_, err := runDistillEvalCommand(t, t.TempDir(), "compare", a, b)
+	if err == nil || !strings.Contains(err.Error(), "golden") {
+		t.Fatalf("expected golden-only coverage error, got %v", err)
+	}
+	if _, err := runDistillEvalCommand(t, t.TempDir(), "compare", a, b, "--allow-corpus-mismatch"); err != nil {
+		t.Fatalf("override should pass: %v", err)
+	}
+}
+
 func TestDistillEvalComparePairedVolume(t *testing.T) {
 	dir := t.TempDir()
 	a := writeCompareSummary(t, dir, "a.json", compareFixtureSummary("sha", "", []int{4, 2, 2, 0}))

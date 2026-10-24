@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -14,6 +15,7 @@ import (
 type distillEvalSummary struct {
 	Variant      distillEvalVariant         `json:"variant"`
 	CorpusSHA256 string                     `json:"corpus_sha256"`
+	GoldenOnly   bool                       `json:"golden_only,omitempty"`
 	JudgeConfig  string                     `json:"judge_config,omitempty"`
 	Sessions     []distillEvalSessionResult `json:"sessions"`
 	Facts        int                        `json:"facts"`
@@ -21,6 +23,10 @@ type distillEvalSummary struct {
 	CapShare     float64                    `json:"cap_share"`
 	Redundancy   distillEvalRedundancy      `json:"redundancy"`
 	Cost         distillEvalCost            `json:"cost"`
+	// IncompleteSessions lists sessions whose raw output is missing chunks or
+	// fact lines (agent failures mid-run); their volume/cost read artificially
+	// low. Populated only under --allow-incomplete — without it, score refuses.
+	IncompleteSessions []string `json:"incomplete_sessions,omitempty"`
 }
 
 type distillEvalSessionResult struct {
@@ -83,11 +89,12 @@ const distillEvalNearDupThreshold = 0.5
 
 func newDistillEvalScoreCommand(opts Options) *cobra.Command {
 	var (
-		runDir     string
-		corpusPath string
-		labelsPath string
-		judgePath  string
-		out        string
+		runDir          string
+		corpusPath      string
+		labelsPath      string
+		judgePath       string
+		out             string
+		allowIncomplete bool
 	)
 	cmd := &cobra.Command{
 		Use:   "score",
@@ -108,6 +115,22 @@ func newDistillEvalScoreCommand(opts Options) *cobra.Command {
 			chunks, facts, err := readDistillEvalRawFacts(filepath.Join(runDir, "raw-facts.jsonl"))
 			if err != nil {
 				return err
+			}
+
+			corpusSessions := corpus.Sessions
+			if meta.GoldenOnly {
+				var golden []distillEvalCorpusEntry
+				for _, s := range corpusSessions {
+					if s.Golden {
+						golden = append(golden, s)
+					}
+				}
+				corpusSessions = golden
+			}
+
+			incomplete := distillEvalIncompleteSessions(chunks, facts)
+			if len(incomplete) > 0 && !allowIncomplete {
+				return fmt.Errorf("session(s) with missing chunks or fact lines (agent failures make a variant read cheaper and quieter than it is): %s; fix the run or pass --allow-incomplete to score anyway", strings.Join(incomplete, ", "))
 			}
 
 			factsBySession := map[string][]distillRawFactLine{}
@@ -147,7 +170,7 @@ func newDistillEvalScoreCommand(opts Options) *cobra.Command {
 
 			var sessions []distillEvalSessionResult
 			totalCalls, totalTokens := 0, 0
-			for _, entry := range corpus.Sessions {
+			for _, entry := range corpusSessions {
 				calls := callsBySession[entry.SessionID]
 				if calls == 0 {
 					calls = chunksBySession[entry.SessionID]
@@ -176,13 +199,15 @@ func newDistillEvalScoreCommand(opts Options) *cobra.Command {
 				return float64(num) / float64(den)
 			}
 			summary := distillEvalSummary{
-				Variant:      meta.Variant,
-				CorpusSHA256: meta.CorpusSHA256,
-				JudgeConfig:  judgeConfig,
-				Sessions:     sessions,
-				Facts:        len(facts),
-				Precision:    precision,
-				CapShare:     ratio(atCap, len(chunks)),
+				Variant:            meta.Variant,
+				CorpusSHA256:       meta.CorpusSHA256,
+				GoldenOnly:         meta.GoldenOnly,
+				JudgeConfig:        judgeConfig,
+				IncompleteSessions: incomplete,
+				Sessions:           sessions,
+				Facts:              len(facts),
+				Precision:          precision,
+				CapShare:           ratio(atCap, len(chunks)),
 				Redundancy: distillEvalRedundancy{
 					ExactDupRate: ratio(exactPairs, len(facts)),
 					NearDupRate:  ratio(nearPairs, len(facts)),
@@ -212,9 +237,39 @@ func newDistillEvalScoreCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&labelsPath, "labels", "", "Filled golden label sheet")
 	cmd.Flags().StringVar(&judgePath, "judge", "", "Judge verdicts file")
 	cmd.Flags().StringVar(&out, "out", "", "Summary path (default <run>/summary.json)")
+	cmd.Flags().BoolVar(&allowIncomplete, "allow-incomplete", false, "Score despite sessions with missing chunks or fact lines; they are listed in the summary")
 	_ = cmd.MarkFlagRequired("run")
 	_ = cmd.MarkFlagRequired("corpus")
 	return cmd
+}
+
+// distillEvalIncompleteSessions flags sessions whose raw output cannot be
+// trusted: fewer chunk lines than any chunk line's chunk_count claims (failed
+// chunks write no line), or fewer fact lines than the chunk lines' summed
+// facts_emitted (a raw-write failure drops the tail of a chunk).
+func distillEvalIncompleteSessions(chunks []distillRawChunkLine, facts []distillRawFactLine) []string {
+	seen := map[string]int{}
+	expected := map[string]int{}
+	emitted := map[string]int{}
+	for _, c := range chunks {
+		seen[c.SessionID]++
+		if c.ChunkCount > expected[c.SessionID] {
+			expected[c.SessionID] = c.ChunkCount
+		}
+		emitted[c.SessionID] += c.FactsEmitted
+	}
+	factLines := map[string]int{}
+	for _, f := range facts {
+		factLines[f.SessionID]++
+	}
+	var incomplete []string
+	for sessionID, n := range seen {
+		if n < expected[sessionID] || factLines[sessionID] < emitted[sessionID] {
+			incomplete = append(incomplete, sessionID)
+		}
+	}
+	sort.Strings(incomplete)
+	return incomplete
 }
 
 func distillEvalReadCallTrace(path string) (tokens, calls map[string]int, err error) {

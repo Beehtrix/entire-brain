@@ -35,8 +35,11 @@ type distillEvalCorpusEntry struct {
 type distillEvalRunMeta struct {
 	Variant      distillEvalVariant `json:"variant"`
 	CorpusSHA256 string             `json:"corpus_sha256"`
-	StartedAt    time.Time          `json:"started_at"`
-	WallSeconds  float64            `json:"wall_seconds"`
+	// GoldenOnly records that the run covered only the corpus's golden
+	// sessions; score must not count the rest as legitimately silent.
+	GoldenOnly  bool      `json:"golden_only,omitempty"`
+	StartedAt   time.Time `json:"started_at"`
+	WallSeconds float64   `json:"wall_seconds"`
 }
 
 type distillEvalVariant struct {

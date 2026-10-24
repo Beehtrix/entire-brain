@@ -1432,6 +1432,9 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		preprocessedBytes += int64(ps.preBytes)
 		if ps.cached {
+			if rawFactsEnc != nil {
+				warnings = append(warnings, fmt.Sprintf("raw mode: session %s is cached and produced no raw output; eval runs need a fresh store (or --force)", session.SessionID))
+			}
 			cacheHits++
 			cachedKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			newCache.Sessions[cachedKey] = ps.fingerprint // unchanged; retain in cache and keep existing facts
@@ -1561,6 +1564,32 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	// A much higher persist bound does apply, so a pathological run cannot grow
 	// the manifest without limit; it keeps the exact total either way.
 	warnings = distillWarningsForPersist(warnings)
+
+	if rawFactsEnc != nil {
+		// Extraction-only eval mode: the raw JSONL is the whole deliverable.
+		// Leave the store, distill cache, taxonomy, and manifest untouched — a
+		// raw run against a REAL store must not drop session fingerprints or
+		// stamp the production manifest with an eval variant's identity.
+		source := summarizeFactSource(now, map[string][]factRecord{}, chunksScanned, chunksDistilled, 0, warnings)
+		source.CacheHits = cacheHits
+		source.FailedChunks = failedChunks
+		source.PreprocessedBytes = preprocessedBytes
+		source.Agent = strings.TrimSpace(distillOpts.agent)
+		source.Model = strings.TrimSpace(distillOpts.model)
+		source.Effort = strings.TrimSpace(distillOpts.effort)
+		source.Branch = strings.TrimSpace(distillOpts.branch)
+		source.Jobs = distillRequestedJobs(distillOpts)
+		source.MaxChunkBytes = distillMaxChunkBytes(distillOpts)
+		source.ExtractionCalls = extractionAgentCalls
+		source.TotalAgentCalls = extractionAgentCalls
+		source.TokenUsage = usageCollector.summary(extractionAgentCalls)
+		source.ExtractionWaitSeconds = extractionSeconds
+		source.TotalSeconds = time.Since(runStarted).Seconds()
+		if distillOpts.onDeferredSessions != nil {
+			distillOpts.onDeferredSessions(budgetDeferred)
+		}
+		return source, nil
+	}
 
 	writeStarted := time.Now()
 	var source *factSourceManifest

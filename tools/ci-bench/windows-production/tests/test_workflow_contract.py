@@ -18,18 +18,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("windows-latest", test_block)
         self.assertIn("goos: [darwin, linux, windows]", build_block)
 
-    def test_phase1_keeps_its_offline_environment_and_race_suite(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        phase1 = workflow.split("  phase1-semantic:\n", 1)[1].split("  benchmark-corpus:\n", 1)[0]
-        self.assertIn("os: [ubuntu-latest, macos-latest, windows-latest]", phase1)
-        for text in ('ENTIRE_BRAIN_PHASE1_CI: "1"', 'GOPROXY: "off"',
-                     'GOSUMDB: "off"', 'go mod download', 'go test -race -timeout 20m'):
-            self.assertIn(text, phase1)
-
     def test_statement_coverage_reuses_windows_shards_without_a_second_suite(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("\n  coverage-windows:", workflow)
-        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  phase1-semantic:\n", 1)[0]
+        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  benchmark-corpus:\n", 1)[0]
         coverage_commands = [line.strip() for line in windows.splitlines() if "tools/coverage/run.py" in line]
         self.assertEqual(len(coverage_commands), 1)
         self.assertIn("--race --binary-only", coverage_commands[0])

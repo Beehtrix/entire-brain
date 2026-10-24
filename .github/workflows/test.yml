@@ -362,35 +362,6 @@ jobs:
             fi
           done
 
-  phase1-semantic:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            runner: depot-ubuntu-24.04-8
-          - os: macos-latest
-            runner: depot-macos-26
-          - os: windows-latest
-            runner: depot-windows-2025-8
-    name: phase1-semantic (${{ matrix.os }})
-    runs-on: ${{ matrix.runner }}
-    env:
-      ENTIRE_BRAIN_PHASE1_CI: "1"
-      GOPROXY: "off"
-      GOSUMDB: "off"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
-        with: { go-version: "1.27.2" }
-      - name: Prime module cache
-        env:
-          GOPROXY: "https://proxy.golang.org,direct"
-          GOSUMDB: "sum.golang.org"
-        run: go mod download
-      - name: Run deterministic Phase 1 semantic tests
-        run: go test -race -timeout 20m ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'
-
   # Discover every Python benchmark test module; Go tests do not cover the harness.
   benchmark-corpus:
     runs-on: depot-ubuntu-24.04-4

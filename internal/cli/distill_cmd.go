@@ -801,6 +801,9 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.concurrency <= 0 {
 		return fmt.Errorf("--concurrency must be greater than 0")
 	}
+	if _, err := factsMaxPerChunkFromEnv(); err != nil {
+		return err
+	}
 	if cmd.Flags().Changed("timeout") && distillOpts.timeout <= 0 {
 		return fmt.Errorf("--timeout must be greater than 0")
 	}
@@ -2404,6 +2407,7 @@ func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float
 		AgentCommand         string  `json:"agent_command,omitempty"`
 		Model                string  `json:"model,omitempty"`
 		Effort               string  `json:"effort,omitempty"`
+		CapOverride          string  `json:"cap_override,omitempty"`
 	}{
 		Version:              distillCacheVersion,
 		PreprocessingVersion: preprocessingVersion,
@@ -2414,6 +2418,9 @@ func distillCacheSaltVersion(prompt, reconcilePromptText string, threshold float
 		AgentCommand:         strings.Join(distillOpts.agentCommand, "\x00"),
 		Model:                distillOpts.model,
 		Effort:               distillOpts.effort,
+		// omitempty: unset override leaves the salt bytes identical to
+		// pre-override builds, so production caches stay valid.
+		CapOverride: os.Getenv(envFactsMaxPerChunk),
 	})
 	if err != nil {
 		return ""

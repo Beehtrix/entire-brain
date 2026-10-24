@@ -5536,16 +5536,12 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if manifest.Sources == nil {
 		return nil, errors.New("bundle manifest missing sources")
 	}
-	if manifest.Sources.Semantic == nil {
-		return &manifest, nil
-	}
-
-	if err := validateSemanticSchema(manifest.Sources.Semantic.SchemaVersion); err != nil {
-		return nil, fmt.Errorf("bundle semantic schema unsupported: %w", err)
-	}
-	// The bundle's code-index layer is never imported (Graph owns code indexing
-	// since 0.2.0), so only the schema is checked; its snapshot and generation
-	// artifacts are ignored rather than validated.
+	// The bundle's code-index layer is ignored entirely: it is never restored
+	// (brainBundleLayers has no semantic entry) and never persisted
+	// (writeBrainBundleLayerSources copies restored layers only), so nothing
+	// about it — schema version included — may reject an otherwise valid
+	// bundle. It stays on the returned manifest only so the import can print
+	// the not-imported notice.
 	return &manifest, nil
 }
 

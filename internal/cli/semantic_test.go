@@ -2574,21 +2574,6 @@ func TestBundleImportRejectsOperationalSemanticState(t *testing.T) {
 	}
 }
 
-func TestBundleImportRejectsUnsupportedSemanticSchema(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	archive := filepath.Join(t.TempDir(), "bad-schema.tar")
-	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"2.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
-		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("2.0"),
-	})
-	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
-	if err == nil || !strings.Contains(err.Error(), "schema unsupported") {
-		t.Fatalf("import err = %v", err)
-	}
-}
-
 func TestBundleImportRejectsChecksumMismatch(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

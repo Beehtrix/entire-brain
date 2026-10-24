@@ -506,16 +506,23 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 	return out
 }
 
-// loadSemanticSymbols reads the symbol records from Graph's live store. A
-// brain without a usable store just yields no symbols rather than an error.
+// loadSemanticSymbols reads the symbol records from Graph's live store. No
+// source at all is the ordinary unbuilt case and stays silently empty; a
+// DECLARED source that is not the live graph handle is unreadable and must
+// error, so the Sources row flips to "unreadable" instead of rendering a
+// healthy empty Code tab.
 func loadSemanticSymbols(brainDir string, source *semanticSourceManifest, limit int) ([]semanticRecord, error) {
-	if source == nil || source.graphStore == nil {
+	if source == nil {
 		return nil, nil
+	}
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	if err != nil {
+		return nil, err
 	}
 	if limit <= 0 {
 		limit = -1
 	}
-	return findSemanticSymbolsInSQLite(source.StorePath, "", limit, 0)
+	return findSemanticSymbolsInSQLite(storePath, "", limit, 0)
 }
 
 // printDashPlain renders the snapshot as plain text for non-TTY / --plain use,

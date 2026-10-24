@@ -519,7 +519,7 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 			return
 		}
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-		watchTick(ctx, repoOut, w, cursorPath, watchStepsForRepo(cmd, opts, w, repoDir, now), agentCalls)
+		watchTick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watchStepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
 	}
 	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, now, repoTick)
 }
@@ -536,12 +536,16 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 	// gets a writer already stamped with its repo key. Wrapped exactly once
 	// per sink -- nesting two of these would stamp every line twice.
 	raw := out
-	out = newWatchLogPrefixWriter(raw, "", now)
+	// pass counts the fan-out sweeps so a member's lines say which sweep they
+	// belong to, the same way a single-repo daemon's lines say which tick.
+	pass := 0
+	out = newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass}, now)
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
 		}
+		pass++
 		manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
 		if err != nil {
 			return err
@@ -560,7 +564,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(newWatchLogPrefixWriter(raw, repo.RepoKey, now), repoDir, agentCalls)
+			repoTick(newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass, repo: repo.RepoKey}, now), repoDir, agentCalls)
 		}
 		if w.once {
 			return nil

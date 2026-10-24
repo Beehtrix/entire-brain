@@ -3558,25 +3558,28 @@ func TestWorkspaceWatchStampsEveryLineWithClockAndRepo(t *testing.T) {
 		t.Fatalf("workspaceWatchLoop: %v", err)
 	}
 
-	stamp := "2026-10-24T09:30:15Z"
+	stamp := "2026-10-24T09:30:15Z pid="
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	for i, line := range lines {
-		if !strings.HasPrefix(line, stamp+" ") {
-			t.Fatalf("line %d carries no clock: %q\nfull log:\n%s", i, line, out.String())
+		if !strings.HasPrefix(line, stamp) {
+			t.Fatalf("line %d carries no clock or process: %q\nfull log:\n%s", i, line, out.String())
+		}
+		if !strings.Contains(line, " tick=1 ") {
+			t.Fatalf("line %d does not say which sweep it belongs to: %q", i, line)
 		}
 	}
 	// Each member's tick line must name THAT member, not the one above it.
 	for _, key := range []string{repoAKey, repoBKey} {
-		want := stamp + " " + key + " [watch] refresh failed: brain_locked"
-		if !slicesContainsLine(lines, want) {
-			t.Fatalf("no tick line attributed to %s; want %q\nfull log:\n%s", key, want, out.String())
+		want := " tick=1 repo=" + key + " [watch] refresh failed: brain_locked"
+		if !slicesContainsSuffix(lines, want) {
+			t.Fatalf("no tick line attributed to %s; want a line ending %q\nfull log:\n%s", key, want, out.String())
 		}
 	}
 }
 
-func slicesContainsLine(lines []string, want string) bool {
+func slicesContainsSuffix(lines []string, want string) bool {
 	for _, l := range lines {
-		if l == want {
+		if strings.HasSuffix(l, want) {
 			return true
 		}
 	}

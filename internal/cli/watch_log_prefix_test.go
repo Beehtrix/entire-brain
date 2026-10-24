@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,29 +15,90 @@ import (
 
 func fixedClock(t time.Time) func() time.Time { return func() time.Time { return t } }
 
+// testWatchLogFields is the fields a test line carries, with pid pinned so the
+// expected prefix is a constant rather than a reconstruction of the code under
+// test.
+func testWatchLogFields(repo string, tick *int) watchLogFields {
+	return watchLogFields{pid: 4242, build: "0.2.0", tick: tick, repo: repo}
+}
+
 // TestWatchLogPrefixStampsEveryLine is the guard for the diagnosis that cost
-// the time: a tick's lines must each carry a clock and a repo, not just the
-// banner above them.
+// the time: every line must answer when, which build, which tick and which
+// repo on its own, not just the banner above it.
 func TestWatchLogPrefixStampsEveryLine(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
-	w := newWatchLogPrefixWriter(&buf, "gh/entireio/entire-brain", fixedClock(at))
+	tick := 42
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("gh/entireio/entire-brain", &tick), fixedClock(at))
 
 	fmt.Fprintf(w, "[watch] refresh failed: %v\n", errors.New("brain_locked"))
-	fmt.Fprint(w, "[watch] reconciliation queued\n[watch] distill skipped\n")
+	fmt.Fprint(w, "refresh: seed baseline failed\n[watch] distill skipped\n")
 
-	got := buf.String()
-	want := "2026-10-24T09:30:15Z gh/entireio/entire-brain [watch] refresh failed: brain_locked\n" +
-		"2026-10-24T09:30:15Z gh/entireio/entire-brain [watch] reconciliation queued\n" +
-		"2026-10-24T09:30:15Z gh/entireio/entire-brain [watch] distill skipped\n"
-	if got != want {
+	stamp := "2026-10-24T09:30:15Z pid=4242 build=0.2.0 tick=42 repo=gh/entireio/entire-brain "
+	want := stamp + "[watch] refresh failed: brain_locked\n" +
+		stamp + "refresh: seed baseline failed\n" +
+		stamp + "[watch] distill skipped\n"
+	if got := buf.String(); got != want {
 		t.Fatalf("stamped output\n got: %q\nwant: %q", got, want)
 	}
-	for i, line := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
-		if !strings.HasPrefix(line, "2026-10-24T09:30:15Z gh/entireio/entire-brain ") {
-			t.Fatalf("line %d unattributed: %q", i, line)
+}
+
+// TestWatchLogPrefixTracksTheLoopCounter: the tick is read at write time, so
+// one writer follows the loop's counter as it advances. A writer that froze
+// the value it was built with would label every tick 1.
+func TestWatchLogPrefixTracksTheLoopCounter(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
+	tick := 1
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", &tick), fixedClock(at))
+	fmt.Fprint(w, "[watch] first\n")
+	tick = 2
+	fmt.Fprint(w, "[watch] second\n")
+	got := buf.String()
+	if !strings.Contains(got, "tick=1 repo=repo [watch] first") {
+		t.Fatalf("first line lost its tick: %q", got)
+	}
+	if !strings.Contains(got, "tick=2 repo=repo [watch] second") {
+		t.Fatalf("second line did not follow the counter: %q", got)
+	}
+}
+
+// TestWatchLogPrefixOmitsAbsentFields: workspace-level lines belong to no repo
+// and the startup banner belongs to no tick. Neither may leave an empty
+// key=value behind.
+func TestWatchLogPrefixOmitsAbsentFields(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("", nil), fixedClock(at))
+	fmt.Fprint(w, "[watch] workspace ws — 3 repos\n")
+	want := "2026-10-24T09:30:15Z pid=4242 build=0.2.0 [watch] workspace ws — 3 repos\n"
+	if got := buf.String(); got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	for _, bad := range []string{"tick=", "repo="} {
+		if strings.Contains(buf.String(), bad) {
+			t.Fatalf("absent field rendered anyway (%q): %q", bad, buf.String())
 		}
+	}
+}
+
+// TestWatchLogPrefixDefaultsPidAndBuild: a caller that names neither still
+// produces a line that says which process wrote it -- the question COR-2174
+// could not answer.
+func TestWatchLogPrefixDefaultsPidAndBuild(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	w := newWatchLogPrefixWriter(&buf, watchLogFields{repo: "repo"}, fixedClock(time.Unix(0, 0).UTC()))
+	fmt.Fprint(w, "[watch] line\n")
+	wantPid := fmt.Sprintf("pid=%d ", os.Getpid())
+	if !strings.Contains(buf.String(), wantPid) {
+		t.Fatalf("line does not name the writing process (want %q): %q", wantPid, buf.String())
+	}
+	if !strings.Contains(buf.String(), "build=dev ") {
+		t.Fatalf("line does not name the build: %q", buf.String())
 	}
 }
 
@@ -44,7 +107,7 @@ func TestWatchLogPrefixStampsEveryLine(t *testing.T) {
 func TestWatchLogPrefixReportsCallerLength(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, "repo", fixedClock(time.Unix(0, 0).UTC()))
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	payload := []byte("[watch] line\n")
 	n, err := w.Write(payload)
 	if err != nil {
@@ -63,9 +126,10 @@ func TestWatchLogPrefixReportsCallerLength(t *testing.T) {
 func TestWatchLogPrefixNoBarePrefixOnTrailingNewline(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, "repo", fixedClock(time.Unix(0, 0).UTC()))
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	fmt.Fprint(w, "[watch] only line\n")
-	if got, want := buf.String(), "1970-01-01T00:00:00Z repo [watch] only line\n"; got != want {
+	want := "1970-01-01T00:00:00Z pid=4242 build=0.2.0 repo=repo [watch] only line\n"
+	if got := buf.String(); got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -75,25 +139,13 @@ func TestWatchLogPrefixNoBarePrefixOnTrailingNewline(t *testing.T) {
 func TestWatchLogPrefixDoesNotSplitAPartialLine(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, "repo", fixedClock(time.Unix(0, 0).UTC()))
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	fmt.Fprint(w, "[watch] half")
 	fmt.Fprint(w, " and half\n")
 	fmt.Fprint(w, "[watch] next\n")
-	want := "1970-01-01T00:00:00Z repo [watch] half and half\n" +
-		"1970-01-01T00:00:00Z repo [watch] next\n"
+	stamp := "1970-01-01T00:00:00Z pid=4242 build=0.2.0 repo=repo "
+	want := stamp + "[watch] half and half\n" + stamp + "[watch] next\n"
 	if got := buf.String(); got != want {
-		t.Fatalf("got %q want %q", got, want)
-	}
-}
-
-// TestWatchLogPrefixOmitsEmptyRepo: workspace-level lines belong to no repo
-// and must carry the clock alone, with no double space where a key would be.
-func TestWatchLogPrefixOmitsEmptyRepo(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, "", fixedClock(time.Unix(0, 0).UTC()))
-	fmt.Fprint(w, "[watch] workspace ws — 3 repos\n")
-	if got, want := buf.String(), "1970-01-01T00:00:00Z [watch] workspace ws — 3 repos\n"; got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
@@ -104,26 +156,26 @@ func TestWatchLogPrefixAdvancesTheClock(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	cur := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
-	w := newWatchLogPrefixWriter(&buf, "repo", func() time.Time {
+	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), func() time.Time {
 		at := cur
 		cur = cur.Add(time.Minute)
 		return at
 	})
 	fmt.Fprint(w, "[watch] first\n")
 	fmt.Fprint(w, "[watch] second\n")
-	want := "2026-10-24T09:00:00Z repo [watch] first\n" +
-		"2026-10-24T09:01:00Z repo [watch] second\n"
-	if got := buf.String(); got != want {
-		t.Fatalf("got %q want %q", got, want)
+	if got := buf.String(); !strings.Contains(got, "2026-10-24T09:00:00Z") || !strings.Contains(got, "2026-10-24T09:01:00Z") {
+		t.Fatalf("clock did not advance between writes: %q", got)
 	}
 }
 
-// TestWatchLoopStampsTickLines is the single-repo half of COR-2176, driven
-// through the real loop rather than the writer: watchLoop, not the tick,
-// decides attribution, so a tick added later cannot write an unattributed
-// line. The previous attempt at this fix stamped only the banner printed
-// above the loop, which is exactly the line that was never the problem.
-func TestWatchLoopStampsTickLines(t *testing.T) {
+// TestWatchLoopStampsTickLinesAndStepOutput is the single-repo half of
+// COR-2176, driven through the real loop rather than the writer. Two things
+// are guarded that the earlier attempt at this fix got wrong: the loop, not
+// the tick, decides attribution (that attempt stamped only the banner printed
+// above the loop, which was never the problem), and the STEPS write to the
+// same attributed sink -- `refresh: seed baseline failed` is the line the
+// ticket quotes, and it is written by the refresh step, not by the tick.
+func TestWatchLoopStampsTickLinesAndStepOutput(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	cursor := filepath.Join(dir, "watch.json")
@@ -131,19 +183,39 @@ func TestWatchLoopStampsTickLines(t *testing.T) {
 	var refreshed, seeded, distilled int
 	w := defaultWatchOptions()
 	w.once = true
+
 	var buf bytes.Buffer
-	if err := watchLoop(context.Background(), &buf, "gh/entireio/entire-brain", fixedClock(at),
-		w, cursor, fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)); err != nil {
+	var sawSink bool
+	stepsFor := func(sink io.Writer) watchSteps {
+		sawSink = true
+		steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
+		inner := steps.refresh
+		steps.refresh = func(c context.Context) error {
+			// Stand in for watchDeterministicRefresh's progress reporter,
+			// which writes through the command it is handed.
+			fmt.Fprintln(sink, "refresh: seed baseline failed")
+			return inner(c)
+		}
+		return steps
+	}
+	if err := watchLoop(context.Background(), &buf, watchLogFields{pid: 4242, build: "0.2.0", repo: "gh/entireio/entire-brain"},
+		fixedClock(at), w, cursor, stepsFor); err != nil {
 		t.Fatalf("watchLoop: %v", err)
+	}
+	if !sawSink {
+		t.Fatalf("the loop never asked for steps bound to its sink")
 	}
 	out := buf.String()
 	if strings.TrimSpace(out) == "" {
 		t.Fatalf("tick wrote nothing; the guard would pass vacuously")
 	}
-	want := "2026-10-24T09:30:15Z gh/entireio/entire-brain "
+	stamp := "2026-10-24T09:30:15Z pid=4242 build=0.2.0 tick=1 repo=gh/entireio/entire-brain "
 	for i, line := range strings.Split(strings.TrimSuffix(out, "\n"), "\n") {
-		if !strings.HasPrefix(line, want) {
+		if !strings.HasPrefix(line, stamp) {
 			t.Fatalf("tick line %d is unattributed: %q\nfull log:\n%s", i, line, out)
 		}
+	}
+	if !strings.Contains(out, stamp+"refresh: seed baseline failed") {
+		t.Fatalf("the refresh step's own line did not reach the attributed sink:\n%s", out)
 	}
 }

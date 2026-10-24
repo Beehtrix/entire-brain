@@ -85,7 +85,7 @@ func TestSetupShortTaskShowsWorkWithoutVerbosePhaseBar(t *testing.T) {
 	// Nested refresh can report a substep while holding the terminal lock.
 	updated := make(chan struct{})
 	go func() {
-		progress.live.emitAround(func() { sink.BuildStep("semantic index: parsing sources") })
+		progress.live.emitAround(func() { sink.BuildStep("code index: parsing sources") })
 		close(updated)
 	}()
 	select {
@@ -113,12 +113,12 @@ func TestSetupShortBuildStepLabels(t *testing.T) {
 		"seed baseline: inventory":            "scanning repository files",
 		"history index: 2/3 sessions scanned": "indexing session history",
 		"doc index":                           "indexing documentation",
-		"semantic index: parsing sources":     "indexing code",
+		"code index: parsing sources":         "indexing code",
 		"reclassify facts":                    "organizing existing memories",
 		"pattern layer":                       "finding patterns in past sessions",
 		"entity index":                        "indexing code changes",
 		"memory coordinator":                  "updating memory state",
-		"semantic index: current skipped":     "",
+		"code index: current skipped":         "",
 		"doc index: 10 chunks done":           "",
 		"warning: semantic index failed":      "",
 		"refreshed brain: /tmp/brain":         "",

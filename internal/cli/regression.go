@@ -552,7 +552,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 		files = append(files, candFile{clean: clean, lines: lines, norm: norm, semantic: isSem, rank: rank, runtimeTrace: hasTrace, traceRank: traceRank, isTest: regressionIsTestPath(clean)})
 	}
 	if len(files) == 0 {
-		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (semantic index missing?)"), caps
+		return []regressionAnomaly{}, 0, append(warnings, "no current files to verify against (code index missing?)"), caps
 	}
 	// Deterministic, locus-prioritized order: implementation before tests, then by semantic rank
 	// (the strongest fix-site first), then path — so a finding lands on the actual fix site, not a

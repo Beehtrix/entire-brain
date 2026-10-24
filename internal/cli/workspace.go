@@ -568,7 +568,7 @@ func newWorkspaceContextCommand(opts Options) *cobra.Command {
 	contextOpts := workspaceContextOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "context <workspace> <symbol-or-text>",
-		Short: "Build semantic context for a symbol or query across workspace repos",
+		Short: "Build code context for a symbol or query across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceContext(cmd, opts, contextOpts, args[0], args[1])
@@ -583,7 +583,7 @@ func newWorkspaceImpactCommand(opts Options) *cobra.Command {
 	impactOpts := workspaceImpactOptions{limit: 20, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <workspace> <symbol-or-text>",
-		Short: "Run semantic impact across workspace repos",
+		Short: "Run code-context impact across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceImpact(cmd, opts, impactOpts, args[0], args[1])
@@ -599,7 +599,7 @@ func newWorkspaceGraphCommand(opts Options) *cobra.Command {
 	graphOpts := workspaceGraphOptions{limit: 50}
 	cmd := &cobra.Command{
 		Use:   "graph <workspace>",
-		Short: "Summarize semantic graph schemas and cross-repo contracts in a workspace",
+		Short: "Summarize code graph schemas and cross-repo contracts in a workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceGraph(cmd, opts, graphOpts, args[0])
@@ -3643,7 +3643,7 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 	case "unsafe":
 		// Reached only for a SCANNED repo (PairingUnsafe blocks before this), so "unsafe" here means
 		// a stale/broken semantic index over a still-valid pairing — the scan ran on raw sessions.
-		return "semantic index unsafe/stale — scanned raw sessions only; verify findings"
+		return "code index unsafe/stale — scanned raw sessions only; verify findings"
 	case "degraded":
 		return "freshness degraded — brain/index may be stale; verify findings"
 	case "missing-brain":
@@ -3651,7 +3651,7 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
 		return "no export manifest — scanned raw sessions only (run `" + brainInvocation(os.LookupEnv, "refresh") + "` for a full brain)"
 	case "missing-semantic":
-		return "semantic index missing — scanned raw sessions only"
+		return "code index missing — scanned raw sessions only"
 	case "unknown":
 		detail := f.Detail
 		if detail == "" {

@@ -147,7 +147,7 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 	if strings.Contains(out, "healthy") {
 		t.Fatalf("status called a brain with no semantic index healthy:\n%s", out)
 	}
-	if !strings.Contains(out, "no semantic index") {
+	if !strings.Contains(out, "no code index") {
 		t.Fatalf("status does not name the missing semantic index:\n%s", out)
 	}
 	if !strings.Contains(out, "refresh") {

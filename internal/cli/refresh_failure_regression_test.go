@@ -213,7 +213,7 @@ func TestRefreshBestEffortReportsMissingSemanticProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("missing semantic provider should be component-scoped: %v\n%s", err, stderr.String())
 	}
-	if reported[brainComponentSemantic] == nil || !strings.Contains(stderr.String(), "semantic") || !strings.Contains(stdout.String(), "refreshed brain:") {
+	if reported[brainComponentSemantic] == nil || !strings.Contains(stderr.String(), "code index") || !strings.Contains(stdout.String(), "refreshed brain:") {
 		t.Fatalf("semantic outcome/report missing: %#v\nstdout=%s\nstderr=%s", reported, stdout.String(), stderr.String())
 	}
 }

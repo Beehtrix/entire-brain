@@ -347,7 +347,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 		return err
 	}
 	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate code index; Graph owns code indexing now")
 	}
 
 	var indexed struct {
@@ -412,7 +412,7 @@ func migrateBrainGraphStorage(brainDir, repoKey string) error {
 		return err
 	}
 	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate code index; Graph owns code indexing now")
 	}
 	return nil
 }

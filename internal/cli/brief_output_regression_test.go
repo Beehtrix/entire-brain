@@ -148,7 +148,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("missing optional indexes: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic index missing", "history index missing"} {
+		for _, warning := range []string{"code context unavailable", "history index missing"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("missing input warning %q absent: %s", warning, out)
 			}
@@ -229,7 +229,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("corrupt semantic store should degrade: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
+		for _, warning := range []string{"code context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("semantic warning %q absent: %s", warning, out)
 			}

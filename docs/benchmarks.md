@@ -15,7 +15,7 @@ you point them at:
 
 ```sh
 entire brain bench scale        # index size and query latency vs codebase size
-entire brain bench semantic     # indexing throughput and memory
+entire brain bench index        # indexing throughput and memory
 ```
 
 Both require a clean worktree — the indexer refuses uncommitted content — and

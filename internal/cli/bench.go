@@ -49,7 +49,7 @@ func newBenchmarkCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
 		Use:    "bench",
-		Short:  "Benchmark semantic indexing performance",
+		Short:  "Benchmark code indexing performance",
 	}
 	cmd.AddCommand(newSemanticBenchCommand(opts))
 	cmd.AddCommand(newScaleBenchCommand(opts))
@@ -59,8 +59,8 @@ func newBenchmarkCommand(opts Options) *cobra.Command {
 func newSemanticBenchCommand(opts Options) *cobra.Command {
 	benchOpts := semanticBenchOptions{graphBinary: "entire"}
 	cmd := &cobra.Command{
-		Use:   "semantic [path]",
-		Short: "Benchmark end-to-end semantic Brain indexing in an isolated store",
+		Use:   "index [path]",
+		Short: "Benchmark end-to-end code indexing in an isolated store",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
@@ -75,8 +75,8 @@ func newSemanticBenchCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&benchOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().StringVar(&benchOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
-	cmd.Flags().StringVar(&benchOpts.profile, "profile", "syntax-only", "Semantic provider snapshot profile")
-	cmd.Flags().DurationVar(&benchOpts.timeout, "graph-timeout", 0, "Overall deadline for the semantic provider snapshot (0 uses the default)")
+	cmd.Flags().StringVar(&benchOpts.profile, "profile", "syntax-only", "Graph provider snapshot profile")
+	cmd.Flags().DurationVar(&benchOpts.timeout, "graph-timeout", 0, "Overall deadline for the graph provider snapshot (0 uses the default)")
 	cmd.Flags().DurationVar(&benchOpts.inactivityTimeout, "graph-inactivity-timeout", 0, "Abort the snapshot if the provider emits no records for this long (0 uses the default)")
 	cmd.Flags().BoolVar(&benchOpts.keep, "keep", false, "Keep the isolated benchmark store after the run")
 	cmd.Flags().BoolVar(&benchOpts.progress, "progress", false, "Print Brain indexing phase progress to stderr")
@@ -89,7 +89,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 		return err
 	}
 	if !local {
-		return fmt.Errorf("semantic benchmark requires a local repository path: %s", target)
+		return fmt.Errorf("index benchmark requires a local repository path: %s", target)
 	}
 	tempRoot, err := os.MkdirTemp("", "entire-brain-graph-bench-*")
 	if err != nil {
@@ -118,7 +118,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 		inactivityTimeout: benchOpts.inactivityTimeout,
 		progress:          benchOpts.progressPhase,
 	}
-	indexCmd := &cobra.Command{Use: "bench semantic"}
+	indexCmd := &cobra.Command{Use: "bench index"}
 	indexCmd.SetOut(io.Discard)
 	indexCmd.SetErr(io.Discard)
 	if err := runSemanticIndex(ctx, indexCmd, benchRunOpts, indexOpts, repoDir); err != nil {
@@ -136,7 +136,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return fmt.Errorf("semantic benchmark did not produce a semantic source")
+		return fmt.Errorf("index benchmark did not produce a code-index source")
 	}
 	src := manifest.Sources.Semantic
 	report := semanticBenchReport{
@@ -160,7 +160,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 		Kept:            benchOpts.keep,
 	}
 	if !benchOpts.json {
-		fmt.Fprintf(cmd.OutOrStdout(), "semantic bench for %s\n", report.RepoRoot)
+		fmt.Fprintf(cmd.OutOrStdout(), "index bench for %s\n", report.RepoRoot)
 		fmt.Fprintf(cmd.OutOrStdout(), "profile: %s\n", report.Profile)
 		fmt.Fprintf(cmd.OutOrStdout(), "files: %d\nsymbols: %d\nrelations: %d\n", report.Files, report.Symbols, report.Relations)
 		fmt.Fprintf(cmd.OutOrStdout(), "wall_ms: %.2f\nmax_rss_bytes: %d\nheap_alloc_bytes: %d\n", report.WallMS, report.MaxRSSBytes, report.HeapAllocBytes)
@@ -177,7 +177,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 func (o semanticBenchOptions) progressPhase(phase string) {
 	if o.progress {
 		r := tui.NewRenderer(os.Stderr)
-		fmt.Fprintln(os.Stderr, r.Dim(fmt.Sprintf("semantic bench: %s", phase)))
+		fmt.Fprintln(os.Stderr, r.Dim(fmt.Sprintf("index bench: %s", phase)))
 	}
 }
 

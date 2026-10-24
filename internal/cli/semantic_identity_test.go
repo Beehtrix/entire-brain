@@ -36,8 +36,4 @@ func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
 	if _, _, err := semanticRefreshNeeded(cancelled, opts, brain, repo, manifest, false, "entire"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation swallowed: %v", err)
 	}
-	// Snapshot and manifest must attest the same identity even on import/readback.
-	if err := validateSemanticSourceMatchesSnapshot(&semanticSourceManifest{IdentityRevision: "scope-1"}, semanticHeader{}, semanticCounts{}); err == nil {
-		t.Fatal("mixed snapshot/manifest identity accepted")
-	}
 }

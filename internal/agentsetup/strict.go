@@ -195,7 +195,7 @@ func guideFor(active map[string]bool, mode Mode) string {
 			if active["graph"] {
 				return "# Entire repository agent guide — Graph and Brain\n\n" + strictCombinedWorkflow + "\n" + strictGraphCommonGuide
 			}
-			return "# Entire repository agent guide — Brain\n\n" + strictBrainWorkflow + "\nUse Brain's semantic inspection tools for relevant code questions.\n\n" + strictCommonGuide + "\n" + brainReference
+			return "# Entire repository agent guide — Brain\n\n" + strictBrainWorkflow + "\nUse Brain's code inspection tools for relevant code questions.\n\n" + strictCommonGuide + "\n" + brainReference
 		}
 		return "# Entire repository agent guide — Graph\n\n" + strictGraphWorkflow + "\n" + strictGraphCommonGuide
 	}

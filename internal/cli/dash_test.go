@@ -117,7 +117,7 @@ func TestDashHomeViewSourcesAndNotBuilt(t *testing.T) {
 	}
 	var semDetail string
 	for _, s := range home.Sources {
-		if s.Name == "Semantic" {
+		if s.Name == "Code" {
 			semDetail = s.Detail
 		}
 	}
@@ -133,40 +133,6 @@ func TestDashLiveSummary(t *testing.T) {
 	got := dashLiveSummary(brainLiveState{Dirty: true, Staged: []string{"a"}, Untracked: []string{"b", "c"}})
 	if got != "1 staged · 2 untracked" {
 		t.Errorf("dirty summary = %q, want \"1 staged · 2 untracked\"", got)
-	}
-}
-
-func TestLoadSemanticSymbolsReadsSnapshot(t *testing.T) {
-	dir := t.TempDir()
-	rel := filepath.FromSlash("semantic/snapshots/gen1/snapshot.ndjson")
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	// Header line + two symbols + one relation; only symbols should come back.
-	content := `{"schema_version":"1.0","provider":"entire-graph"}
-{"record_type":"symbol","id":"s1","kind":"func","name":"Run","file_path":"a.go","start_line":1}
-{"record_type":"relation","id":"r1","type":"calls","from_id":"s1","to_id":"s2"}
-{"record_type":"symbol","id":"s2","kind":"type","name":"Model","file_path":"b.go","start_line":5}
-`
-	if err := os.WriteFile(filepath.Join(dir, rel), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	source := &semanticSourceManifest{SnapshotPath: filepath.ToSlash(rel)}
-	syms, err := loadSemanticSymbols(dir, source, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(syms) != 2 || syms[0].Name != "Run" || syms[1].Name != "Model" {
-		t.Fatalf("symbols = %+v, want Run + Model only", syms)
-	}
-	// Limit caps the result.
-	capped, err := loadSemanticSymbols(dir, source, 1)
-	if err != nil || len(capped) != 1 {
-		t.Fatalf("limit 1 -> %d symbols (err %v)", len(capped), err)
-	}
-	// A missing snapshot is not an error.
-	if got, err := loadSemanticSymbols(dir, &semanticSourceManifest{SnapshotPath: "semantic/snapshots/missing/snapshot.ndjson"}, 0); err != nil || got != nil {
-		t.Errorf("missing snapshot -> %v (err %v), want nil/nil", got, err)
 	}
 }
 

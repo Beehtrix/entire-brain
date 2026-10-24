@@ -3,12 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/providerdetail"
 )
 
 // indexFixtureBrain indexes a snapshot into a fresh brain and returns the brain
@@ -470,5 +473,42 @@ func TestOverviewTextDisambiguatesSameNameCommands(t *testing.T) {
 	}
 	if !strings.Contains(text, "  test: go test ./...") {
 		t.Fatalf("unique command should render without source:\n%s", text)
+	}
+}
+
+// The brief's code-context warning must name the one runnable fix for each
+// degradation: install the plugin when it is absent, carry graph's own remedy
+// when its store cannot serve, and point at the index verb otherwise.
+func TestBriefCodeContextWarningNamesTheRunnableFix(t *testing.T) {
+	indexCmd := brainInvocation(os.LookupEnv, semanticIndexVerb)
+	cases := map[string]struct {
+		storeMissing   bool
+		storeDetail    string
+		providerAbsent bool
+		want           string
+	}{
+		"provider absent names the install command": {
+			providerAbsent: true,
+			want:           "code context unavailable: the graph plugin is not installed; install it with `" + providerdetail.InstallGraphCommand + "`, then run `" + indexCmd + "`",
+		},
+		"store missing carries graph's remedy verbatim": {
+			storeMissing: true,
+			storeDetail:  "store not built: run `entire graph index --head`",
+			want:         "code context unavailable: store not built: run `entire graph index --head`",
+		},
+		"store missing without detail falls back to the index verb": {
+			storeMissing: true,
+			want:         "code context unavailable: the graph store cannot serve this commit; run `" + indexCmd + "`",
+		},
+		"no signal points at the index verb": {
+			want: "code context unavailable; run `" + indexCmd + "`",
+		},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := brainBriefCodeContextWarning(c.storeMissing, c.storeDetail, c.providerAbsent); got != c.want {
+				t.Fatalf("warning = %q, want %q", got, c.want)
+			}
+		})
 	}
 }

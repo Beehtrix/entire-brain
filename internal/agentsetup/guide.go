@@ -304,5 +304,5 @@ const GraphGuide = "# Entire repository agent guide — Graph\n\n" + graphWorkfl
 const CombinedGuide = "# Entire repository agent guide — Graph and Brain\n\n" + combinedWorkflow + "\n" + graphCommonGuide
 
 func BrainGuide() string {
-	return "# Entire repository agent guide — Brain\n\n" + brainWorkflow + "\nUse Brain's semantic inspection tools for relevant code questions.\n\n" + commonGuide + "\n" + brainReference
+	return "# Entire repository agent guide — Brain\n\n" + brainWorkflow + "\nUse Brain's code inspection tools for relevant code questions.\n\n" + commonGuide + "\n" + brainReference
 }

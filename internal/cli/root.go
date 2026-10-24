@@ -64,7 +64,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
 It builds a local, inspectable repository brain from retained sessions, seed
-context, docs, history, semantic records, and durable memories, then exposes
+context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -85,7 +85,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		&cobra.Group{ID: "setup", Title: "Set up the brain & agents:"},
 		&cobra.Group{ID: "explore", Title: "Search & explore the brain:"},
 		&cobra.Group{ID: "facts", Title: "Durable memories & patterns:"},
-		&cobra.Group{ID: "code", Title: "Code & semantic index:"},
+		&cobra.Group{ID: "code", Title: "Code index & context:"},
 		&cobra.Group{ID: "maintain", Title: "Brain state & maintenance:"},
 		&cobra.Group{ID: "share", Title: "Workspaces & sharing:"},
 		&cobra.Group{ID: "operations", Title: "Troubleshooting & operations:"},
@@ -145,7 +145,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addHidden(newDaemonReregisterCommand(opts))
 	addGrouped("operations", newStopCommand(opts))
 	addGrouped("operations", newStartCommand(opts))
-	addGrouped("operations", newSemanticGCCommand(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))

@@ -390,7 +390,7 @@ func TestSetupComponentFailureDetailsAreOneLineEach(t *testing.T) {
 func TestSetupWarningsFromTheNestedRefreshSurvive(t *testing.T) {
 	t.Parallel()
 	sink := &setupStepSink{}
-	fmt.Fprintf(sink, "refresh: semantic index: parsing sources\n")
+	fmt.Fprintf(sink, "refresh: code index: parsing sources\n")
 	fmt.Fprintf(sink, "warning: memory coordinator: queue is stale\n")
 	fmt.Fprintf(sink, "refresh: doc index done\n")
 	got := sink.Warnings()
@@ -424,7 +424,7 @@ func TestSetupStepSinkDoesNotDeadlockInsideTheLiveTerminal(t *testing.T) {
 		defer close(done)
 		// Exactly the production stack: a writer invoked from inside the live
 		// terminal's own emit.
-		live.emitAround(func() { fmt.Fprintf(sink, "refresh: semantic index: parsing sources\n") })
+		live.emitAround(func() { fmt.Fprintf(sink, "refresh: code index: parsing sources\n") })
 		phase.OK("built")
 	}()
 	select {

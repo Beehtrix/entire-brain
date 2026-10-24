@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -644,13 +644,13 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 	// index to age), not a blank one. "freshness: " with nothing after the colon
 	// read as a rendering glitch and told the reader nothing.
 	if severity := report.Freshness.Severity; severity == "" {
-		fmt.Fprintln(out, "freshness: unknown (no semantic index to check)")
+		fmt.Fprintln(out, "freshness: unknown (no code index to check)")
 	} else if report.Freshness.Summary != "" {
 		fmt.Fprintf(out, "freshness: %s — %s\n", severity, report.Freshness.Summary)
 	} else {
 		fmt.Fprintf(out, "freshness: %s\n", severity)
 	}
-	fmt.Fprintf(out, "semantic: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
+	fmt.Fprintf(out, "code index: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
 	if len(report.Boundaries) > 0 {
 		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])
 	}
@@ -783,8 +783,8 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 func newBrainShowCommand(opts Options) *cobra.Command {
 	showOpts := brainShowOptions{}
 	cmd := &cobra.Command{
-		Use:   "show <semantic-id-or-name>",
-		Short: "Show one semantic brain record",
+		Use:   "show <symbol-id-or-name>",
+		Short: "Show one code-index record",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBrainShow(cmd.Context(), cmd, opts, showOpts, args[0])
@@ -828,7 +828,7 @@ func newInspectSearchGraphCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphSearchOptions{limit: 20}
 	cmd := &cobra.Command{
 		Use:   "search-graph <query>",
-		Short: "Search semantic graph symbols",
+		Short: "Search code graph symbols",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticSearchGraph(cmd, opts, graphOpts, args[0])
@@ -844,7 +844,7 @@ func newInspectQueryGraphCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphQueryOptions{limit: 100}
 	cmd := &cobra.Command{
 		Use:   "query-graph <query>",
-		Short: "Query semantic graph relations with type:/from:/to: filters",
+		Short: "Query code graph relations with type:/from:/to: filters",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticQueryGraph(cmd, opts, graphOpts, args[0])
@@ -860,7 +860,7 @@ func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
 		Use:    "graph-schema",
-		Short:  "Describe the indexed semantic graph schema and relation vocabulary",
+		Short:  "Describe the indexed code graph schema and relation vocabulary",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticGraphSchema(cmd, opts, graphOpts)
@@ -874,7 +874,7 @@ func newInspectGraphUICommand(opts Options) *cobra.Command {
 	uiOpts := semanticGraphUIOptions{limit: 500}
 	cmd := &cobra.Command{
 		Use:   "graph-ui [output.html]",
-		Short: "Write a local static HTML semantic graph explorer",
+		Short: "Write a local static HTML code graph explorer",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output := "semantic-graph.html"
@@ -908,7 +908,7 @@ func newInspectTracePathCommand(opts Options) *cobra.Command {
 	traceOpts := semanticTracePathOptions{depth: 4}
 	cmd := &cobra.Command{
 		Use:   "trace-path <from-symbol> <to-symbol>",
-		Short: "Find a directed semantic relation path between two symbols",
+		Short: "Find a directed code graph path between two symbols",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticTracePath(cmd, opts, traceOpts, args[0], args[1])
@@ -923,7 +923,7 @@ func newInspectDeadCodeCommand(opts Options) *cobra.Command {
 	deadOpts := semanticDeadCodeOptions{limit: 100}
 	cmd := &cobra.Command{
 		Use:   "dead-code",
-		Short: "List symbols with no incoming non-structural semantic edges",
+		Short: "List symbols with no incoming non-structural code graph edges",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticDeadCode(cmd, opts, deadOpts)
@@ -938,7 +938,7 @@ func newInspectIngestTracesCommand(opts Options) *cobra.Command {
 	ingestOpts := semanticTraceIngestOptions{}
 	cmd := &cobra.Command{
 		Use:   "ingest-traces <json-or-ndjson-file>",
-		Short: "Import runtime traces and validate them against static semantic edges",
+		Short: "Import runtime traces and validate them against static code graph edges",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticIngestTraces(cmd, opts, ingestOpts, args[0])
@@ -952,7 +952,7 @@ func newInspectCodeCommand(opts Options) *cobra.Command {
 	queryOpts := semanticQueryOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "code <query>",
-		Short: "Search semantic code facts",
+		Short: "Search the code index",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
@@ -961,7 +961,7 @@ func newInspectCodeCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&queryOpts.limit, "limit", 10, "Maximum results to return")
 	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
 	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&queryOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&queryOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -969,7 +969,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 	contextOpts := semanticContextOptions{limit: 5}
 	cmd := &cobra.Command{
 		Use:   "context <symbol-or-text>",
-		Short: "Build semantic context for a symbol or query",
+		Short: "Build code context for a symbol or query",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticContext(cmd.Context(), cmd, opts, contextOpts, args[0])
@@ -979,7 +979,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&contextOpts.offset, "offset", 0, "Symbols to skip before returning a page")
 	cmd.Flags().BoolVar(&contextOpts.includeContent, "include-content", false, "Include local source snippets for matched symbols")
 	cmd.Flags().BoolVar(&contextOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&contextOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&contextOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -987,7 +987,7 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	impactOpts := semanticImpactOptions{limit: 20, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <symbol-or-text>",
-		Short: "Traverse semantic relations for an impact set",
+		Short: "Traverse code graph relations for an impact set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticImpact(cmd.Context(), cmd, opts, impactOpts, args[0])
@@ -996,7 +996,7 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols to include")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full code-index records with provider metadata")
 	hintPositionalSymbol(cmd)
 	return cmd
 }
@@ -1028,7 +1028,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 	changesOpts := semanticChangesOptions{limit: 100, persist: true}
 	cmd := &cobra.Command{
 		Use:   "changes",
-		Short: "Map local diff hunks to semantic symbols",
+		Short: "Map local diff hunks to code-index symbols",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticChanges(cmd.Context(), cmd, opts, changesOpts)
@@ -1052,7 +1052,7 @@ func newInspectTestsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&testsOpts.limit, "limit", 3, "Maximum test suggestions to include")
 	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&testsOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&testsOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -1257,7 +1257,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
 	if s := report.Semantic; s != nil {
-		fmt.Fprintln(out, "\nSemantic")
+		fmt.Fprintln(out, "\nCode context")
 		if p := s.Provider; p != nil && p.Name != "" {
 			fmt.Fprintf(out, "  provider: %s %s (schema %s)\n", p.Name, p.Version, p.Schema)
 		}
@@ -1320,7 +1320,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 				fmt.Fprintf(out, "  blind spots: %d\n", len(s.BlindSpots))
 				fresh := subtractBlindSpots(s.BlindSpots, reportedSpots)
 				if len(fresh) == 0 {
-					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the semantic warnings listed above"))
+					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the code-context warnings listed above"))
 					break
 				}
 				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true, brainCmd)
@@ -1389,6 +1389,27 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 }
 
+// brainBriefCodeContextWarning names why the brief has no code-context section
+// and the one runnable fix. A graph that answered "store unavailable" wins: it
+// is installed regardless of what the host PATH probe says, and its detail
+// names its own fix (COR-2257) — the index verb is appended only when graph
+// sent none. The brain-side snapshot copy retired with COR-2217 is never the
+// remedy.
+func brainBriefCodeContextWarning(storeMissing bool, storeDetail string, providerAbsent bool) string {
+	indexCmd := brainInvocation(os.LookupEnv, semanticIndexVerb)
+	switch {
+	case storeMissing:
+		if storeDetail == "" {
+			storeDetail = "the graph store cannot serve this commit; run `" + indexCmd + "`"
+		}
+		return "code context unavailable: " + storeDetail
+	case providerAbsent:
+		return "code context unavailable: the graph plugin is not installed; install it with `" + providerdetail.InstallGraphCommand + "`, then run `" + indexCmd + "`"
+	default:
+		return "code context unavailable; run `" + indexCmd + "`"
+	}
+}
+
 type brainBriefRawHistoryMatcher func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error)
 
 func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string) error {
@@ -1437,7 +1458,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		Guidance: []string{
 			"Treat the brain as an indexed snapshot, not live memory.",
 			"Use likely_edit_files and history matches before text search; if search is still needed, scope it to likely_files and specific identifiers. Use likely_test_files for validation context.",
-			"Use the live-state overlay before trusting semantic results for files changed in this session.",
+			"Use the live-state overlay before trusting code-context results for files changed in this session.",
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},
 	}
@@ -1493,14 +1514,14 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			contextStarted := profile.start()
 			contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
 			if contextErr != nil {
-				report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
+				report.Warnings = append(report.Warnings, "code context unavailable: "+contextErr.Error())
 			} else {
 				report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
 				if len(report.Semantic.Context.Symbols) > 0 {
 					impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
 					_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
 					if impactErr != nil {
-						report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
+						report.Warnings = append(report.Warnings, "code context impact unavailable: "+impactErr.Error())
 					} else {
 						report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
 					}
@@ -1545,22 +1566,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 		}
 	} else if !semanticDelegated {
-		warning := "semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
-		switch {
-		case graphStoreMissing:
-			// Graph answered, so it is installed regardless of what the host
-			// PATH probe says; the remedy is building the graph-owned store,
-			// never the brain-side snapshot copy retired with COR-2217. Graph's
-			// detail names its own fix; add one only when it sent none.
-			if graphStoreMissingDetail == "" {
-				graphStoreMissingDetail = "the graph store cannot serve this commit; run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
-			}
-			warning = "code context unavailable: " + graphStoreMissingDetail
-		case hostCLIOnPath() && !semanticProviderOnHost():
-			// Refresh cannot build what no installed provider produces.
-			warning = "semantic index missing: the graph provider is not installed, so code context and semantic queries are skipped — install it with `entire plugin install graph`, then run `" + brainInvocation(os.LookupEnv, semanticIndexVerb) + "`"
-		}
-		report.Warnings = append(report.Warnings, warning)
+		providerAbsent := hostCLIOnPath() && !semanticProviderOnHost()
+		report.Warnings = append(report.Warnings, brainBriefCodeContextWarning(graphStoreMissing, graphStoreMissingDetail, providerAbsent))
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
@@ -4488,7 +4495,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
+		return errors.New("code index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -4940,21 +4947,11 @@ func parseBrainLiveStatus(status []byte) (staged, unstaged, untracked []string) 
 }
 
 func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifest, idOrName string) (semanticRecord, error) {
-	if source.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(brainDir, source)
-		if err != nil {
-			return semanticRecord{}, err
-		}
-		return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
-	}
-	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
 	if err != nil {
 		return semanticRecord{}, err
 	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
-		return semanticRecord{}, err
-	}
-	return findSemanticRecordByIDOrNameSnapshot(filepath.Join(brainDir, snapshotPath), idOrName)
+	return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
@@ -4974,31 +4971,6 @@ LIMIT 1`, idOrName, idOrName, idOrName, idOrName, idOrName, idOrName)
 		return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 	}
 	return record, nil
-}
-
-func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return semanticRecord{}, fmt.Errorf("open semantic snapshot: %w", err)
-	}
-	defer f.Close()
-	decoder := json.NewDecoder(f)
-	for {
-		var record semanticRecord
-		if err := decoder.Decode(&record); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return semanticRecord{}, err
-		}
-		if record.RecordType != "symbol" {
-			continue
-		}
-		if record.ID == idOrName || record.Name == idOrName || record.QualifiedName == idOrName {
-			return record, nil
-		}
-	}
-	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 }
 
 type brainBriefRawScanObservation struct {

@@ -391,14 +391,14 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"semantic index failed",
+		"code index failed",
 		"repo key mismatch",
 		// The dash is ASCII here on purpose: the test buffer is not a terminal,
 		// so the renderer resolves to the plain, locale-independent glyph set.
 		"-- continuing; run 'entire-brain doctor' for detail",
 		setupRepoKeyMismatchHint(setupBrainBinaryName),
 		"the brain is queryable now",
-		"FAILED semantic",
+		"FAILED code index",
 		"Ready",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -491,7 +491,7 @@ func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 
 	out := runSetupForTest(t, f, opts, rec)
 
-	if !strings.Contains(out, "1 of 2 components built, FAILED semantic") {
+	if !strings.Contains(out, "1 of 2 components built, FAILED code index") {
 		t.Fatalf("the phase line must name both halves:\n%s", out)
 	}
 }

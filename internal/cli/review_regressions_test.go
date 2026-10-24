@@ -194,35 +194,6 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 	}
 }
 
-// TestFailedVectorStatsDoNotRequestRelaunch locks the worker status contract.
-// A failed sync remains pending without setting the fast relaunch flag, while a
-// deliberate lane-deadline yield still requests continuation.
-func TestFailedVectorStatsDoNotRequestRelaunch(t *testing.T) {
-	var stats memoryWorkerStats
-	stats.VectorPending = true
-	// add() must preserve both flags independently, so one lane's clean yield
-	// is not attributed to another lane's failure.
-	var combined memoryWorkerStats
-	combined.add(stats)
-	if !combined.VectorPending || combined.VectorContinue {
-		t.Fatalf("add lost the pending/continue distinction: %+v", combined)
-	}
-	yielded := memoryWorkerStats{VectorPending: true, VectorContinue: true}
-	combined.add(yielded)
-	if !combined.VectorContinue {
-		t.Fatalf("a yielded lane must still request the relaunch: %+v", combined)
-	}
-	// VectorContinue is an internal scheduling signal, never part of the
-	// worker's JSON contract.
-	encoded, err := json.Marshal(combined)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "VectorContinue") || strings.Contains(string(encoded), "vector_continue") {
-		t.Fatalf("relaunch signal leaked into the worker JSON contract: %s", encoded)
-	}
-}
-
 // TestPatternRunHistoryRepairsCorruptLog locks the repair path. appendPatternRun
 // is the only writer of runs.ndjson and rewrites it wholesale, so refusing to
 // write when the existing content is corrupt left `patterns status`/`list`

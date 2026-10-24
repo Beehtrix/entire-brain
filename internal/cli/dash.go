@@ -40,7 +40,7 @@ func newDashCommand(opts Options) *cobra.Command {
 		Short: "Browse the brain in an interactive dashboard",
 		Long: `dash opens an interactive terminal dashboard over the brain: a Home tab
 summarizing source health, freshness, and blind spots, plus explorer tabs that
-browse individual facts, sessions, history records, and semantic symbols, each
+browse individual facts, sessions, history records, and code symbols, each
 with a detail page. It is read-only and makes no agent calls.
 
 On a non-TTY (piped output) it prints a plain summary instead; --json emits the

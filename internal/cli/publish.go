@@ -133,7 +133,7 @@ func newPublishCommand(opts Options) *cobra.Command {
 		Use:   "publish",
 		Short: "Publish the local brain to hosted Entire (opt-in)",
 		Long: `Publish serializes the current on-disk brain into the versioned brain wire
-artifacts (manifest, semantic snapshots, branch overlays, and durable facts) and
+artifacts (manifest, branch overlays, and durable facts) and
 uploads them to hosted Entire.
 
 Hosted publishing is opt-in and off by default: the brain stays entirely local

@@ -931,7 +931,7 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_list_projects",
-			"description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
+			"description": "List locally indexed brain projects and code index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -985,17 +985,17 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_search_graph",
-			"description": "Search the semantic graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
+			"description": "Search the code graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": nonNegativeIntegerArg("offset", "Results to skip (default: 0)")}),
 		},
 		{
 			"name":        "brain_query_graph",
-			"description": "Read-only semantic graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
+			"description": "Read-only code graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Graph query, e.g. type:CALLS from:Foo"), "limit": integerArg("limit", "Maximum relations")}),
 		},
 		{
 			"name":        "brain_get_graph_schema",
-			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
+			"description": "Return code graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -1025,7 +1025,7 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_ingest_traces",
-			"description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static semantic graph.",
+			"description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static code graph.",
 			"inputSchema": objectSchema([]string{"path"}, map[string]any{"path": stringArg("path", "Local JSON or NDJSON trace file")}),
 		},
 		{

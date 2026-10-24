@@ -445,9 +445,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 		}
 	} else if refreshOpts.semanticWorktreeSkip {
-		progress.Skip("semantic index: skipped, --worktree refreshes seed and docs only")
+		progress.Skip("code index: skipped, --worktree refreshes seed and docs only")
 	} else {
-		progress.Skip("semantic index")
+		progress.Skip("code index")
 	}
 	if refreshOpts.allBranches {
 		finishBranches := progress.Step("branch overlays")
@@ -968,7 +968,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
 		}
-		overlayPath, err := writeSemanticOverlayFile(storage.BrainDir, defaultHead, head, branch, "", now)
+		overlayPath, err := writeSemanticOverlayFile(storage.BrainDir, defaultHead, head, branch, now)
 		if err != nil {
 			return err
 		}

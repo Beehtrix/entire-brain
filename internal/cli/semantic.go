@@ -1118,7 +1118,7 @@ const (
 	semanticBuildCancelCheckEveryFile = 16
 )
 
-func writeSemanticOverlayFile(brainDir, base, head, branch, snapshotRel string, now time.Time) (string, error) {
+func writeSemanticOverlayFile(brainDir, base, head, branch string, now time.Time) (string, error) {
 	name := base + ".." + head + ".json"
 	rel := filepath.ToSlash(filepath.Join(semanticDirName, "overlays", name))
 	payload := map[string]string{
@@ -1126,9 +1126,6 @@ func writeSemanticOverlayFile(brainDir, base, head, branch, snapshotRel string, 
 		"head":         head,
 		"branch":       branch,
 		"generated_at": now.Format(time.RFC3339),
-	}
-	if snapshotRel != "" {
-		payload["snapshot_path"] = snapshotRel
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

@@ -437,7 +437,7 @@
     "name": "brain_index_repository"
   },
   {
-    "description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
+    "description": "List locally indexed brain projects and code index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -558,7 +558,7 @@
     "name": "brain_recall"
   },
   {
-    "description": "Search the semantic graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
+    "description": "Search the code graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -591,7 +591,7 @@
     "name": "brain_search_graph"
   },
   {
-    "description": "Read-only semantic graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
+    "description": "Read-only code graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -617,7 +617,7 @@
     "name": "brain_query_graph"
   },
   {
-    "description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
+    "description": "Return code graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -702,7 +702,7 @@
     "name": "brain_dead_code"
   },
   {
-    "description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static semantic graph.",
+    "description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static code graph.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {

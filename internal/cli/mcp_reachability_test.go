@@ -211,7 +211,16 @@ func TestMCPSurfaceCheckIsOptIn(t *testing.T) {
 	var names []string
 	add := func(name, state, detail string) { names = append(names, name) }
 
-	checkMCPSurfaceReachable(context.Background(), func(string) string { return "" }, add)
+	// A fake server, NOT os.Executable. Under `go test` the executable is the
+	// test binary, and spawning it re-runs this whole package -- recursively.
+	// The first version of this test did exactly that and forked until the
+	// machine gave up; on CI it took dozens of unrelated tests down with it.
+	server := mcpFakeServer(t,
+		frame(`{"jsonrpc":"2.0","id":1,"result":{}}`)+
+			frame(`{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"brain_brief"}]}}`))
+	exe := func() (string, error) { return server, nil }
+
+	checkMCPSurfaceReachable(context.Background(), func(string) string { return "" }, exe, add)
 	if len(names) != 0 {
 		t.Fatalf("the check ran without the opt-in: %v", names)
 	}
@@ -220,8 +229,39 @@ func TestMCPSurfaceCheckIsOptIn(t *testing.T) {
 			return "1"
 		}
 		return ""
-	}, add)
+	}, exe, add)
 	if len(names) == 0 {
 		t.Fatal("the check did not run with the opt-in set")
+	}
+}
+
+// TestMCPSurfaceCheckNeverSpawnsTheTestBinary is the guard for the fork bomb
+// itself. os.Executable() under `go test` is the test binary, so a check that
+// resolves it and spawns it re-runs the package recursively. This asserts the
+// resolver is injected and honoured, so no future edit can quietly reach for
+// os.Executable() inside the test path again.
+func TestMCPSurfaceCheckNeverSpawnsTheTestBinary(t *testing.T) {
+	t.Parallel()
+	self, err := os.Executable()
+	if err != nil {
+		t.Skip("cannot resolve the test binary here")
+	}
+	var spawned string
+	exe := func() (string, error) {
+		spawned = self
+		return filepath.Join(t.TempDir(), "definitely-not-a-server"), nil
+	}
+	var details []string
+	checkMCPSurfaceReachable(context.Background(), func(string) string { return "1" }, exe,
+		func(name, state, detail string) { details = append(details, state+": "+detail) })
+
+	if spawned == "" {
+		t.Fatal("the injected resolver was never called, so the check reached os.Executable() directly")
+	}
+	if len(details) != 1 || !strings.HasPrefix(details[0], "error: ") {
+		t.Fatalf("a missing binary must report one error, got %v", details)
+	}
+	if strings.Contains(details[0], self) {
+		t.Fatalf("the check probed the TEST BINARY, which re-runs this package: %v", details[0])
 	}
 }

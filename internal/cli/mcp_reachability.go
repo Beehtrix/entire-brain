@@ -210,11 +210,22 @@ func missingMCPTools(served []string) []string {
 //
 // and CI runs the same assertion directly as
 // TestMCPProbeReachesTHISBinarysRealSurface, which needs no environment at all.
-func checkMCPSurfaceReachable(ctx context.Context, getenv func(string) string, add func(name, state, detail string)) {
+// exePath is injected rather than calling os.Executable() directly, and that
+// is not a style preference. Under `go test`, os.Executable() IS the test
+// binary, and spawning it re-runs the whole package -- each of those runs
+// spawning again. A test of this check therefore forked a process tree until
+// the machine ran out, which on CI cascaded into dozens of failures in
+// unrelated tests and locally only showed up as the probe taking its full
+// 20-second timeout. Injecting the resolver is what makes the check testable
+// without spawning anything real.
+func checkMCPSurfaceReachable(ctx context.Context, getenv func(string) string, exePath func() (string, error), add func(name, state, detail string)) {
 	if getenv == nil || strings.TrimSpace(getenv("ENTIRE_BRAIN_DOCTOR_PROBE_MCP")) == "" {
 		return
 	}
-	resolved, err := os.Executable()
+	if exePath == nil {
+		exePath = os.Executable
+	}
+	resolved, err := exePath()
 	if err != nil || strings.TrimSpace(resolved) == "" {
 		add("mcp surface", "warn", "could not resolve this binary's own path, so the MCP surface cannot be probed")
 		return

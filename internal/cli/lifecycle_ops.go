@@ -356,7 +356,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// silent (safe-mode stripping MCP, a comma in CLAUDE_CODE_PLUGIN_DIRS, a
 	// purged plugin path reported as CONNECTION_CLOSED). Opt-in, because it
 	// spawns a subprocess.
-	checkMCPSurfaceReachable(ctx, os.Getenv, add)
+	checkMCPSurfaceReachable(ctx, os.Getenv, os.Executable, add)
 	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")

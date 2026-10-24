@@ -206,10 +206,21 @@ func fakeSeedGitLog(n int) string {
 // Large retained coverage records written by earlier builds remain readable and
 // rewritable even though new seed projections store coverage more compactly.
 func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
-	t.Parallel()
+	// The pinned relation is "a retained coverage block above maxManifestBytes
+	// still reads and rewrites" — the reader is deliberately unbounded. The
+	// default run lowers the ceiling instead of paying for a 16 MiB fixture;
+	// the nightly's ENTIRE_BRAIN_OBSERVED_SCALE=1 keeps the recorded 50k-record
+	// size against the real ceiling. Serial: the ceiling is a package-level var.
+	records := 50000
+	if !observedScale() {
+		records = 1000
+		prev := maxManifestBytes
+		maxManifestBytes = 256 << 10
+		t.Cleanup(func() { maxManifestBytes = prev })
+	}
 	brainDir := t.TempDir()
 	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
-		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(50000),
+		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(records),
 	}}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
@@ -225,7 +236,7 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Sources.Seed.HistoryCoverage.UncoveredCommits) != 50000 {
+	if len(got.Sources.Seed.HistoryCoverage.UncoveredCommits) != records {
 		t.Fatal("lost coverage records")
 	}
 	if err := writeBrainManifestAndReadme(brainDir, *got); err != nil {

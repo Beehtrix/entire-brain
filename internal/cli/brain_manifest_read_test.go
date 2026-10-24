@@ -19,13 +19,22 @@ import (
 // synthetic. Session metadata is deliberately repeated through the production
 // session aliases, as it is in retained manifests.
 func TestBrainManifestObservedShapesRoundTrip(t *testing.T) {
+	// The observed cases divide every dimension by `scale` in the default run:
+	// the shapes, aliasing, padding math, and round-trip checks are identical,
+	// only the soak at recorded cohort sizes is lost. The above-read-cap
+	// relation stays proven by the third case, which lowers the cap instead.
+	// The nightly runs with ENTIRE_BRAIN_OBSERVED_SCALE=1 for the true sizes.
+	scale := 8
+	if observedScale() {
+		scale = 1
+	}
 	for _, tc := range []struct {
 		name                                string
 		branches, sessions, warnings, bytes int
 		readCap                             int64 // when non-zero, lower defaultMaxReadBytes to this
 	}{
-		{"session-heavy", 870, 5305, 111, 18569433, 0},
-		{"warning-heavy", 389, 2633, 6238, 17220291, 0},
+		{"session-heavy", 870 / scale, 5305 / scale, 111 / scale, 18569433 / scale, 0},
+		{"warning-heavy", 389 / scale, 2633 / scale, 6238 / scale, 17220291 / scale, 0},
 		// Guards against a manifest reader ever routed through the capped
 		// default read path; only the fixture-above-cap relation matters.
 		{"larger-than-default-read-limit", 20, 200, 20, 5 << 20, 4 << 20},

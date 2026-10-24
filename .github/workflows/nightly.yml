@@ -66,6 +66,10 @@ jobs:
     timeout-minutes: 45
     env:
       CGO_ENABLED: "0"
+      # Fixture-heavy internal/cli tests build their recorded production-cohort
+      # sizes only here; the per-PR suite runs them scaled down (see
+      # internal/cli/scale_mode_test.go).
+      ENTIRE_BRAIN_OBSERVED_SCALE: "1"
     steps:
       - uses: actions/checkout@v7
         with:

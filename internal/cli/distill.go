@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	distillTemplateName   = "templates/entire-brain-distill.md"
+	distillTemplateName = "templates/entire-brain-distill.md"
 	// envDistillTemplate points distillTemplate at an alternate prompt file for
 	// eval runs comparing prompt variants. The prompt is a cache-salt input, so
 	// an override never reuses chunks cached under another template.
-	envDistillTemplate = "ENTIRE_BRAIN_DISTILL_TEMPLATE"
+	envDistillTemplate    = "ENTIRE_BRAIN_DISTILL_TEMPLATE"
 	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
 	distillMaxOutputBytes = 256 * 1024
 	// distillAgentPromptMarker separates the agent's real argv from its system

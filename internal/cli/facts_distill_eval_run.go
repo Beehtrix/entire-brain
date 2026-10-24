@@ -101,9 +101,9 @@ func findSandboxBrainDir(sandbox string) (string, error) {
 
 func newDistillEvalCorpusCommand(opts Options) *cobra.Command {
 	var (
-		out         string
-		sessionsN   int
-		goldenN     int
+		out       string
+		sessionsN int
+		goldenN   int
 	)
 	cmd := &cobra.Command{
 		Use:   "corpus",

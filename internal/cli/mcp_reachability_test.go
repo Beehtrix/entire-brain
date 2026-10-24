@@ -319,7 +319,17 @@ func TestMCPProbeWaitsForAServersLateReason(t *testing.T) {
 // turns that into a local guard.
 func TestFakeServerDrainKeepsStdinOpen(t *testing.T) {
 	t.Parallel()
+	// The fakes this guards are POSIX shell scripts, and mcpFakeServer already
+	// skips on Windows for that reason. This test executes /bin/sh directly,
+	// so it needs the same guard -- without it, Windows CI runs a branch that
+	// cannot work anywhere on that platform.
+	if runtime.GOOS == "windows" {
+		t.Skip("the fakes are POSIX shell scripts; mcpFakeServer skips here too")
+	}
 	shells := []string{"/bin/sh"}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh here")
+	}
 	if dash, err := exec.LookPath("dash"); err == nil {
 		shells = append(shells, dash)
 	}

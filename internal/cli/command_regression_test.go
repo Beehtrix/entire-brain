@@ -144,6 +144,7 @@ func fakeCodexProvider(t *testing.T, response string) {
 }
 
 func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
+	t.Parallel()
 	opts, _, brainDir := commandRegressionFixture(t)
 	export := filepath.Join(t.TempDir(), "mem0.json")
 	text := "Retries stop after three attempts."
@@ -171,6 +172,7 @@ func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
 }
 
 func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
+	t.Parallel()
 	opts, _, brainDir := commandRegressionFixture(t)
 	for _, args := range [][]string{{"bench", "--help"}, {"facts", "eval-gen", "--help"}, {"facts", "eval-compare", "--help"}} {
 		out, err := execute(t, NewRootCommand(opts), args...)
@@ -465,6 +467,7 @@ func (w *cancelOnVizURLWriter) String() string {
 }
 
 func TestRootCommandVizReportsLoopbackReadOnlyServer(t *testing.T) {
+	t.Parallel()
 	opts, repoDir, brainDir := commandRegressionFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)

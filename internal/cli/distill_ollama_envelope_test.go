@@ -311,6 +311,7 @@ func TestOllamaDistillAgentRecordsUsageOnOversizedOutputFailure(t *testing.T) {
 }
 
 func TestOllamaContextProbeClosesIdleConnection(t *testing.T) {
+	t.Parallel()
 	closed := make(chan struct{}, 1)
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"models":[{"name":"test","context_length":32768}]}`)

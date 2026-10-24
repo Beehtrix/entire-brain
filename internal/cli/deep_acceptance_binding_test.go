@@ -7,6 +7,7 @@ import (
 )
 
 func TestStaleDeepDossierRejected(t *testing.T) {
+	t.Parallel()
 	d := promotableCorpusDir(t, time.Now())
 	db := openCorpus(t, d)
 	var pid string
@@ -29,6 +30,7 @@ func TestStaleDeepDossierRejected(t *testing.T) {
 	t.Log("stale dossier rejected")
 }
 func TestAcceptedDeepDossierRequiresCurrentBoundEvidence(t *testing.T) {
+	t.Parallel()
 	for _, mutation := range []string{"payload", "verdict_binding", "source_command"} {
 		t.Run(mutation, func(t *testing.T) {
 			d := promotableCorpusDir(t, time.Now())
@@ -76,6 +78,7 @@ func TestAcceptedDeepDossierRequiresCurrentBoundEvidence(t *testing.T) {
 }
 
 func TestAcceptedKnowledgeRejectsChangedSourceSample(t *testing.T) {
+	t.Parallel()
 	d := t.TempDir()
 	_, convention := seedRoutingKnowledge(t, d)
 	if _, ok, err := loadAcceptedDeepDossierChecked(d, convention); err != nil || !ok {

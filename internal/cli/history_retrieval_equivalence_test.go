@@ -19,6 +19,7 @@ import (
 // and the user-visible conversation order/provenance must be the same as a
 // subsequent full rebuild over the identical transcripts.
 func TestIncrementalHistoryMatchesFullRebuild(t *testing.T) {
+	t.Parallel()
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
 
@@ -131,6 +132,7 @@ func canonicalHistoryRecords(t testing.TB, records []historyRecord) []string {
 // with "end-to-end brief lost fallback-only match"; the production file is
 // never modified.
 func TestRawHistoryFallbackRetainsFallbackOnlyMatch(t *testing.T) {
+	t.Parallel()
 	const marker = "FALLBACK_ONLY_HISTORY_MARKER"
 	fixture := newBrainBriefRawHistoryEndToEndFixture(t)
 	storage, err := repoStoragePaths(context.Background(), fixture.opts.Runner, fixture.opts.Env, fixture.opts.Env.RepoRoot)
@@ -184,6 +186,7 @@ func TestRawHistoryFallbackRetainsFallbackOnlyMatch(t *testing.T) {
 var historyRetrievalEquivalenceSink []scoredHistoryRecord
 
 func TestHistoryRetrievalEquivalentPaths(t *testing.T) {
+	t.Parallel()
 	for _, size := range []int{12, 6000} {
 		t.Run(fmt.Sprintf("records_%d", size), func(t *testing.T) {
 			assertHistoryRetrievalEquivalentPaths(t, size)

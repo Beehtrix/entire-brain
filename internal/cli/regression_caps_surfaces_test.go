@@ -15,6 +15,7 @@ import (
 )
 
 func TestCappedHistoryReviewSurfacesDoNotClaimCleanResults(t *testing.T) {
+	t.Parallel()
 	for _, regressed := range []bool{false, true} {
 		t.Run(fmt.Sprint(regressed), func(t *testing.T) { testCappedHistoryReviewSurfaces(t, regressed) })
 	}

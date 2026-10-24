@@ -61,6 +61,7 @@ func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) strin
 }
 
 func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistence(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	policy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
@@ -130,6 +131,7 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 }
 
 func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	policy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
@@ -338,6 +340,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 }
 
 func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	for _, action := range []struct {
 		name string
@@ -487,6 +490,7 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 }
 
 func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -509,6 +513,7 @@ func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
 }
 
 func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	const rel = "sessions/main/s1.jsonl"
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
@@ -543,6 +548,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 }
 
 func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -578,6 +584,7 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 }
 
 func TestPatternCorpusStagingArtifactsAreInPrivacyInventory(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 		t.Fatal(err)

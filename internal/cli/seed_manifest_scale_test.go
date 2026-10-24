@@ -43,6 +43,7 @@ func coverageFixture(n int) *seedHistoryCoverage {
 // At 50,000 commits that manifest was 28 MB against a 16 MiB read bound, so the
 // next command could not read what the previous one had just written.
 func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
+	t.Parallel()
 	full := coverageFixture(50000)
 
 	unbounded, err := json.Marshal(full)
@@ -90,6 +91,7 @@ func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
 // all, so an ordinary repository's manifest is byte-identical to what earlier
 // builds wrote.
 func TestSeedHistoryCoverageUnderTheBoundIsUnchanged(t *testing.T) {
+	t.Parallel()
 	small := coverageFixture(10)
 	bounded := manifestSeedHistoryCoverage(small)
 	if bounded != small {
@@ -117,6 +119,7 @@ func TestSeedHistoryCoverageUnderTheBoundIsUnchanged(t *testing.T) {
 // asserts the only property that matters afterwards: the brain can still read
 // what it just wrote.
 func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
+	t.Parallel()
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)
@@ -203,6 +206,7 @@ func fakeSeedGitLog(n int) string {
 // Large retained coverage records written by earlier builds remain readable and
 // rewritable even though new seed projections store coverage more compactly.
 func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
+	t.Parallel()
 	brainDir := t.TempDir()
 	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
 		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(50000),
@@ -234,6 +238,7 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 // and stopped, so the whole report of a brain that skipped most of the
 // repository was a digit. `refresh sessions` has always printed the text too.
 func TestSeedPrintsEveryWarningNotJustACount(t *testing.T) {
+	t.Parallel()
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	cmd := NewRootCommand(Options{

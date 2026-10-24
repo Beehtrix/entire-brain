@@ -9,6 +9,7 @@ import (
 )
 
 func TestSemanticTestSuggestionRankingFindsLateStrongCandidateAfterSaturation(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{
 		ID: "source:token", Name: "ValidateToken", QualifiedName: "auth.ValidateToken",
 		FilePath: "internal/auth/token.go",
@@ -56,6 +57,7 @@ func TestSemanticTestSuggestionRankingFindsLateStrongCandidateAfterSaturation(t 
 }
 
 func TestSemanticTestSuggestionRankingPreservesStrongEvidenceClasses(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{
 		ID: "source:token", Name: "ValidateToken", QualifiedName: "auth.ValidateToken",
 		FilePath: "internal/auth/token.go",
@@ -95,6 +97,7 @@ func TestSemanticTestSuggestionRankingPreservesStrongEvidenceClasses(t *testing.
 }
 
 func TestSemanticTestSuggestionExactAndRelationInheritTaskAlignedRoot(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:parser", Name: "ParseDocument", FilePath: "src/parser.go"}
 	exact := semanticTestSuggestionFixture("test:exact-eof", "TestHandlesEOF", "src/parser_test.go", 10)
 	related := semanticTestSuggestionFixture("test:related-sentinel", "TestHandlesSentinel", "integration/eof_test.go", 20)
@@ -115,6 +118,7 @@ func TestSemanticTestSuggestionExactAndRelationInheritTaskAlignedRoot(t *testing
 }
 
 func TestSemanticTestSuggestionUnalignedRelationRemainsWeak(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:engine", Name: "RunEngine", FilePath: "src/engine.go"}
 	related := semanticTestSuggestionFixture("test:related-eof", "TestHandlesEOF", "integration/eof_test.go", 20)
 	got := rankSemanticTestSuggestions(
@@ -131,6 +135,7 @@ func TestSemanticTestSuggestionUnalignedRelationRemainsWeak(t *testing.T) {
 }
 
 func TestSemanticTestSuggestionPrimaryEvidenceSuppressesInheritedFallback(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:parser", Name: "ParseDocument", FilePath: "src/parser.go"}
 	fallback := semanticTestSuggestionFixture("test:fallback-eof", "TestHandlesEOF", "src/parser_test.go", 10)
 	primary := semanticTestSuggestionFixture("test:primary-recovery", "TestParserRecovery", "integration/recovery_test.go", 20)
@@ -151,6 +156,7 @@ func TestSemanticTestSuggestionPrimaryEvidenceSuppressesInheritedFallback(t *tes
 }
 
 func TestSemanticTestSuggestionFreshnessFilterRefillsBeforeCap(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	currentPath := "internal/auth/token_test.go"
 	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "auth"), 0o700); err != nil {
@@ -181,6 +187,7 @@ func TestSemanticTestSuggestionFreshnessFilterRefillsBeforeCap(t *testing.T) {
 }
 
 func TestSemanticTestSuggestionEmptyLegacyStreamRemainsAuthoritative(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	currentPath := "src/processor.go"
 	for rel, content := range map[string]string{
@@ -231,6 +238,7 @@ func TestSemanticTestSuggestionEmptyLegacyStreamRemainsAuthoritative(t *testing.
 }
 
 func TestSemanticTestSuggestionLegacyStreamOwnsFreshnessGraphFiltering(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	currentPath := "internal/auth/token.go"
 	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "auth"), 0o700); err != nil {
@@ -274,6 +282,7 @@ func TestSemanticTestSuggestionLegacyStreamOwnsFreshnessGraphFiltering(t *testin
 }
 
 func TestSemanticTestSuggestionNoMatchAndNoOpProjectionPreservePacketBytes(t *testing.T) {
+	t.Parallel()
 	report := brainBriefReport{Task: "update parser documentation"}
 	before := renderBrainBriefCompactV3ForTest(t, report)
 	root := semanticRecord{ID: "source:token", Name: "ValidateToken", FilePath: "internal/auth/token.go"}
@@ -295,6 +304,7 @@ func TestSemanticTestSuggestionNoMatchAndNoOpProjectionPreservePacketBytes(t *te
 }
 
 func TestSemanticTestSuggestionRankingIsDeterministicWithBoundedOutput(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:token", Name: "ValidateToken", FilePath: "internal/auth/token.go"}
 	symbols := make(map[string]semanticRecord, 2_000)
 	for i := 0; i < 2_000; i++ {

@@ -105,6 +105,7 @@ func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bInte
 // SR5(1): equivalent release workflows with DIFFERENT command names produce ONE
 // cross-repo family after agent judgment (exact aggregation never would).
 func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
+	t.Parallel()
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
@@ -142,6 +143,7 @@ func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
 // SR5(2): two repos that only share generic git commit/push produce NO accepted
 // family (so no workspace skill).
 func TestWorkspaceFamilyRejectsGeneric(t *testing.T) {
+	t.Parallel()
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "commit:push", []string{"git add", "git push"},
 		"gh/acme/b", "commit:push", []string{"git add", "git push"})
@@ -182,6 +184,7 @@ func verdictFamilyAgent(verdict string) distillAgentRunner {
 // Item #1: a verified workspace family survives a deterministic workspace refresh
 // (unchanged member corpora) and is still listed without re-invoking the agent.
 func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
+	t.Parallel()
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
@@ -221,6 +224,7 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 // Item #2: editing member task CONTENT (title) while keeping repos/intents stable
 // invalidates the cached family proposal (the agent re-runs).
 func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
+	t.Parallel()
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
@@ -259,6 +263,7 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 // Item #3: a missing/unknown/non-accepting verdict must never surface a family or
 // count as Verified.
 func TestWorkspaceFamilyUnknownVerdictNotAccepted(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"", "bogus", "needs_split", "low_confidence"} {
 		env, manifest := twoRepoWorkspace(t,
 			"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},

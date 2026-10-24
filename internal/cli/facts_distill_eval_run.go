@@ -76,6 +76,51 @@ func distillEvalChildEnv(sandbox string, extra map[string]string) []string {
 	return env
 }
 
+// distillEvalRepoRoot is the directory children run in; EntireEnv.RepoRoot is
+// empty when the command resolves its own paths, so fall back to the cwd.
+func distillEvalRepoRoot(opts Options) string {
+	if opts.Env.RepoRoot != "" {
+		return opts.Env.RepoRoot
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return wd
+}
+
+// distillEvalExportSessions materializes a session export WITH transcript
+// files at the sandbox's brain-dir location and returns that directory.
+// `refresh sessions` without -o records metadata only (transcripts stay in git
+// checkpoint refs, read on demand), and with -o it requires an EMPTY output
+// directory — so: metadata pass to learn the brain-dir path, bundle export to
+// a fresh dir, then swap the bundle into place. Distill children then read
+// transcript files from disk, the same shape the unit fixtures exercise.
+func distillEvalExportSessions(ctx context.Context, opts Options, sandbox string, env []string) (string, error) {
+	repoRoot := distillEvalRepoRoot(opts)
+	if _, err := distillEvalExec(ctx, repoRoot, env, "refresh", "sessions"); err != nil {
+		return "", fmt.Errorf("export session metadata into sandbox: %w", err)
+	}
+	brainDir, err := findSandboxBrainDir(sandbox)
+	if err != nil {
+		return "", err
+	}
+	bundle := filepath.Join(sandbox, "bundle")
+	if err := os.RemoveAll(bundle); err != nil {
+		return "", err
+	}
+	if _, err := distillEvalExec(ctx, repoRoot, env, "refresh", "sessions", "-o", bundle); err != nil {
+		return "", fmt.Errorf("materialize session transcripts into sandbox: %w", err)
+	}
+	if err := os.RemoveAll(brainDir); err != nil {
+		return "", err
+	}
+	if err := os.Rename(bundle, brainDir); err != nil {
+		return "", err
+	}
+	return brainDir, nil
+}
+
 // findSandboxBrainDir locates the one brain directory a sandboxed `refresh
 // sessions` produced, by walking for its manifest.json — layout-agnostic so a
 // storage-path change in the CLI does not break the harness.
@@ -115,17 +160,14 @@ func newDistillEvalCorpusCommand(opts Options) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				out = filepath.Join(home, ".entire-brain-eval", filepath.Base(opts.Env.RepoRoot))
+				out = filepath.Join(home, ".entire-brain-eval", filepath.Base(distillEvalRepoRoot(opts)))
 			}
 			sandbox := filepath.Join(out, "sandbox")
 			if err := os.MkdirAll(sandbox, 0o700); err != nil {
 				return err
 			}
 			env := distillEvalChildEnv(sandbox, nil)
-			if _, err := distillEvalExec(cmd.Context(), opts.Env.RepoRoot, env, "refresh", "sessions"); err != nil {
-				return fmt.Errorf("export sessions into sandbox: %w", err)
-			}
-			brainDir, err := findSandboxBrainDir(sandbox)
+			brainDir, err := distillEvalExportSessions(cmd.Context(), opts, sandbox, env)
 			if err != nil {
 				return err
 			}
@@ -273,8 +315,8 @@ growth, because production reconciliation discards about half of proposals.`,
 			env := distillEvalChildEnv(sandbox, extra)
 
 			started := opts.Now()
-			if _, err := distillEvalExec(cmd.Context(), opts.Env.RepoRoot, env, "refresh", "sessions"); err != nil {
-				return fmt.Errorf("export sessions into run sandbox: %w", err)
+			if _, err := distillEvalExportSessions(cmd.Context(), opts, sandbox, env); err != nil {
+				return err
 			}
 			var sessionFiles, traceFiles []string
 			for _, s := range corpus.Sessions {
@@ -293,7 +335,7 @@ growth, because production reconciliation discards about half of proposals.`,
 				if model != "" {
 					args = append(args, "--model", model)
 				}
-				if _, err := distillEvalExec(cmd.Context(), opts.Env.RepoRoot, env, args...); err != nil {
+				if _, err := distillEvalExec(cmd.Context(), distillEvalRepoRoot(opts), env, args...); err != nil {
 					return fmt.Errorf("distill session %s: %w", s.SessionID, err)
 				}
 				sessionFiles = append(sessionFiles, rawOut)

@@ -62,6 +62,14 @@ func TestDistillEvalEndToEndWithFakeAgents(t *testing.T) {
 		dataHome := envValue(env, "XDG_DATA_HOME")
 		switch args[0] {
 		case "refresh":
+			if out := argValue(args, "-o"); out != "" {
+				// Bundle pass: write directly into the named bundle dir, which
+				// the harness swaps into the brain-dir location.
+				if err := os.Rename(writeBrain(t.TempDir()), out); err != nil {
+					t.Fatal(err)
+				}
+				return nil, nil
+			}
 			writeBrain(dataHome)
 			return nil, nil
 		case "distill":

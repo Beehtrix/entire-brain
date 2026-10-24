@@ -105,7 +105,26 @@ func TestDistillEvalCorpusSelectsSmallestSessions(t *testing.T) {
 	distillEvalExec = func(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 		calls = append(calls, fakeEvalCall{dir: dir, env: env, args: args})
 		if len(args) >= 2 && args[0] == "refresh" && args[1] == "sessions" {
-			writeEvalBrainFixture(t, filepath.Join(envValue(env, "XDG_DATA_HOME"), "brainrepo"), sizes, now)
+			// First pass (no -o) writes metadata only, like the real export;
+			// the -o pass materializes transcripts into the named bundle dir.
+			brainDir := filepath.Join(envValue(env, "XDG_DATA_HOME"), "brainrepo")
+			if out := argValue(args, "-o"); out != "" {
+				brainDir = out
+				writeEvalBrainFixture(t, brainDir, sizes, now)
+			} else {
+				writeEvalBrainFixture(t, brainDir, map[string]int{}, now)
+				var sessions []exportSession
+				for id := range sizes {
+					sessions = append(sessions, exportSession{SessionID: id, Branch: "main", TranscriptPath: "sessions/main/" + id + ".jsonl", CreatedAt: now})
+				}
+				manifest := exportManifest{
+					SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, DefaultBranch: "main",
+					Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
+				}
+				if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
+					t.Fatal(err)
+				}
+			}
 			return nil, nil
 		}
 		t.Fatalf("unexpected exec args: %v", args)
@@ -116,6 +135,15 @@ func TestDistillEvalCorpusSelectsSmallestSessions(t *testing.T) {
 	outDir := t.TempDir()
 	if _, err := runDistillEvalCommand(t, t.TempDir(), "corpus", "--out", outDir, "--sessions", "2", "--golden", "1"); err != nil {
 		t.Fatalf("corpus: %v", err)
+	}
+	materialized := false
+	for _, c := range calls {
+		if c.args[0] == "refresh" && argValue(c.args, "-o") != "" {
+			materialized = true
+		}
+	}
+	if !materialized {
+		t.Fatal("corpus must run a second `refresh sessions -o <brain-dir>` pass: without -o the export is metadata-only and no transcripts exist on disk")
 	}
 
 	data, err := os.ReadFile(filepath.Join(outDir, "corpus.json"))
@@ -169,6 +197,11 @@ func TestDistillEvalRunProducesArtifactsInSandbox(t *testing.T) {
 	distillEvalExec = func(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
 		calls = append(calls, fakeEvalCall{dir: dir, env: env, args: args})
 		if args[0] == "refresh" {
+			dir := argValue(args, "-o")
+			if dir == "" {
+				dir = filepath.Join(envValue(env, "XDG_DATA_HOME"), "brainrepo")
+			}
+			writeEvalBrainFixture(t, dir, map[string]int{"s1": 10, "s2": 20}, now)
 			return nil, nil
 		}
 		if args[0] == "distill" {

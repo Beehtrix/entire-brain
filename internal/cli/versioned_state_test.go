@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 type versionedTestDoc struct {
@@ -58,8 +60,8 @@ func TestDecodeStrictVersionedJSON_RejectsRealCorruption(t *testing.T) {
 			var got versionedTestDoc
 			if _, err := decodeStrictVersionedJSON([]byte(data), &got, 3, "test document"); err == nil {
 				t.Fatalf("%s must be rejected", name)
-			} else if !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-				t.Fatalf("%s must classify as %s, got: %v", name, memoryErrStateCorrupt, err)
+			} else if !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+				t.Fatalf("%s must classify as %s, got: %v", name, brainstore.StateCorruptCode, err)
 			}
 
 			var tolerant versionedTestDoc
@@ -176,7 +178,7 @@ func TestLoadBrainManifestForReplace_StillRefusesUnknownFields(t *testing.T) {
 	if _, err := loadBrainManifest(dir); err != nil {
 		t.Fatalf("the reader must accept it: %v", err)
 	}
-	if _, err := loadBrainManifestForReplace(dir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if _, err := loadBrainManifestForReplace(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("the writer must refuse to erase it, got: %v", err)
 	}
 }
@@ -376,8 +378,8 @@ func TestDiscardManifestThisBuildCannotRewrite_KeepsWhatItMustNotDelete(t *testi
 		wantCode string
 	}{
 		"newer schema": {`{"schema_version":99,"future":true}`, memoryErrUnsupportedVersion},
-		"corrupt":      {`{"schema_version":3,"repo_key":`, memoryErrStateCorrupt},
-		"wrong type":   {`{"schema_version":3,"repo_key":123}`, memoryErrStateCorrupt},
+		"corrupt":      {`{"schema_version":3,"repo_key":`, brainstore.StateCorruptCode},
+		"wrong type":   {`{"schema_version":3,"repo_key":123}`, brainstore.StateCorruptCode},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

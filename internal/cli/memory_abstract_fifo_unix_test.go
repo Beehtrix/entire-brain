@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestAbstractPrivacyCleanupRejectsRegularToFIFOSwapWithoutBlocking(t *testing.T) {
@@ -46,7 +48,7 @@ func TestAbstractPrivacyCleanupRejectsRegularToFIFOSwapWithoutBlocking(t *testin
 	go func() { done <- purgeSessionAbstracts(brainDir, manifest, "nav-sess") }()
 	select {
 	case err := <-done:
-		if !swapped || err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if !swapped || err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("swapped=%v err=%v", swapped, err)
 		}
 	case <-time.After(5 * time.Second):

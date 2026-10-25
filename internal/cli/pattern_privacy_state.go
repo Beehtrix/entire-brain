@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -88,10 +89,10 @@ func newPatternCorpusPublicationLoadError(err error, version int) error {
 	switch code {
 	case memoryErrUnsupportedVersion:
 		state = patternCorpusPublicationUnsupported
-	case memoryErrStateUnsafe:
+	case brainstore.StateUnsafeCode:
 		state = patternCorpusPublicationUnsafe
 	default:
-		code = memoryErrStateCorrupt
+		code = brainstore.StateCorruptCode
 	}
 	return &patternCorpusPublicationLoadError{Code: code, State: state, Version: version, Err: err}
 }
@@ -112,9 +113,9 @@ func decodePatternCorpusPublication(data []byte) (patternCorpusPublication, erro
 		filepath.Base(publication.Candidate) != publication.Candidate ||
 		strings.ContainsAny(publication.Candidate, `/\`) ||
 		decodeErr != nil || len(decodedSHA) != sha256.Size || publication.SHA256 != strings.ToLower(publication.SHA256) ||
-		publication.Size < 1 || publication.Size > privacySQLiteSnapshotMaxBytes {
+		publication.Size < 1 || publication.Size > brainstore.PrivacySQLiteSnapshotMaxBytes {
 		return patternCorpusPublication{}, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: invalid pattern corpus publication marker", memoryErrStateCorrupt), publication.SchemaVersion)
+			fmt.Errorf("%s: invalid pattern corpus publication marker", brainstore.StateCorruptCode), publication.SchemaVersion)
 	}
 	return publication, nil
 }
@@ -123,7 +124,7 @@ func decodePatternCorpusPublication(data []byte) (patternCorpusPublication, erro
 // exact regular-file identity observed by inventory. Callers may retain info
 // only while holding the Brain privacy/write locks; removal rechecks it.
 func loadPatternCorpusPublicationForPrivacy(brainDir string) (patternCorpusPublication, os.FileInfo, bool, error) {
-	info, present, err := privacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
+	info, present, err := brainstore.PrivacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
 	if err != nil {
 		return patternCorpusPublication{}, nil, present, newPatternCorpusPublicationLoadError(err, 0)
 	}
@@ -132,7 +133,7 @@ func loadPatternCorpusPublicationForPrivacy(brainDir string) (patternCorpusPubli
 	}
 	if info.Size() < 1 || info.Size() > patternCorpusPublicationMarkerMax {
 		return patternCorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker is outside its safe size bounds", memoryErrStateUnsafe), 0)
+			fmt.Errorf("%s: pattern corpus publication marker is outside its safe size bounds", brainstore.StateUnsafeCode), 0)
 	}
 	data, stillPresent, err := readMemoryStateFileExpected(
 		brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker", patternCorpusPublicationMarkerMax, info)
@@ -141,7 +142,7 @@ func loadPatternCorpusPublicationForPrivacy(brainDir string) (patternCorpusPubli
 	}
 	if !stillPresent {
 		return patternCorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker disappeared during inventory", memoryErrStateUnsafe), 0)
+			fmt.Errorf("%s: pattern corpus publication marker disappeared during inventory", brainstore.StateUnsafeCode), 0)
 	}
 	publication, err := decodePatternCorpusPublication(data)
 	if err != nil {

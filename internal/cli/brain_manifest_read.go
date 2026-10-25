@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // readBrainManifestFile decodes the canonical manifest without a byte ceiling.
@@ -49,7 +51,7 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 		SchemaVersion int `json:"schema_version"`
 	}
 	if err := decodeManifestPass(f, &header, false); err != nil {
-		return nil, 0, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+		return nil, 0, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", brainstore.StateCorruptCode, err)
 	}
 	version := header.SchemaVersion
 	if version > brainManifestSchemaVersion {
@@ -83,9 +85,9 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 				"parse brain manifest: %s: brain manifest carries a field this build does not know (%w); "+
 					"the file is readable and is NOT damaged, but a writer will not rewrite it and silently drop that field. "+
 					"Use a build that knows the field, or let a read-only command run instead",
-				memoryErrStateCorrupt, err)
+				brainstore.StateCorruptCode, err)
 		}
-		return nil, version, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+		return nil, version, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", brainstore.StateCorruptCode, err)
 	}
 	if version < brainManifestMinSchemaVersion {
 		return nil, version, false, fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)

@@ -247,12 +247,12 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		committed := 0
 		rebuildMemoryProjection = func(string, time.Time) error { committed++; return nil }
 		markMemoryProjectionRefreshStates = func(string, *[]memoryReceiptArtifact) error {
-			return fmt.Errorf("%s: injected post-commit receipt inspection failure", memoryErrStateUnsafe)
+			return fmt.Errorf("%s: injected post-commit receipt inspection failure", brainstore.StateUnsafeCode)
 		}
 		cmd := newMemoryRebuildCommand(opts)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		out, err := execute(t, cmd, "--all")
-		if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) || committed != 1 {
+		if err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) || committed != 1 {
 			t.Fatalf("err=%v committed=%d out=%s", err, committed, out)
 		}
 		if out != "" {
@@ -265,7 +265,7 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		committed := 0
 		rebuildMemoryProjection = func(string, time.Time) error { committed++; return nil }
 		markMemoryProjectionRefreshStates = func(string, *[]memoryReceiptArtifact) error {
-			return fmt.Errorf("%s: injected post-commit receipt inspection failure", memoryErrStateCorrupt)
+			return fmt.Errorf("%s: injected post-commit receipt inspection failure", brainstore.StateCorruptCode)
 		}
 		cmd := newMemoryRepairCommand(opts)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
@@ -277,7 +277,7 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil {
 			t.Fatalf("decode one failure receipt: %v\n%s", decodeErr, out)
 		}
-		if receipt.Operation != "repair" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != memoryErrStateCorrupt || strings.Count(out, `"operation_id"`) != 1 {
+		if receipt.Operation != "repair" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != brainstore.StateCorruptCode || strings.Count(out, `"operation_id"`) != 1 {
 			t.Fatalf("receipt=%+v out=%s", receipt, out)
 		}
 	})
@@ -303,7 +303,7 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil {
 			t.Fatalf("decode one failure receipt: %v\n%s", decodeErr, out)
 		}
-		if receipt.Operation != "migrate" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != memoryErrStateCorrupt || len(receipt.Artifacts) != 1 || strings.Count(out, `"operation_id"`) != 1 {
+		if receipt.Operation != "migrate" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != brainstore.StateCorruptCode || len(receipt.Artifacts) != 1 || strings.Count(out, `"operation_id"`) != 1 {
 			t.Fatalf("receipt=%+v out=%s", receipt, out)
 		}
 	})
@@ -488,8 +488,8 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 		symlink bool
 	}{
 		{name: "unknown newer", state: "unsupported", code: memoryErrUnsupportedVersion, version: brainManifestSchemaVersion + 1, data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"preserve\":true}}\n", brainManifestSchemaVersion+1))},
-		{name: "corrupt", state: "corrupt", code: memoryErrStateCorrupt, data: []byte("{not-json\n")},
-		{name: "unsafe symlink", state: "unsafe", code: memoryErrStateUnsafe, symlink: true, data: []byte("{\"schema_version\":3}\n")},
+		{name: "corrupt", state: "corrupt", code: brainstore.StateCorruptCode, data: []byte("{not-json\n")},
+		{name: "unsafe symlink", state: "unsafe", code: brainstore.StateUnsafeCode, symlink: true, data: []byte("{\"schema_version\":3}\n")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repoDir := t.TempDir()
@@ -759,7 +759,7 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 	}{
 		{name: "current", data: []byte(fmt.Sprintf("{\"schema_version\":%d}\n", brainManifestSchemaVersion)), wantState: "ok", wantVer: brainManifestSchemaVersion},
 		{name: "newer", data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":true}\n", brainManifestSchemaVersion+1)), wantState: "error", wantCode: memoryErrUnsupportedVersion, wantVer: brainManifestSchemaVersion + 1},
-		{name: "corrupt", data: []byte("{broken\n"), wantState: "error", wantCode: memoryErrStateCorrupt},
+		{name: "corrupt", data: []byte("{broken\n"), wantState: "error", wantCode: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()

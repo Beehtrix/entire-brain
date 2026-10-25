@@ -1271,7 +1271,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if afterIngest.Sources.Semantic.GenerationPath != beforeIngest.Sources.Semantic.GenerationPath {
 		t.Fatalf("trace ingest created a Brain-owned generation: %s", afterIngest.Sources.Semantic.GenerationPath)
 	}
-	oldDB, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(oldStorePath))
+	oldDB, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(oldStorePath))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
@@ -196,11 +197,11 @@ func TestWorkspaceCommandListEmptyFilterAndMalformedSkillStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err = execute(t, NewRootCommand(opts), "workspace", "patterns", "skills", manifest.Name)
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("malformed skills store: %v\n%s", err, out)
 	}
 	out, err = execute(t, NewRootCommand(opts), "workspace", "patterns", "status", manifest.Name)
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("malformed status store: %v\n%s", err, out)
 	}
 }
@@ -320,7 +321,7 @@ func TestWorkspaceCommandMalformedMemberPrivacyFailsClosed(t *testing.T) {
 		{"workspace", "patterns", "skills", "form", manifest.Name, "family:any", "--agent", "none"},
 	} {
 		out, err := execute(t, NewRootCommand(opts), args...)
-		if err == nil || (!strings.Contains(err.Error(), memoryErrStateCorrupt) && !strings.Contains(err.Error(), memoryErrStateUnsafe)) {
+		if err == nil || (!strings.Contains(err.Error(), brainstore.StateCorruptCode) && !strings.Contains(err.Error(), brainstore.StateUnsafeCode)) {
 			t.Fatalf("%s: err=%v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
@@ -382,7 +383,7 @@ func TestWorkspaceCommandUnsafePublicationArtifactFailsClosed(t *testing.T) {
 		{"workspace", "patterns", "skills", "form", manifest.Name, "family:any", "--agent", "none"},
 	} {
 		out, err := execute(t, NewRootCommand(opts), args...)
-		if err == nil || (!strings.Contains(err.Error(), memoryErrStateCorrupt) && !strings.Contains(err.Error(), memoryErrStateUnsafe)) {
+		if err == nil || (!strings.Contains(err.Error(), brainstore.StateCorruptCode) && !strings.Contains(err.Error(), brainstore.StateUnsafeCode)) {
 			t.Fatalf("%s: err=%v\n%s", strings.Join(args, " "), err, out)
 		}
 	}
@@ -452,7 +453,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, err := execute(t, NewRootCommand(opts), "workspace", "patterns", "refresh", manifest.Name)
-		if err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("corrupt refresh err=%v\n%s", err, out)
 		}
 	})

@@ -90,7 +90,7 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 	if manifest, err := loadBrainManifest(brainDir); err != nil {
 		return memoryLifecycleHint{}, err
 	} else if strings.TrimSpace(manifest.RepoKey) != "" && repoKey != manifest.RepoKey {
-		return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", memoryErrStateUnsafe)
+		return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
 	}
 	rel := memoryHintRel(repoKey, sessionID, branch)
 	hint := memoryLifecycleHint{SchemaVersion: memoryHintSchemaVersion, RepoKey: repoKey, SessionID: sessionID, Branch: branch}
@@ -103,7 +103,7 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 			return memoryLifecycleHint{}, fmt.Errorf("memory_unsupported_version: lifecycle hint schema %d", prev.SchemaVersion)
 		}
 		if prev.RepoKey != repoKey || prev.SessionID != sessionID || prev.Branch != branch || filepath.Base(rel) != filepath.Base(memoryHintRel(prev.RepoKey, prev.SessionID, prev.Branch)) {
-			return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint identity does not match its canonical path", memoryErrStateUnsafe)
+			return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint identity does not match its canonical path", brainstore.StateUnsafeCode)
 		}
 		hint.Generation = prev.Generation
 	} else if err != nil {
@@ -142,7 +142,7 @@ func memoryErrorCode(err error) string {
 	message := err.Error()
 	for _, code := range []string{
 		memoryErrSessionInventory,
-		memoryErrStateUnsafe,
+		brainstore.StateUnsafeCode,
 		memoryErrUnsupportedVersion,
 		memoryErrMigrationRequired,
 		memoryErrSourceStale,
@@ -156,13 +156,13 @@ func memoryErrorCode(err error) string {
 		brainstore.PrivacyBusyCode,
 		memoryErrIdentityAmbiguous,
 		memoryErrProviderUnavail,
-		memoryErrStateCorrupt,
+		brainstore.StateCorruptCode,
 	} {
 		if strings.Contains(message, code) {
 			return code
 		}
 	}
-	return memoryErrStateCorrupt
+	return brainstore.StateCorruptCode
 }
 
 type memoryStateLoadError struct {
@@ -180,9 +180,9 @@ func (e *memoryStateLoadError) Error() string {
 // urgent rather than whichever the filesystem happened to enumerate first.
 func memoryStateSeverityRank(code string) int {
 	switch code {
-	case memoryErrStateUnsafe:
+	case brainstore.StateUnsafeCode:
 		return 0
-	case memoryErrStateCorrupt:
+	case brainstore.StateCorruptCode:
 		return 1
 	case memoryErrMigrationRequired:
 		return 2
@@ -233,7 +233,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 		return inventory
 	}
 	if directory.Truncated {
-		inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: memoryErrStateUnsafe})
+		inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: brainstore.StateUnsafeCode})
 	}
 	manifest, manifestErr := loadBrainManifest(brainDir)
 	expectedRepoKey := ""
@@ -246,7 +246,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 	for _, entry := range directory.Entries {
 		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
 			inventory.Degraded = true
-			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		if !strings.HasSuffix(entry.Name(), ".json") {
@@ -255,7 +255,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 		info, infoErr := entry.Info()
 		if infoErr != nil || !info.Mode().IsRegular() {
 			inventory.Degraded = true
-			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryHintsDirRel, entry.Name()))
@@ -268,7 +268,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 		var hint memoryLifecycleHint
 		if err := json.Unmarshal(data, &hint); err != nil {
 			inventory.Degraded = true
-			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrStateCorrupt})
+			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: brainstore.StateCorruptCode})
 			continue
 		}
 		if hint.SchemaVersion != memoryHintSchemaVersion {
@@ -278,7 +278,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 		}
 		if (expectedRepoKey != "" && hint.RepoKey != expectedRepoKey) || hint.RepoKey == "" || hint.SessionID == "" || hint.Generation < 1 || !memoryHintEvents[hint.LastEvent] || entry.Name() != filepath.Base(memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)) {
 			inventory.Degraded = true
-			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		inventory.Hints = append(inventory.Hints, hint)
@@ -306,7 +306,7 @@ func removeMemoryHint(brainDir string, hint memoryLifecycleHint) error {
 
 func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool, error) {
 	if manifest, err := loadBrainManifest(brainDir); err == nil && strings.TrimSpace(manifest.RepoKey) != "" && hint.RepoKey != manifest.RepoKey {
-		return false, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", memoryErrStateUnsafe)
+		return false, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
 	}
 	rel := memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)
 	full := filepath.Join(brainDir, filepath.FromSlash(rel))
@@ -325,7 +325,7 @@ func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool,
 		return false, fmt.Errorf("memory_unsupported_version: lifecycle hint schema %d", current.SchemaVersion)
 	}
 	if current.RepoKey != hint.RepoKey || current.SessionID != hint.SessionID || current.Branch != hint.Branch || filepath.Base(rel) != filepath.Base(memoryHintRel(current.RepoKey, current.SessionID, current.Branch)) {
-		return false, fmt.Errorf("%s: lifecycle hint identity does not match its canonical path", memoryErrStateUnsafe)
+		return false, fmt.Errorf("%s: lifecycle hint identity does not match its canonical path", brainstore.StateUnsafeCode)
 	}
 	if current.Generation > hint.Generation {
 		return false, nil // a newer event arrived; keep the hint
@@ -334,7 +334,7 @@ func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool,
 		return false, fmt.Errorf("memory_state_corrupt: lifecycle hint generation regressed")
 	}
 	if current.LastEvent != hint.LastEvent || !current.ObservedAt.Equal(hint.ObservedAt) {
-		return false, fmt.Errorf("%s: lifecycle hint changed without advancing generation", memoryErrStateUnsafe)
+		return false, fmt.Errorf("%s: lifecycle hint changed without advancing generation", brainstore.StateUnsafeCode)
 	}
 	err = os.Remove(full)
 	if err != nil && !os.IsNotExist(err) {
@@ -540,7 +540,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 	inventory.ScanComplete = !directory.Truncated
 	inventory.Degraded = directory.Degraded
 	if directory.Truncated {
-		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: memoryErrStateUnsafe})
+		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: brainstore.StateUnsafeCode})
 	}
 	entries := directory.Entries
 	manifest, manifestErr := loadBrainManifest(brainDir)
@@ -556,12 +556,12 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 	for entryIndex, entry := range entries {
 		inventory.EntriesScanned++
 		if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		info, infoErr := entry.Info()
 		if infoErr != nil || !info.Mode().IsRegular() {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		if !strings.HasSuffix(entry.Name(), ".json") {
@@ -569,7 +569,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryJobsDirRel, entry.Name()))
 		if err := rejectBrainRootPathSymlinks(brainDir, filepath.FromSlash(rel)); err != nil {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateUnsafe})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
 		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "memory job", base.MaxManifestBytes, info)
@@ -614,7 +614,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			continue
 		}
 		if (job.Kind != memoryJobKindSessionAbstract && job.AbstractOverride != nil) || !validMemoryAbstractJobOverride(job.AbstractOverride) {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateCorrupt, Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateCorruptCode, Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
 			continue
 		}
 		healthValid := true
@@ -625,7 +625,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			}
 		}
 		if !healthValid {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateCorrupt, Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateCorruptCode, Version: onDiskVersion, jobID: job.JobID, sessionRef: job.SessionRef})
 			continue
 		}
 		canonicalName := filepath.Base(memoryJobRel(job.JobID))
@@ -797,7 +797,7 @@ func completeMemoryJobFromProof(brainDir string, job memoryJob, now time.Time) (
 // abandoned claim is not an attempt and receives no retry delay or penalty.
 func restoreClaimedMemoryJob(brainDir string, job memoryJob, now time.Time) (memoryJob, error) {
 	if job.State != memoryJobStateRunning || job.Attempt < 1 {
-		return job, fmt.Errorf("%s: cannot restore unclaimed job %s", memoryErrStateCorrupt, job.JobID)
+		return job, fmt.Errorf("%s: cannot restore unclaimed job %s", brainstore.StateCorruptCode, job.JobID)
 	}
 	owner := job.OwnerToken
 	job.State = memoryJobStatePending

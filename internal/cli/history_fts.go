@@ -418,7 +418,7 @@ func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	dsn := sqliteLiveReadOnlyDSN(path)
+	dsn := brainstore.SQLiteLiveReadOnlyDSN(path)
 	db, err := sql.Open(sqlitedriver.Name, dsn)
 	if err != nil {
 		return nil, err

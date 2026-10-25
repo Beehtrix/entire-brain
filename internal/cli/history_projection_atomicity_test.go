@@ -473,7 +473,7 @@ func TestPrivacyVerifyFailsClosedOnCorruptEgressReceipt(t *testing.T) {
 	if err := writeBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("privacy verify error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("privacy verify error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }

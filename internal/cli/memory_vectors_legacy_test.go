@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // A legacy vector-progress leaf that fails the identity/bounds invariants must
@@ -24,7 +26,7 @@ func TestDecodeMemoryVectorProgressRejectsInvalidIdentityOrBounds(t *testing.T) 
 		"settled leaf without reset": strings.Replace(valid, `"reset_complete":true`, `"reset_complete":false`, 1),
 		"unknown error code":         strings.Replace(valid, `"reset_complete":true`, `"reset_complete":true,"error_code":"something_else"`, 1),
 	} {
-		if _, err := decodeMemoryVectorProgress([]byte(leaf)); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := decodeMemoryVectorProgress([]byte(leaf)); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Errorf("%s: want corrupt error, got %v", name, err)
 		}
 	}

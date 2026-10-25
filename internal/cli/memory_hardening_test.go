@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func checkedProjectionFixture(t *testing.T, state projectionState) (string, *historySourceManifest) {
@@ -169,7 +171,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"corrupt.json": memoryErrStateCorrupt, "future.json": memoryErrUnsupportedVersion}
+	want := map[string]string{"corrupt.json": brainstore.StateCorruptCode, "future.json": memoryErrUnsupportedVersion}
 	for _, issue := range payload.Issues {
 		base := filepath.Base(issue.Path)
 		if expected, ok := want[base]; ok && issue.Code == expected && issue.Action != "" {
@@ -179,7 +181,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 	if len(want) != 0 {
 		t.Fatalf("missing typed issues %v in %+v\n%s", want, payload.Issues, out)
 	}
-	if payload.MigrationProgress.State != "unavailable" || payload.MigrationProgress.ErrorCode != memoryErrStateCorrupt {
+	if payload.MigrationProgress.State != "unavailable" || payload.MigrationProgress.ErrorCode != brainstore.StateCorruptCode {
 		t.Fatalf("migration progress health=%+v\n%s", payload.MigrationProgress, out)
 	}
 	for name, before := range files {
@@ -199,10 +201,10 @@ func TestMemoryMigrationProgressFailsClosed(t *testing.T) {
 		data string
 		code string
 	}{
-		{name: "malformed", data: "{broken", code: memoryErrStateCorrupt},
-		{name: "trailing", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[]} {}`, code: memoryErrStateCorrupt},
+		{name: "malformed", data: "{broken", code: brainstore.StateCorruptCode},
+		{name: "trailing", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[]} {}`, code: brainstore.StateCorruptCode},
 		{name: "newer", data: `{"schema_version":999,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[],"future_field":true}`, code: memoryErrUnsupportedVersion},
-		{name: "duplicate completed", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":["history/short-term-v1.json","history/short-term-v1.json"]}`, code: memoryErrStateCorrupt},
+		{name: "duplicate completed", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":["history/short-term-v1.json","history/short-term-v1.json"]}`, code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
@@ -228,7 +230,7 @@ func TestMemoryMigrationInventoryRejectsAbstractDirectoryAlias(t *testing.T) {
 	findings := detectMemoryMigrations(brainDir, nil)
 	found := false
 	for _, finding := range findings {
-		found = found || finding.Path == abstractsDirRel && finding.State == memoryErrStateUnsafe
+		found = found || finding.Path == abstractsDirRel && finding.State == brainstore.StateUnsafeCode
 	}
 	if !found {
 		t.Fatalf("unsafe abstract directory missing from migration findings: %+v", findings)
@@ -328,11 +330,11 @@ func TestAbstractReadsFailClosedOnAdversarialArtifacts(t *testing.T) {
 		if err := os.Symlink(target, path); err != nil {
 			t.Fatal(err)
 		}
-		if status, exposed := sessionAbstractStatus(brainDir, view); status != memoryErrStateUnsafe || exposed != nil {
+		if status, exposed := sessionAbstractStatus(brainDir, view); status != brainstore.StateUnsafeCode || exposed != nil {
 			t.Fatalf("status=%s exposed=%+v", status, exposed)
 		}
 		inventory := loadSessionAbstractInventory(brainDir)
-		if len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("inventory issues=%+v", inventory.Issues)
 		}
 	})
@@ -387,7 +389,7 @@ func TestPrivacyVerifyFailsClosedOnUnsafeAbstractInventory(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(dir, name)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("privacy verification must fail closed on unsafe abstract entry: %v", err)
 	}
 }

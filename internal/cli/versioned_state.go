@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // errTrailingJSONData marks a document followed by a second JSON value. Callers
@@ -43,7 +44,7 @@ func checkedVersionedJSONHeader(data []byte, current int, label string) (int, er
 		SchemaVersion int `json:"schema_version"`
 	}
 	if err := json.Unmarshal(data, &header); err != nil {
-		return 0, fmt.Errorf("%s: %s cannot be parsed", memoryErrStateCorrupt, label)
+		return 0, fmt.Errorf("%s: %s cannot be parsed", brainstore.StateCorruptCode, label)
 	}
 	if header.SchemaVersion > current {
 		return header.SchemaVersion, fmt.Errorf("%s: %s schema version %d is newer than supported version %d — a newer entire-brain wrote it and this one leaves it untouched; upgrade with `entire plugin upgrade brain`", memoryErrUnsupportedVersion, label, header.SchemaVersion, current)
@@ -120,9 +121,9 @@ func decodeStrictVersionedJSON(data []byte, out any, current int, label string) 
 	}
 	if _, err := decodeVersionedJSONBody(data, out, false); err != nil {
 		if errors.Is(err, errTrailingJSONData) {
-			return version, fmt.Errorf("%s: %s contains trailing JSON data", memoryErrStateCorrupt, label)
+			return version, fmt.Errorf("%s: %s contains trailing JSON data", brainstore.StateCorruptCode, label)
 		}
-		return version, fmt.Errorf("%s: %s cannot be parsed: %w", memoryErrStateCorrupt, label, err)
+		return version, fmt.Errorf("%s: %s cannot be parsed: %w", brainstore.StateCorruptCode, label, err)
 	}
 	return version, nil
 }
@@ -144,7 +145,7 @@ func removeCheckedMemoryStateFile(brainDir, rel, label string, maxBytes int64, v
 func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate func(os.FileInfo) (bool, error)) error {
 	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
-		return fmt.Errorf("%s: %s has an unsafe path: %w", memoryErrStateUnsafe, label, err)
+		return fmt.Errorf("%s: %s has an unsafe path: %w", brainstore.StateUnsafeCode, label, err)
 	}
 	path := filepath.Join(brainDir, clean)
 	before, err := memoryStateLstat(path)
@@ -152,7 +153,7 @@ func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("%s: inspect %s: %w", memoryErrStateCorrupt, label, err)
+		return fmt.Errorf("%s: inspect %s: %w", brainstore.StateCorruptCode, label, err)
 	}
 	present, err := validate(before)
 	if err != nil {
@@ -166,10 +167,10 @@ func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("%s: re-inspect %s: %w", memoryErrStateCorrupt, label, err)
+		return fmt.Errorf("%s: re-inspect %s: %w", brainstore.StateCorruptCode, label, err)
 	}
 	if after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(before, after) {
-		return fmt.Errorf("%s: %s changed before removal", memoryErrStateUnsafe, label)
+		return fmt.Errorf("%s: %s changed before removal", brainstore.StateUnsafeCode, label)
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err

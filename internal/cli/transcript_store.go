@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // transcript_store.go is COR-2128's single direct-transcript read path.
@@ -347,7 +348,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 		return nil, nil, err
 	}
 	if _, purged := guard.paths[rel]; purged {
-		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
+		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 	}
 	checkpointStorage, err := s.storageMode()
 	if err != nil {
@@ -361,7 +362,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 				guard, err := s.guardNow()
 				if err == nil {
 					if _, blocked := guard.paths[rel]; blocked {
-						err = fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
+						err = fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 					}
 				}
 				return errors.Join(finishErr, err)
@@ -376,7 +377,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 		return nil, nil, err
 	}
 	if guard.blocksSession(location.sessionID) {
-		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
+		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 	}
 	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, snapshot, location.sourceKey, location.sourcePath)
 	if err != nil {
@@ -392,7 +393,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 		}
 		_, blocked := guard.paths[rel]
 		if blocked || guard.blocksSession(location.sessionID) {
-			return fmt.Errorf("%s: transcript %s is tombstoned", memoryErrStateUnsafe, rel)
+			return fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 		}
 		return nil
 	}, nil

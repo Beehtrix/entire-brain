@@ -958,7 +958,7 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 			continue
 		}
 		if directory.Truncated {
-			return fmt.Errorf("%s: history projection root %s exceeds the bounded inventory", memoryErrStateUnsafe, rootRel)
+			return fmt.Errorf("%s: history projection root %s exceeds the bounded inventory", brainstore.StateUnsafeCode, rootRel)
 		}
 		root := filepath.Join(outputDir, filepath.FromSlash(rootRel))
 		entries := directory.Entries
@@ -3191,7 +3191,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 		return nil, "", false, historyIndexReadError(source, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
+		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", brainstore.StateCorruptCode, source.IndexPath)
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
@@ -3199,7 +3199,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	}
 	defer f.Close()
 	if err := clibase.RejectOpenFileAlias(path, f, "history index"); err != nil {
-		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, historyHardlinkRepairHint(err))
+		return nil, "", false, fmt.Errorf("%s: %w", brainstore.StateCorruptCode, historyHardlinkRepairHint(err))
 	}
 	data, err := clibase.SafeReadAll(f, clibase.SemanticSnapshotMaxBytes(), path)
 	if err != nil {
@@ -3209,10 +3209,10 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	contentDigest := "sha256:" + hex.EncodeToString(contentSum[:])
 	if source.IndexDigest != "" {
 		if !validSHA256Identity(source.IndexDigest) {
-			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", brainstore.StateCorruptCode)
 		}
 		if source.IndexDigest != contentDigest {
-			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", brainstore.StateCorruptCode)
 		}
 	}
 	return data, contentDigest, generationAddressed, nil
@@ -3303,7 +3303,7 @@ func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (histor
 	}
 	var index historyIndex
 	if err := json.Unmarshal(data, &index); err != nil {
-		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", memoryErrStateCorrupt, err)
+		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", brainstore.StateCorruptCode, err)
 	}
 	if source.RecordsFingerprint != "" {
 		if !validHistorySHA256(source.RecordsFingerprint) {

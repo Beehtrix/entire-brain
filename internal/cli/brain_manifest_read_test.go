@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Only aggregate shape information comes from the cohort. Every value below is
@@ -152,11 +153,11 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 		{"v2", `{"schema_version":2}`, ""},
 		{"v3", `{"schema_version":3}`, ""},
 		{"unknown", `{"schema_version":3,"future":{"nested":true}}`, ""},
-		{"empty", ``, memoryErrStateCorrupt},
-		{"malformed", `{"schema_version":3, broken}`, memoryErrStateCorrupt},
-		{"truncated", `{"schema_version":3,"sessions":[`, memoryErrStateCorrupt},
-		{"trailing-json", `{"schema_version":3} {}`, memoryErrStateCorrupt},
-		{"trailing-garbage", `{"schema_version":3} garbage`, memoryErrStateCorrupt},
+		{"empty", ``, brainstore.StateCorruptCode},
+		{"malformed", `{"schema_version":3, broken}`, brainstore.StateCorruptCode},
+		{"truncated", `{"schema_version":3,"sessions":[`, brainstore.StateCorruptCode},
+		{"trailing-json", `{"schema_version":3} {}`, brainstore.StateCorruptCode},
+		{"trailing-garbage", `{"schema_version":3} garbage`, brainstore.StateCorruptCode},
 		{"missing-version", `{}`, memoryErrUnsupportedVersion},
 		{"v4", `{"schema_version":4}`, ""},
 		// Derived, not a literal: a hardcoded "newer" value stops meaning
@@ -211,7 +212,7 @@ func TestBrainManifestReaderKeepsFileProtections(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+			if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("unsafe read: %v", err)
 			}
 			_, health, _ := inspectBrainManifestHealth(dir)
@@ -315,7 +316,7 @@ func TestWriterRefusalExplainsItselfInsteadOfSayingCorrupt(t *testing.T) {
 	}
 	// The code is part of the maintenance taxonomy and many consumers match on
 	// it, so improving the sentence must not retype the error.
-	if !strings.Contains(msg, memoryErrStateCorrupt) {
+	if !strings.Contains(msg, brainstore.StateCorruptCode) {
 		t.Errorf("error code changed; that is a contract change, not a wording fix: %v", err)
 	}
 }

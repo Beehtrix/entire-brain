@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -25,7 +26,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 		prepare   func(*testing.T, string)
 	}{
 		{
-			name: "corrupt overlay", section: "overlay", observed: "overlay", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt overlay", section: "overlay", observed: "overlay", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte("{broken\n"))
 			},
@@ -37,7 +38,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 			},
 		},
 		{
-			name: "corrupt job", section: "job_inventory", observed: "job", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt job", section: "job_inventory", observed: "job", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(memoryJobsDirRel, "broken.json")), []byte("{broken\n"))
 			},
@@ -49,7 +50,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 			},
 		},
 		{
-			name: "corrupt FTS", section: "fts", observed: "fts", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt FTS", section: "fts", observed: "fts", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyFTSDBRelPath(), []byte("not sqlite"))
 			},

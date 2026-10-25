@@ -374,7 +374,7 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 // each by "base..head", and registers an OverlayRef on art. The all-branches.json
 // refresh report is not a (base,head) overlay and is skipped.
 func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, "overlays"), "publish overlays")
+	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, filepath.Join(semanticDirName, "overlays"), "publish overlays")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -434,7 +434,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy policy: %w", err)
 	}
-	entries, _, err := readPrivacyDirectory(brainDir, factsDirName, "publish facts")
+	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "publish facts")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

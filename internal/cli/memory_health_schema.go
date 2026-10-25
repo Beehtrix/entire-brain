@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -35,7 +36,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	if err != nil {
 		code := memoryErrorCode(err)
 		state := shortTermStateCorrupt
-		if code == memoryErrStateUnsafe {
+		if code == brainstore.StateUnsafeCode {
 			state = shortTermStateUnsafe
 		}
 		health["state"] = state
@@ -55,7 +56,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	if err := jsonUnmarshalSingle(data, &header); err != nil {
 		health["state"] = shortTermStateCorrupt
 		health["schema_state"] = shortTermStateCorrupt
-		health["error_code"] = memoryErrStateCorrupt
+		health["error_code"] = brainstore.StateCorruptCode
 		health["action"] = "rebuild the disposable overlay from canonical sessions"
 		return health
 	}
@@ -80,7 +81,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	if err := jsonUnmarshalSingle(data, &overlay); err != nil || overlay.Files == nil {
 		health["state"] = shortTermStateCorrupt
 		health["schema_state"] = shortTermStateCorrupt
-		health["error_code"] = memoryErrStateCorrupt
+		health["error_code"] = brainstore.StateCorruptCode
 		health["action"] = "rebuild the disposable overlay from canonical sessions"
 		return health
 	}
@@ -139,7 +140,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if err != nil || base.RejectSymlinkedBrainRoot(brainDir) != nil || base.RejectExistingSymlinkPathComponents(brainDir, clean) != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
-		health["error_code"] = memoryErrStateUnsafe
+		health["error_code"] = brainstore.StateUnsafeCode
 		health["action"] = "inspect the FTS path; status never follows aliases or rebuilds the store"
 		return health
 	}
@@ -151,7 +152,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		}
 		health["state"] = "corrupt"
 		health["schema_state"] = "corrupt"
-		health["error_code"] = memoryErrStateCorrupt
+		health["error_code"] = brainstore.StateCorruptCode
 		health["action"] = "inspect the FTS path and access policy"
 		return health
 	}
@@ -159,7 +160,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
-		health["error_code"] = memoryErrStateUnsafe
+		health["error_code"] = brainstore.StateUnsafeCode
 		health["action"] = "replace the unsafe FTS leaf with a regular derived store"
 		return health
 	}
@@ -167,7 +168,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if err != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
-		health["error_code"] = memoryErrStateUnsafe
+		health["error_code"] = brainstore.StateUnsafeCode
 		health["action"] = "inspect the FTS path and access policy"
 		return health
 	}
@@ -177,12 +178,12 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() || afterOpen.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) || base.RejectOpenFileAlias(path, guard, "history FTS") != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
-		health["error_code"] = memoryErrStateUnsafe
+		health["error_code"] = brainstore.StateUnsafeCode
 		health["action"] = "retry after the FTS leaf stops changing"
 		return health
 	}
 
-	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(path))
+	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(path))
 	if err != nil {
 		return finishHistoryFTSReadError(health)
 	}
@@ -237,7 +238,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
-		health["error_code"] = memoryErrStateUnsafe
+		health["error_code"] = brainstore.StateUnsafeCode
 		health["action"] = "retry after the FTS leaf stops changing"
 		return health
 	}
@@ -286,7 +287,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 func finishHistoryFTSReadError(health map[string]any) map[string]any {
 	health["state"] = "corrupt"
 	health["schema_state"] = "corrupt"
-	health["error_code"] = memoryErrStateCorrupt
+	health["error_code"] = brainstore.StateCorruptCode
 	health["action"] = "delete and lazily rebuild the disposable FTS store after validating canonical history"
 	return health
 }
@@ -375,11 +376,11 @@ func memoryObservedSchemaVersions(current []int, issues []memoryStateIssue) []in
 func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 	priority := map[string]int{
 		memoryErrMigrationRequired:  1,
-		memoryErrStateCorrupt:       2,
+		brainstore.StateCorruptCode: 2,
 		memoryErrUnsupportedVersion: 3,
-		memoryErrStateUnsafe:        4,
+		brainstore.StateUnsafeCode:  4,
 	}
-	selected, selectedPriority := memoryErrStateCorrupt, -1
+	selected, selectedPriority := brainstore.StateCorruptCode, -1
 	for _, issue := range issues {
 		if p := priority[issue.Code]; p > selectedPriority {
 			selected, selectedPriority = issue.Code, p
@@ -390,7 +391,7 @@ func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 		return memoryErrMigrationRequired, selected
 	case memoryErrUnsupportedVersion:
 		return "unsupported", selected
-	case memoryErrStateUnsafe:
+	case brainstore.StateUnsafeCode:
 		return "unsafe", selected
 	default:
 		return "corrupt", selected

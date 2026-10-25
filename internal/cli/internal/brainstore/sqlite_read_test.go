@@ -1,8 +1,10 @@
-package cli
+package brainstore
 
 import (
 	"database/sql"
+	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,7 +19,7 @@ func TestSQLiteReadOnlyDSNOpensNativeAbsolutePath(t *testing.T) {
 		t.Fatalf("create sqlite fixture: %v", err)
 	}
 
-	dsn := sqliteReadOnlyDSN(path)
+	dsn := SQLiteReadOnlyDSN(path)
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatalf("parse read-only DSN %q: %v", dsn, err)
@@ -54,7 +56,7 @@ func TestSQLiteLiveReadOnlyDSNUsesPlatformSafeURIWithoutImmutable(t *testing.T) 
 		t.Fatalf("create sqlite fixture: %v", err)
 	}
 
-	dsn := sqliteLiveReadOnlyDSN(path)
+	dsn := SQLiteLiveReadOnlyDSN(path)
 	u, err := url.Parse(dsn)
 	if err != nil {
 		t.Fatalf("parse live read-only DSN %q: %v", dsn, err)
@@ -95,4 +97,14 @@ func createSQLiteFixture(path string) error {
 		return err
 	}
 	return db.Close()
+}
+
+func ensureDir(path string) error {
+	if path == "" {
+		return errors.New("directory path is empty")
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
+		return err
+	}
+	return nil
 }

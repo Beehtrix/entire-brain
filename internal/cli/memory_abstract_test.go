@@ -115,7 +115,7 @@ func TestMemoryConfigCorruptionIsNotDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, state, err := loadMemoryConfigChecked(brainDir)
-	if state != memoryConfigCorrupt || err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if state != memoryConfigCorrupt || err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("state=%s err=%v", state, err)
 	}
 	health := memoryAbstractHealth(brainDir)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -182,7 +183,7 @@ func loadCorpusDossiersChecked(brainDir string) ([]loadedDossier, error) {
 		}
 		var rec patterncore.DossierRecord
 		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
-			return nil, fmt.Errorf("%s: parse corpus dossier for pattern surface: %w", memoryErrStateCorrupt, err)
+			return nil, fmt.Errorf("%s: parse corpus dossier for pattern surface: %w", brainstore.StateCorruptCode, err)
 		}
 		out = append(out, loadedDossier{rec: rec, typ: typ, status: status, verdict: verdict})
 	}

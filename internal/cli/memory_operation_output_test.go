@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +81,7 @@ func TestMemoryMaintenanceOutputFailurePreservesSuccessfulMutationOutcome(t *tes
 		if decodeErr := json.Unmarshal([]byte(writer.output.String()), &receipt); decodeErr != nil {
 			t.Fatalf("decode fallback failure receipt: %v command_err=%v\n%s", decodeErr, err, writer.output.String())
 		}
-		if !errors.Is(err, errMemoryReceiptOutput) || receipt.ErrorCode != memoryErrStateCorrupt || receipt.FinishedAt.IsZero() {
+		if !errors.Is(err, errMemoryReceiptOutput) || receipt.ErrorCode != brainstore.StateCorruptCode || receipt.FinishedAt.IsZero() {
 			t.Fatalf("writer failure err=%v receipt=%+v args=%v", err, receipt, cmdArgs)
 		}
 		for _, artifact := range receipt.Artifacts {
@@ -179,7 +180,7 @@ func TestOtherMemoryMutatorsClassifyOutputFailureAfterSuccessfulMutation(t *test
 			t.Fatalf("%s writer error = %v", operation, err)
 		}
 		var receipt memoryOperationReceipt
-		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != operation || receipt.ErrorCode != memoryErrStateCorrupt || receipt.FinishedAt.IsZero() {
+		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != operation || receipt.ErrorCode != brainstore.StateCorruptCode || receipt.FinishedAt.IsZero() {
 			t.Fatalf("%s failure receipt=%+v decode=%v\n%s", operation, receipt, decodeErr, out)
 		}
 		found := newState == ""

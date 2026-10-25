@@ -171,7 +171,7 @@ func TestPublishPrivacyCorruptPolicyRefusesUpload(t *testing.T) {
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 	cmd.SetArgs([]string{"publish", "--repo-id", testPublishRepoID, "--api-url", srv.URL, "--token", testPublishToken})
-	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("publish error = %v", err)
 	}
 	unlock, err := brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)

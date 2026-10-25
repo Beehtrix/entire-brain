@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -88,7 +89,7 @@ func TestPrivacyVectorSnapshotInspectsRealSQLiteMembership(t *testing.T) {
 func TestPrivacyVectorSnapshotFailsClosedOnMalformedStores(t *testing.T) {
 	t.Run("missing table", func(t *testing.T) {
 		path := writePrivacyVectorFixture(t, `CREATE TABLE unrelated(id TEXT)`)
-		if _, err := inspectPrivacyVectorIDsSnapshot(path, "missing.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) || !strings.Contains(err.Error(), "history_ids") {
+		if _, err := inspectPrivacyVectorIDsSnapshot(path, "missing.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "history_ids") {
 			t.Fatalf("error = %v, want corrupt missing-table failure", err)
 		}
 	})
@@ -97,7 +98,7 @@ func TestPrivacyVectorSnapshotFailsClosedOnMalformedStores(t *testing.T) {
 		if err := os.WriteFile(path, []byte("not a sqlite database"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := inspectPrivacyVectorIDsSnapshot(path, "malformed.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := inspectPrivacyVectorIDsSnapshot(path, "malformed.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("error = %v, want corrupt-store failure", err)
 		}
 	})
@@ -106,7 +107,7 @@ func TestPrivacyVectorSnapshotFailsClosedOnMalformedStores(t *testing.T) {
 			`CREATE TABLE history_ids(rowid INTEGER PRIMARY KEY, record_id TEXT)`,
 			`INSERT INTO history_ids(record_id) VALUES (NULL)`,
 		)
-		if _, err := inspectPrivacyVectorIDsSnapshot(path, "null-id.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) || !strings.Contains(err.Error(), "inspect vector ID") {
+		if _, err := inspectPrivacyVectorIDsSnapshot(path, "null-id.sqlite", nil, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "inspect vector ID") {
 			t.Fatalf("error = %v, want corrupt row-scan failure", err)
 		}
 	})
@@ -119,7 +120,7 @@ func TestPrivacyVectorSnapshotFailsClosedDuringIteration(t *testing.T) {
 		SELECT CASE n WHEN 1 THEN 'retained' ELSE CAST(abs(-9223372036854775808) AS TEXT) END AS record_id
 		FROM (SELECT 1 AS n UNION ALL SELECT 2)`)
 	findings, err := inspectPrivacyVectorIDsSnapshot(path, "late-error.sqlite", map[string]struct{}{"retained": {}}, "secret-sess")
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) || !strings.Contains(err.Error(), "integer overflow") || findings != nil {
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "integer overflow") || findings != nil {
 		t.Fatalf("partially readable store must fail closed: findings=%+v err=%v", findings, err)
 	}
 }
@@ -139,7 +140,7 @@ func TestPrivacyVectorSnapshotEnforcesScanCeiling(t *testing.T) {
 		WITH RECURSIVE sequence(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM sequence WHERE n < %d)
 		SELECT 'retained' AS record_id FROM sequence`, privacyVectorVerifyMaxRows+1))
 	findings, err := inspectPrivacyVectorIDsSnapshot(path, "oversized-view.sqlite", map[string]struct{}{"retained": {}}, "secret-sess")
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) || !strings.Contains(err.Error(), "exceeds verification ceiling") || findings != nil {
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) || !strings.Contains(err.Error(), "exceeds verification ceiling") || findings != nil {
 		t.Fatalf("unbounded scan must fail closed: findings=%+v err=%v", findings, err)
 	}
 }

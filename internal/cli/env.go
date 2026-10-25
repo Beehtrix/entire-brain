@@ -708,16 +708,6 @@ func localRepoKey(repoDir string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
-func ensureDir(path string) error {
-	if path == "" {
-		return errors.New("directory path is empty")
-	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
-	}
-	return nil
-}
-
 func valueOrUnset(value string) string {
 	if value == "" {
 		return "<unset>"

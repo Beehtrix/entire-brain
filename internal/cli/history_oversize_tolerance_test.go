@@ -295,7 +295,7 @@ func TestShortTermDeltaNonTranscriptBoundBreachPreservesPriorOverlay(t *testing.
 		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
 	})
-	requireSessionTombstoneError(t, err, memoryErrStateCorrupt, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 	if !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("the refusal did not come from the ceiling: %v", err)
 	}

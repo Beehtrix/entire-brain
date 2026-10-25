@@ -81,7 +81,7 @@ func TestMemoryInventoriesAreBoundedAndMutationsFailClosed(t *testing.T) {
 	if !inventory.Truncated || inventory.ScanComplete || inventory.EntriesObserved != 3 || inventory.EntriesScanned != 2 {
 		t.Fatalf("bounded inventory metadata = %+v", inventory)
 	}
-	if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("completeness-dependent mutation did not fail closed: %v", err)
 	}
 }
@@ -123,10 +123,10 @@ func TestMemoryHintIdentityIsBoundToRepoAndCanonicalBasename(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := loadMemoryHintInventory(brainDir)
-	if len(inventory.Hints) != 1 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+	if len(inventory.Hints) != 1 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 		t.Fatalf("hint identity inventory = %+v", inventory)
 	}
-	if _, err := removeMemoryHintIfCurrent(brainDir, rogue); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if _, err := removeMemoryHintIfCurrent(brainDir, rogue); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("rogue hint removal = %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(memoryHintRel(canonical.RepoKey, canonical.SessionID, canonical.Branch)))); err != nil {
@@ -148,7 +148,7 @@ func TestMemoryStateReadersRejectLeafAliases(t *testing.T) {
 		if err := os.Symlink(outside, path); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		if _, _, err := readMemoryStateFile(brainDir, rel, "test state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if _, _, err := readMemoryStateFile(brainDir, rel, "test state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("alias %s read error = %v", rel, err)
 		}
 	}
@@ -377,11 +377,11 @@ func TestMemoryVectorProgressRejectsNewerUnknownAndTrailingState(t *testing.T) {
 	}
 	validPrefix := fmt.Sprintf(`{"schema_version":%d,"model_id":"model","source_digest":"sha256:%s","complete_source_digest":"sha256:%s","reset_complete":true,"pending":false,"updated_at":"2026-08-09T00:00:00Z"`, memoryVectorSchema, strings.Repeat("1", 64), strings.Repeat("1", 64))
 	write(validPrefix + `,"unknown":true}`)
-	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("unknown field error = %v", err)
 	}
 	write(validPrefix + `} {}`)
-	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("trailing data error = %v", err)
 	}
 }
@@ -393,7 +393,7 @@ func TestMemoryMigrationDetectionClassifiesVectorProgressState(t *testing.T) {
 		code string
 	}{
 		{name: "unknown-newer", data: `{"schema_version":3,"future":true}`, code: memoryErrUnsupportedVersion},
-		{name: "corrupt", data: `{`, code: memoryErrStateCorrupt},
+		{name: "corrupt", data: `{`, code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()

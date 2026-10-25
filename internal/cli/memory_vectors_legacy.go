@@ -69,7 +69,7 @@ func (e *memoryVectorProgressLoadError) Error() string {
 func (e *memoryVectorProgressLoadError) Unwrap() error { return e.Err }
 
 func newMemoryVectorProgressLoadError(err error, version int) *memoryVectorProgressLoadError {
-	return &memoryVectorProgressLoadError{Code: memoryErrStateCorrupt, Version: version, Err: err}
+	return &memoryVectorProgressLoadError{Code: brainstore.StateCorruptCode, Version: version, Err: err}
 }
 
 func loadMemoryVectorProgress(brainDir string) (memoryVectorProgress, bool, error) {

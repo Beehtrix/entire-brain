@@ -133,6 +133,90 @@ func TestStalenessIsOmittedFromJSONWhenExact(t *testing.T) {
 
 func jsonMarshalForTest(v any) ([]byte, error) { return json.Marshal(v) }
 
+// stalenessCompactReport is the smallest brief that exercises the compact
+// renderers' staleness path: one ancestor-served symbol plus the stale block
+// that says the answer cannot speak for every changed file.
+func stalenessCompactReport() brainBriefReport {
+	return brainBriefReport{
+		Task: "find the consumers of Validate",
+		Semantic: brainBriefSemantic{
+			Source: "graph-context",
+			Context: semanticContextResult{Symbols: []semanticRecord{{
+				ID: "sym:validate", Kind: "function", Name: "Validate", QualifiedName: "pkg.Validate",
+				FilePath: "internal/a.go", StartLine: 10, EndLine: 20,
+			}}},
+			Staleness: &semanticContextStaleness{
+				AncestorCommit: "ancestor1", CommitsBehind: 2,
+				ChangedFiles:    []string{"internal/a.go", "internal/b.go"},
+				Unreliable:      []string{"internal/a.go"},
+				ExcludedRecords: 12,
+			},
+		},
+	}
+}
+
+// The compact contract, and the gap this test closes: Semantic.Staleness used to
+// reach only the --json projection, so an ancestor-served answer rendered as
+// compact_v1/v2/v3 looked exact and a missing result for a changed file read as
+// an absence of consumers.
+//
+// Asserted as a WHOLE-RECORD equality, not as containment of selected
+// fragments. A containment assertion stays green when a field is dropped from
+// the record it does not name, which is exactly how the --json side of this
+// feature shipped a renderer gap; this one fails if any of the five fields is
+// dropped, renamed, reordered, or silently added to.
+func TestCompactPacketsEmitAncestorStaleness(t *testing.T) {
+	t.Parallel()
+	packet := renderBrainBriefCompactV1ForTest(t, stalenessCompactReport())
+
+	const wantRecord = `staleness ancestor_commit="ancestor1" commits_behind=2 ` +
+		`changed_files=["internal/a.go","internal/b.go"] unreliable=["internal/a.go"] excluded_records=12`
+	var got []string
+	for _, line := range strings.Split(packet, "\n") {
+		if strings.HasPrefix(line, "staleness") {
+			got = append(got, line)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("staleness records = %d, want exactly 1:\n%s", len(got), packet)
+	}
+	if got[0] != wantRecord {
+		t.Fatalf("staleness record\n got: %s\nwant: %s", got[0], wantRecord)
+	}
+
+	// Ahead of the symbols it qualifies: an agent that caps the bytes it reads
+	// must meet the caveat before the results, not after them.
+	if stalenessAt, symbolAt := strings.Index(packet, "\nstaleness "), strings.Index(packet, "\nsymbol "); stalenessAt < 0 || symbolAt < 0 || stalenessAt > symbolAt {
+		t.Fatalf("staleness must precede the symbols it qualifies (staleness=%d symbol=%d):\n%s", stalenessAt, symbolAt, packet)
+	}
+
+	// v2 and v3 transcode the v1 stream and REFUSE a tag they have no schema
+	// for, so a v1-only record would turn the disclosure into a failed packet
+	// for every agent on the newer formats.
+	for name, rendered := range map[string]string{
+		"compact_v2": renderBrainBriefCompactV2ForTest(t, stalenessCompactReport()),
+		"compact_v3": renderBrainBriefCompactV3ForTest(t, stalenessCompactReport()),
+	} {
+		for _, want := range []string{"ancestor1", "12"} {
+			if !strings.Contains(rendered, want) {
+				t.Errorf("%s dropped staleness value %q:\n%s", name, want, rendered)
+			}
+		}
+	}
+}
+
+// The other half of the contract: an exact answer must stay byte-identical to a
+// brief that has no staleness concept at all, so no agent pays for the field
+// until a provider actually serves from an ancestor.
+func TestCompactPacketOmitsStalenessWhenExact(t *testing.T) {
+	t.Parallel()
+	exact := stalenessCompactReport()
+	exact.Semantic.Staleness = nil
+	if packet := renderBrainBriefCompactV1ForTest(t, exact); strings.Contains(packet, "staleness") {
+		t.Fatalf("an exact brief carried a staleness record:\n%s", packet)
+	}
+}
+
 // Brief-level, and the reason this exists: a weakening sweep showed that
 // disabling the refusal in runBrainBriefWithRawHistoryMatcher broke no test,
 // because the unit guards above cover usable() and not the brief's USE of it.

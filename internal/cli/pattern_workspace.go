@@ -76,7 +76,7 @@ func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspace.
 		return err
 	}
 	return brainstore.WithBrainWriteLock(wsBrainDir, func() error {
-		return recoverPatternCorpusPublicationLocked(wsBrainDir)
+		return patterncore.RecoverCorpusPublicationLocked(wsBrainDir, decodePatternCorpusPublication)
 	})
 }
 
@@ -104,10 +104,10 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 	if err != nil {
 		return counts, err
 	}
-	if err := recoverPatternCorpusPublicationLocked(wsBrainDir); err != nil {
+	if err := patterncore.RecoverCorpusPublicationLocked(wsBrainDir, decodePatternCorpusPublication); err != nil {
 		return counts, err
 	}
-	path, cleanup, err := preparePatternCorpusStaging(wsBrainDir)
+	path, cleanup, err := patterncore.PrepareCorpusStaging(wsBrainDir)
 	if err != nil {
 		return counts, err
 	}

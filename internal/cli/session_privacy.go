@@ -1341,7 +1341,7 @@ func privacyDerivedStoreRels() []string {
 		patternRunsRelPath,
 	}
 	rels = append(rels, patternCorpusPrivacyArtifactRels()...)
-	rels = append(rels, patternCorpusPublicationMarkerPath)
+	rels = append(rels, patterncore.CorpusPublicationMarkerPath)
 	return rels
 }
 
@@ -1444,7 +1444,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	}
 	if patternsPresent {
 		for _, entry := range patternEntries {
-			if !strings.HasPrefix(entry.Name(), patternCorpusStagingPrefix) {
+			if !strings.HasPrefix(entry.Name(), patterncore.CorpusStagingPrefix) {
 				continue
 			}
 			if entry.Type()&os.ModeSymlink != 0 {
@@ -1514,7 +1514,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	seen := make(map[string]bool, len(rels)*3)
 	for _, rel := range rels {
 		artifacts := []string{rel, rel + "-wal", rel + "-shm"}
-		if rel == patternCorpusPublicationMarkerPath || isPatternCorpusPrivacyArtifactRel(rel) || isPatternCorpusStagingArtifactRel(rel) {
+		if rel == patterncore.CorpusPublicationMarkerPath || isPatternCorpusPrivacyArtifactRel(rel) || isPatternCorpusStagingArtifactRel(rel) {
 			// Pattern publication owns an explicit shared sidecar inventory, and
 			// staging leaves were enumerated exactly. Do not synthesize unrelated
 			// suffixes for its marker, sidecars, or candidate leaves.
@@ -2030,7 +2030,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		}
 	}
 	for _, artifact := range plan.DerivedStores {
-		if artifact.Path == patternCorpusPublicationMarkerPath {
+		if artifact.Path == patterncore.CorpusPublicationMarkerPath {
 			continue // classified and identity-checked above
 		}
 		if err := removePrivacyDerivedStoreArtifact(brainDir, artifact.Path); err != nil {
@@ -2150,7 +2150,7 @@ func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
 		return fmt.Errorf("%s: derived privacy store has an unsafe path %q: %w", brainstore.StateUnsafeCode, rel, err)
 	}
 	rel = filepath.ToSlash(clean)
-	if rel == patternCorpusPublicationMarkerPath {
+	if rel == patterncore.CorpusPublicationMarkerPath {
 		return removePatternCorpusPublicationForPrivacy(brainDir)
 	}
 	var candidates []string

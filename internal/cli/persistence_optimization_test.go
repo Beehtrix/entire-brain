@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []string {
@@ -53,7 +54,7 @@ func persistenceOptimizationTombstoneBytes(t *testing.T, brainDir string) []byte
 func persistenceOptimizationCorpusSidecars(t *testing.T, brainDir string) map[string][sha256.Size]byte {
 	t.Helper()
 	state := make(map[string][sha256.Size]byte)
-	for _, name := range patternCorpusSidecarNames {
+	for _, name := range patterncore.CorpusSidecarNames {
 		path := filepath.Join(brainDir, "patterns", name)
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -137,7 +138,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 	if _, err := os.Lstat(cancelledPrivateStages[0]); !os.IsNotExist(err) {
 		t.Fatalf("cancelled refresh retained private staging directory %s: %v", cancelledPrivateStages[0], err)
 	}
-	marker := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	marker := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("cancelled pre-publication refresh retained publication marker: %v", err)
 	}

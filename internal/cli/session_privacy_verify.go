@@ -647,7 +647,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		presentArtifacts[rel] = true
 		switch {
-		case rel == patternCorpusPublicationMarkerPath:
+		case rel == patterncore.CorpusPublicationMarkerPath:
 			add(newestID, "pattern_corpus_publication", rel+" records an interrupted publication; privacy cleanup must remove the classified marker and candidate")
 			continue
 		case isPatternCorpusRollbackJournalRel(rel):

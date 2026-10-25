@@ -12,6 +12,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -193,7 +194,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = withBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		state, items, err := loadHostedFeedCache(feedDir)
 		if err != nil {
 			return err

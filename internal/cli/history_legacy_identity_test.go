@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -173,7 +174,7 @@ func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(
 	if len(dataB) != len(dataA) {
 		t.Fatalf("replacement must retain size: A=%d B=%d", len(dataA), len(dataB))
 	}
-	if err := writeFileAtomic(path, dataB, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, dataB, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if identity.IndexSHA256 != historyIndexBytesFingerprint(dataA) || identity.IndexSHA256 == historyIndexBytesFingerprint(dataB) {
@@ -315,7 +316,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 		if !ok {
 			t.Fatal("reference ranking unavailable")
 		}
-		lockPath := brainWriteLockPath(brainDir)
+		lockPath := brainstore.BrainWriteLockPath(brainDir)
 		if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 			t.Fatal(err)
 		}

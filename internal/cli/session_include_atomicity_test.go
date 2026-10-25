@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func excludeSessionForIncludeAtomicityTest(t *testing.T, brainDir, sessionID string, now time.Time) {
 	t.Helper()
-	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			plan, err := buildSessionPurgePlan(brainDir, sessionID)
 			if err != nil {
 				return err
@@ -26,8 +28,8 @@ func excludeSessionForIncludeAtomicityTest(t *testing.T, brainDir, sessionID str
 }
 
 func runIncludeSessionForAtomicityTest(brainDir, sessionID string, now time.Time) error {
-	return withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			return includeSessionLocked(brainDir, sessionID, now)
 		})
 	})
@@ -164,13 +166,13 @@ func TestIncludeSessionHoldsPrivacyAndBrainLocksThroughPublication(t *testing.T)
 	privacyDone := make(chan error, 1)
 	go func() {
 		close(privacyAttempted)
-		privacyDone <- withBrainPrivacySideEffectLock(brainDir, func() error { return nil })
+		privacyDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error { return nil })
 	}()
 	brainAttempted := make(chan struct{})
 	brainDone := make(chan error, 1)
 	go func() {
 		close(brainAttempted)
-		brainDone <- withBrainWriteLock(brainDir, func() error { return nil })
+		brainDone <- brainstore.WithBrainWriteLock(brainDir, func() error { return nil })
 	}()
 	<-privacyAttempted
 	<-brainAttempted

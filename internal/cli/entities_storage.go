@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -109,7 +110,7 @@ func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 	})
 }

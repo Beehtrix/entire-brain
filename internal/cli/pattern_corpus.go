@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -267,7 +268,7 @@ func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGr
 	// verifiers, and purge all use this lock for their mutation boundary. The
 	// deterministic build can therefore take a coherent input snapshot and a
 	// purge cannot verify clean before a stale corpus is published.
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return buildPatternCorpusLocked(brainDir, now, graph...)
 	})
 }
@@ -921,7 +922,7 @@ func recoverPatternCorpusPublicationLocked(brainDir string) error {
 			return fmt.Errorf("recover pinned pattern corpus: %w", err)
 		}
 	}
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync recovered pattern corpus directory: %w", err)
 	}
 	if _, err := validatePinnedPatternCorpusDatabase(pinned.patternsRoot, "corpus.sqlite", publication); err != nil {
@@ -934,7 +935,7 @@ func recoverPatternCorpusPublicationLocked(brainDir string) error {
 	if err := pinned.patternsRoot.Remove(patternCorpusPublicationMarkerName); err != nil {
 		return fmt.Errorf("remove recovered pattern corpus marker: %w", err)
 	}
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync recovered pattern corpus marker removal: %w", err)
 	}
 	return pinned.validate()
@@ -1010,7 +1011,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	if err := temp.Close(); err != nil {
 		return err
 	}
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync pattern corpus candidate directory entry: %w", err)
 	}
 	publication := patternCorpusPublication{
@@ -1042,7 +1043,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	// visible. Even if the following directory sync reports an error, recovery
 	// must have both artifacts available whenever that marker survives.
 	removeTemp = false
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync pattern corpus publication marker: %w", err)
 	}
 	// From this point on the marker is the durable fail-closed bit.
@@ -1064,7 +1065,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	if err := patternCorpusPublishBoundary("after_main_rename"); err != nil {
 		return err
 	}
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync published pattern corpus: %w", err)
 	}
 	if err := patternCorpusPublishBoundary("after_main_sync"); err != nil {
@@ -1090,7 +1091,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	if err := patternCorpusPublishBoundary("after_marker_remove"); err != nil {
 		return err
 	}
-	if err := syncPinnedDirectory(pinned.patternsRoot); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinned.patternsRoot); err != nil {
 		return fmt.Errorf("sync pattern corpus publication commit: %w", err)
 	}
 	if err := patternCorpusPublishBoundary("after_marker_remove_sync"); err != nil {

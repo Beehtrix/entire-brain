@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -700,7 +701,7 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if err := writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, []byte(now.Add(-time.Hour).Format(time.RFC3339)+" event=worker_started owner=content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lockRel := filepath.ToSlash(filepath.Join(brainLockDirName, brainWriteLockName))
+	lockRel := filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))
 	if err := writeBrainRelativeFileAtomic(brainDir, lockRel, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

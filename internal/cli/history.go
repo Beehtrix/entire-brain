@@ -22,6 +22,7 @@ import (
 	"unicode"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -305,7 +306,7 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = withBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLock(outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
@@ -496,7 +497,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if err := promotePreparedHistoryProjection(outputDir, prepared); err != nil {
 		return nil, err
 	}
-	if err := withBrainManifestWriteLock(outputDir, func() error {
+	if err := brainstore.WithBrainManifestWriteLock(outputDir, func() error {
 		// Reclassify the exact manifest leaf while every cooperative manifest
 		// writer is excluded. The projection's outer Brain lock supplies its
 		// source/identity serialization; this leaf lock prevents a different
@@ -538,7 +539,7 @@ func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHisto
 	if len(prepared.cacheData) > 0 {
 		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = withBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})

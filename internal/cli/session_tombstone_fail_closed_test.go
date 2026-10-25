@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -110,7 +111,7 @@ func TestCorruptSessionTombstonesBlockDeltaAndPreserveOverlay(t *testing.T) {
 	}
 	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
 	})

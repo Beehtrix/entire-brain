@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // privacyPathHostileIDs are the session ids that turn a filename-construction
@@ -132,7 +134,7 @@ func TestPurgeEvictsDistillCacheForColonSessionID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		plan, planErr := buildSessionPurgePlan(brainDir, colonID)
 		if planErr != nil {
 			return planErr

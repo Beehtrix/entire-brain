@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -223,7 +224,7 @@ func TestWorkspaceAddReportsCreatedAndAlready(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace dir: %v", err)
 	}
-	lockPath := filepath.Join(filepath.Dir(dir), brainLockDirName, "fresh-"+workspacelib.ManifestLockName)
+	lockPath := filepath.Join(filepath.Dir(dir), brainstore.BrainLockDirName, "fresh-"+workspacelib.ManifestLockName)
 	if _, err := os.Stat(lockPath); err != nil {
 		t.Fatalf("the manifest lock must live outside the deletable workspace: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -106,7 +107,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := writeFileAtomic(out, data, 0o600); err != nil {
+			if err := brainstore.WriteFileAtomic(out, data, 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d tasks to %s\n", len(tasks), out)

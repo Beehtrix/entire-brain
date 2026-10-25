@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) {
@@ -32,11 +34,11 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	originalHook := atomicReplaceBeforeParentSync
-	t.Cleanup(func() { atomicReplaceBeforeParentSync = originalHook })
+	originalHook := brainstore.AtomicReplaceBeforeParentSync
+	t.Cleanup(func() { brainstore.AtomicReplaceBeforeParentSync = originalHook })
 	injectedErr := errors.New("injected failure after rename before directory sync")
 	hookCalls := 0
-	atomicReplaceBeforeParentSync = func(path string) error {
+	brainstore.AtomicReplaceBeforeParentSync = func(path string) error {
 		if filepath.Clean(path) != filepath.Clean(tombstonePath) {
 			return nil
 		}
@@ -84,7 +86,7 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 		t.Fatal("post-rename failure left the session readable")
 	}
 
-	atomicReplaceBeforeParentSync = originalHook
+	brainstore.AtomicReplaceBeforeParentSync = originalHook
 	if err := runIncludeSessionForAtomicityTest(brainDir, sessionID, now.Add(2*time.Minute)); err != nil {
 		t.Fatalf("retry include: %v", err)
 	}

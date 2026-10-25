@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -1020,7 +1021,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(abs, []byte(renderSemanticGraphHTML(payload)), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(abs, []byte(renderSemanticGraphHTML(payload)), 0o600); err != nil {
 		return err
 	}
 	report := semanticGraphUIReport{Path: abs, Provider: env.Source.Provider, Profile: env.Source.Profile, Relations: len(relations)}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // A long-running daemon outlives the binary it was started from; the probe is
@@ -143,7 +145,7 @@ func TestDaemonReregisterRespectsUninstall(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(plan.UnitPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := runDaemonReregister(context.Background(), io.Discard, opts); err != nil {
@@ -171,7 +173,7 @@ func TestUninstallDaemonToleratesAnUnregisteredJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	runner := &recordingDaemonRunner{

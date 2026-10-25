@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -470,7 +471,7 @@ func TestMemoryLifecycleAbstractDigestChangeSupersedesCompletedJob(t *testing.T)
 	if _, err := runMemoryProjectionLane(context.Background(), brainDir, now.Add(time.Minute), "projection-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileAbstractJobsLocked(brainDir, "regression", now.Add(2*time.Minute))
 		return err
 	}); err != nil {

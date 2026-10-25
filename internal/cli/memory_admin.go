@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -39,10 +40,10 @@ const (
 	memoryErrInputTooLarge      = "memory_input_too_large"
 	memoryErrPrivacyExcluded    = "memory_privacy_excluded"
 	memoryErrPrivacyDirty       = "memory_privacy_dirty"
-	memoryErrPrivacyBusy        = "memory_privacy_busy"
-	memoryErrIdentityAmbiguous  = "memory_identity_ambiguous"
-	memoryErrProviderUnavail    = "memory_provider_unavailable"
-	memoryErrSessionInventory   = "memory_session_inventory_degraded"
+
+	memoryErrIdentityAmbiguous = "memory_identity_ambiguous"
+	memoryErrProviderUnavail   = "memory_provider_unavailable"
+	memoryErrSessionInventory  = "memory_session_inventory_degraded"
 	// memoryErrWorkerDegraded reports that the last worker pass completed its
 	// projection lanes but could not export new sessions. It is a health issue,
 	// not a crash: the Brain keeps answering from what it already has, while
@@ -57,7 +58,7 @@ var rebuildMemoryProjection = func(brainDir string, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return err
 	})
@@ -925,7 +926,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 					handled := true
 					switch finding.Path {
 					case historyShortTermPath:
-						migrateErr = withBrainWriteLock(brainDir, func() error {
+						migrateErr = brainstore.WithBrainWriteLock(brainDir, func() error {
 							_, err := buildHistoryShortTermLocked(brainDir, now)
 							return err
 						})
@@ -941,7 +942,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 								projectionRebuilt = migrateErr == nil
 							}
 						} else if strings.HasPrefix(finding.Path, memoryJobsDirRel+"/") {
-							migrateErr = withBrainWriteLock(brainDir, func() error {
+							migrateErr = brainstore.WithBrainWriteLock(brainDir, func() error {
 								return rewriteLegacyMemoryJob(brainDir, finding.Path)
 							})
 						} else {
@@ -1661,9 +1662,9 @@ func inspectMemoryLockLeaf(brainDir, rel string) map[string]any {
 
 func memoryLockHealth(brainDir string) map[string]any {
 	return map[string]any{
-		"write":       inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainLockDirName, brainWriteLockName))),
-		"coordinator": inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainLockDirName, memoryCoordinatorLockName))),
-		"privacy":     inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainLockDirName, brainPrivacyLockName))),
+		"write":       inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))),
+		"coordinator": inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, memoryCoordinatorLockName))),
+		"privacy":     inspectMemoryLockLeaf(brainDir, filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainPrivacyLockName))),
 		"inspection":  "read_only_no_lock_probe",
 	}
 }
@@ -2153,9 +2154,9 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 			name string
 			rel  string
 		}{
-			{name: "write", rel: filepath.ToSlash(filepath.Join(brainLockDirName, brainWriteLockName))},
-			{name: "coordinator", rel: filepath.ToSlash(filepath.Join(brainLockDirName, memoryCoordinatorLockName))},
-			{name: "privacy", rel: filepath.ToSlash(filepath.Join(brainLockDirName, brainPrivacyLockName))},
+			{name: "write", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))},
+			{name: "coordinator", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, memoryCoordinatorLockName))},
+			{name: "privacy", rel: filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainPrivacyLockName))},
 		} {
 			if health, ok := locks[lock.name].(map[string]any); ok {
 				appendMapIssue("lock", lock.rel, health)

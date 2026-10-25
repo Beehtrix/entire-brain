@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -320,7 +321,7 @@ func TestHistoryFTSDirectSizeMismatchIsHardWithoutWriter(t *testing.T) {
 func TestHistoryFTSDirectServesMatchingSnapshotDuringRefresh(t *testing.T) {
 	index := ftsTestIndex()
 	brainDir, source := writeDirectHistoryFTSFixture(t, index)
-	unlock, err := acquireBrainWriteLock(brainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

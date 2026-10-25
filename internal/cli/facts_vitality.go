@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -149,10 +150,10 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainstore.BrainLockDirName); err != nil {
 		return err
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
 	if err != nil {
 		return err
 	}
@@ -292,7 +293,7 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 	}
 	if err := appendVitalityEventsBoundedWithLockTimeout(
 		brainDir, branch, events, factsVitalityLogMaxBytes, lockTimeout,
-	); err != nil && errW != nil && !errors.Is(err, errFileLockTimeout) {
+	); err != nil && errW != nil && !errors.Is(err, brainstore.ErrFileLockTimeout) {
 		// A lock-timeout drop is the designed best-effort path under contention
 		// (bounded budget) and would spam stderr during normal concurrency, so
 		// it stays silent. Any other error is a real failed append (receipts
@@ -597,7 +598,7 @@ func loadVitalityView(brainDir, branch string) (vitalityRollup, vitalityViewStat
 		ran = true
 		return read()
 	})
-	if !ran && errors.Is(err, errFileLockTimeout) {
+	if !ran && errors.Is(err, brainstore.ErrFileLockTimeout) {
 		// Contention is not a read failure: compaction replacements are atomic and
 		// the log parser tolerates a torn append tail. Path/symlink/setup failures
 		// are not contention and must never bypass the lock path's safety checks.

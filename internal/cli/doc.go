@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // doc.go is the `doc` source: it indexes the brain's own markdown — the
@@ -169,7 +170,7 @@ func docFileHistorical(path, text string) bool {
 // the seed markdown. It mirrors writeBrainHistoryIndexAndSource.
 func writeDocIndexAndSource(brainDir string, now time.Time) (*docSourceManifest, error) {
 	var source *docSourceManifest
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var runErr error
 		source, runErr = writeDocIndexAndSourceLocked(brainDir, now)
 		return runErr

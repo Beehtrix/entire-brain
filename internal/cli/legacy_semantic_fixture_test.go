@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -93,7 +94,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 		return "", semanticBuildMetrics{}, err
 	}
 	metricsData = append(metricsData, '\n')
-	if err := writeFileAtomic(filepath.Join(tmpDir, semanticMetricsName), metricsData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(tmpDir, semanticMetricsName), metricsData, 0o600); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 
@@ -350,7 +351,7 @@ func writeSemanticParseCacheArtifact(generationDir, path, blob, contentHash stri
 		return "", err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(generationDir, rel), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(generationDir, rel), data, 0o600); err != nil {
 		return "", err
 	}
 	return filepath.ToSlash(rel), nil

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // hostedRepoBinding is the repo-level hosted-brain connection state, written
@@ -26,7 +27,7 @@ type hostedRepoBinding struct {
 const hostedRepoBindingFile = "hosted.json"
 
 func writeHostedRepoBinding(brainDir string, binding hostedRepoBinding) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeHostedRepoBindingLocked(brainDir, binding)
 	})
 }
@@ -49,7 +50,7 @@ func writeHostedRepoBindingLocked(brainDir string, binding hostedRepoBinding) er
 // a bare one. Returns the binding as written.
 func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
 	var binding hostedRepoBinding
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		existing, _, readErr := readHostedRepoBinding(brainDir)
 		if readErr != nil {
 			existing = hostedRepoBinding{}

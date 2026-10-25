@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestLongAbstractRejectsMaliciousSynthesisCitations(t *testing.T) {
@@ -410,7 +412,7 @@ func TestDisablingAbstractsCancelsOnlyAutomaticWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	var artifacts []memoryReceiptArtifact
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var cancelErr error
 		artifacts, cancelErr = cancelAutomaticAbstractJobsLocked(brainDir, now.Add(time.Second))
 		return cancelErr
@@ -652,7 +654,7 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var reconcileErr error
 		count, reconcileErr = reconcileStaleAbstractEgressReceiptsLocked(brainDir, now)
 		return reconcileErr

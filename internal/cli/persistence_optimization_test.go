@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []string {
@@ -222,7 +224,7 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 	buildExited := make(chan struct{})
 	go func() {
 		defer close(buildExited)
-		buildDone <- withBrainWriteLock(brainDir, func() error {
+		buildDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			if err := buildPatternCorpusLocked(brainDir, now.Add(time.Minute)); err != nil {
 				return err
 			}
@@ -260,7 +262,7 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 	go func() {
 		defer close(exclusionExited)
 		close(exclusionAttempted)
-		exclusionDone <- withBrainWriteLock(brainDir, func() error {
+		exclusionDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			events <- "exclusion_acquired"
 			stones, _, err := loadSessionTombstonesChecked(brainDir)
 			if err != nil {

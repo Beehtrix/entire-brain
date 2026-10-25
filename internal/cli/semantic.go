@@ -27,6 +27,7 @@ import (
 	"unicode"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
@@ -506,7 +507,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		fmt.Fprintf(cmd.OutOrStdout(), "reset code index: %s\n", storage.BrainDir)
 		return nil
 	}
-	unlockBrain, err := acquireBrainWriteLock(storage.BrainDir)
+	unlockBrain, err := brainstore.AcquireBrainWriteLock(storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -519,14 +520,14 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if err := removeBrainEntriesExceptLocks(storage.BrainDir); err != nil {
 		return err
 	}
-	lockDir := filepath.Join(storage.BrainDir, brainLockDirName)
+	lockDir := filepath.Join(storage.BrainDir, brainstore.BrainLockDirName)
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		return fmt.Errorf("recreate brain lock directory: %w", err)
 	}
-	if f, err := os.OpenFile(filepath.Join(lockDir, brainWriteLockName), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600); err != nil {
+	if f, err := os.OpenFile(filepath.Join(lockDir, brainstore.BrainWriteLockName), os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o600); err != nil {
 		return fmt.Errorf("recreate brain write lock metadata: %w", err)
 	} else {
-		writeLockOwnerMetadata(filepath.Join(lockDir, brainWriteLockName))
+		brainstore.WriteLockOwnerMetadata(filepath.Join(lockDir, brainstore.BrainWriteLockName))
 		if err := f.Close(); err != nil {
 			return fmt.Errorf("close brain write lock metadata: %w", err)
 		}
@@ -544,7 +545,7 @@ func removeBrainEntriesExceptLocks(brainDir string) error {
 		return fmt.Errorf("read brain directory for reset: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.Name() == brainLockDirName {
+		if entry.Name() == brainstore.BrainLockDirName {
 			continue
 		}
 		path := filepath.Join(brainDir, entry.Name())
@@ -601,7 +602,7 @@ func acquireSemanticIndexLock(brainDir string) (func(), error) {
 		return nil, err
 	}
 	lockPath := filepath.Join(brainDir, semanticLockDir, semanticIndexLockName)
-	lock, err := acquireFileLock(lockPath, "index_locked", semanticIndexLockTimeout)
+	lock, err := brainstore.AcquireFileLock(lockPath, "index_locked", semanticIndexLockTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -1135,7 +1136,7 @@ func writeSemanticOverlayFile(brainDir, base, head, branch string, now time.Time
 	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, filepath.FromSlash(rel)); err != nil {
 		return "", err
 	}
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(rel)), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(rel)), data, 0o600); err != nil {
 		return "", err
 	}
 	return rel, nil
@@ -4332,7 +4333,7 @@ func writeSemanticChangesReport(brainDir string, report semanticChangesReport) e
 	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(brainDir, rel), data, 0o600)
+	return brainstore.WriteFileAtomic(filepath.Join(brainDir, rel), data, 0o600)
 }
 
 func lowerSet(values []string) map[string]struct{} {
@@ -5421,7 +5422,7 @@ func restoreBundleBrainLayers(brainDir, bundleRoot string) ([]string, error) {
 			if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return nil, err
 			}
-			if err := writeFileAtomic(target, content, 0o600); err != nil {
+			if err := brainstore.WriteFileAtomic(target, content, 0o600); err != nil {
 				return nil, err
 			}
 		}

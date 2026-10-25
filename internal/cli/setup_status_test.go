@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -62,10 +63,10 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 	// reboot hands the low ones straight back out. What makes this pid a
 	// RUNNING backfill is that a distill pass holds the pass lock, so take it
 	// for the duration of this test the way a real pass would.
-	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	passLock, err := brainstore.AcquireFileLock(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName), "distill_pass_locked", 0)
 	if err != nil {
 		t.Fatalf("take the distill pass lock: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Brain could export and could not import, which is the friction a switcher
@@ -306,7 +307,7 @@ func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 	if err := os.MkdirAll(brainDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return updateFactSourceManifestLocked(brainDir, now.Add(-72*time.Hour))
 	}); err != nil {
 		t.Fatalf("seed manifest: %v", err)
@@ -566,7 +567,7 @@ func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
 		Text: text, Branch: branch, Status: factStatusActive, Origin: factOriginAuthored,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeFacts(brainDir, branch, []factRecord{local})
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -693,7 +694,7 @@ func TestImportedFactsAppearInTheStatusOriginTally(t *testing.T) {
 		{ID: "b", Paths: []string{"architecture.api.ports"}, Text: "Authored.", Branch: branch, Origin: factOriginAuthored, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 		{ID: "c", Paths: []string{"architecture.api.ports"}, Text: "Imported.", Branch: branch, Origin: factOriginImported, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeFacts(brainDir, branch, facts)
 	}); err != nil {
 		t.Fatalf("seed: %v", err)

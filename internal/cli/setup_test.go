@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -1369,10 +1370,10 @@ func TestSetupSkipsBackfillWhileOneIsStillRunning(t *testing.T) {
 	// also requires a distill pass to hold the pass lock. Hold it here, the way
 	// the real running backfill would, or this test would be asserting the
 	// reused-pid behaviour that TestBackfillRunningRejectsAReusedPid forbids.
-	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	passLock, err := brainstore.AcquireFileLock(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName), "distill_pass_locked", 0)
 	if err != nil {
 		t.Fatalf("take the distill pass lock: %v", err)
 	}

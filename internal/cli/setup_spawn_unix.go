@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"os"
 	"syscall"
 )
 
@@ -21,16 +20,3 @@ func detachedSysProcAttr() *syscall.SysProcAttr {
 // does not go through writeFileAtomic (a log is appended to, not replaced), so
 // it needed the guard spelled out.
 const noFollowOpenFlag = syscall.O_NOFOLLOW
-
-// processAlive reports whether a recorded backfill pid is still running.
-// Signal 0 performs the permission/existence check without delivering anything.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	return proc.Signal(syscall.Signal(0)) == nil
-}

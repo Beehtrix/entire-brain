@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -1082,8 +1083,8 @@ func privacyRetentionPlan(brainDir string, cutoff time.Time, branch string, purg
 func applyPrivacyRetention(brainDir string, env EntireEnv, repoKey string, now, cutoff time.Time, branch string, purge bool, maxAge time.Duration) ([]retentionPlanEntry, []string, error) {
 	var plan []retentionPlanEntry
 	var caveats []string
-	err := withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			var err error
 			plan, err = privacyRetentionPlan(brainDir, cutoff, branch, purge)
 			if err != nil {

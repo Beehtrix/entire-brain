@@ -10,6 +10,7 @@ import (
 	"time"
 
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -696,7 +697,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 	// leaf is never unlinked on release, so it exists on every healthy brain
 	// after the first refresh, and the read-only state is identical whether the
 	// lock is free or held. Liveness belongs to memory_coordinator.
-	unlock, err := acquireBrainWriteLock(storage.BrainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

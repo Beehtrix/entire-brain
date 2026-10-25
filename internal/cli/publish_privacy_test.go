@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func writePublishPrivacyFacts(t *testing.T, brainDir string) {
@@ -83,7 +84,7 @@ func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 					t.Error(err)
 				}
 				received <- body
-				unlock, err := acquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
+				unlock, err := brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
 				if unlock != nil {
 					unlock()
 				}
@@ -100,7 +101,7 @@ func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 			}))
 			defer srv.Close()
 			// Exclusion owns the serialization boundary before publishing starts.
-			unlock, err := acquireBrainPrivacySideEffectLock(brainDir)
+			unlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,10 +146,10 @@ func TestPublishPrivacySerializesExclusionAndUpload(t *testing.T) {
 			default:
 				t.Fatal("no upload received")
 			}
-			if err := <-lockErrors; err == nil || !strings.Contains(err.Error(), memoryErrPrivacyBusy) {
+			if err := <-lockErrors; err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) {
 				t.Errorf("privacy lock was not held throughout upload: %v", err)
 			}
-			released, err := acquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
+			released, err := brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
 			if err != nil {
 				t.Fatalf("privacy lock leaked after upload: %v", err)
 			}
@@ -173,7 +174,7 @@ func TestPublishPrivacyCorruptPolicyRefusesUpload(t *testing.T) {
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
 		t.Fatalf("publish error = %v", err)
 	}
-	unlock, err := acquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
+	unlock, err := brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
 	if err != nil {
 		t.Fatalf("lock leaked after collection failure: %v", err)
 	}

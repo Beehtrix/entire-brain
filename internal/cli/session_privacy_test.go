@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -775,7 +776,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	}
 
 	var plan sessionPurgePlan
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var planErr error
 		plan, planErr = buildSessionPurgePlan(brainDir, "secret-sess")
 		if planErr != nil {

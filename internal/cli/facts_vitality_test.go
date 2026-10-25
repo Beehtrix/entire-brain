@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -465,8 +466,8 @@ func TestVitalityConcurrentAppendsAreLossless(t *testing.T) {
 
 func TestVitalityBusyLockDropsReceiptWithoutReadPathStall(t *testing.T) {
 	brainDir := t.TempDir()
-	lock, err := acquireFileLock(
-		filepath.Join(brainDir, brainLockDirName, factsVitalityLockName),
+	lock, err := brainstore.AcquireFileLock(
+		filepath.Join(brainDir, brainstore.BrainLockDirName, factsVitalityLockName),
 		"test_vitality_locked",
 		time.Second,
 	)
@@ -792,8 +793,8 @@ func TestVitalityViewFallsBackOnlyForLockContention(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed vitality event: %v", err)
 	}
-	lock, err := acquireFileLock(
-		filepath.Join(brainDir, brainLockDirName, factsVitalityLockName),
+	lock, err := brainstore.AcquireFileLock(
+		filepath.Join(brainDir, brainstore.BrainLockDirName, factsVitalityLockName),
 		"test_vitality_locked",
 		time.Second,
 	)
@@ -814,7 +815,7 @@ func TestVitalityViewFallsBackOnlyForLockContention(t *testing.T) {
 func TestVitalityViewDoesNotBypassSymlinkedLockDirectory(t *testing.T) {
 	brainDir := t.TempDir()
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(brainDir, brainLockDirName)); err != nil {
+	if err := os.Symlink(outside, filepath.Join(brainDir, brainstore.BrainLockDirName)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 	if _, _, err := loadVitalityView(brainDir, "main"); err == nil || !strings.Contains(err.Error(), "symlink") {

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"golang.org/x/sys/unix"
 )
 
@@ -106,10 +107,10 @@ func TestBackfillRunningRejectsAReusedPid(t *testing.T) {
 // second `setup` doubles the token spend on the same pending sessions.
 func TestBackfillRunningSeesAHeldDistillPassLock(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, brainLockDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.BrainLockDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName), "distill_pass_locked", 0)
 	if err != nil {
 		t.Fatalf("take the pass lock: %v", err)
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestSessionPurgeRootDryRunApplyAndRetry(t *testing.T) {
@@ -103,7 +105,7 @@ func purgeCommandDataDigest(t *testing.T, root string) [32]byte {
 			return err
 		}
 		if d.IsDir() {
-			if path == filepath.Join(root, brainLockDirName) {
+			if path == filepath.Join(root, brainstore.BrainLockDirName) {
 				return filepath.SkipDir
 			}
 			return nil

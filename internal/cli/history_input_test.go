@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestHistorySessionInventoryDeterministic(t *testing.T) {
@@ -186,7 +188,7 @@ func TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay(t *testing.
 		oldLimit := historySessionInventoryMaxEntries
 		historySessionInventoryMaxEntries = 1
 		t.Cleanup(func() { historySessionInventoryMaxEntries = oldLimit })
-		err = withBrainWriteLock(brainDir, func() error {
+		err = brainstore.WithBrainWriteLock(brainDir, func() error {
 			_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 			return buildErr
 		})
@@ -223,7 +225,7 @@ func TestShortTermDeltaMembershipRacePreservesOverlay(t *testing.T) {
 				}
 			}
 			t.Cleanup(func() { beforeHistoryShortTermInventoryRecheck = originalHook })
-			err = withBrainWriteLock(brainDir, func() error {
+			err = brainstore.WithBrainWriteLock(brainDir, func() error {
 				_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 				return buildErr
 			})

@@ -1,6 +1,6 @@
 //go:build windows
 
-package cli
+package brainstore
 
 import (
 	"errors"
@@ -39,7 +39,7 @@ func windowsAtomicReplaceRetryable(err error) bool {
 		errors.Is(err, windows.ERROR_LOCK_VIOLATION)
 }
 
-func syncParentDir(path string) error {
+func SyncParentDir(path string) error {
 	_ = path
 	return nil
 }
@@ -48,7 +48,7 @@ func syncParentDir(path string) error {
 // and marker data are flushed before each rename/remove; startup recovery keeps
 // a surviving marker fail-closed if directory metadata is replayed after a
 // power loss.
-func syncPinnedDirectory(root *os.Root) error {
+func SyncPinnedDirectory(root *os.Root) error {
 	_ = root
 	return nil
 }

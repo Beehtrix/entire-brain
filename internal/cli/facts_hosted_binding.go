@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 type hostedFactsBinding struct {
@@ -24,7 +25,7 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(branch), append(data, '\n'), 0600)
 	})
 }

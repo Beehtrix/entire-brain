@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -150,7 +151,7 @@ func TestFailedWorkspaceRegistrationPreservesSharedTuning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(dir, workspace.ManifestName), []byte("invalid"), 0600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(dir, workspace.ManifestName), []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	rec := &recordedSetup{}

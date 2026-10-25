@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -80,7 +81,7 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 	// the fixture mutation through the same private-staging publisher used by
 	// production; never write through the live SQLite pathname.
 	_ = db.Close()
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return withPatternCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
 			_, err := staged.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`)
 			return err

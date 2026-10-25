@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // historyLegacyIdentity is a complete strong identity derived from one fully
@@ -97,7 +98,7 @@ func persistHistoryLegacyIdentity(brainDir string, identity *historyLegacyIdenti
 	if identity == nil {
 		return nil
 	}
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 0)
 	if err != nil {
 		return err
 	}

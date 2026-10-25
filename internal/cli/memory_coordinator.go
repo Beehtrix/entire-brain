@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const (
@@ -62,7 +63,7 @@ type memoryCoordinator struct {
 	token        string
 	started      time.Time
 	version      string
-	lock         *fileLock
+	lock         *brainstore.FileLock
 	mu           sync.Mutex
 	healthIssues []string
 }
@@ -79,10 +80,10 @@ func acquireMemoryCoordinator(brainDir string, now time.Time, version string) (*
 	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainstore.BrainLockDirName); err != nil {
 		return nil, err
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, memoryCoordinatorLockName), "memory_worker_active", 0)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, memoryCoordinatorLockName), "memory_worker_active", 0)
 	if err != nil {
 		return nil, err
 	}

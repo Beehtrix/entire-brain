@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -13,7 +14,7 @@ func workspaceStore(env EntireEnv) workspace.StoreConfig {
 	return workspace.StoreConfig{
 		Env:               env,
 		LegacyRepoDirName: repoStoreDirName,
-		LockDirName:       brainLockDirName,
+		LockDirName:       brainstore.BrainLockDirName,
 		Deps: workspace.StoreDeps{
 			DataDir: func(env base.EntireEnv) (string, error) {
 				dirs, err := resolvePluginDirs(env)
@@ -22,13 +23,13 @@ func workspaceStore(env EntireEnv) workspace.StoreConfig {
 			RejectRootPath:       rejectBrainRootPathSymlinks,
 			RejectPathComponents: base.RejectExistingSymlinkPathComponents,
 			AcquireLock: func(path string) (io.Closer, error) {
-				lock, err := acquireFileLock(path, "workspace_manifest_locked", brainWriteLockTimeout)
+				lock, err := brainstore.AcquireFileLock(path, "workspace_manifest_locked", brainstore.BrainWriteLockTimeout)
 				if err != nil {
 					return nil, err
 				}
 				return lock, nil
 			},
-			AtomicWrite: writeFileAtomic,
+			AtomicWrite: brainstore.WriteFileAtomic,
 		},
 	}
 }

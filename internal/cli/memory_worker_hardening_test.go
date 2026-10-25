@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) {
@@ -227,7 +228,7 @@ func TestProductionReconcileHashesOutsideBrainWriteLockAndRevalidates(t *testing
 	var checked, changed bool
 	var lockErr error
 	memoryReconcileTranscriptDigest = func(dir, rel string) (string, error) {
-		unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+		unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 0)
 		if err != nil {
 			lockErr = err
 		} else {

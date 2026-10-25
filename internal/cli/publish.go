@@ -22,6 +22,7 @@ import (
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/brainwire"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"
@@ -198,7 +199,7 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	// Exclusion and purge use the same boundary. Hold it from collection through
 	// the completed HTTP exchange so a checked bundle cannot become private
 	// between its policy read and its last outgoing byte.
-	privacyUnlock, err := acquireBrainPrivacySideEffectLock(storage.BrainDir)
+	privacyUnlock, err := brainstore.AcquireBrainPrivacySideEffectLock(storage.BrainDir)
 	if err != nil {
 		return fmt.Errorf("publish: %w", err)
 	}

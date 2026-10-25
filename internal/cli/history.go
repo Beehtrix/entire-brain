@@ -1072,6 +1072,14 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 				continue
 			}
 			digest, digestErr := digestHistorySessionInventoryFile(ctx, inventory, file)
+			if errors.Is(digestErr, errHistoryTranscriptTooLarge) {
+				// Left out of the content identity, exactly as the build leaves
+				// it out of the index. Both decide from the same reader on the
+				// same inventory, so the two sets cannot drift apart; and the
+				// identity stays stable run to run, so skipping does not drive
+				// an endless rebuild.
+				continue
+			}
 			if digestErr != nil {
 				return historyProjectionIdentity{}, nil, sessionTombstones{}, digestErr
 			}
@@ -1248,6 +1256,16 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		var records []historyRecord
 		var incomplete int
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// One file too large to read says nothing about the other 322.
+			// Skipped, reported, and deliberately NOT fingerprinted below: it
+			// was never read, so it must not be committed to the set that was.
+			index.Warnings = append(index.Warnings, fmt.Sprintf("skipped %s: %v", rel, readErr))
+			if progress != nil {
+				progress(i+1, total)
+			}
+			continue
+		}
 		if readErr != nil {
 			return index, nil, historyScanCache{}, readErr
 		}
@@ -1381,6 +1399,31 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 // contents of the exact descriptor-rooted leaf captured by the inventory. It
 // streams into the hash so large line-oriented transcripts do not require a
 // second in-memory copy.
+// errHistoryTranscriptTooLarge classifies the one failure that is a statement
+// about a single file's size rather than about the corpus being unsound.
+//
+// It exists because all three readers of the transcript inventory refused the
+// whole operation over one file: identity capture (which runs first), the
+// index build, and the freshness check. On a real brain one checkpoint held a
+// 438.9MB raw transcript and the history index came out 0 of 323 sessions —
+// every other session was readable and none of them were read. The loop in
+// buildBrainHistoryIndexSnapshotContext already says this is not the intent:
+// "every candidate advances progress exactly once even when a later open or
+// identity check fails ... only clean parses are cached and indexed".
+//
+// All three sites classify through this sentinel rather than their own string
+// match, because they MUST agree on the skipped set: if the freshness check
+// counted a file the build skipped, the index would be permanently stale and
+// rebuild forever.
+//
+// Its message is deliberately the bare memory_input_too_large code, so
+// wrapping it with %w reproduces the previous wording byte for byte.
+var errHistoryTranscriptTooLarge = errors.New(memoryErrInputTooLarge)
+
+func historyTranscriptTooLargeError(rel string) error {
+	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, clibase.MaxDocumentTranscriptBytes)
+}
+
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
 	beforeHistoryProjectionContentDigest(file.Rel)
 	if inventory.store != nil {
@@ -1388,7 +1431,7 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 		return digest, err
 	}
 	if file.Size > clibase.MaxDocumentTranscriptBytes {
-		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
+		return "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1398,10 +1441,19 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	h := sha256.New()
 	limit := clibase.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
-	if written > clibase.MaxDocumentTranscriptBytes {
-		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes))
-	}
 	finishErr := inventory.validateAfterRead(file, f)
+	// The containment check is consulted BEFORE the sentinel is attached,
+	// which is the same rule oversizeIsTheSoleFault enforces on the read path
+	// and the reason this is not just `errors.Join(readErr, oversize)`.
+	//
+	// captureHistoryProjectionIdentityMode skips a file on
+	// errors.Is(errHistoryTranscriptTooLarge). Joining the sentinel onto an
+	// error that also carries finishErr therefore dropped a transcript that was
+	// swapped mid-read, or whose path became a symlink out of the brain root,
+	// out of the content identity -- silently, with the generation published.
+	if written > clibase.MaxDocumentTranscriptBytes && oversizeMayBeAttributedToTheFile(readErr, finishErr) {
+		readErr = historyTranscriptTooLargeError(file.Rel)
+	}
 	if readErr != nil || finishErr != nil {
 		return "", errors.Join(readErr, finishErr)
 	}
@@ -1428,6 +1480,12 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 			continue
 		}
 		_, digest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// Must skip whatever the build skips. A freshness check that
+			// counted a file the build left out would find the index short of
+			// its own inventory forever and rebuild on every refresh.
+			continue
+		}
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -1435,6 +1493,50 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 		out = append(out, file)
 	}
 	return out, nil
+}
+
+// oversizeIsTheSoleFault decides whether a read's failures amount to "this one
+// transcript is too large" and nothing more.
+//
+// It is a named function rather than a condition inline in the reader because
+// the answer is the whole contract: a true here produces an error wrapping
+// errHistoryTranscriptTooLarge, and all three inventory readers SKIP a file on
+// errors.Is of that sentinel. A wrong true is therefore not a cosmetic
+// misclassification -- it silently discards whatever else was in the join and
+// publishes the generation.
+//
+// finishErr is validateAfterRead: a transcript swapped mid-read, a path that
+// became a symlink out of the brain root, metadata that moved. closeErr is its
+// own bound breach. Both must refuse the whole generation, and neither is a
+// statement about one file. Only readErr alone, and only when it is the size
+// breach, is.
+//
+// Reaching it with both readErr and finishErr set needs a writer appending
+// DURING the read: the inventory's own pre-read check rejects a file that grew
+// before it was opened (memory_source_stale, "transcript changed after
+// inventory"), so the sequential case never gets this far. A live agent
+// appending to its own transcript is exactly that writer, which is why this is
+// a truth table with its own test rather than a condition read once and
+// trusted.
+// oversizeMayBeAttributedToTheFile is oversizeIsTheSoleFault for the digest
+// path, which discovers a size breach by COUNTING bytes rather than from a
+// reader's message and so has no readErr to inspect.
+//
+// Same contract, same reason: attaching errHistoryTranscriptTooLarge makes the
+// error skippable by every inventory reader, so it may be attached only when
+// nothing else went wrong. A separate function rather than a bare condition
+// because the rule is the whole guarantee, and because the two paths drifting
+// apart is exactly what happened -- the read path was fixed first and this one
+// kept the bug.
+func oversizeMayBeAttributedToTheFile(readErr, finishErr error) bool {
+	return readErr == nil && finishErr == nil
+}
+
+func oversizeIsTheSoleFault(readErr, finishErr, closeErr error) bool {
+	if readErr == nil || finishErr != nil || closeErr != nil {
+		return false
+	}
+	return strings.Contains(readErr.Error(), "exceeds maximum size")
 }
 
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
@@ -1450,7 +1552,7 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
 	if file.Size > clibase.MaxDocumentTranscriptBytes {
-		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
+		return nil, "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1461,8 +1563,23 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 	closeErr := f.Close()
 	if readErr != nil || finishErr != nil || closeErr != nil {
 		combined := errors.Join(readErr, finishErr, closeErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, "", fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
+		// The sentinel may excuse ONLY itself.
+		//
+		// All three readers of this error skip the file on
+		// errors.Is(errHistoryTranscriptTooLarge) -- that is the whole point of
+		// the sentinel. So wrapping it around a joined error that ALSO carries
+		// finishErr or closeErr would discard those silently and publish:
+		// validateAfterRead is the containment and source-race check (a
+		// transcript swapped mid-read, a path that became a symlink out of the
+		// root), and a failed Close is its own bound breach. Each of those must
+		// refuse the whole generation, and none of them is a statement about
+		// one file the way an oversize transcript is.
+		//
+		// Hence the size breach is classified as oversize only when it is the
+		// sole fault. Otherwise the joined error is returned unwrapped and the
+		// readers' refusal paths see it.
+		if oversizeIsTheSoleFault(readErr, finishErr, closeErr) {
+			return nil, "", fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, combined)
 		}
 		return nil, "", combined
 	}

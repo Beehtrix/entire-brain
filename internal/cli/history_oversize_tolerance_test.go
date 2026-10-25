@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // historyOversizeFixture writes a brain holding three sessions: two small
@@ -290,7 +291,7 @@ func TestShortTermDeltaNonTranscriptBoundBreachPreservesPriorOverlay(t *testing.
 	base.MaxManifestBytes = 64
 	t.Cleanup(func() { base.MaxManifestBytes = oldMax })
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
 	})

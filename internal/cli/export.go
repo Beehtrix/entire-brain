@@ -320,6 +320,10 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			snapshot = local
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
 		}
+		// Cached addresses of the sessions dropped below for want of local
+		// checkpoint bytes. The transcript cache sweep must keep them even
+		// though the manifest no longer lists them.
+		var skippedTranscriptCache map[string]bool
 		if len(sessions) > 0 {
 			// Two filters, and the order carries the meaning.
 			//
@@ -371,6 +375,13 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 				// everything that validated cleanly, and drop only what was
 				// validated and found unavailable.
 				//
+				// A dropped session still has a cached transcript on disk from
+				// the legacy disk-mode exports, and once its checkpoint is
+				// genuinely destroyed that file is the only surviving copy of
+				// the bytes. Dropping it from the manifest alone would hand it
+				// to the sweep as a stale export, so its cached address is
+				// collected for the sweep's retain list below.
+				//
 				// Keyed on the full identity rather than the session id alone,
 				// because one session can be exported on more than one branch.
 				type sessionKey struct {
@@ -389,6 +400,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					usableKeys[keyOf(session)] = struct{}{}
 				}
 				surviving := make([]exportSession, 0, len(sessions))
+				skippedTranscriptCache = make(map[string]bool, len(unavailable))
 				for _, session := range sessions {
 					key := keyOf(session)
 					if _, wasValidated := validatedKeys[key]; !wasValidated {
@@ -397,7 +409,13 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 					}
 					if _, ok := usableKeys[key]; ok {
 						surviving = append(surviving, session)
+						continue
 					}
+					// Addressed exactly as the manifest and the cache
+					// inventory address it -- the same helper the surviving
+					// sessions use below -- because a near-miss key would
+					// retain nothing while looking like a fix.
+					skippedTranscriptCache[sessionTranscriptRel(session, branchDirs)] = true
 				}
 				sessions = surviving
 				manifest.Sessions = sessions
@@ -422,7 +440,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var migration *historySessionInventory
 		if !exportOpts.skipTranscriptSweep {
-			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir, skippedTranscriptCache)
 			if err != nil {
 				return err
 			}
@@ -433,9 +451,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
 			session := &sessions[i]
-			name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
 			// Kept as a virtual evidence address, never a materialized path.
-			session.TranscriptPath = filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
+			session.TranscriptPath = sessionTranscriptRel(*session, branchDirs)
 		}
 		if err := withBrainWriteLock(outputDir, func() error {
 			var err error
@@ -3584,6 +3601,17 @@ func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extens
 	sessionPart := safePathComponent(sessionID, "session", 80)
 	checkpointPart := safePathComponent(checkpointID, "checkpoint", 32)
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
+}
+
+// sessionTranscriptRel is the single definition of a session's cached
+// transcript address: the key the manifest records, the key
+// historySessionByTranscriptPath looks sessions up by, and the Rel the cache
+// inventory walks up from disk. Callers that need that address -- the manifest
+// writer and the sweep's retain list -- must share it, because a key that is
+// merely close retains nothing while looking correct.
+func sessionTranscriptRel(session exportSession, branchDirs map[string]string) string {
+	name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+	return filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
 }
 
 func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[string]string {

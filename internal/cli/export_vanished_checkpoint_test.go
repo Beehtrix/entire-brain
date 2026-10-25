@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // vanishedFixture builds a snapshot that can serve one session's transcript
@@ -544,5 +549,153 @@ func TestAnUnansweredPromisorProbeRefusesRatherThanSkipping(t *testing.T) {
 	}
 	if !errors.Is(err, errGitObjectMissing) {
 		t.Fatalf("the cause must survive for errors.Is: %v", err)
+	}
+}
+
+// The transcript of the session that is about to vanish, kept distinct from
+// the servable one so the two have different blob ids and destroying one
+// cannot destroy the other.
+const vanishedCacheTranscript = conversationClaudeFixture + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"bytes only this cache still holds"}]}}
+`
+
+// vanishedCacheFixture builds a repository whose checkpoint catalog names two
+// sessions, both initially servable, and returns the git helper the test uses
+// to destroy one of their transcript objects afterwards. The helper returns
+// git's trimmed stdout so the test can resolve a blob id.
+func vanishedCacheFixture(t *testing.T) (Options, string, func(args ...string) string) {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.com", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.com")
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, stderr.String())
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q", "-b", "main")
+	alive, gone := checkpointPath("aaa111aaa111"), checkpointPath("bbb222bbb222")
+	files := map[string]string{
+		".entire/settings.json":    `{"enabled":true}`,
+		alive + "/metadata.json":   `{"branch":"main","sessions":[{"metadata":"/` + alive + `/0/metadata.json","transcript":"/` + alive + `/0/full.jsonl"}]}`,
+		alive + "/0/metadata.json": `{"checkpoint_id":"aaa111aaa111","session_id":"session-alive","branch":"main","created_at":"2026-01-01T00:00:00Z"}`,
+		alive + "/0/full.jsonl":    conversationClaudeFixture,
+		gone + "/metadata.json":    `{"branch":"main","sessions":[{"metadata":"/` + gone + `/0/metadata.json","transcript":"/` + gone + `/0/full.jsonl"}]}`,
+		gone + "/0/metadata.json":  `{"checkpoint_id":"bbb222bbb222","session_id":"session-gone","branch":"main","created_at":"2026-01-02T00:00:00Z"}`,
+		gone + "/0/full.jsonl":     vanishedCacheTranscript,
+	}
+	for rel, data := range files {
+		full := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", ".")
+	git("-c", "commit.gpgsign=false", "commit", "-qm", "checkpoint fixture")
+	git("update-ref", v1MainRef, "HEAD")
+	opts := Options{Runner: ExecRunner{}, Env: EntireEnv{RepoRoot: repo, PluginDataDir: t.TempDir(), PluginCacheDir: t.TempDir(), PluginStateDir: t.TempDir(), PluginConfigDir: t.TempDir()}, Now: func() time.Time { return time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) }}
+	return opts, repo, git
+}
+
+// A session whose transcript object is gone is skipped and dropped from the
+// manifest -- and the manifest is exactly what the transcript cache sweep
+// consults for liveness. The cached copy left behind by the legacy disk-mode
+// exports is then the ONLY surviving copy of those bytes, so dropping the
+// session must not hand its cache to the sweep.
+//
+// Liveness is read from the manifest ON DISK, so the dropped session is still
+// listed during the export that drops it and only becomes unlisted on the
+// NEXT one. That later export is where the file was deleted, which is why
+// this runs two consecutive persistent exports and checks the file after each.
+func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
+	opts, repo, git := vanishedCacheFixture(t)
+	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	brain := storage.BrainDir
+
+	// A legacy disk-mode export: both cached transcripts are materialized and
+	// both sessions are recorded.
+	runFilelessExport(t, opts, brain, false)
+	first, err := loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached := map[string]string{}
+	for _, session := range first.Sources.Sessions.Sessions {
+		cached[session.SessionID] = session.TranscriptPath
+	}
+	if len(cached) != 2 || cached["session-gone"] == "" || cached["session-alive"] == "" {
+		t.Fatalf("fixture must export both sessions, got %v", cached)
+	}
+	gonePath := filepath.Join(brain, filepath.FromSlash(cached["session-gone"]))
+	if data, err := os.ReadFile(gonePath); err != nil || string(data) != vanishedCacheTranscript {
+		t.Fatalf("cached transcript for the soon-vanished session: %q %v", data, err)
+	}
+
+	// Let the cached copy run ahead of its checkpoint, which is what carries a
+	// legacy cached transcript through the migration to checkpoint storage.
+	// Without this the brain would not be checkpoint-backed when the object
+	// vanishes, and the first export would refuse instead of dropping the
+	// session -- a refusal, not a deletion, and not the case under test.
+	preserved := vanishedCacheTranscript + `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"tail that exists nowhere else"}]}}` + "\n"
+	if err := os.WriteFile(gonePath, []byte(preserved), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runFilelessExport(t, opts, "", false)
+	migrated, err := loadBrainManifest(brain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checkpointBackedSessions(migrated) || len(migrated.Sources.Sessions.Sessions) != 2 {
+		t.Fatalf("migration must publish checkpoint storage for both sessions: %+v", migrated.Sources.Sessions)
+	}
+	if data, err := os.ReadFile(gonePath); err != nil || string(data) != preserved {
+		t.Fatalf("migration lost the divergent cache: %q %v", data, err)
+	}
+	// Narrow rescue, not blanket retention: the servable session's cache is
+	// recoverable from its checkpoint and is swept by that same migration.
+	if _, err := os.Stat(filepath.Join(brain, filepath.FromSlash(cached["session-alive"]))); !os.IsNotExist(err) {
+		t.Fatalf("recoverable cache was not swept: %v", err)
+	}
+
+	// The transcript BLOB leaves the object store while the catalog keeps
+	// naming it: the shape a destroyed manual-commit checkpoint has on a
+	// squash-merging repository, and the only one the partition classifies as
+	// one session's unavailability rather than a fault.
+	blob := git("rev-parse", v1MainRef+":"+checkpointPath("bbb222bbb222")+"/0/full.jsonl")
+	if len(blob) < 3 {
+		t.Fatalf("blob id = %q", blob)
+	}
+	if err := os.Remove(filepath.Join(repo, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal("destroy transcript object:", err)
+	}
+
+	for round := 1; round <= 2; round++ {
+		runFilelessExport(t, opts, "", false)
+		manifest, err := loadBrainManifest(brain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var recorded []string
+		for _, session := range manifest.Sources.Sessions.Sessions {
+			recorded = append(recorded, session.SessionID)
+		}
+		if len(recorded) != 1 || recorded[0] != "session-alive" {
+			t.Fatalf("round %d recorded %v; the brain must not record a session it cannot serve", round, recorded)
+		}
+		got, err := os.ReadFile(gonePath)
+		if err != nil || string(got) != preserved {
+			t.Fatalf("round %d destroyed the only surviving copy of the skipped session's transcript: %q %v", round, got, err)
+		}
 	}
 }

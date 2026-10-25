@@ -263,7 +263,7 @@ func TestFilelessMigrationRetainsUnrecoverableCache(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("delete fixture ref: %v %s", err, out)
 	}
-	if inventory, err := planTranscriptCacheSweep(context.Background(), opts.Runner, brain, opts.Env.RepoRoot); err == nil {
+	if inventory, err := planTranscriptCacheSweep(context.Background(), opts.Runner, brain, opts.Env.RepoRoot, nil); err == nil {
 		if inventory != nil {
 			inventory.Close()
 		}

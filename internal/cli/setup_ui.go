@@ -543,10 +543,7 @@ func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
 		facts.Note = "disconnected by `" + setupBrainCommand(brainCmd) + " disconnect`"
 	default:
 		facts.Bound = true
-		facts.Target = binding.RepoID
-		if binding.BaseURL != "" {
-			facts.Target += " at " + binding.BaseURL
-		}
+		facts.Target = binding.BaseURL
 	}
 	return facts
 }

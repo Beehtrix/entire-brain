@@ -56,8 +56,11 @@ func TestDisconnectRecordsOptOutKeepingCoordinates(t *testing.T) {
 	if binding.RepoID != "01M2Q9WATHXVM46CD8Y4D3AX8W" || binding.BaseURL != "https://cell.api.example.com" {
 		t.Fatalf("disconnect must keep the coordinates for easy re-connect, got %+v", binding)
 	}
+	if strings.Contains(out, "01M2Q9WATHXVM46CD8Y4D3AX8W") {
+		t.Fatalf("banner must not leak the hosted repo id, got:\n%s", out)
+	}
 	for _, want := range []string{
-		"Disconnected: repo 01M2Q9WATHXVM46CD8Y4D3AX8W no longer syncs memories",
+		"no longer syncs memories",
 		"keeps working exactly as before",
 		"stay in the local store",
 		"resume syncing",

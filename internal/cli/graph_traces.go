@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -28,10 +29,10 @@ func readGraphTraces(brainDir string) ([]graphTraceObservation, error) {
 	if brainDir == "" {
 		return nil, nil
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
 		return nil, err
 	}
-	data, err := safeReadFile(filepath.Join(brainDir, graphTraceFile), graphTraceMaxBytes)
+	data, err := base.SafeReadFile(filepath.Join(brainDir, graphTraceFile), graphTraceMaxBytes)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -45,7 +46,7 @@ func readGraphTraces(brainDir string) ([]graphTraceObservation, error) {
 	return rows, nil
 }
 func writeGraphTraces(brainDir string, rows []graphTraceObservation) error {
-	if err := rejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
 		return err
 	}
 	data, err := json.Marshal(rows)
@@ -56,81 +57,6 @@ func writeGraphTraces(brainDir string, rows []graphTraceObservation) error {
 		return errors.New("runtime trace observations exceed 64 MiB; existing observations retained")
 	}
 	return writeFileAtomic(filepath.Join(brainDir, graphTraceFile), append(data, '\n'), 0600)
-}
-
-// Migration runs under the semantic writer lock and publishes observations
-// atomically before either the manifest or old artifacts are removed. Retrying
-// after any failure is safe: duplicate rows are removed by their full content.
-func migrateLegacyGraphTraces(brainDir string) error {
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return err
-	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return nil
-	}
-	source := manifest.Sources.Semantic
-	if source.StoreOwner == "graph" || source.StorePath == "" {
-		return nil
-	}
-	generation, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	rel, err := validateSemanticGenerationFilePath(source.StorePath, generation, semanticSQLiteName)
-	if err != nil {
-		return err
-	}
-	if err = rejectSymlinkPathComponents(brainDir, rel); err != nil {
-		return err
-	}
-	if _, err = os.Stat(filepath.Join(brainDir, rel)); os.IsNotExist(err) {
-		return fmt.Errorf("cannot preserve traces from missing legacy store: %w", err)
-	} else if err != nil {
-		return err
-	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(filepath.Join(brainDir, rel)))
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	var present int
-	if err = db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='runtime_traces'").Scan(&present); err != nil {
-		return err
-	}
-	if present == 0 {
-		return nil
-	}
-	rows, err := db.Query("SELECT imported_at,source_path,from_id,to_id,coalesce(observed_type,''),matched_static_edge FROM runtime_traces ORDER BY id")
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	observations, err := readGraphTraces(brainDir)
-	if err != nil {
-		return err
-	}
-	seen := map[graphTraceObservation]bool{}
-	for _, o := range observations {
-		seen[o] = true
-	}
-	for rows.Next() {
-		var o graphTraceObservation
-		if err = rows.Scan(&o.ImportedAt, &o.SourcePath, &o.FromID, &o.ToID, &o.ObservedType, &o.Matched); err != nil {
-			return err
-		}
-		if !seen[o] {
-			observations = append(observations, o)
-			seen[o] = true
-		}
-	}
-	if err = rows.Err(); err != nil {
-		return err
-	}
-	if len(observations) == 0 {
-		return nil
-	}
-	return writeGraphTraces(brainDir, observations)
 }
 
 func loadGraphTraceTable(db *sql.DB, brainDir string) error {
@@ -174,7 +100,7 @@ func ingestGraphTraces(cmd *cobra.Command, opts Options, ingestOpts semanticTrac
 		return err
 	}
 	defer unlock()
-	if err = migrateLegacyGraphTraces(env.BrainDir); err != nil {
+	if err = requireCurrentBrainLayout(env.BrainDir); err != nil {
 		return err
 	}
 	existing, err := readGraphTraces(env.BrainDir)

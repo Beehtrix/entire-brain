@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"github.com/spf13/cobra"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 func TestVizFactGraphDeduplicatesAndTruncatesWithoutDanglingEdges(t *testing.T) {

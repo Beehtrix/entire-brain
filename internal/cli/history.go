@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -270,7 +271,7 @@ func newHistoryIndexCommand(opts Options) *cobra.Command {
 }
 
 func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -573,10 +574,10 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 	}
 	staging := filepath.Join(outputDir, filepath.FromSlash(prepared.stagingDir))
 	final := filepath.Join(outputDir, filepath.FromSlash(finalRel))
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
@@ -663,7 +664,7 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 	}
 	// Never enumerate or remove below an aliased history directory. This check
 	// covers both legacy fixed-path cleanup and the generations root.
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyDirName); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyDirName); err != nil {
 		return
 	}
 	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
@@ -706,7 +707,7 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 		}
 		receiptPath := filepath.Join(dir, projectionStateFileName)
 		newer, schemaErr := projectionFileHasNewerSchema(receiptPath)
-		if newer || (schemaErr != nil && !errors.Is(schemaErr, errFileHardlinked)) {
+		if newer || (schemaErr != nil && !errors.Is(schemaErr, clibase.ErrFileHardlinked)) {
 			continue // unknown-newer generations are never removed by this binary
 		}
 		// A hardlinked receipt is unreadable here forever, and removal only
@@ -726,15 +727,15 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return false, fmt.Errorf("projection receipt must be a regular file and must not be a symlink: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
+	if err := clibase.RejectOpenFileAlias(path, f, "projection receipt"); err != nil {
 		return false, err
 	}
-	data, err := safeReadAll(f, maxManifestBytes, path)
+	data, err := clibase.SafeReadAll(f, clibase.MaxManifestBytes, path)
 	if err != nil {
 		return false, err
 	}
@@ -767,7 +768,7 @@ func validateHistoryProjectionDirectory(outputDir, rel string, requireComplete b
 		return fmt.Errorf("invalid history projection directory: %s", rel)
 	}
 	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
-	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
 		return err
 	}
 	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
@@ -783,7 +784,7 @@ func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, nil, fmt.Errorf("history projection path must be a directory and must not be a symlink: %s", display)
 	}
-	dir, err := os.OpenFile(abs, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := os.OpenFile(abs, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -832,7 +833,7 @@ func removeHistoryProjectionDirectory(outputDir, rel string) error {
 		return fmt.Errorf("refuse cleanup of invalid history projection directory: %s", rel)
 	}
 	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
-	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
 		return err
 	}
 	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
@@ -1078,7 +1079,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}
 		contentIdentity = historyScanCacheContentIdentity(contentCache)
 	}
-	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, defaultMaxReadBytes)
+	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, clibase.DefaultMaxReadBytes)
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1115,7 +1116,7 @@ func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, 
 		// publish clears a corrupt-classed overlay afterwards. The constant
 		// keeps the prepare and commit identity captures agreeing while the
 		// file stays in that state; any content change still differs.
-		if errors.Is(err, errFileHardlinked) {
+		if errors.Is(err, clibase.ErrFileHardlinked) {
 			return "unsafe-hardlinked", nil
 		}
 		return "", err
@@ -1386,8 +1387,8 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 		_, digest, err := readHistorySessionInventoryFile(ctx, inventory, file)
 		return digest, err
 	}
-	if file.Size > maxDocumentTranscriptBytes {
-		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	if file.Size > clibase.MaxDocumentTranscriptBytes {
+		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1395,10 +1396,10 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	}
 	defer f.Close()
 	h := sha256.New()
-	limit := maxDocumentTranscriptBytes + 1
+	limit := clibase.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
-	if written > maxDocumentTranscriptBytes {
-		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes))
+	if written > clibase.MaxDocumentTranscriptBytes {
+		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes))
 	}
 	finishErr := inventory.validateAfterRead(file, f)
 	if readErr != nil || finishErr != nil {
@@ -1448,14 +1449,14 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 		sum := sha256.Sum256(data)
 		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
-	if file.Size > maxDocumentTranscriptBytes {
-		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	if file.Size > clibase.MaxDocumentTranscriptBytes {
+		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, clibase.MaxDocumentTranscriptBytes)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
 		return nil, "", err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
+	data, readErr := clibase.SafeReadAll(contextCheckingReader{ctx: ctx, r: f}, clibase.MaxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
 	finishErr := inventory.validateAfterRead(file, f)
 	closeErr := f.Close()
 	if readErr != nil || finishErr != nil || closeErr != nil {
@@ -1674,7 +1675,7 @@ func historyRecordBranchForPath(path string, branchByPath map[string]string) str
 // footprint (the record text compresses heavily).
 func loadHistoryScanCache(outputDir string) historyScanCache {
 	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
-	data, err := safeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), semanticSnapshotMaxBytes())
+	data, err := clibase.SafeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), clibase.SemanticSnapshotMaxBytes())
 	if err != nil {
 		return empty
 	}
@@ -1685,7 +1686,7 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	defer gz.Close()
 	// Bound the decompressed stream so a gzip bomb cannot exhaust memory; an
 	// over-cap or truncated stream simply rebuilds the cache from scratch.
-	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, clibase.SemanticSnapshotMaxBytes())
 	var cache historyScanCache
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
@@ -1826,7 +1827,7 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return nil, fmt.Errorf("history transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1907,7 +1908,7 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1963,7 +1964,7 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1992,7 +1993,7 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil // JSONL or non-JSON: the line scanner's job
 	}
-	data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+rel)
+	data, err := clibase.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, clibase.MaxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}
@@ -2015,7 +2016,7 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 				Kind:    kind,
 				Path:    rel,
 				Line:    line,
-				Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+				Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 				Terms:   historyTerms(fragment.Text),
 			})
 		}
@@ -2253,7 +2254,7 @@ func cleanHistoryCodeFactSnippet(value string) string {
 	if value == "" {
 		return ""
 	}
-	return truncateString(value, 4000)
+	return clibase.TruncateString(value, 4000)
 }
 
 // historyFactSignal matches output that states a durable fact about the code:
@@ -3049,15 +3050,15 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, "", false, err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
+	if err := clibase.RejectOpenFileAlias(path, f, "history index"); err != nil {
 		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, historyHardlinkRepairHint(err))
 	}
-	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
+	data, err := clibase.SafeReadAll(f, clibase.SemanticSnapshotMaxBytes(), path)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -3084,7 +3085,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 // refresh`"; a DECLARED index that is not on disk is the same sentence with the
 // artifact named. Every other failure keeps its own words.
 func historyIndexReadError(source *historySourceManifest, err error) error {
-	if errors.Is(err, errFileHardlinked) {
+	if errors.Is(err, clibase.ErrFileHardlinked) {
 		return historyHardlinkRepairHint(err)
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
@@ -3099,7 +3100,7 @@ func historyIndexReadError(source *historySourceManifest, err error) error {
 // context from every brief, recall, and query. The canonical sessions are
 // untouched, so one deterministic rebuild is always the fix.
 func historyHardlinkRepairHint(err error) error {
-	if err == nil || !errors.Is(err, errFileHardlinked) {
+	if err == nil || !errors.Is(err, clibase.ErrFileHardlinked) {
 		return err
 	}
 	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, brainInvocation(os.LookupEnv, "memory repair"))

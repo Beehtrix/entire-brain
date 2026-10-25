@@ -924,11 +924,11 @@ entire brain history-eval-gen > history-tasks.json
 entire brain history-eval --tasks history-tasks.json --json
 ```
 
-For semantic performance and provider output, use the semantic benchmark and
+For indexing performance and provider output, use the index benchmark and
 status audit instead of relying on anecdotes:
 
 ```sh
-entire brain bench semantic .
+entire brain bench index .
 entire brain status --json
 ```
 

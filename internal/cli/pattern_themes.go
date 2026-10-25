@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Themes / latent practices (Pattern Consolidation v2, Priority 5).
@@ -141,7 +144,7 @@ func pruneThemes(db *sql.DB, keep map[string]bool) error {
 func themeFingerprint(members []string) string {
 	sorted := append([]string(nil), members...)
 	sort.Strings(sorted)
-	return "sha256:" + hexSHA(strings.Join(sorted, "|"))
+	return "sha256:" + base.HexSHA(strings.Join(sorted, "|"))
 }
 
 func dominantShape(shapes map[string]int) string {
@@ -227,7 +230,7 @@ func themePatternView(th themeView) patternView {
 	}
 	return patternView{
 		ID: th.ID, Type: "theme", Scope: "repo", Kind: th.Shape,
-		Title: th.Title, Strength: th.Strength, StrengthLabel: strengthLabelV2(th.Strength),
+		Title: th.Title, Strength: th.Strength, StrengthLabel: patterncore.StrengthLabelV2(th.Strength),
 		Support: th.Support, DossierStatus: state,
 	}
 }
@@ -329,7 +332,7 @@ func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error
 		state += "/" + v.Verdict
 	}
 	b.WriteString("members: " + strconv.Itoa(v.Support) + " episode(s) (" + state + ")")
-	return unifiedResult{Source: "theme", ID: v.ID, Text: redactText(b.String())}, true, nil
+	return unifiedResult{Source: "theme", ID: v.ID, Text: base.RedactText(b.String())}, true, nil
 }
 
 // rankTaskRelevantThemes returns verified themes whose title/description share a
@@ -431,8 +434,8 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 	// when the set of keys changes.
 	payload, _ := json.Marshal(map[string]any{"episodes": sample})
 	sampleFP := proposalSampleFingerprint(payload)
-	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && corpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
-		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM themes`)
+	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
+		stats.Cached = patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`)
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
 	}
@@ -444,7 +447,7 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("theme proposal agent: %w", err)
 	}
@@ -478,12 +481,12 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		}
 		memberJSON, _ := json.Marshal(members)
 		shape := memberDominantShape(db, members)
-		strength := math.Round(supportScoreV2(len(members))*1000) / 1000
-		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+		strength := math.Round(patterncore.SupportScoreV2(len(members))*1000) / 1000
+		id := "theme:" + base.HexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
-			title:       redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
-			description: redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			title:       base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
+			description: base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
 		})
@@ -553,11 +556,11 @@ func sampleShapedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, []s
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
-			ex = redactText(t)
+			ex = base.RedactText(t)
 		}
 		sample = append(sample, map[string]string{
 			"episode_key": key, "shape": shape,
-			"intent": redactText(truncateString(intent, 160)), "excerpt": ex,
+			"intent": base.RedactText(base.TruncateString(intent, 160)), "excerpt": ex,
 		})
 		keys = append(keys, key)
 	}

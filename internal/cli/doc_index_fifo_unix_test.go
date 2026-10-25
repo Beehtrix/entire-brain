@@ -3,11 +3,12 @@
 package cli
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestDeclaredDocIndexRejectsFIFOWithoutWriter(t *testing.T) {

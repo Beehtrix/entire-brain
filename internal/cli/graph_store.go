@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -152,6 +154,9 @@ func loadGraphManifest(ctx context.Context, opts Options, repoDir, brainDir stri
 	if err != nil {
 		return nil, err
 	}
+	if err := checkLegacyBrainLayout(brainDir, manifest); err != nil {
+		return nil, err
+	}
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
@@ -177,7 +182,7 @@ func graphStoreProfile(manifest *exportManifest) string {
 // if a future caller accidentally attempts a write.
 func openSemanticReadDB(handle string) (*sql.DB, error) {
 	if !strings.HasPrefix(handle, graphStoreHandlePrefix) {
-		return sql.Open(sqliteDriverName, sqliteReadOnlyDSN(handle))
+		return sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(handle))
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(handle, graphStoreHandlePrefix))
 	if err != nil {
@@ -187,7 +192,7 @@ func openSemanticReadDB(handle string) (*sql.DB, error) {
 	if err = json.Unmarshal(raw, &d); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(d.Path))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(d.Path))
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +244,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if indexOpts.worktree {
 		return errors.New("Graph owns the committed-tree index; use entire graph query without --head to inspect uncommitted code")
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -249,7 +254,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if err = enforceIndexContainment(indexOpts.containRoot, repoDir); err != nil {
 		return err
 	}
-	if _, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); err != nil {
+	if _, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); err != nil {
 		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for Graph index: %w", err))
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -262,9 +267,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 			return err
 		}
 	}
-	// Retire the duplicate even on installations without Graph. Authored
-	// observations are durable; code indexes are reproducible provider data.
-	if err := migrateBrainGraphStorage(storage.BrainDir, storage.Key); err != nil {
+	if err := requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
 	binary := indexOpts.graphBinary
@@ -330,8 +333,8 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 		return err
 	}
 	defer unlock()
-	// Preserve authored traces before removing any legacy graph artifacts.
-	if err = migrateLegacyGraphTraces(storage.BrainDir); err != nil {
+	// Recheck after taking the writer lock before publishing a new source.
+	if err = requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
 	source := graphStoreSource(d, storage.BrainDir)
@@ -341,13 +344,6 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	source.GraphRepoRoot = repoDir
 	if err = writeBrainSemanticSource(storage.BrainDir, storage.Key, source); err != nil {
 		return err
-	}
-	removed, err := removeLegacyGraphArtifacts(storage.BrainDir)
-	if err != nil {
-		return err
-	}
-	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
 	}
 
 	var indexed struct {
@@ -359,60 +355,5 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 		label += " already current"
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s: %d files, %d symbols, %d relations\n", label, d.Files, d.Symbols, d.Relations)
-	return nil
-}
-
-// removeLegacyGraphArtifacts deletes the pre-Graph-ownership semantic store
-// directories, if present, and reports whether it actually deleted anything --
-// the one signal callers need to announce a real, one-time destructive
-// removal rather than a routine no-op on an already-migrated brain.
-func removeLegacyGraphArtifacts(brainDir string) (bool, error) {
-	removed := false
-	for _, rel := range []string{"semantic/generations", "semantic/snapshots"} {
-		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
-			return removed, err
-		}
-		path := filepath.Join(brainDir, rel)
-		if _, err := os.Lstat(path); err == nil {
-			removed = true
-		} else if !os.IsNotExist(err) {
-			return removed, err
-		}
-		if err := os.RemoveAll(path); err != nil {
-			return removed, err
-		}
-	}
-	return removed, nil
-}
-
-func migrateBrainGraphStorage(brainDir, repoKey string) error {
-	unlock, err := acquireSemanticIndexLock(brainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return err
-	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return nil
-	}
-	if err = migrateLegacyGraphTraces(brainDir); err != nil {
-		return err
-	}
-	if manifest.Sources.Semantic.StoreOwner != "graph" {
-		source := &semanticSourceManifest{StoreOwner: "graph", Provider: "entire-graph", Profile: manifest.Sources.Semantic.Profile}
-		if err = writeBrainSemanticSource(brainDir, repoKey, source); err != nil {
-			return err
-		}
-	}
-	removed, err := removeLegacyGraphArtifacts(brainDir)
-	if err != nil {
-		return err
-	}
-	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
-	}
 	return nil
 }

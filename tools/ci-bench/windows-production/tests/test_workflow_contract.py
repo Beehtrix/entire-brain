@@ -33,7 +33,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_dynamic_matrix_and_stable_aggregate_check_are_present(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-        self.assertEqual(settings["shardCount"], 8)
+        self.assertEqual(settings["shardCount"], 6)
         self.assertIn("fromJSON(needs.windows-test-prepare.outputs.shard-matrix)", workflow)
         self.assertIn("name: test (windows-latest)", workflow)
         self.assertIn("windows-test-verify.result", workflow)
@@ -61,7 +61,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotIn("-test.bench", workflow)
 
-    def test_shards_restore_cache_budget_and_verifier_runs_after_prepare(self):
+    def test_shards_skip_module_cache_and_verifier_runs_after_prepare(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         shard_block = workflow.split("  windows-test-shards:\n", 1)[1].split(
             "  windows-test-other:\n", 1
@@ -70,8 +70,11 @@ class WorkflowContractTests(unittest.TestCase):
             "  windows-test:\n", 1
         )[0]
         self.assertIn("timeout-minutes: 35", shard_block)
-        self.assertIn("cache-dependency-path: go.sum", shard_block)
-        self.assertNotIn("cache: false", shard_block)
+        # Shards execute precompiled binaries from the bundle: they need the Go
+        # toolchain (test2json), never the module/build caches, so setup-go's
+        # ~25s cache restore stays off.
+        self.assertIn("cache: false", shard_block)
+        self.assertNotIn("cache-dependency-path: go.sum", shard_block)
         self.assertIn("needs.windows-test-prepare.result == 'success'", verify_block)
         self.assertNotIn("needs.windows-test-shards.result == 'success'", verify_block)
 

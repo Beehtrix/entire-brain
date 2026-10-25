@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/factmerge"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -921,7 +922,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// case, discovered one layer later.
 			//
 			if jsonOut {
-				return writeIndentedJSON(cmd.OutOrStdout(), report)
+				return base.WriteIndentedJSON(cmd.OutOrStdout(), report)
 			}
 			verb := "imported"
 			if dryRun {
@@ -967,9 +968,9 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 // reasons.
 func readImportFile(path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "-" {
-		return safeReadAll(os.Stdin, maxManifestBytes, "import file from stdin")
+		return base.SafeReadAll(os.Stdin, base.MaxManifestBytes, "import file from stdin")
 	}
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read export: %w", err)
 	}

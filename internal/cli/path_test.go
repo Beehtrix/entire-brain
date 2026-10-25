@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
@@ -139,7 +141,7 @@ func TestResolveLocalTargetRepoDirPreservesExplicitSymlinkSpelling(t *testing.T)
 		t.Skipf("directory symlinks are unavailable on this platform: %v", err)
 	}
 
-	resolved, local, err := resolveLocalTargetRepoDir(context.Background(), nil, alias)
+	resolved, local, err := base.ResolveLocalTargetRepoDir(context.Background(), nil, alias)
 	if err != nil {
 		t.Fatalf("resolve symlink target: %v", err)
 	}
@@ -218,7 +220,7 @@ func TestResolveLocalTargetRepoDirPreservesLexicalAncestorAgainstGitPhysicalRoot
 		fakeCommandKey("git", "rev-parse", "--show-toplevel"): {stdout: realRepo + "\n"},
 	}}
 
-	resolved, local, err := resolveLocalTargetRepoDir(context.Background(), runner, logicalSubdir)
+	resolved, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, logicalSubdir)
 	if err != nil {
 		t.Fatalf("resolve logical subdir: %v", err)
 	}

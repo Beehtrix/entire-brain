@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // These production bounds are vars only so oversized-fixture and
@@ -14,11 +16,11 @@ func TestOverridableProductionBoundsKeepTheirDefaults(t *testing.T) {
 	if semanticIndexLockTimeout != 10*time.Second {
 		t.Errorf("semanticIndexLockTimeout = %v, want 10s", semanticIndexLockTimeout)
 	}
-	if defaultMaxReadBytes != 64<<20 {
-		t.Errorf("defaultMaxReadBytes = %d, want 64 MiB", defaultMaxReadBytes)
+	if base.DefaultMaxReadBytes != 64<<20 {
+		t.Errorf("defaultMaxReadBytes = %d, want 64 MiB", base.DefaultMaxReadBytes)
 	}
-	if maxManifestBytes != 16<<20 {
-		t.Errorf("maxManifestBytes = %d, want 16 MiB", maxManifestBytes)
+	if base.MaxManifestBytes != 16<<20 {
+		t.Errorf("maxManifestBytes = %d, want 16 MiB", base.MaxManifestBytes)
 	}
 	if privacyVectorVerifyMaxRows != 2_000_000 {
 		t.Errorf("privacyVectorVerifyMaxRows = %d, want 2_000_000", privacyVectorVerifyMaxRows)

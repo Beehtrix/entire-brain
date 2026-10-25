@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // git resolves several configuration keys to *commands it executes*, and it
@@ -97,7 +99,7 @@ const gitHooksDisabledPath = "/dev/null/entire-brain-hooks-disabled"
 // at once, and a caller that installs or removes files there acts on repos it
 // was never asked about.
 func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) (string, bool, error) {
-	commonOut, err := gitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
+	commonOut, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--git-common-dir")
 	if err != nil {
 		return "", false, fmt.Errorf("resolve git dir: %w", err)
 	}
@@ -109,7 +111,7 @@ func realGitHooksDir(ctx context.Context, runner CommandRunner, repoDir string) 
 	dir := filepath.Join(commonDir, "hooks")
 	// The pin guarantees at least one value, so a failure here is a real
 	// error, never "key unset".
-	valuesOut, err := gitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
+	valuesOut, err := base.GitScalar(ctx, runner, repoDir, "config", "--get-all", "core.hooksPath")
 	if err != nil {
 		return "", false, fmt.Errorf("resolve core.hooksPath: %w", err)
 	}

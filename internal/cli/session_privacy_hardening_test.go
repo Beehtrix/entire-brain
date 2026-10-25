@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func tombstonePrivacyFixture(t *testing.T, brainDir string) {
@@ -232,7 +235,7 @@ func TestPrivacyDerivedReadGateInspectsCurrentCorpusRows(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	corpus := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpus := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	dirtyCorpus, err := os.ReadFile(corpus)
 	if err != nil {
 		t.Fatal(err)
@@ -315,8 +318,8 @@ func TestPrivacyVerifyInspectsCommittedPatternRowsStillInWAL(t *testing.T) {
 	// Leave a committed excluded-path row only in WAL. An immutable read of a
 	// main-file-only copy cannot see it, so privacy verification must snapshot
 	// and replay the pinned WAL before doing its row-level checks.
-	corpus := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
-	db, err := sql.Open(sqliteDriverName, corpus)
+	corpus := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
+	db, err := sql.Open(sqlitedriver.Name, corpus)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +391,7 @@ func TestPrivacyVerifyRejectsCurrentCorruptSQLiteStore(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Now().UTC(), nil); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

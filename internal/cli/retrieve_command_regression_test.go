@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -18,14 +19,14 @@ func (retrieveRegressionFailWriter) Write([]byte) (int, error) {
 	return 0, fmt.Errorf("retrieve regression output failure")
 }
 
-func retrieveRegressionWorkspace(t *testing.T) (Options, workspaceManifest, map[string]string) {
+func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map[string]string) {
 	t.Helper()
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "retrieval", Repos: []workspaceRepo{
+	manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: "retrieval", Repos: []workspace.Repo{
 		{RepoKey: "gh/acme/alpha", Name: "alpha"},
 		{RepoKey: "gh/acme/beta", Name: "beta"},
 	}}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
@@ -195,13 +196,13 @@ func TestWorkspaceRetrieveMalformedMemberAndOutputFailure(t *testing.T) {
 
 func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 	opts, manifest, _ := retrieveRegressionWorkspace(t)
-	edge := workspaceGraphCrossEdge{
+	edge := workspace.CrossEdge{
 		Endpoint: "external:http:get /nebula", Type: "route", FromRepo: manifest.Repos[0].RepoKey, ToRepo: manifest.Repos[1].RepoKey,
-		FromSymbol:   workspaceGraphSymbolRef{RepoKey: manifest.Repos[0].RepoKey, ID: "symbol:alpha.callNebula", Kind: "function", Name: "callNebula", FilePath: "alpha/client.go"},
-		ToSymbol:     workspaceGraphSymbolRef{RepoKey: manifest.Repos[1].RepoKey, ID: "symbol:beta.serveNebula", Kind: "function", Name: "serveNebula", FilePath: "beta/server.go"},
+		FromSymbol:   workspace.SymbolRef{RepoKey: manifest.Repos[0].RepoKey, ID: "symbol:alpha.callNebula", Kind: "function", Name: "callNebula", FilePath: "alpha/client.go"},
+		ToSymbol:     workspace.SymbolRef{RepoKey: manifest.Repos[1].RepoKey, ID: "symbol:beta.serveNebula", Kind: "function", Name: "serveNebula", FilePath: "beta/server.go"},
 		RelationKind: "cross_repo_route_call", SharedCount: 3,
 	}
-	if _, err := writeWorkspaceGraphPayload(opts.Env, workspaceGraphPayload{Generation: workspaceGraphTestGeneration(t, opts.Env, manifest), Workspace: manifest.Name, GeneratedAt: opts.Now(), CrossEdges: []workspaceGraphCrossEdge{edge}}); err != nil {
+	if _, err := writeWorkspaceGraphPayload(opts.Env, workspaceGraphPayload{Generation: workspaceGraphTestGeneration(t, opts.Env, manifest), Workspace: manifest.Name, GeneratedAt: opts.Now(), CrossEdges: []workspace.CrossEdge{edge}}); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
@@ -210,14 +211,14 @@ func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 	if err := runWorkspaceRetrieve(cmd, opts, workspaceRetrieveOptions{limit: 3, json: true, branch: "main"}, modeLexical, manifest.Name, "nebula route"); err != nil {
 		t.Fatal(err)
 	}
-	graphID := workspaceGraphCrossEdgeID(edge)
+	graphID := workspace.GraphCrossEdgeID(edge)
 	for _, want := range []string{graphID, `"source": "workspace_graph"`, "cross_repo_route_call", "alpha/client.go", "beta/server.go"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("graph output missing %q: %s", want, out.String())
 		}
 	}
 
-	wsDir, err := workspaceDir(opts.Env, manifest.Name)
+	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,8 +245,8 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 	if err := os.Rename(sourceBrain, targetBrain); err != nil {
 		t.Fatal(err)
 	}
-	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "concepts", Repos: []workspaceRepo{{RepoKey: repoKey, Name: "multi-concept"}}}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: "concepts", Repos: []workspace.Repo{{RepoKey: repoKey, Name: "multi-concept"}}}
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	opts := Options{Version: "test", Env: env, Now: func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC) }}

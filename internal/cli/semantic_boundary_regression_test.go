@@ -65,7 +65,7 @@ func TestSemanticBoundaryRootTextJSONAndLimits(t *testing.T) {
 func TestSemanticBoundaryRootEmptyAndInvalidState(t *testing.T) {
 	opts := boundaryRegressionFixture(t, semanticFixtureSnapshot("1.0"))
 	out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route")
-	if err != nil || !strings.Contains(out, "no routes found in the semantic index") {
+	if err != nil || !strings.Contains(out, "no routes found in the code index") {
 		t.Fatalf("empty boundary text: err=%v output=%q", err, out)
 	}
 	out, err = execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route", "--json")
@@ -116,7 +116,7 @@ func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 		runner := opts.Runner.(*fakeCommandRunner)
 		runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M internal/http/routes.go\n"}
 		out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route")
-		if err != nil || !strings.Contains(out, "semantic freshness: degraded") || !strings.Contains(out, "GET /tokens/{id}") {
+		if err != nil || !strings.Contains(out, "code index freshness: degraded") || !strings.Contains(out, "GET /tokens/{id}") {
 			t.Fatalf("stale index should label retained results: err=%v output=%q", err, out)
 		}
 	})

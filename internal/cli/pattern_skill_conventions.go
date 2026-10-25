@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Capability-skill source (PR #44 follow-up): skills from durable conventions.
@@ -72,7 +75,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	}
 	sample, factText, sampleIDs := sampleCapabilityFacts(db, brainDir)
 	count := func() int {
-		return corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
+		return patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
 	}
 	if len(sample) == 0 {
 		_, _ = db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
@@ -96,7 +99,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("convention proposal agent: %w", err)
 	}
@@ -133,7 +136,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, redactText(string(blob)), verdict, ts, ts); err != nil {
+			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, base.RedactText(string(blob)), verdict, ts, ts); err != nil {
 			return stats, err
 		}
 		if verdict == "accepted" {
@@ -148,27 +151,27 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 // capability-archetype deep dossier. Facts carries the member rule texts so the
 // writer converts real knowledge, not the agent's paraphrase alone.
 func conventionRecord(pc proposedConvention, members []string, factText map[string]string, repoKey string) deepDossierRecord {
-	id := "convention:" + hexSHA("convention\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+	id := "convention:" + base.HexSHA("convention\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 	var knowledge []string
 	for _, k := range pc.Knowledge {
 		if s := strings.TrimSpace(k); s != "" {
-			knowledge = append(knowledge, truncateString(s, 280))
+			knowledge = append(knowledge, base.TruncateString(s, 280))
 		}
 	}
 	var facts []string
 	for _, m := range members {
 		if txt := strings.TrimSpace(factText[m]); txt != "" {
-			facts = append(facts, truncateString(txt, 280))
+			facts = append(facts, base.TruncateString(txt, 280))
 		}
 	}
 	return deepDossierRecord{
 		SchemaVersion:    deepSchemaVersion,
 		PatternID:        id,
 		Archetype:        "capability",
-		Fingerprint:      "sha256:" + hexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            truncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
-		Trigger:          truncateString(strings.TrimSpace(pc.Trigger), 280),
-		NotWhen:          truncateString(strings.TrimSpace(pc.NotWhen), 280),
+		Fingerprint:      "sha256:" + base.HexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
+		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
+		Trigger:          base.TruncateString(strings.TrimSpace(pc.Trigger), 280),
+		NotWhen:          base.TruncateString(strings.TrimSpace(pc.NotWhen), 280),
 		Knowledge:        knowledge,
 		Facts:            facts,
 		EvidenceEpisodes: len(members),
@@ -178,7 +181,7 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 // conventionSourceAnchors resolves the episodes that referenced the member facts
 // (via episode_facts) into source anchors with redacted excerpts where available
 // — the episode corroboration provenance for the convention.
-func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []dossierAnchor {
+func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []patterncore.DossierAnchor {
 	if len(factIDs) == 0 {
 		return nil
 	}
@@ -190,20 +193,20 @@ func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []do
 		return nil
 	}
 	defer rows.Close()
-	var anchors []dossierAnchor
+	var anchors []patterncore.DossierAnchor
 	for rows.Next() {
 		var session, path, outcome string
 		var start, end int
 		if rows.Scan(&session, &path, &start, &end, &outcome) != nil {
 			continue
 		}
-		a := dossierAnchor{SessionID: session, Transcript: redactText(path), StartLine: start, EndLine: end, Outcome: outcome}
+		a := patterncore.DossierAnchor{SessionID: session, Transcript: base.RedactText(path), StartLine: start, EndLine: end, Outcome: outcome}
 		lines := end - start + 1
 		if lines <= 0 || lines > themeMemberExcerptLines {
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
-			a.Excerpt = redactText(t)
+			a.Excerpt = base.RedactText(t)
 		}
 		anchors = append(anchors, a)
 	}
@@ -280,16 +283,16 @@ func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, ma
 			break
 		}
 		// Retain fact provenance: the rule text plus its code locus.
-		prov := redactText(e.f.Text)
+		prov := base.RedactText(e.f.Text)
 		if locus := strings.Join(e.f.Locus, ", "); strings.TrimSpace(locus) != "" {
-			prov += " @ " + redactText(locus)
+			prov += " @ " + base.RedactText(locus)
 		}
 		factText[e.f.ID] = prov
 		sample = append(sample, map[string]string{
 			"fact_id":  e.f.ID,
 			"kind":     e.f.Kind,
-			"text":     redactText(truncateString(e.f.Text, 280)),
-			"locus":    redactText(strings.Join(e.f.Locus, ", ")),
+			"text":     base.RedactText(base.TruncateString(e.f.Text, 280)),
+			"locus":    base.RedactText(strings.Join(e.f.Locus, ", ")),
 			"episodes": fmt.Sprintf("%d", e.count),
 		})
 		ids = append(ids, e.f.ID)

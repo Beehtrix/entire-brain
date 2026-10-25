@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // transcript_store.go is COR-2128's single direct-transcript read path.
@@ -313,7 +315,7 @@ func (s *transcriptStore) Read(ctx context.Context, rel string) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: reader}, maxDocumentTranscriptBytes, "canonical transcript "+rel)
+	data, readErr := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: reader}, base.MaxDocumentTranscriptBytes, "canonical transcript "+rel)
 	finishErr := finish()
 	if readErr != nil || finishErr != nil {
 		return nil, classifyTranscriptReadError(errors.Join(readErr, finishErr))
@@ -334,7 +336,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, "sessions/") {
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript path is unsafe", Err: err}
 	}

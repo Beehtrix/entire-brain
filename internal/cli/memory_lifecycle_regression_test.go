@@ -674,12 +674,12 @@ func TestMemoryLifecycleStatsMergeAndSelectors(t *testing.T) {
 	stats.add(memoryWorkerStats{
 		JobsCreated: 1, JobsCompleted: 2, JobsRetried: 3, JobsRecovered: 4,
 		JobsCancelled: 5, JobsPruned: 6, HintsConsumed: 7, AlreadyActive: true,
-		PrepassFailed: true, PrepassGaveUp: true, VectorPending: true, VectorContinue: true,
+		PrepassFailed: true, PrepassGaveUp: true,
 		HealthDegraded: true, HealthIssues: []string{"first", "second"},
 	})
 	stats.addHealthIssue("")
 	stats.addHealthIssue("second")
-	if stats.JobsCreated != 1 || stats.JobsCompleted != 2 || stats.JobsRetried != 3 || stats.JobsRecovered != 4 || stats.JobsCancelled != 5 || stats.JobsPruned != 6 || stats.HintsConsumed != 7 || !stats.AlreadyActive || !stats.PrepassFailed || !stats.PrepassGaveUp || !stats.VectorPending || !stats.VectorContinue || !stats.HealthDegraded || len(stats.HealthIssues) != 2 {
+	if stats.JobsCreated != 1 || stats.JobsCompleted != 2 || stats.JobsRetried != 3 || stats.JobsRecovered != 4 || stats.JobsCancelled != 5 || stats.JobsPruned != 6 || stats.HintsConsumed != 7 || !stats.AlreadyActive || !stats.PrepassFailed || !stats.PrepassGaveUp || !stats.HealthDegraded || len(stats.HealthIssues) != 2 {
 		t.Fatalf("merged stats=%+v", stats)
 	}
 

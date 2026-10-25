@@ -9,6 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+
 	entirebrain "github.com/entireio/entire-brain"
 )
 
@@ -286,7 +288,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			capped = true
 			continue
 		}
-		text = truncateString(text, distillFactMaxTextSize)
+		text = base.TruncateString(text, distillFactMaxTextSize)
 		// The model is an extractor, not an authority: its text is printed
 		// verbatim by recall/search/tree/get/brief and the MCP surfaces, so a
 		// control byte it emits is a control byte the reader's terminal
@@ -307,7 +309,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			ID:         factRecordID(text, paths),
 			Paths:      paths,
 			Kind:       kind,
-			Locus:      factLocus(text),
+			Locus:      base.FactLocus(text),
 			Text:       text,
 			Branch:     branch,
 			Origin:     factOriginDistilled,
@@ -520,5 +522,5 @@ func sanitizeDistilledFactText(text string) (string, bool) {
 // first, then bound the length.
 func distillUntrustedExcerpt(text string) string {
 	cleaned, _ := sanitizeDistilledFactText(text)
-	return truncateString(strings.TrimSpace(cleaned), 120)
+	return base.TruncateString(strings.TrimSpace(cleaned), 120)
 }

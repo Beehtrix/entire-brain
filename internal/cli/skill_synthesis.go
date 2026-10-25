@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Skill synthesis (Pattern Consolidation, Phase 2 redo).
@@ -158,7 +160,7 @@ func buildSkillEvidenceChecked(brainDir string, c taskCandidate) (string, error)
 	}
 	// Redaction boundary: this bundle is the agent's input — strip secrets and
 	// home-dir usernames before it leaves the brain.
-	return redactText(b.String()), nil
+	return base.RedactText(b.String()), nil
 }
 
 // transcriptExcerpt returns up to maxLines of a transcript starting at the
@@ -194,5 +196,5 @@ func transcriptExcerptChecked(brainDir string, anchor episodeAnchor, maxLines, m
 		end = len(lines)
 	}
 	ex := strings.Join(lines[start:end], "\n")
-	return truncateString(ex, maxBytes), nil
+	return base.TruncateString(ex, maxBytes), nil
 }

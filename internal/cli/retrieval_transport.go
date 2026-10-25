@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -458,7 +459,7 @@ func renderRetrievalRowsText(out io.Writer, results []unifiedResult, qualify ret
 		qualify = identityRetrievalID
 	}
 	for _, result := range results {
-		ex := truncateString(strings.Join(strings.Fields(result.Text), " "), 200)
+		ex := base.TruncateString(strings.Join(strings.Fields(result.Text), " "), 200)
 		label := result.Source
 		if result.VerificationRequired {
 			label += " verify"

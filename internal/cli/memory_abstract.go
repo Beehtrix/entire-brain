@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -141,7 +142,7 @@ const (
 // they can no longer misreport damaged state as a disabled feature.
 func loadMemoryConfigChecked(brainDir string) (memoryConfig, memoryConfigReadState, error) {
 	empty := memoryConfig{SchemaVersion: memoryConfigSchemaVersion}
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
 	if err != nil {
 		if strings.Contains(err.Error(), memoryErrStateUnsafe) {
 			return empty, memoryConfigUnsafe, err
@@ -292,7 +293,7 @@ func decodeAbstractEgressReceipt(data []byte, version int, expectedRef string) (
 }
 
 func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expectedRef string, expected os.FileInfo) (abstractEgressReceiptFile, bool, error) {
-	data, present, err := readMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", maxManifestBytes, expected)
+	data, present, err := readMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", base.MaxManifestBytes, expected)
 	if err != nil || !present {
 		return abstractEgressReceiptFile{}, present, err
 	}
@@ -2537,7 +2538,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 			oneOff := strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" || allowEgress
 			mutating := generate || oneOff || dryRun
 			target := agentSurfaceTarget(opts, nil)
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
 			if err != nil {
 				return err
 			}

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // errTrailingJSONData marks a document followed by a second JSON value. Callers
@@ -140,7 +142,7 @@ func removeCheckedMemoryStateFile(brainDir, rel, label string, maxBytes int64, v
 }
 
 func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate func(os.FileInfo) (bool, error)) error {
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return fmt.Errorf("%s: %s has an unsafe path: %w", memoryErrStateUnsafe, label, err)
 	}

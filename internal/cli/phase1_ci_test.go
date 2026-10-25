@@ -37,9 +37,6 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	if _, err := execute(t, cmd, "bundle", "import", bundlePath, "--sha256", checksum); err != nil {
 		t.Fatalf("bundle import: %v", err)
 	}
-	if _, err := execute(t, cmd, "gc", "--older-than", "30d"); err != nil {
-		t.Fatalf("gc: %v", err)
-	}
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
 }
 

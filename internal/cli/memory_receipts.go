@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // memory_receipts.go is the projection receipt: the durable, content-free
@@ -195,7 +197,7 @@ func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManife
 }
 
 func writeProjectionState(brainDir string, state projectionState) (digest string, err error) {
-	if existing, present, readErr := readMemoryStateFile(brainDir, projectionStateRel, "projection receipt", maxManifestBytes); readErr != nil {
+	if existing, present, readErr := readMemoryStateFile(brainDir, projectionStateRel, "projection receipt", base.MaxManifestBytes); readErr != nil {
 		return "", readErr
 	} else if present {
 		_, readState, decodeErr := decodeProjectionStateDocument(existing, projectionStateRel)
@@ -260,7 +262,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if !validSHA256Identity(source.ProjectionStateDigest) {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "manifest content digest is invalid", 0)
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, "path contains a symlink", 0)
 	}
 	path := filepath.Join(brainDir, clean)
@@ -274,15 +276,15 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, "receipt must be a regular file and must not be a symlink", 0)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "cannot open the receipt without following links", 0)
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, "projection receipt"); err != nil {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, err.Error(), 0)
 	}
-	data, err := safeReadAll(f, maxManifestBytes, path)
+	data, err := base.SafeReadAll(f, base.MaxManifestBytes, path)
 	if err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "cannot read a bounded regular file", 0)
 	}

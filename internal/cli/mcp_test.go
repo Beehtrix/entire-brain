@@ -6,19 +6,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"strconv"
 )
 
 type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
@@ -340,15 +341,15 @@ func TestMCPWorkspaceGraphReturnsCrossEdges(t *testing.T) {
 	repoB := t.TempDir()
 	keyB := testLocalRepoStorageKey(t, repoB)
 	indexWorkspaceGraphRepo(t, cmd, opts, runner, repoB, keyB, "HandleMCPB")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "mcpgraph",
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: keyA, LocalPathHint: repoA},
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -375,7 +376,7 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_status", "semantic and retrieval freshness", "coverage totals/blind spots", "details=true"} {
+	for _, want := range []string{"brain_status", "code-index and retrieval freshness", "coverage totals/blind spots", "details=true"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}
@@ -724,10 +725,10 @@ func TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult(t *testing.T) {
 	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
 	body := "package x\nfunc resolve(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
-	if err := writeWorkspaceManifest(env, workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "related",
-		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspace.Repo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
 	}); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
@@ -836,10 +837,10 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
 		body := "package x\nfunc resolve(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 		repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
-		if err := writeWorkspaceManifest(env, workspaceManifest{
-			SchemaVersion: workspaceSchemaVersion,
+		if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+			SchemaVersion: workspace.SchemaVersion,
 			Name:          "related",
-			Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+			Repos:         []workspace.Repo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
 		}); err != nil {
 			t.Fatalf("write workspace: %v", err)
 		}
@@ -1059,12 +1060,12 @@ func TestMCPBrainWorkspaceReviewTool(t *testing.T) {
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	regressed := "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"
 	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", regressed)
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "related",
-		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspace.Repo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1124,10 +1125,10 @@ func TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction(t *t
 	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
 	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	repoA, repoAKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
-	if err := writeWorkspaceManifest(env, workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "related",
-		Repos:         []workspaceRepo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspace.Repo{{RepoKey: repoAKey, Name: "a", LocalPathHint: repoA}},
 	}); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}

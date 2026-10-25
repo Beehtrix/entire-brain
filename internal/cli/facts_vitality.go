@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -144,10 +146,10 @@ func withVitalityLock(brainDir string, fn func() error) error {
 }
 
 func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return err
 	}
 	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
@@ -163,15 +165,15 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 // fsynced — a torn tail line on power loss is tolerated by the log parser. A
 // later append first terminates that torn line so it cannot consume a new event.
 func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
 	if dir := filepath.Dir(clean); dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
 			return err
 		}
 	}
@@ -179,18 +181,18 @@ func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
-	if err := rejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
+	if err := base.RejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|fileLockOpenFlags(), 0o600)
+	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(abs, f, "vitality log"); err != nil {
+	if err := base.RejectOpenFileAlias(abs, f, "vitality log"); err != nil {
 		return err
 	}
 	info, err := f.Stat()
@@ -317,7 +319,7 @@ func vitalityHead(ctx context.Context, runner CommandRunner, repoDir string) str
 	if runner == nil || repoDir == "" {
 		return ""
 	}
-	head, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	head, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}
@@ -348,7 +350,7 @@ func unifiedFactIDs(results []unifiedResult) []string {
 
 func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityRollupRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return newVitalityRollup(), nil
@@ -382,7 +384,7 @@ func writeVitalityRollup(brainDir, branch string, rollup vitalityRollup) error {
 
 func readVitalityLog(brainDir, branch string) ([]byte, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

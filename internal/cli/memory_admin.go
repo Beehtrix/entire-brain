@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -343,11 +344,11 @@ func planMemoryProjectionRefreshStates(artifacts *[]memoryReceiptArtifact) {
 }
 
 func memoryDerivedArtifactState(brainDir, rel string) string {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil || filepath.ToSlash(clean) != filepath.ToSlash(strings.TrimSpace(rel)) {
 		return "unsafe"
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return "unsafe"
 	}
 	info, err := os.Lstat(filepath.Join(brainDir, clean))
@@ -626,7 +627,7 @@ type memoryMigrationProgress struct {
 }
 
 func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", base.MaxManifestBytes)
 	if err != nil {
 		return memoryMigrationProgress{}, present, err
 	}
@@ -654,7 +655,7 @@ func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool
 	}
 	seen := make(map[string]bool, len(progress.Completed))
 	for _, rel := range progress.Completed {
-		clean, cleanErr := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+		clean, cleanErr := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 		if cleanErr != nil || filepath.ToSlash(clean) != rel || seen[rel] {
 			return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress contains an invalid completed path", memoryErrStateCorrupt)
 		}
@@ -820,7 +821,7 @@ func rewriteLegacyMemoryJob(brainDir, rel string) error {
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return fmt.Errorf("%s: unsafe legacy job path", memoryErrStateCorrupt)
 	}
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("%s: read legacy job: %w", memoryErrStateCorrupt, err)
 	}
@@ -1082,13 +1083,13 @@ func inspectMemoryInstallDirectory(brainDir, rel string) memoryInstallDirectoryH
 		Evidence:          "read_only_lstat_and_permission_mode_hint",
 		RecommendedAction: "inspect the brain path and retry memory status",
 	}
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
 		health.State = "unsafe"
 		health.RecommendedAction = "configure a brain-relative directory path"
 		return health
 	}
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		health.State = "unsafe"
 		health.RecommendedAction = "replace the symlinked brain root with a real directory"
 		return health
@@ -1378,7 +1379,7 @@ func memoryProviderEgressHealth(brainDir string) map[string]any {
 // It does not turn a corrupt/unsafe config into a supported one; the strict
 // loader above remains the authority for state and error classification.
 func memoryConfigObservedSchemaVersion(brainDir string) (int, bool) {
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
 	if err != nil || !present {
 		return 0, false
 	}
@@ -1631,8 +1632,8 @@ func inspectMemoryLockLeaf(brainDir, rel string) map[string]any {
 		"evidence":         "read_only_lstat",
 		"ownership_proven": false,
 	}
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(rel))
-	if err != nil || rejectSymlinkedBrainRoot(brainDir) != nil || rejectExistingSymlinkPathComponents(brainDir, clean) != nil {
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(rel))
+	if err != nil || base.RejectSymlinkedBrainRoot(brainDir) != nil || base.RejectExistingSymlinkPathComponents(brainDir, clean) != nil {
 		health["state"] = "unsafe"
 		health["error_code"] = memoryErrStateUnsafe
 		health["action"] = "inspect the lock path; status never acquires or replaces it"

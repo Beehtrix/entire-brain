@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -323,7 +324,7 @@ func renderPatternView(out io.Writer, v patternView) {
 	if v.Verdict != "" {
 		state = strings.TrimLeft(state+"/"+v.Verdict, "/")
 	}
-	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label)
+	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), base.RedactText(v.Title), label)
 	if scope != "" {
 		header += ", " + scope
 	}
@@ -347,7 +348,7 @@ func renderPatternView(out io.Writer, v patternView) {
 		fmt.Fprintf(out, "    across %d repo(s): %s\n", v.Repos, strings.Join(repos, ", "))
 	}
 	if v.Example != nil {
-		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", redactText(v.Example.Path), v.Example.Line, v.ID)
+		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", base.RedactText(v.Example.Path), v.Example.Line, v.ID)
 	} else {
 		fmt.Fprintf(out, "    id %s\n", v.ID)
 	}
@@ -495,7 +496,7 @@ func resolvePatternsBrainDir(ctx context.Context, opts Options, target string) (
 // resolvePatternsRepoAndBrain resolves both the local repo directory (needed as
 // the agent runner's working dir) and the brain storage dir for that repo.
 func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target string) (repoDir, brainDir string, err error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return "", "", err
 	}

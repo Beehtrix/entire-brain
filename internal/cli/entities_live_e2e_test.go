@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/entities"
 )
 
 // entities_live_e2e_test.go is the one END-TO-END proof that the entity index
@@ -145,7 +147,7 @@ func TestLiveEntityIndexBackfillAndHistory(t *testing.T) {
 		t.Fatalf("live backfill indexed %v commits, want 3 (%v)", build["indexed"], build)
 	}
 
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(run("entities", "history", "ChargeCard", "--json")), &result); err != nil {
 		t.Fatalf("decode history: %v", err)
 	}

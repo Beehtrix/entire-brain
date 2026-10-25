@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const (
@@ -74,10 +76,10 @@ func newMemoryOwnerToken() (string, error) {
 }
 
 func acquireMemoryCoordinator(brainDir string, now time.Time, version string) (*memoryCoordinator, error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return nil, err
 	}
 	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, memoryCoordinatorLockName), "memory_worker_active", 0)
@@ -214,7 +216,7 @@ func (c *memoryCoordinator) startHeartbeat(interval time.Duration, clock memoryC
 }
 
 func loadMemoryCoordinatorState(brainDir string) (memoryCoordinatorState, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryCoordinatorStateRel, "coordinator state", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryCoordinatorStateRel, "coordinator state", base.MaxManifestBytes)
 	if err != nil {
 		return memoryCoordinatorState{}, err
 	}
@@ -261,7 +263,7 @@ func memoryWorkerLogReason(reason string) string {
 	// other durable free-form path here (pattern corpus, dossiers, skill
 	// bridges) runs through redactText for the same reason; this one is a
 	// worker log a reader is asked to paste into an issue.
-	reason = redactText(reason)
+	reason = base.RedactText(reason)
 	reason = strings.Join(strings.Fields(reason), " ")
 	reason = strings.ReplaceAll(reason, "event=", "event:")
 	if reason == "" {
@@ -391,7 +393,7 @@ func writeMemoryCancellationRequest(brainDir string, job memoryJob, now time.Tim
 }
 
 func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationRequest, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", base.MaxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +412,7 @@ func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationR
 }
 
 func removeMemoryCancellationRequest(brainDir, jobID string) error {
-	return removeCheckedMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", maxManifestBytes, func(data []byte) error {
+	return removeCheckedMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", base.MaxManifestBytes, func(data []byte) error {
 		var request memoryCancellationRequest
 		version, err := decodeStrictVersionedJSON(data, &request, memoryCancellationSchema, "cancellation request")
 		if err != nil {

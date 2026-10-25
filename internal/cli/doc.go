@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // doc.go is the `doc` source: it indexes the brain's own markdown — the
@@ -28,7 +30,7 @@ const (
 
 // A doc index aggregates multiple seed documents, so use the general 64 MiB
 // ceiling rather than the smaller manifest limit. Variable for boundary tests.
-var maxDocIndexBytes int64 = defaultMaxReadBytes
+var maxDocIndexBytes int64 = base.DefaultMaxReadBytes
 
 type docSourceManifest struct {
 	GeneratedAt time.Time `json:"generated_at"`
@@ -119,7 +121,7 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}
-		data, rErr := safeReadFile(path, maxSeedDocBytes)
+		data, rErr := base.SafeReadFile(path, base.MaxSeedDocBytes)
 		if rErr != nil {
 			warnings = append(warnings, fmt.Sprintf("read %s: %v", rel, rErr))
 			return nil
@@ -187,7 +189,7 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 	}
 	data = append(data, '\n')
 	if int64(len(data)) > maxDocIndexBytes {
-		return nil, &readBoundExceededError{source: docIndexPath, max: maxDocIndexBytes}
+		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
 	}
 	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
@@ -231,7 +233,7 @@ func verifyDeclaredDocIndex(brainDir string) error {
 // Both diagnostics and queries must validate the descriptor they actually use.
 func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(docIndexPath))
-	if err := rejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
 		return nil, err
 	}
 	before, err := os.Lstat(path)
@@ -242,7 +244,7 @@ func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 		return nil, fmt.Errorf("%s is not a regular file", docIndexPath)
 	}
 	// Nonblocking/no-follow open also covers a swap after the path checks.
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -257,9 +259,9 @@ func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 	}
 	if opened.Size() > maxDocIndexBytes {
 		f.Close()
-		return nil, &readBoundExceededError{source: docIndexPath, max: maxDocIndexBytes}
+		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
 	}
-	if err := rejectOpenFileAlias(path, f, docIndexPath); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, docIndexPath); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -273,7 +275,7 @@ func loadDocIndex(brainDir string) (docIndex, error) {
 		return index, err
 	}
 	defer f.Close()
-	data, err := safeReadAll(f, maxDocIndexBytes, docIndexPath)
+	data, err := base.SafeReadAll(f, maxDocIndexBytes, docIndexPath)
 	if err != nil {
 		return index, err
 	}

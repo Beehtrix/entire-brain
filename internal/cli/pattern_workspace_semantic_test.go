@@ -128,8 +128,8 @@ func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
 	if len(fams) != 1 {
 		t.Fatalf("expected 1 family, got %d", len(fams))
 	}
-	if fams[0].repoCount() != 2 {
-		t.Errorf("family must span 2 repos, got %d: %+v", fams[0].repoCount(), fams[0].PerRepo)
+	if fams[0].RepoCount() != 2 {
+		t.Errorf("family must span 2 repos, got %d: %+v", fams[0].RepoCount(), fams[0].PerRepo)
 	}
 	// SR5(3): the family records the per-repo variation (different command names).
 	cmds := map[string]string{}
@@ -210,7 +210,7 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 	}
 	// `workspace patterns skills` still lists it.
 	fams := loadAcceptedWorkspaceFamilies(wsDir)
-	if len(fams) != 1 || fams[0].repoCount() != 2 {
+	if len(fams) != 1 || fams[0].RepoCount() != 2 {
 		t.Fatalf("family must still span 2 repos after refresh, got %+v", fams)
 	}
 	// And re-verifying with unchanged evidence reuses the cache (agent NOT re-run).

@@ -300,7 +300,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 
 	// Indexer-version bump forces a full re-index (parser/extractor changed).
-	if stored := corpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patternIndexerVersion) {
+	if stored := patterncore.CorpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patternIndexerVersion) {
 		if _, err := db.Exec(`DELETE FROM episodes`); err != nil { // cascades children
 			return err
 		}
@@ -339,7 +339,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		return err
 	}
 	factFingerprint := base.HexSHA(string(factData))
-	factsCurrent := corpusMeta(db, "facts_fingerprint") == factFingerprint
+	factsCurrent := patterncore.CorpusMeta(db, "facts_fingerprint") == factFingerprint
 	present := map[string]bool{}
 	for _, s := range sessions {
 		rel := strings.TrimSpace(s.TranscriptPath)
@@ -1295,14 +1295,6 @@ func readPatternCorpusTranscript(ctx context.Context, brainDir, rel string) (dat
 	}
 	sum := sha256.Sum256(data)
 	return data, int64(len(data)), 0, hex.EncodeToString(sum[:]), nil
-}
-
-func corpusMeta(db *sql.DB, key string) string {
-	var v string
-	if err := db.QueryRow(`SELECT value FROM meta WHERE key = ?`, key).Scan(&v); err != nil {
-		return ""
-	}
-	return v
 }
 
 func setCorpusMeta(db *sql.DB, kv map[string]string) error {

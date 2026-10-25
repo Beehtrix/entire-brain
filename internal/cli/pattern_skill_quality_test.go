@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // These tests pin the evidence passed to the external synthesizer and the local
@@ -95,10 +97,10 @@ func TestSkillQualityThemeCitesPracticeNotIntentSig(t *testing.T) {
 // (f) A workspace skill input includes per-repo variation when the evidence
 // differs across repos.
 func TestSkillQualityWorkspaceIncludesRepoVariation(t *testing.T) {
-	fam := workspaceFamily{
+	fam := patterncore.WorkspaceFamily{
 		Title: "release the build", Trigger: "shipping a release", Verdict: "accepted",
 		CommonWorkflow: []string{"build", "publish"},
-		PerRepo: []familyRepoVariant{
+		PerRepo: []patterncore.FamilyRepoVariant{
 			{RepoKey: "gh/acme/a", Commands: []string{"mise build", "mise deploy"}},
 			{RepoKey: "gh/acme/b", Commands: []string{"make build", "make release"}},
 		},

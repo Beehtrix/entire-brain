@@ -103,8 +103,8 @@ func TestWorkspaceCommandLifecycleThroughRootRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("skills list: %v\n%s", err, out)
 	}
-	var families []workspaceFamily
-	if err := json.Unmarshal([]byte(out), &families); err != nil || len(families) != 1 || families[0].repoCount() != 2 {
+	var families []patterncore.WorkspaceFamily
+	if err := json.Unmarshal([]byte(out), &families); err != nil || len(families) != 1 || families[0].RepoCount() != 2 {
 		t.Fatalf("skills list = %#v, decode=%v\n%s", families, err, out)
 	}
 
@@ -410,7 +410,7 @@ func TestWorkspaceSkillsListLimitTruncatesAcceptedFamilies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("limited skills: %v\n%s", err, out)
 	}
-	var families []workspaceFamily
+	var families []patterncore.WorkspaceFamily
 	if err := json.Unmarshal([]byte(out), &families); err != nil || len(families) != 1 {
 		t.Fatalf("limited families=%v decode=%v\n%s", families, err, out)
 	}

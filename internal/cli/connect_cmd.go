@@ -120,7 +120,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// the environment only subtracts, and unsetting it resumes syncing.
 	if brainNoEgressMode() {
 		renderHostedBanner(cmd.OutOrStdout(),
-			"Connected: repo "+binding.RepoID+" — but nothing syncs while "+noEgressToggleName()+" is set",
+			"Connected: "+storage.Key+" — but nothing syncs while "+noEgressToggleName()+" is set",
 			"The binding is recorded and memories stay local. Unset "+noEgressToggleName()+" to start syncing.")
 		return nil
 	}
@@ -137,12 +137,12 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 		if !outcome.Attempted {
 			verdict = "did not run"
 		}
-		return fmt.Errorf("connect: repo %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
-			binding.RepoID, verdict, brainInvocation(os.LookupEnv, "connect"))
+		return fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
+			storage.Key, verdict, brainInvocation(os.LookupEnv, "connect"))
 	}
-	headline := "Connected: repo " + binding.RepoID + " is now syncing memories"
+	headline := "Connected: " + storage.Key + " is now syncing memories"
 	if already {
-		headline = "Already connected: repo " + binding.RepoID + " — memories are syncing"
+		headline = "Already connected: " + storage.Key + " — memories are syncing"
 	}
 	renderHostedBanner(cmd.OutOrStdout(), headline,
 		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")

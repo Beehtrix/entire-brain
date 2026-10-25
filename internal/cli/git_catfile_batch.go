@@ -408,3 +408,43 @@ func localObjectMissingConfirmed(ctx context.Context, runner CommandRunner, gitD
 	}
 	return false
 }
+
+// promisorRemoteAnswers caches, per git directory, whether the repository has a
+// promisor remote. The answer is a local config read and cannot change during
+// an export.
+var promisorRemoteAnswers sync.Map
+
+// gitDirHasPromisorRemote reports whether this repository is a partial clone
+// whose absent objects might still be FETCHABLE.
+//
+// It matters because "the object is not here" and "the object does not exist"
+// are the same answer from `cat-file` and different facts. In a partial clone
+// an unfetched blob reports exactly what a pruned one does -- measured on git
+// 2.54.0, `cat-file -e` exits 1 silently for both under GIT_NO_LAZY_FETCH=1,
+// which is how every local-policy probe runs. Partitioning on that answer
+// would drop a session whose bytes a sync would recover, and republish a
+// corpus smaller than the one already published.
+//
+// The marker is `remote.<name>.promisor`, matched by SUFFIX across every
+// remote. It is deliberately not a lookup of `remote.origin.promisor` or of
+// `extensions.partialclone`: the real case this exists for is the cli
+// checkpoint repository, whose promisor remote is named by URL
+// (`remote.https://github.com/entireio/cli-checkpoints.git.promisor`) while
+// `extensions.partialclone` is not set at all. A check on either would miss it.
+//
+// A repository with no promisor remote is unaffected: an absent object there is
+// absent for good, and the caller still partitions.
+func gitDirHasPromisorRemote(ctx context.Context, runner CommandRunner, gitDir string) bool {
+	if cached, ok := promisorRemoteAnswers.Load(gitDir); ok {
+		answer, _ := cached.(bool)
+		return answer
+	}
+	stdout, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "config", "--get-regexp", `\.promisor$`)
+	// `config --get-regexp` exits 1 when nothing matches, so only a match with
+	// a non-empty value counts. A failure to ask is treated as "no promisor
+	// remote", which keeps this helper from turning a config-read fault into a
+	// refusal; the probe's own error handling already covers that class.
+	answer := err == nil && strings.TrimSpace(string(stdout)) != ""
+	promisorRemoteAnswers.Store(gitDir, answer)
+	return answer
+}

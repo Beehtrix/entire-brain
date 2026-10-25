@@ -500,6 +500,21 @@ func partitionLocalTranscriptSessions(ctx context.Context, runner CommandRunner,
 			}
 			kind, err := localObjectType(ctx, runner, source.GitDir, source.Ref+":"+actualPath)
 			switch {
+			case errors.Is(err, errGitObjectMissing) && gitDirHasPromisorRemote(ctx, runner, source.GitDir):
+				// git answered "not here", but in a PARTIAL clone that answer
+				// does not distinguish an unfetched blob from a destroyed one:
+				// both exit 1 silently under the local-only policy. Dropping
+				// the session would republish a corpus smaller than the one
+				// already published, over bytes a sync would recover. So this
+				// is an error, like any other thing we could not establish.
+				//
+				// It does not weaken what this partition exists for. A
+				// checkpoint whose COMMIT was destroyed never reaches this
+				// probe: it has no snapshot entry and no chunks, and is
+				// classified from data above. This branch only sees a chunk
+				// the snapshot does name, whose bytes are absent locally --
+				// which is precisely the fetchable case.
+				return nil, nil, fmt.Errorf("persistent transcript storage: transcript bytes for session %s checkpoint %s index %d chunk %s are not in this partial clone, and an unfetched object cannot be told apart from a deleted one here; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
 			case errors.Is(err, errGitObjectMissing):
 				// git ANSWERED, and the answer is that these bytes are not in
 				// this repository. That is the only probe outcome that costs

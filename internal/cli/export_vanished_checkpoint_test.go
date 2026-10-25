@@ -343,3 +343,110 @@ func TestUnavailableDiagnosticsKeepTheirErrorIdentity(t *testing.T) {
 		t.Fatalf("the strict wrapper flattened the cause: %v", wrapped)
 	}
 }
+
+// promisorProbeRunner is probeRunner plus an answer to the promisor-remote
+// config read, so the partial-clone branch can be exercised. The remote is
+// named by URL on purpose: that is the real shape in the cli checkpoint
+// repository, and a detector written against remote.origin.promisor would
+// pass every other test and miss the only repository that matters.
+func promisorProbeRunner(objectType, exists fakeCommandResponse, promisor bool) *fakeCommandRunner {
+	inner := probeRunner(objectType, exists)
+	fallback := inner.fallback
+	inner.fallback = func(name string, args []string) (fakeCommandResponse, bool) {
+		if name == "git" && len(args) == 3 && args[0] == "config" && args[1] == "--get-regexp" {
+			if !promisor {
+				// git exits 1 with no output when nothing matches.
+				return fakeCommandResponse{err: stubExitError{code: 1}}, true
+			}
+			return fakeCommandResponse{stdout: "remote.https://github.com/entireio/cli-checkpoints.git.promisor true\n"}, true
+		}
+		return fallback(name, args)
+	}
+	return inner
+}
+
+// In a PARTIAL clone, git's "not here" does not mean "does not exist": an
+// unfetched blob and a destroyed one both exit 1 silently under the local-only
+// policy. Partitioning on that answer would republish a corpus smaller than
+// the one already published, over bytes a sync would recover. This is the one
+// case where a confirmed-missing object must still fail the export.
+func TestAMissingObjectInAPartialCloneFailsTheExportRatherThanShrinkingIt(t *testing.T) {
+	promisorRemoteAnswers.Delete("/repo/.git")
+	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
+
+	snap, sessions := probedFixture()
+	runner := promisorProbeRunner(
+		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
+		fakeCommandResponse{err: stubExitError{code: 1}},
+		true,
+	)
+	usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
+	if err == nil {
+		t.Fatalf("a partial clone's absent object shrank the corpus instead of failing: usable=%d unavailable=%v", len(usable), unavailable)
+	}
+	if !errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("the cause must survive for errors.Is: %v", err)
+	}
+	if !strings.Contains(err.Error(), "partial clone") || !strings.Contains(err.Error(), "bbb222bbb222") {
+		t.Fatalf("the error must name the reason and the chunk: %v", err)
+	}
+}
+
+// The same absent object in a FULL clone is absent for good, so it must still
+// cost only its own session -- otherwise this guard would have undone #489.
+func TestAMissingObjectWithoutAPromisorRemoteStillCostsOnlyItsSession(t *testing.T) {
+	promisorRemoteAnswers.Delete("/repo/.git")
+	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
+
+	snap, sessions := probedFixture()
+	runner := promisorProbeRunner(
+		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
+		fakeCommandResponse{err: stubExitError{code: 1}},
+		false,
+	)
+	usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
+	if err != nil {
+		t.Fatalf("a full clone's confirmed-missing object must not fail the export: %v", err)
+	}
+	if len(usable) != 1 || len(unavailable) != 1 {
+		t.Fatalf("usable=%d unavailable=%d, want 1 and 1", len(usable), len(unavailable))
+	}
+}
+
+// The fake runner above answers any `--get-regexp`, so it cannot prove the
+// PATTERN is right -- and the pattern is the whole point. cli's checkpoint
+// repository names its promisor remote by URL
+// (remote.https://github.com/entireio/cli-checkpoints.git.promisor) and does
+// not set extensions.partialclone at all, so a detector written against
+// remote.origin.promisor would satisfy every other test here and miss the one
+// repository this guard exists for. Real git, real config, no fake.
+func TestPromisorDetectionFindsAURLNamedRemoteWithRealGit(t *testing.T) {
+	for _, probe := range []struct {
+		name   string
+		key    string
+		expect bool
+	}{
+		{"url-named promisor remote, as cli has", `remote.https://github.com/entireio/cli-checkpoints.git.promisor`, true},
+		{"conventionally named promisor remote", "remote.origin.promisor", true},
+		{"no promisor remote at all", "", false},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			dir := t.TempDir()
+			runner := ExecRunner{}
+			ctx := context.Background()
+			if _, _, err := runner.Run(ctx, dir, "git", "init", "-q", "."); err != nil {
+				t.Skipf("git unavailable: %v", err)
+			}
+			if probe.key != "" {
+				if _, _, err := runner.Run(ctx, dir, "git", "config", probe.key, "true"); err != nil {
+					t.Fatalf("seed %s: %v", probe.key, err)
+				}
+			}
+			promisorRemoteAnswers.Delete(dir)
+			t.Cleanup(func() { promisorRemoteAnswers.Delete(dir) })
+			if got := gitDirHasPromisorRemote(ctx, runner, dir); got != probe.expect {
+				t.Fatalf("gitDirHasPromisorRemote = %v, want %v (key %q)", got, probe.expect, probe.key)
+			}
+		})
+	}
+}

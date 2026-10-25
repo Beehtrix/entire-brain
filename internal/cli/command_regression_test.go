@@ -434,7 +434,7 @@ func TestRootCommandPatternsVerifyAcceptedAndCached(t *testing.T) {
 	if err != nil || stderr != "" {
 		t.Fatalf("verify JSON = %v\nstdout=%s\nstderr=%s", err, out, stderr)
 	}
-	var stats dossierVerifyStats
+	var stats patterncore.VerifyStats
 	if err := json.Unmarshal([]byte(out), &stats); err != nil || stats.Considered == 0 || stats.Verified != stats.Considered || stats.Failed != 0 {
 		t.Fatalf("verify stats = %+v err=%v output=%s", stats, err, out)
 	}

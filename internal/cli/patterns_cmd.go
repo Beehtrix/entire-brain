@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -459,7 +460,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			verify = verifyDeepDossiers
 			mode = "deep dossier"
 		}
-		var stats dossierVerifyStats
+		var stats patterncore.VerifyStats
 		if err := withPatternCorpusMutationLocked(brainDir, func(db *sql.DB) error {
 			var verifyErr error
 			stats, verifyErr = verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())

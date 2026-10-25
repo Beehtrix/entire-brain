@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -25,6 +27,78 @@ type graphTaskContext struct {
 	// warning), exactly as it would with the plugin absent.
 	StoreUnavailable bool   `json:"store_unavailable"`
 	Detail           string `json:"detail"`
+	// Stale is present only when the provider answered from an ANCESTOR of the
+	// committed tree instead of the tree itself. Its absence means the answer
+	// is exact, which is why this field can ship before any graph emits it: an
+	// older provider simply never sets it and nothing changes.
+	//
+	// The agreed contract (graph G1) is that changed_files is mandatory and
+	// COMPLETE whenever the block appears — anything the provider could not
+	// enumerate (over 5% of files changed, a diff failure, unresolvable
+	// renames, a partial-clone missing blob) makes it refuse the ancestor and
+	// return an exact miss instead. Brain still verifies that here rather than
+	// trusting it, because the whole value of the list is negative-suppression
+	// and a silently short list is worse than no list.
+	Stale *graphContextStale `json:"stale,omitempty"`
+}
+
+// graphContextStale describes an answer served from an ancestor commit.
+//
+// ChangedFiles is the load-bearing field. An ancestor store has had its
+// records for changed files dropped, so a query touching one of those files
+// can come back empty while consumers really do exist there. A confident
+// "nothing found" over such a file is the failure mode this block exists to
+// prevent, and ExcludedRecords is how brain can tell that records really were
+// removed rather than the file merely being listed.
+type graphContextStale struct {
+	AncestorCommit  string   `json:"ancestor_commit"`
+	AncestorTree    string   `json:"ancestor_tree"`
+	CommitsBehind   int      `json:"commits_behind"`
+	ChangedFiles    []string `json:"changed_files"`
+	ExcludedRecords int      `json:"excluded_records"`
+}
+
+// usable reports whether a stale block can be relied on.
+//
+// Fail closed: a block that claims records were excluded but names no files is
+// internally inconsistent, and so is one with no ancestor identity. Either way
+// brain cannot say WHICH answers are incomplete, so it must not present the
+// answer as if it could. nil is not an error — it is the exact case.
+func (s *graphContextStale) usable() bool {
+	if s == nil {
+		return true
+	}
+	if strings.TrimSpace(s.AncestorCommit) == "" || s.CommitsBehind <= 0 {
+		return false
+	}
+	if s.ExcludedRecords > 0 && len(s.ChangedFiles) == 0 {
+		return false
+	}
+	return true
+}
+
+// covers reports whether a path is one the ancestor answer had records dropped
+// for, so a negative about it cannot be trusted. Matching is exact on the
+// provider's repo-relative path, with a directory prefix allowed so a renamed
+// or deleted tree still suppresses its children.
+func (s *graphContextStale) covers(path string) bool {
+	if s == nil {
+		return false
+	}
+	path = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(path)), "./")
+	if path == "" {
+		return false
+	}
+	for _, changed := range s.ChangedFiles {
+		changed = strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(changed)), "./")
+		if changed == "" {
+			continue
+		}
+		if path == changed || strings.HasPrefix(path, strings.TrimSuffix(changed, "/")+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 type graphContextSymbol struct {
@@ -161,4 +235,39 @@ func graphContextTestsResult(tests []graphContextSymbol) semanticTestsResult {
 		suggestions = append(suggestions, semanticTestSuggestion{Symbol: record, Reason: "task match (graph store)"})
 	}
 	return semanticTestsResult{Roots: []semanticRecord{}, Suggestions: suggestions}
+}
+
+// semanticStalenessFor converts a provider stale block into what the brief
+// reports. nil in, nil out: an exact answer carries no staleness.
+//
+// Unreliable is deliberately narrower than ChangedFiles. A reader does not need
+// every file the commit range touched; they need the ones this answer actually
+// returned records from, because those are the ones where a partial answer
+// looks like a complete one. The full changed list stays available for the
+// cases where a caller is asking about a file that returned nothing at all.
+func semanticStalenessFor(stale *graphContextStale, symbols []graphContextSymbol, tests []graphContextSymbol) *semanticContextStaleness {
+	if stale == nil {
+		return nil
+	}
+	out := &semanticContextStaleness{
+		AncestorCommit: strings.TrimSpace(stale.AncestorCommit),
+		CommitsBehind:  stale.CommitsBehind,
+		ChangedFiles:   append([]string(nil), stale.ChangedFiles...),
+	}
+	seen := map[string]struct{}{}
+	for _, group := range [][]graphContextSymbol{symbols, tests} {
+		for _, symbol := range group {
+			path := strings.TrimSpace(symbol.FilePath)
+			if path == "" || !stale.covers(path) {
+				continue
+			}
+			if _, ok := seen[path]; ok {
+				continue
+			}
+			seen[path] = struct{}{}
+			out.Unreliable = append(out.Unreliable, path)
+		}
+	}
+	sort.Strings(out.Unreliable)
+	return out
 }

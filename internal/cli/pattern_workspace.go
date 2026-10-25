@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	cli"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
-	cli"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"

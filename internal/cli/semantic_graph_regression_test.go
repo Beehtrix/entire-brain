@@ -5,11 +5,13 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func semanticRegressionGraphDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, filepath.Join(t.TempDir(), "graph.sqlite"))
+	db, err := sql.Open(sqlitedriver.Name, filepath.Join(t.TempDir(), "graph.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}

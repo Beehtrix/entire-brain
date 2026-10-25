@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -40,7 +42,7 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	}
 	descriptor := runner.graphStoreFixtures[repo+"\x00full"]
 	source := graphStoreSource(descriptor, dir)
-	db, err := sql.Open(sqliteDriverName, filepath.Join(t.TempDir(), "corpus.sqlite"))
+	db, err := sql.Open(sqlitedriver.Name, filepath.Join(t.TempDir(), "corpus.sqlite"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,14 +148,14 @@ func TestPatternCorpusLinksUsingLiveGraphContext(t *testing.T) {
 				t.Fatal(err)
 			}
 			db := openCorpusReadSnapshot(t, brain)
-			if n := corpusCount(t, db, "episode_files"); n == 0 {
+			if n := patterntest.CorpusCount(t, db, "episode_files"); n == 0 {
 				t.Fatal("fixture has no file evidence")
 			}
 			want := 2
 			if state == "foreign" {
 				want = 0
 			}
-			if n := corpusCount(t, db, "episode_symbols"); n != want {
+			if n := patterntest.CorpusCount(t, db, "episode_symbols"); n != want {
 				t.Fatalf("linked %d symbols, want %d", n, want)
 			}
 		})

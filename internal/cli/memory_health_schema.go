@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // memoryOverlayHealth inspects the disposable short-term projection without
@@ -134,8 +135,8 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		"supported_schema_version": historyFTSSchema,
 		"action":                   "none",
 	}
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil || rejectSymlinkedBrainRoot(brainDir) != nil || rejectExistingSymlinkPathComponents(brainDir, clean) != nil {
+	clean, err := base.CleanBrainRelativePath(rel)
+	if err != nil || base.RejectSymlinkedBrainRoot(brainDir) != nil || base.RejectExistingSymlinkPathComponents(brainDir, clean) != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
 		health["error_code"] = memoryErrStateUnsafe
@@ -162,7 +163,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		health["action"] = "replace the unsafe FTS leaf with a regular derived store"
 		return health
 	}
-	guard, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	guard, err := memoryStateOpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
@@ -173,7 +174,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	defer guard.Close()
 	opened, statErr := guard.Stat()
 	afterOpen, lstatErr := memoryStateLstat(path)
-	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() || afterOpen.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) || rejectOpenFileAlias(path, guard, "history FTS") != nil {
+	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() || afterOpen.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) || base.RejectOpenFileAlias(path, guard, "history FTS") != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
 		health["error_code"] = memoryErrStateUnsafe
@@ -181,7 +182,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		return health
 	}
 
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(path))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(path))
 	if err != nil {
 		return finishHistoryFTSReadError(health)
 	}

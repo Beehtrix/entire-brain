@@ -4,23 +4,27 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // openPatternCorpusMutableDB is test-only setup access. Production mutations
 // always clone into private staging and publish through a pinned os.Root.
 func openPatternCorpusMutableDB(brainDir string) (*sql.DB, error) {
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return nil, err
 	}
 	if !present {
 		return nil, fmt.Errorf("pattern corpus not found: %w", os.ErrNotExist)
 	}
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +34,7 @@ func openPatternCorpusMutableDB(brainDir string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	for _, stmt := range patternCorpusSchema {
+	for _, stmt := range patterncore.CorpusSchema {
 		if _, err := db.Exec(stmt); err != nil {
 			_ = db.Close()
 			return nil, err

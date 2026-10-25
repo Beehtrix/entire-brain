@@ -18,12 +18,6 @@ const fileLockRetryInterval = 10 * time.Millisecond
 
 var errFileLockTimeout = errors.New("file lock timeout")
 
-// errFileHardlinked classifies the nlink>1 refusal so callers can tell an
-// externally hardlinked state file (a backup or bench tool's cheap copy, which
-// a rebuild clears) from damage that needs different handling. The rendered
-// message is unchanged: "<label> must not be hardlinked: <path>".
-var errFileHardlinked = errors.New("must not be hardlinked")
-
 type fileLock struct {
 	path        string
 	file        *os.File
@@ -68,14 +62,14 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 	}()
 
 	for {
-		if err := rejectUnsafeExistingRegularFile(path, "lock file"); err != nil {
+		if err := base.RejectUnsafeExistingRegularFile(path, "lock file"); err != nil {
 			return nil, err
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|fileLockOpenFlags(), 0o600)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|base.FileLockOpenFlags(), 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("open lock file: %w", err)
 		}
-		if err := rejectOpenFileAlias(path, f, "lock file"); err != nil {
+		if err := base.RejectOpenFileAlias(path, f, "lock file"); err != nil {
 			_ = f.Close()
 			return nil, err
 		}
@@ -240,7 +234,7 @@ func describeFileLockHolder(lockPath string) string {
 	if err != nil || !info.Mode().IsRegular() {
 		return ""
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags(), 0)
 	if err != nil {
 		return ""
 	}
@@ -295,52 +289,6 @@ func describeFileLockHolder(lockPath string) string {
 	return fmt.Sprintf(" (held by %s for %s)", who, held.Round(time.Second))
 }
 
-func rejectUnsafeExistingRegularFile(path, label string) error {
-	info, err := os.Lstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s must not be a symlink: %s", label, path)
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("%s must be a regular file: %s", label, path)
-	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return rejectOpenFileAlias(path, f, label)
-}
-
-func rejectOpenFileAlias(path string, f *os.File, label string) error {
-	pathInfo, err := os.Lstat(path)
-	if err != nil {
-		return err
-	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s must not be a symlink: %s", label, path)
-	}
-	fileInfo, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	if !os.SameFile(pathInfo, fileInfo) {
-		return fmt.Errorf("%s changed while opening: %s", label, path)
-	}
-	if !fileInfo.Mode().IsRegular() {
-		return fmt.Errorf("%s must be a regular file: %s", label, path)
-	}
-	if err := rejectOpenFileHardlink(path, f, fileInfo, label); err != nil {
-		return err
-	}
-	return nil
-}
-
 // writeLockOwnerMetadata records who holds lockPath, in the sidecar beside it.
 // Called by the winner immediately after the lock is taken, so the lock itself
 // guarantees a single writer.
@@ -352,10 +300,10 @@ func rejectOpenFileAlias(path string, f *os.File, label string) error {
 // subject is a process that no longer exists.
 func writeLockOwnerMetadata(lockPath string) {
 	path := lockPath + fileLockOwnerSuffix
-	if err := rejectUnsafeExistingRegularFile(path, "lock owner file"); err != nil {
+	if err := base.RejectUnsafeExistingRegularFile(path, "lock owner file"); err != nil {
 		return
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|fileLockOpenFlags(), 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return
 	}

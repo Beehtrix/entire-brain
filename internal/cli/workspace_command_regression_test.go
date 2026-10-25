@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -151,7 +152,7 @@ func TestWorkspaceCommandEmptyAndNoEgressRoutes(t *testing.T) {
 		t.Fatalf("no-egress refusal: %v\n%s", err, out)
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
-	if err := os.Remove(filepath.Join(wsDir, filepath.FromSlash(patternCorpusPath))); err != nil {
+	if err := os.Remove(filepath.Join(wsDir, filepath.FromSlash(patterncore.CorpusPath))); err != nil {
 		t.Fatal(err)
 	}
 	// These root routes are read-only before a corpus has been built.
@@ -190,7 +191,7 @@ func TestWorkspaceCommandListEmptyFilterAndMalformedSkillStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	corpus := filepath.Join(wsDir, filepath.FromSlash(patternCorpusPath))
+	corpus := filepath.Join(wsDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.WriteFile(corpus, []byte("not sqlite"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +440,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		badCorpus := filepath.Join(badDir, filepath.FromSlash(patternCorpusPath))
+		badCorpus := filepath.Join(badDir, filepath.FromSlash(patterncore.CorpusPath))
 		if err := os.MkdirAll(filepath.Dir(badCorpus), 0o700); err != nil {
 			t.Fatal(err)
 		}

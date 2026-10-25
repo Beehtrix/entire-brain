@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // loadFactStoreFiles scans the facts directory and returns every stored fact
@@ -47,7 +48,7 @@ func loadFactStoreFiles(brainDir string) (map[string][]factRecord, error) {
 		// one and the continue above already skips it. The gap was the file
 		// one level down.
 		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
-		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return nil, err
 		}
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))

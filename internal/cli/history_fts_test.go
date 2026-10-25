@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func ftsTestIndex() historyIndex {
@@ -185,7 +187,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "stale metadata",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -198,7 +200,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "malformed payload",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -220,7 +222,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "aliased record order",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}

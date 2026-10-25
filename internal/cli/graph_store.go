@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -181,7 +182,7 @@ func graphStoreProfile(manifest *exportManifest) string {
 // if a future caller accidentally attempts a write.
 func openSemanticReadDB(handle string) (*sql.DB, error) {
 	if !strings.HasPrefix(handle, graphStoreHandlePrefix) {
-		return sql.Open(sqliteDriverName, sqliteReadOnlyDSN(handle))
+		return sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(handle))
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(handle, graphStoreHandlePrefix))
 	if err != nil {
@@ -191,7 +192,7 @@ func openSemanticReadDB(handle string) (*sql.DB, error) {
 	if err = json.Unmarshal(raw, &d); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(d.Path))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(d.Path))
 	if err != nil {
 		return nil, err
 	}

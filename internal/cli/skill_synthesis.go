@@ -160,7 +160,7 @@ func buildSkillEvidenceChecked(brainDir string, c taskCandidate) (string, error)
 	}
 	// Redaction boundary: this bundle is the agent's input — strip secrets and
 	// home-dir usernames before it leaves the brain.
-	return redactText(b.String()), nil
+	return base.RedactText(b.String()), nil
 }
 
 // transcriptExcerpt returns up to maxLines of a transcript starting at the

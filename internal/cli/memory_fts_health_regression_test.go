@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestMemoryHistoryFTSHealthClassifiesSchemaAndReadOnlyStates(t *testing.T) {
@@ -22,7 +24,7 @@ func TestMemoryHistoryFTSHealthClassifiesSchemaAndReadOnlyStates(t *testing.T) {
 			writeHealthFTSMetaFixture(t, brainDir, tc.schema, tc.fingerprint)
 			path := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
 			if tc.schema == historyFTSSchema && tc.fingerprint != "" {
-				db, err := sql.Open(sqliteDriverName, path)
+				db, err := sql.Open(sqlitedriver.Name, path)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -70,7 +72,7 @@ func TestMemoryHistoryFTSHealthComparesCanonicalHistoryFingerprint(t *testing.T)
 			t.Fatal(err)
 		}
 		writeHealthFTSMetaFixture(t, brainDir, historyFTSSchema, "legacy")
-		db, err := sql.Open(sqliteDriverName, path)
+		db, err := sql.Open(sqlitedriver.Name, path)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -105,7 +107,7 @@ func TestMemoryHistoryFTSHealthRejectsMissingAndMalformedSchemaMetadata(t *testi
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			db, err := sql.Open(sqliteDriverName, path)
+			db, err := sql.Open(sqlitedriver.Name, path)
 			if err != nil {
 				t.Fatal(err)
 			}

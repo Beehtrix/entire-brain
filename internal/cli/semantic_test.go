@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/entireio/entire-brain/internal/providerdetail"
+	"github.com/spf13/cobra"
 )
 
 func TestSemanticIndexCommandParsesGraphProviderFlags(t *testing.T) {
@@ -1270,7 +1270,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if afterIngest.Sources.Semantic.GenerationPath != beforeIngest.Sources.Semantic.GenerationPath {
 		t.Fatalf("trace ingest created a Brain-owned generation: %s", afterIngest.Sources.Semantic.GenerationPath)
 	}
-	oldDB, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(oldStorePath))
+	oldDB, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(oldStorePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2767,7 +2767,7 @@ func shortSemanticLockTimeout(t *testing.T) {
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

@@ -4,26 +4,10 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 	"os"
 
 	"golang.org/x/sys/windows"
 )
-
-func fileLockOpenFlags() int {
-	return 0
-}
-
-func rejectOpenFileHardlink(path string, f *os.File, _ os.FileInfo, label string) error {
-	var info windows.ByHandleFileInformation
-	if err := windows.GetFileInformationByHandle(windows.Handle(f.Fd()), &info); err != nil {
-		return err
-	}
-	if info.NumberOfLinks > 1 {
-		return fmt.Errorf("%s %w: %s", label, errFileHardlinked, path)
-	}
-	return nil
-}
 
 func tryLockFile(f *os.File) error {
 	var overlapped windows.Overlapped

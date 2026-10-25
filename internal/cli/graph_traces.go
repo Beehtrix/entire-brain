@@ -29,7 +29,7 @@ func readGraphTraces(brainDir string) ([]graphTraceObservation, error) {
 	if brainDir == "" {
 		return nil, nil
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
 		return nil, err
 	}
 	data, err := base.SafeReadFile(filepath.Join(brainDir, graphTraceFile), graphTraceMaxBytes)
@@ -46,7 +46,7 @@ func readGraphTraces(brainDir string) ([]graphTraceObservation, error) {
 	return rows, nil
 }
 func writeGraphTraces(brainDir string, rows []graphTraceObservation) error {
-	if err := rejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
 		return err
 	}
 	data, err := json.Marshal(rows)

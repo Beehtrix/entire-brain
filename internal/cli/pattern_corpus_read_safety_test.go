@@ -10,6 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +23,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 	}
 	externalDir := t.TempDir()
 	externalPath := filepath.Join(externalDir, "external.sqlite")
-	external, err := sql.Open(sqliteDriverName, externalPath)
+	external, err := sql.Open(sqlitedriver.Name, externalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +43,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 		t.Fatal(err)
 	}
 
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.Symlink(externalPath, corpusPath); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
@@ -73,7 +76,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 		}
 	}
 
-	check, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(externalPath))
+	check, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(externalPath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +99,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 
 func installLatePatternCorpusAlias(t *testing.T, brainDir string) {
 	t.Helper()
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	backupPath := corpusPath + ".before-alias"
 	externalPath := filepath.Join(t.TempDir(), "outside.sqlite")
 	want := []byte("outside target must remain untouched")
@@ -182,11 +185,11 @@ func TestPatternDerivedMCPOutputRejectsLateCorpusAliasWithoutFrameBytes(t *testi
 
 func TestPatternCorpusReadSnapshotNeverMigratesLiveDatabaseAndCleansUp(t *testing.T) {
 	brainDir := t.TempDir()
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	live, err := sql.Open(sqliteDriverName, path)
+	live, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +237,7 @@ func TestPatternCorpusReadSnapshotNeverMigratesLiveDatabaseAndCleansUp(t *testin
 		t.Fatal("read-only corpus open modified the live database")
 	}
 
-	check, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(path))
+	check, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}

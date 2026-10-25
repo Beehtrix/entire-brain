@@ -2,14 +2,13 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
 	"sort"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -326,18 +325,18 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 
 func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforcementCounts) float64 {
 	breadth := repoBreadthScore(repos, memberCount)
-	supportScore := clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
+	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
 	reinfScore := 0.5
 	if support > 0 {
-		reinfScore = clamp01(0.5 + 0.5*float64(reinf.Success-reinf.Corrected)/float64(support))
+		reinfScore = clibase.Clamp01(0.5 + 0.5*float64(reinf.Success-reinf.Corrected)/float64(support))
 	}
 	return 0.45*breadth + 0.30*supportScore + 0.25*reinfScore
 }
 
 func workspacePracticeStrength(kind string, repos, memberCount, support int) float64 {
-	kindScore := clamp01(float64(factKindPriority[kind]) / 6.0)
+	kindScore := clibase.Clamp01(float64(factKindPriority[kind]) / 6.0)
 	breadth := repoBreadthScore(repos, memberCount)
-	supportScore := clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
+	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
 	return 0.40*kindScore + 0.35*breadth + 0.25*supportScore
 }
 
@@ -348,7 +347,7 @@ func repoBreadthScore(repos, memberCount int) float64 {
 	if denom < 1 {
 		denom = 1
 	}
-	return clamp01(float64(repos-1) / float64(denom))
+	return clibase.Clamp01(float64(repos-1) / float64(denom))
 }
 
 func addReinf(a, b reinforcementCounts) reinforcementCounts {
@@ -362,11 +361,6 @@ func sortedBreakdown(m map[string]*patternRepoStat) []patternRepoStat {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RepoKey < out[j].RepoKey })
 	return out
-}
-
-func hexSHA(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
 }
 
 func sortedSetKeys(m map[string]bool) []string {
@@ -655,7 +649,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 		}
 		strength := workspacePracticeStrength("", repos, memberCount, a.support) // breadth+support blend
 		out = append(out, taskCandidate{
-			ID:              "task:ws:" + hexSHA(workspace+"\x00"+sig),
+			ID:              "task:ws:" + clibase.HexSHA(workspace+"\x00"+sig),
 			Workspace:       workspace,
 			IntentSignature: sig,
 			Label:           a.base.Label,
@@ -723,8 +717,8 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			for _, v := range f.PerRepo {
 				repos = append(repos, v.RepoKey)
 			}
-			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", redactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
-			fmt.Fprintf(out, "    trigger: %s\n", redactText(f.Trigger))
+			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", clibase.RedactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
+			fmt.Fprintf(out, "    trigger: %s\n", clibase.RedactText(f.Trigger))
 			fmt.Fprintf(out, "    id %s\n", f.ID)
 		}
 		return nil

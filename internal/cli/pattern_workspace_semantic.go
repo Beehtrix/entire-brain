@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -125,7 +127,7 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 			}
 			r := c.Reinforcement
 			list = append(list, map[string]any{
-				"intent": c.IntentSignature, "title": redactText(c.Label), "commands": redactStrings(c.Commands),
+				"intent": c.IntentSignature, "title": base.RedactText(c.Label), "commands": base.RedactStrings(c.Commands),
 				"support": c.Support, "reinforcement": []int{r.Success, r.Corrected, r.Neutral},
 			})
 		}
@@ -150,9 +152,9 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 	payload, _ := json.Marshal(map[string]any{"workspace": manifest.Name, "repos": perRepo})
 	fp := proposalSampleFingerprint(payload)
 	if corpusMeta(db, "workspace_families_fingerprint") == fp &&
-		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND status!='current'`) == 0 &&
-		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`) > 0 {
-		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`)
+		patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND status!='current'`) == 0 &&
+		patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`) > 0 {
+		stats.Cached = patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`)
 		stats.Considered = stats.Cached
 		return stats, nil
 	}
@@ -163,7 +165,7 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 	}
 	args = injectAgentModel(args, agent, model)
 	args = injectAgentEffort(args, agent, effort)
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), dossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("workspace family proposal agent: %w", err)
 	}
@@ -184,7 +186,7 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 		var variants []familyRepoVariant
 		for _, v := range f.PerRepo {
 			if members[v.RepoKey] {
-				variants = append(variants, familyRepoVariant{RepoKey: v.RepoKey, Commands: redactStrings(v.Commands)})
+				variants = append(variants, familyRepoVariant{RepoKey: v.RepoKey, Commands: base.RedactStrings(v.Commands)})
 			}
 		}
 		f.PerRepo = variants
@@ -198,8 +200,8 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 			// surface an unverified family. Default to the softest non-accepting verdict.
 			f.Verdict = "low_confidence"
 		}
-		f.ID = "family:" + hexSHA(manifest.Name+"\x00"+f.Title+"\x00"+familyRepoKeysJoined(f))
-		f.Title = redactText(f.Title)
+		f.ID = "family:" + base.HexSHA(manifest.Name+"\x00"+f.Title+"\x00"+familyRepoKeysJoined(f))
+		f.Title = base.RedactText(f.Title)
 		prepared = append(prepared, f)
 		if f.Verdict == "accepted" {
 			stats.Verified++
@@ -220,7 +222,7 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 		}
 		if _, err := tx.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, redactText(string(blob)), f.Verdict, ts, ts); err != nil {
+			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, base.RedactText(string(blob)), f.Verdict, ts, ts); err != nil {
 			return stats, err
 		}
 	}
@@ -265,7 +267,7 @@ func workspaceMembershipFingerprint(manifest workspace.Manifest) string {
 		keys = append(keys, repo.RepoKey)
 	}
 	sort.Strings(keys)
-	return "sha256:" + hexSHA(manifest.Name+"\x00"+strings.Join(keys, "\x00"))
+	return "sha256:" + base.HexSHA(manifest.Name+"\x00"+strings.Join(keys, "\x00"))
 }
 
 // loadAcceptedWorkspaceFamilies returns the accepted cross-repo families.
@@ -284,7 +286,7 @@ func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily,
 	}
 	defer db.Close()
 	// A cached family is only eligible in the current persisted workspace.
-	if err := rejectExistingSymlinkPathComponents(wsBrainDir, workspace.ManifestName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(wsBrainDir, workspace.ManifestName); err != nil {
 		return nil, err
 	}
 	data, err := os.ReadFile(filepath.Join(wsBrainDir, workspace.ManifestName))
@@ -400,5 +402,5 @@ func buildWorkspaceFamilyEvidence(f workspaceFamily) string {
 	for _, v := range f.PerRepo {
 		fmt.Fprintf(&b, "  - %s: %s\n", v.RepoKey, strings.Join(v.Commands, " → "))
 	}
-	return redactText(b.String())
+	return base.RedactText(b.String())
 }

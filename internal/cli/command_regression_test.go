@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // commandRegressionFixture puts session-backed brain state at the same storage
@@ -62,14 +64,14 @@ func commandRegressionFixture(t *testing.T) (Options, string, string) {
 func installPromotableCorpus(t *testing.T, brainDir string) {
 	t.Helper()
 	donor := promotableCorpusDir(t, time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC))
-	data, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(patternCorpusPath)))
+	data, err := os.ReadFile(filepath.Join(donor, filepath.FromSlash(patterncore.CorpusPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -244,7 +246,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 			t.Fatalf("%s before refresh = %s", strings.Join(args, " "), out)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(err) {
 		t.Fatalf("read-only routes created corpus: %v", err)
 	}
 
@@ -259,7 +261,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if source.Episodes == 0 {
 		t.Fatalf("refresh did not derive episodes: %+v", source)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); err != nil {
 		t.Fatalf("refresh did not publish corpus: %v", err)
 	}
 
@@ -486,7 +488,7 @@ func TestRootCommandVizReportsLoopbackReadOnlyServer(t *testing.T) {
 	if !out.cancelled || !strings.Contains(out.String(), "http://127.0.0.1:") || !strings.Contains(out.String(), "Read-only, loopback-only, no network") {
 		t.Fatalf("viz output lost its local-only contract:\n%s", out.String())
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(err) {
 		t.Fatalf("viz wrote a pattern corpus: %v", err)
 	}
 }

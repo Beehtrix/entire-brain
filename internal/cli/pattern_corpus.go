@@ -19,6 +19,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Pattern corpus (V2, Phase 1).
@@ -37,8 +39,6 @@ import (
 // (episodes + tool/command operations + command grams). Richer evidence layers
 // (files, meta-hits, fact/symbol/commit links, synapses) and the candidate/
 // dossier layers are populated by later slices against this same schema.
-
-const patternCorpusPath = "patterns/corpus.sqlite"
 
 const patternCorpusStagingPrefix = ".corpus.sqlite.build-"
 
@@ -74,226 +74,6 @@ const (
 	// files, meta-hits, fact links).
 	patternIndexerVersion = 9
 )
-
-// patternCorpusSchema is the full target schema (additive). Tables not yet
-// populated by this slice are created so later slices are migration-free.
-var patternCorpusSchema = []string{
-	`PRAGMA journal_mode=WAL`,
-	`PRAGMA foreign_keys=ON`,
-	`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-	`CREATE TABLE IF NOT EXISTS indexed_sessions (
-		id TEXT PRIMARY KEY,
-		repo_key TEXT NOT NULL,
-		session_id TEXT NOT NULL,
-		checkpoint_id TEXT,
-		transcript_path TEXT NOT NULL,
-		branch TEXT,
-		author_name TEXT,
-		agent TEXT,
-		created_at TEXT,
-		size INTEGER NOT NULL,
-		mtime_unix_nano INTEGER NOT NULL,
-		content_sha TEXT NOT NULL,
-		parser_version INTEGER NOT NULL,
-		episodes INTEGER NOT NULL DEFAULT 0
-	)`,
-	`CREATE TABLE IF NOT EXISTS episodes (
-		id TEXT PRIMARY KEY,
-		episode_key TEXT NOT NULL UNIQUE,
-		repo_key TEXT NOT NULL,
-		workspace TEXT,
-		session_id TEXT NOT NULL,
-		checkpoint_id TEXT,
-		turn_id TEXT,
-		turn_ord INTEGER NOT NULL,
-		branch TEXT,
-		author_name TEXT,
-		agent TEXT,
-		created_at TEXT,
-		source_path TEXT NOT NULL,
-		start_line INTEGER NOT NULL,
-		end_line INTEGER NOT NULL,
-		intent_raw TEXT,
-		intent_sig TEXT,
-		n_tools INTEGER NOT NULL DEFAULT 0,
-		tool_mix TEXT,
-		files TEXT,
-		n_cmds INTEGER NOT NULL DEFAULT 0,
-		exit_fails INTEGER NOT NULL DEFAULT 0,
-		outcome TEXT NOT NULL DEFAULT 'neutral',
-		outcome_source TEXT,
-		freshness_state TEXT
-	)`,
-	`CREATE TABLE IF NOT EXISTS episode_tools (
-		episode_id TEXT NOT NULL,
-		ord INTEGER NOT NULL,
-		tool_type TEXT NOT NULL,
-		tool_name TEXT,
-		line INTEGER,
-		PRIMARY KEY (episode_id, ord),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS episode_commands (
-		episode_id TEXT NOT NULL,
-		ord INTEGER NOT NULL,
-		head TEXT NOT NULL,
-		raw_redacted TEXT,
-		line INTEGER,
-		exit_code INTEGER,
-		failed INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (episode_id, ord),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS grams (
-		episode_id TEXT NOT NULL,
-		n INTEGER NOT NULL,
-		gram TEXT NOT NULL,
-		PRIMARY KEY (episode_id, n, gram),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS meta_hits (
-		episode_id TEXT NOT NULL, meta_id TEXT NOT NULL, quote_redacted TEXT, line INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (episode_id, meta_id, line),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS episode_files (
-		episode_id TEXT NOT NULL, path TEXT NOT NULL, action TEXT NOT NULL, line INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (episode_id, path, action, line),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	// episode_symbols links an episode to the semantic symbol ids defined in the
-	// files it touched (populated only when a semantic index is present).
-	`CREATE TABLE IF NOT EXISTS episode_symbols (
-		episode_id TEXT NOT NULL,
-		symbol_id TEXT NOT NULL,
-		name TEXT,
-		file_path TEXT,
-		PRIMARY KEY (episode_id, symbol_id),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	// episode_commits records git commits an episode landed, parsed from the
-	// transcript's local `[branch hash] subject` confirmation — local evidence
-	// only, never the network.
-	`CREATE TABLE IF NOT EXISTS episode_commits (
-		episode_id TEXT NOT NULL,
-		commit_hash TEXT NOT NULL,
-		branch TEXT,
-		subject TEXT,
-		line INTEGER,
-		PRIMARY KEY (episode_id, commit_hash),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS episode_facts (
-		episode_id TEXT NOT NULL, fact_id TEXT NOT NULL, branch TEXT, kind TEXT, paths TEXT, weight REAL NOT NULL DEFAULT 1.0,
-		PRIMARY KEY (episode_id, fact_id),
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	`CREATE TABLE IF NOT EXISTS synapses (
-		id TEXT PRIMARY KEY, from_id TEXT NOT NULL, to_id TEXT NOT NULL, kind TEXT NOT NULL,
-		weight REAL NOT NULL DEFAULT 1.0, source_anchor TEXT, evidence_sha TEXT, created_at TEXT NOT NULL
-	)`,
-	// episode_shapes is the deterministic shape of each episode
-	// (conversation | read_only | shell | write), derived from its tools,
-	// commands, and file actions. Populated as a post-pass each build.
-	`CREATE TABLE IF NOT EXISTS episode_shapes (
-		episode_id TEXT PRIMARY KEY,
-		shape TEXT NOT NULL,
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	// themes are conversational/read-only/judgment-heavy clusters that the
-	// command/task channel misses.
-	`CREATE TABLE IF NOT EXISTS themes (
-		id TEXT PRIMARY KEY,
-		repo_key TEXT,
-		scope TEXT NOT NULL DEFAULT 'repo',
-		title TEXT NOT NULL,
-		description TEXT,
-		shape TEXT,
-		member_keys TEXT,
-		support INTEGER NOT NULL DEFAULT 0,
-		fingerprint TEXT NOT NULL,
-		strength REAL NOT NULL DEFAULT 0,
-		status TEXT NOT NULL DEFAULT 'active',
-		verdict TEXT,
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`,
-	`CREATE TABLE IF NOT EXISTS patterns (
-		id TEXT PRIMARY KEY, type TEXT NOT NULL, scope TEXT NOT NULL, repo_key TEXT, workspace TEXT,
-		cluster_key TEXT NOT NULL UNIQUE, title TEXT NOT NULL, intent_sig TEXT, gram TEXT, meta_id TEXT, theme_id TEXT,
-		strength REAL NOT NULL, strength_label TEXT NOT NULL, support INTEGER NOT NULL,
-		n_repos INTEGER NOT NULL DEFAULT 1, n_authors INTEGER NOT NULL DEFAULT 0, n_branches INTEGER NOT NULL DEFAULT 0,
-		outcome_success INTEGER NOT NULL DEFAULT 0, outcome_corrected INTEGER NOT NULL DEFAULT 0,
-		outcome_neutral INTEGER NOT NULL DEFAULT 0, outcome_failed INTEGER NOT NULL DEFAULT 0,
-		fingerprint TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-	)`,
-	`CREATE TABLE IF NOT EXISTS pattern_evidence (
-		pattern_id TEXT NOT NULL, episode_id TEXT NOT NULL, rank INTEGER NOT NULL, outcome TEXT,
-		source_path TEXT NOT NULL, start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
-		PRIMARY KEY (pattern_id, episode_id),
-		FOREIGN KEY (pattern_id) REFERENCES patterns(id) ON DELETE CASCADE,
-		FOREIGN KEY (episode_id) REFERENCES episodes(id) ON DELETE CASCADE
-	)`,
-	// dossiers cache the consolidation record for each promotable pattern. The
-	// deterministic consolidation (json_redacted) is rebuilt token-free on every
-	// refresh; the optional agent verifier output (verifier_json_redacted/verdict)
-	// is cached by evidence fingerprint and survives pattern rebuilds (no FK
-	// cascade — reconciled manually so verifier work is not lost). status flips to
-	// 'stale' when the evidence fingerprint changes under a cached verdict.
-	`CREATE TABLE IF NOT EXISTS dossiers (
-		pattern_id TEXT PRIMARY KEY,
-		cluster_key TEXT NOT NULL,
-		fingerprint TEXT NOT NULL,
-		json_redacted TEXT NOT NULL,
-		verifier_json_redacted TEXT,
-		verdict TEXT,
-		verified_fingerprint TEXT,
-		status TEXT NOT NULL DEFAULT 'current',
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`,
-	// deep_dossiers cache the bounded evidence-deep consolidation (capped anchors,
-	// top ones with redacted transcript excerpts) + deep verifier result for a
-	// pattern. Built on demand by the explicit `patterns verify --deep`, never by
-	// refresh. Keyed by pattern id; cached by the backing-set fingerprint.
-	`CREATE TABLE IF NOT EXISTS deep_dossiers (
-		pattern_id TEXT PRIMARY KEY,
-		fingerprint TEXT NOT NULL,
-		json_redacted TEXT NOT NULL,
-		verifier_json_redacted TEXT,
-		verdict TEXT,
-		status TEXT NOT NULL DEFAULT 'current',
-		created_at TEXT NOT NULL,
-		updated_at TEXT NOT NULL
-	)`,
-	// workspace_pattern_repos holds the per-member-repo breakdown for a
-	// workspace-scope pattern (which member repos share it and with what support).
-	// Only populated in a workspace corpus; empty in a repo corpus.
-	`CREATE TABLE IF NOT EXISTS workspace_pattern_repos (
-		pattern_id TEXT NOT NULL,
-		repo_key TEXT NOT NULL,
-		support INTEGER NOT NULL DEFAULT 0,
-		outcome_success INTEGER NOT NULL DEFAULT 0,
-		outcome_corrected INTEGER NOT NULL DEFAULT 0,
-		outcome_neutral INTEGER NOT NULL DEFAULT 0,
-		PRIMARY KEY (pattern_id, repo_key),
-		FOREIGN KEY (pattern_id) REFERENCES patterns(id) ON DELETE CASCADE
-	)`,
-	`CREATE INDEX IF NOT EXISTS idx_episodes_repo_branch ON episodes(repo_key, branch)`,
-	`CREATE INDEX IF NOT EXISTS idx_episodes_intent_sig ON episodes(intent_sig)`,
-	`CREATE INDEX IF NOT EXISTS idx_episodes_outcome ON episodes(outcome)`,
-	`CREATE INDEX IF NOT EXISTS idx_episodes_source ON episodes(source_path, start_line)`,
-	`CREATE INDEX IF NOT EXISTS idx_commands_head ON episode_commands(head)`,
-	`CREATE INDEX IF NOT EXISTS idx_grams_gram ON grams(gram)`,
-	`CREATE INDEX IF NOT EXISTS idx_meta_hits_meta ON meta_hits(meta_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_episode_files_path ON episode_files(path)`,
-	`CREATE INDEX IF NOT EXISTS idx_episode_facts_fact ON episode_facts(fact_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_synapses_from ON synapses(from_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_synapses_to ON synapses(to_id)`,
-	`CREATE INDEX IF NOT EXISTS idx_patterns_type_scope ON patterns(type, scope)`,
-	`CREATE INDEX IF NOT EXISTS idx_patterns_strength ON patterns(strength DESC)`,
-	`CREATE INDEX IF NOT EXISTS idx_pattern_evidence_episode ON pattern_evidence(episode_id)`,
-}
 
 // patternCorpusReadDB owns both an immutable SQLite connection and the private
 // snapshot backing it. Close always removes the snapshot, including when the
@@ -336,7 +116,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
 		return nil, err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return nil, err
 	}
@@ -346,7 +126,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		}
 		return nil, fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
-	snapshotPath, cleanup, err := snapshotPrivacySQLiteStore(brainDir, patternCorpusPath)
+	snapshotPath, cleanup, err := snapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +134,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		cleanup()
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(snapshotPath))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshotPath))
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", memoryErrStateCorrupt, err)
@@ -414,14 +194,14 @@ func validatePatternCorpusReadSafety(brainDir string) error {
 	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
 	if !present {
 		return rejectInterruptedPatternCorpusPublication(brainDir)
 	}
-	_, _, err = privacyArtifactInfo(brainDir, patternCorpusPath+"-wal", "pattern corpus WAL")
+	_, _, err = privacyArtifactInfo(brainDir, patterncore.CorpusPath+"-wal", "pattern corpus WAL")
 	if err != nil {
 		return err
 	}
@@ -432,7 +212,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 	if err := validatePatternCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
@@ -498,7 +278,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		return err
 	}
 	defer cleanup()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return err
 	}
@@ -513,7 +293,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 			return err
 		}
 	}
-	for _, stmt := range patternCorpusSchema {
+	for _, stmt := range patterncore.CorpusSchema {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("corpus schema: %w", err)
 		}
@@ -558,7 +338,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err != nil {
 		return err
 	}
-	factFingerprint := hexSHA(string(factData))
+	factFingerprint := base.HexSHA(string(factData))
 	factsCurrent := corpusMeta(db, "facts_fingerprint") == factFingerprint
 	present := map[string]bool{}
 	for _, s := range sessions {
@@ -604,7 +384,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err := linkEpisodeSymbols(db, brainDir, sem); err != nil {
 		return err
 	}
-	if err := buildPatternCandidates(db, repoKey, now); err != nil {
+	if err := patterncore.BuildCandidates(db, repoKey, now); err != nil {
 		return err
 	}
 	// Episode shapes (deterministic, token-free). Themes are NOT built here:
@@ -661,7 +441,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 	if err := recoverPatternCorpusPublicationLocked(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
@@ -673,7 +453,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 		return err
 	}
 	defer cleanup()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return err
 	}
@@ -683,7 +463,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 			return err
 		}
 	}
-	for _, stmt := range patternCorpusSchema {
+	for _, stmt := range patterncore.CorpusSchema {
 		if _, err := db.Exec(stmt); err != nil {
 			return err
 		}
@@ -706,7 +486,7 @@ func finalizePatternCorpusStagingLocked(brainDir, path string, db *sql.DB) error
 	if err := db.Close(); err != nil {
 		return err
 	}
-	normalizer, err := sql.Open(sqliteDriverName, path)
+	normalizer, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return err
 	}
@@ -762,13 +542,13 @@ func preparePatternCorpusStaging(brainDir string) (string, func(), error) {
 		cleanup()
 		return "", nil, fmt.Errorf("create staged pattern corpus: %w", err)
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPath, "pattern corpus")
+	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		cleanup()
 		return "", nil, err
 	}
 	if present {
-		snapshot, snapshotCleanup, err := snapshotPrivacySQLiteStore(brainDir, patternCorpusPath)
+		snapshot, snapshotCleanup, err := snapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
 		if err != nil {
 			cleanup()
 			return "", nil, err
@@ -935,7 +715,7 @@ func readPinnedPatternCorpusPublication(pinned *pinnedPatternCorpusDirectory) (p
 	if !present || info.Size() < 1 || info.Size() > patternCorpusPublicationMarkerMax {
 		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker is missing or malformed", memoryErrStateUnsafe)
 	}
-	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return publication, nil, fmt.Errorf("%s: open pattern corpus publication marker: %w", memoryErrStateUnsafe, err)
 	}
@@ -944,7 +724,7 @@ func readPinnedPatternCorpusPublication(pinned *pinnedPatternCorpusDirectory) (p
 	if err != nil || !os.SameFile(info, opened) || opened.Size() != info.Size() {
 		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker changed while opening", memoryErrStateUnsafe)
 	}
-	if err := rejectOpenFileHardlink(patternCorpusPublicationMarkerName, marker, opened, "pattern corpus publication marker"); err != nil {
+	if err := base.RejectOpenFileHardlink(patternCorpusPublicationMarkerName, marker, opened, "pattern corpus publication marker"); err != nil {
 		return publication, nil, fmt.Errorf("%s: %w", memoryErrStateUnsafe, err)
 	}
 	data, err := io.ReadAll(io.LimitReader(marker, patternCorpusPublicationMarkerMax+1))
@@ -973,7 +753,7 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 	if !present || info.Size() != publication.Size {
 		return nil, fmt.Errorf("%s: pattern corpus recovery candidate is missing or changed", memoryErrStateUnsafe)
 	}
-	source, err := root.OpenFile(name, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	source, err := root.OpenFile(name, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s: open pattern corpus recovery candidate: %w", memoryErrStateUnsafe, err)
 	}
@@ -982,7 +762,7 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 	if err != nil || !os.SameFile(info, opened) || opened.Size() != info.Size() {
 		return nil, fmt.Errorf("%s: pattern corpus recovery candidate changed while opening", memoryErrStateUnsafe)
 	}
-	if err := rejectOpenFileHardlink(name, source, opened, "pattern corpus recovery candidate"); err != nil {
+	if err := base.RejectOpenFileHardlink(name, source, opened, "pattern corpus recovery candidate"); err != nil {
 		return nil, fmt.Errorf("%s: %w", memoryErrStateUnsafe, err)
 	}
 	tempDir, err := os.MkdirTemp("", "entire-brain-pattern-recovery-")
@@ -1128,7 +908,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 		return err
 	}
 	tempName := patternCorpusStagingPrefix + hex.EncodeToString(random[:])
-	temp, err := pinned.patternsRoot.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|fileLockOpenFlags(), 0o600)
+	temp, err := pinned.patternsRoot.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return fmt.Errorf("%s: create pinned corpus publication leaf: %w", memoryErrStateUnsafe, err)
 	}
@@ -1167,7 +947,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	if err := patternCorpusPublishBoundary("before_marker_create"); err != nil {
 		return err
 	}
-	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|fileLockOpenFlags(), 0o600)
+	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return fmt.Errorf("%s: create pattern corpus publication marker: %w", memoryErrStateUnsafe, err)
 	}
@@ -1313,7 +1093,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 			endLine = segments[ord+1].Request.Line - 1
 		}
 
-		epID := "episode:" + hexSHA(repoKey+"\x00"+filepath.ToSlash(rel)+"\x00"+strconv.Itoa(ord)+"\x00"+strconv.Itoa(startLine))
+		epID := "episode:" + base.HexSHA(repoKey+"\x00"+filepath.ToSlash(rel)+"\x00"+strconv.Itoa(ord)+"\x00"+strconv.Itoa(startLine))
 		epKey := repoKey + "/" + filepath.ToSlash(rel) + "#" + strconv.Itoa(ord)
 
 		if _, err := tx.Exec(`INSERT INTO episodes
@@ -1321,7 +1101,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 			 source_path, start_line, end_line, intent_raw, intent_sig, n_tools, tool_mix, files, n_cmds, exit_fails, outcome, outcome_source)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			epID, epKey, repoKey, "", s.SessionID, s.LatestCheckpoint, s.TurnID, ord, s.Branch, author, s.Agent, createdAt,
-			filepath.ToSlash(rel), startLine, endLine, redactText(base.TruncateString(seg.Request.Text, 280)), intentSignature(seg.Request.Text),
+			filepath.ToSlash(rel), startLine, endLine, base.RedactText(base.TruncateString(seg.Request.Text, 280)), intentSignature(seg.Request.Text),
 			len(tools), toolMix(tools), filesJSON(files), len(commands), exitFails, outcome, outcomeSource,
 		); err != nil {
 			return err
@@ -1341,13 +1121,13 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 				failed = 1
 			}
 			if _, err := tx.Exec(`INSERT INTO episode_commands (episode_id, ord, head, raw_redacted, line, exit_code, failed) VALUES (?,?,?,?,?,?,?)`,
-				epID, i, c.head, redactText(c.raw), c.line, exit, failed); err != nil {
+				epID, i, c.head, base.RedactText(c.raw), c.line, exit, failed); err != nil {
 				return err
 			}
 		}
 		for _, f := range files {
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_files (episode_id, path, action, line) VALUES (?,?,?,?)`,
-				epID, redactText(f.path), f.action, f.line); err != nil {
+				epID, base.RedactText(f.path), f.action, f.line); err != nil {
 				return err
 			}
 		}
@@ -1447,7 +1227,7 @@ func filesJSON(files []corpusFileRef) string {
 	seen := map[string]bool{}
 	var paths []string
 	for _, f := range files {
-		p := redactText(f.path)
+		p := base.RedactText(f.path)
 		if p == "" || seen[p] {
 			continue
 		}
@@ -1470,11 +1250,6 @@ type corpusGram struct {
 	gram string
 }
 
-// gramSep joins command heads inside a gram. It must be recoverable: command
-// heads themselves contain spaces ("git push"), so a plain space join would be
-// ambiguous and break per-command specificity (gramSpecificity splits on this).
-const gramSep = " ▷ "
-
 // commandGrams builds deduped command n-grams (n=2..4) within one episode, over
 // the run-collapsed command heads — the procedure-shape evidence.
 func commandGrams(heads []string) []corpusGram {
@@ -1483,12 +1258,12 @@ func commandGrams(heads []string) []corpusGram {
 	var out []corpusGram
 	for n := 2; n <= 4; n++ {
 		for _, w := range commandWindows(collapsed, n) {
-			key := strconv.Itoa(n) + ":" + strings.Join(w, gramSep)
+			key := strconv.Itoa(n) + ":" + strings.Join(w, patterncore.GramSep)
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			out = append(out, corpusGram{n: n, gram: strings.Join(w, gramSep)})
+			out = append(out, corpusGram{n: n, gram: strings.Join(w, patterncore.GramSep)})
 		}
 	}
 	return out

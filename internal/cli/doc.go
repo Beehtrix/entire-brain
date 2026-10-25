@@ -233,7 +233,7 @@ func verifyDeclaredDocIndex(brainDir string) error {
 // Both diagnostics and queries must validate the descriptor they actually use.
 func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(docIndexPath))
-	if err := rejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, docIndexPath); err != nil {
 		return nil, err
 	}
 	before, err := os.Lstat(path)
@@ -244,7 +244,7 @@ func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 		return nil, fmt.Errorf("%s is not a regular file", docIndexPath)
 	}
 	// Nonblocking/no-follow open also covers a swap after the path checks.
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +261,7 @@ func openDeclaredDocIndex(brainDir string) (*os.File, error) {
 		f.Close()
 		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
 	}
-	if err := rejectOpenFileAlias(path, f, docIndexPath); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, docIndexPath); err != nil {
 		f.Close()
 		return nil, err
 	}

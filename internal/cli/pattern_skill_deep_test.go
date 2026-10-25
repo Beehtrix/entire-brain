@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // seedAcceptedDeepDossier builds a deepDossierRecord with the given fields, marks
@@ -33,7 +35,7 @@ func deployDeepDossier() deepDossierRecord {
 		Parameters:    []string{"mise deploy --env staging"},
 		FailureModes:  []deepFailureMode{{Episode: "s1", Failure: "failed: mise deploy (missing STAGING_TOKEN)", Recovery: "re-ran go test to verify"}},
 		Facts:         []string{"fact:deploy (architecture) @ ops/deploy.go"},
-		SourceAnchors: []dossierAnchor{{SessionID: "s1", Outcome: "corrected", Excerpt: "ZEBRA_GOTCHA: set the staging toggle before mise deploy"}},
+		SourceAnchors: []patterncore.DossierAnchor{{SessionID: "s1", Outcome: "corrected", Excerpt: "ZEBRA_GOTCHA: set the staging toggle before mise deploy"}},
 		Confidence:    0.7,
 	}
 }

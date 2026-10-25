@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -417,7 +418,7 @@ func comprehensiveCompactV1Report() brainBriefReport {
 		Consolidations: []briefConsolidation{{
 			PatternID: "pattern:1", Type: "procedure", Title: "Validate then persist", Trigger: "when validation changes", Confidence: 0.88, Status: "current", Verdict: "accepted",
 			Workflow: []string{"validate input", "persist state"}, Verification: []string{"run validation tests"}, FailureModes: []string{"persisting first"},
-			Anchor: &dossierAnchor{SessionID: "private-session", CheckpointID: "private-checkpoint", Transcript: "sessions/redacted.jsonl", StartLine: 10, EndLine: 14, Outcome: "success"},
+			Anchor: &patterncore.DossierAnchor{SessionID: "private-session", CheckpointID: "private-checkpoint", Transcript: "sessions/redacted.jsonl", StartLine: 10, EndLine: 14, Outcome: "success"},
 		}},
 		Themes:   []themeView{{ID: "theme:1", Title: "Read before edit", Description: "Inspect before editing.", Shape: "read_only", Support: 4, Strength: 0.75, Status: "current", Verdict: "accepted"}},
 		Guidance: []string{"Inspect dirty files before trusting the snapshot."},

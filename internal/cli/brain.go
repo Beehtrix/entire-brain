@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const brainManifestSchemaVersion = 4
@@ -74,10 +76,10 @@ func acquireBrainWriteLock(brainDir string) (func(), error) {
 }
 
 func acquireBrainWriteLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return nil, err
 	}
 	lock, err := acquireFileLock(brainWriteLockPath(brainDir), "brain_locked", timeout)
@@ -105,10 +107,10 @@ func acquireBrainPrivacySideEffectLock(brainDir string) (func(), error) {
 }
 
 func acquireBrainPrivacySideEffectLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return nil, err
 	}
 	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainPrivacyLockName), memoryErrPrivacyBusy, timeout)
@@ -143,10 +145,10 @@ func withBrainPrivacySideEffectLock(brainDir string, fn func() error) error {
 //     finished. onBusy reports the skip; the pass returns nil, because "someone
 //     else is already doing this" is a success for the caller.
 func withDistillPassLock(brainDir string, onBusy func(), fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return err
 	}
 	// timeout 0 = try once; acquireFileLock reports contention as a timeout.
@@ -165,10 +167,10 @@ func withDistillPassLock(brainDir string, onBusy func(), fn func() error) error 
 }
 
 func withBrainManifestWriteLock(brainDir string, fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return err
 	}
 	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainManifestLockName), "brain_manifest_locked", brainWriteLockTimeout)
@@ -309,7 +311,7 @@ func errDurablePrepassFailure(err error) bool {
 // call sites -- a second caller added later would otherwise reintroduce the
 // leak this closed.
 func durablePrepassMessage(err error) string {
-	return redactText(durablePrepassText(err))
+	return base.RedactText(durablePrepassText(err))
 }
 
 func durablePrepassText(err error) string {
@@ -552,25 +554,17 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 	})
 }
 
-func cleanBrainRelativePath(rel string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path is outside brain: %s", rel)
-	}
-	return clean, nil
-}
-
 func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.FileMode) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
 	dir := filepath.Dir(clean)
 	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
 			return err
 		}
 	}
@@ -578,48 +572,21 @@ func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.Fil
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
 	return writeFileAtomic(abs, data, perm)
 }
 
-func prepareBrainRelativeSQLiteFile(brainDir, rel string) (string, error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return "", err
-	}
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Dir(clean)
-	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
-			return "", err
-		}
-	}
-	abs := filepath.Join(brainDir, clean)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-		return "", err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return "", err
-	}
-	if err := rejectUnsafeExistingRegularFile(abs, "sqlite cache"); err != nil {
-		return "", err
-	}
-	return abs, nil
-}
-
 func removeBrainRelativeFile(brainDir, rel string) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
 	err = os.Remove(filepath.Join(brainDir, clean))
@@ -637,14 +604,14 @@ func removeBrainRelativeFileExpected(brainDir, rel string, expected os.FileInfo)
 	if expected == nil {
 		return fmt.Errorf("memory_state_unsafe: missing expected file identity for %s", rel)
 	}
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
 	path := filepath.Join(brainDir, clean)

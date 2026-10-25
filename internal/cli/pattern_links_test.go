@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestCorpusCommitsExtraction(t *testing.T) {
@@ -57,7 +59,7 @@ func TestCorpusNewTablesAndSynapses(t *testing.T) {
 		}
 	}
 	// Commits recorded from the local confirmations.
-	if n := corpusCount(t, db, "episode_commits"); n != 3 {
+	if n := patterntest.CorpusCount(t, db, "episode_commits"); n != 3 {
 		t.Errorf("expected 3 commits, got %d", n)
 	}
 	var hashes int
@@ -66,7 +68,7 @@ func TestCorpusNewTablesAndSynapses(t *testing.T) {
 		t.Errorf("expected the 3 specific commit hashes, got %d", hashes)
 	}
 	// A task pattern formed → synapses connect pattern→evidence and evidence→commit.
-	if n := corpusCount(t, db, "synapses"); n == 0 {
+	if n := patterntest.CorpusCount(t, db, "synapses"); n == 0 {
 		t.Fatal("expected synapses to be materialized")
 	}
 	var pe, ec int
@@ -83,21 +85,21 @@ func TestCorpusNewTablesAndSynapses(t *testing.T) {
 // DV6: episode_symbols must be cleared when the semantic source is absent, so a
 // brain that had a semantic index and later lost it does not keep stale links.
 func TestEpisodeSymbolsClearedWhenSemanticAbsent(t *testing.T) {
-	db := freshCorpusDB(t)
+	db := patterntest.FreshCorpusDB(t)
 	now := time.Now()
-	insertCorpusEpisode(t, db, "episode:s", "deploy:release", "success", 1, now)
+	patterntest.InsertCorpusEpisode(t, db, "episode:s", "deploy:release", "success", 1, now)
 	// Simulate links left by a prior build that had a semantic index.
 	if _, err := db.Exec(`INSERT INTO episode_symbols (episode_id, symbol_id, name, file_path) VALUES ('episode:s','sym:1','Foo','a.go')`); err != nil {
 		t.Fatal(err)
 	}
-	if n := corpusCount(t, db, "episode_symbols"); n != 1 {
+	if n := patterntest.CorpusCount(t, db, "episode_symbols"); n != 1 {
 		t.Fatalf("setup: expected 1 stale symbol link, got %d", n)
 	}
 	// Rebuild with no semantic source → table must degrade to empty.
 	if err := linkEpisodeSymbols(db, t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if n := corpusCount(t, db, "episode_symbols"); n != 0 {
+	if n := patterntest.CorpusCount(t, db, "episode_symbols"); n != 0 {
 		t.Errorf("stale symbol links must be cleared when semantic is absent, got %d", n)
 	}
 }
@@ -121,17 +123,17 @@ func TestPatternRunRecorded(t *testing.T) {
 	// Idempotent rebuild: a second build does not duplicate synapses/commits and
 	// appends exactly one more run record.
 	db := openCorpus(t, brainDir)
-	syn1 := corpusCount(t, db, "synapses")
-	com1 := corpusCount(t, db, "episode_commits")
+	syn1 := patterntest.CorpusCount(t, db, "synapses")
+	com1 := patterntest.CorpusCount(t, db, "episode_commits")
 	db.Close()
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
 	db2 := openCorpus(t, brainDir)
-	if syn2 := corpusCount(t, db2, "synapses"); syn2 != syn1 {
+	if syn2 := patterntest.CorpusCount(t, db2, "synapses"); syn2 != syn1 {
 		t.Errorf("synapses duplicated on rebuild: %d -> %d", syn1, syn2)
 	}
-	if com2 := corpusCount(t, db2, "episode_commits"); com2 != com1 {
+	if com2 := patterntest.CorpusCount(t, db2, "episode_commits"); com2 != com1 {
 		t.Errorf("commits duplicated on rebuild: %d -> %d", com1, com2)
 	}
 	if runs := loadPatternRuns(brainDir); len(runs) != 2 {

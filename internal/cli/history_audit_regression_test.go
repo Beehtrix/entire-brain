@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
@@ -282,7 +283,7 @@ func TestHistoryAuditOverlayRepairsCorruptPayload(t *testing.T) {
 	if err != nil || inputs < source.Records {
 		t.Fatalf("warm rank: inputs=%d err=%v", inputs, err)
 	}
-	db, err := sql.Open(sqliteDriverName, historyFTSDBPath(dir))
+	db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(dir))
 	if err != nil {
 		t.Fatal(err)
 	}

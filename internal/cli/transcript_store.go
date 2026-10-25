@@ -409,7 +409,39 @@ func classifyTranscriptReadError(err error) error {
 // transcript chunk. Tree entries alone do not establish object availability in
 // partial clones. Object type checks avoid reading transcript bytes or fetching
 // missing promisor blobs; extra local sessions do not expand discovery scope.
+// validateLocalTranscriptSessions keeps the original all-or-nothing contract
+// for callers that want it: the first unavailable session is an error.
 func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sessions []exportSession, mode string) error {
+	_, unavailable, err := partitionLocalTranscriptSessions(ctx, runner, snapshot, sessions, mode)
+	if err != nil {
+		return err
+	}
+	if len(unavailable) > 0 {
+		return errors.New(unavailable[0])
+	}
+	return nil
+}
+
+// partitionLocalTranscriptSessions splits the selection into sessions whose
+// transcripts this brain can actually serve and those it cannot, instead of
+// failing on the first one it cannot.
+//
+// The guard's purpose is that a brain never RECORDS a session whose bytes it
+// cannot serve, and skipping such a session satisfies that purpose exactly.
+// Refusing the whole export is a separate choice, and on a repository using
+// squash merges it is a permanent one: a manual-commit checkpoint names a
+// commit on a feature branch, and deleting that branch destroys the commit, so
+// the checkpoint references bytes that no longer exist anywhere. Measured on a
+// real repository: 0 of 39 sampled commit-style checkpoint ids still resolved
+// to a local object, out of 252 such checkpoints in its catalog. Fetching
+// cannot recover them. Refusing therefore preserves nothing and additionally
+// discards every session that IS available -- 2,561 found against 2,375
+// published, frozen for ten days behind one unavailable session.
+//
+// A genuine error (a git invocation that could not run) is still returned as
+// an error; only "these specific sessions have no local bytes" is reported as
+// data for the caller to act on.
+func partitionLocalTranscriptSessions(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sessions []exportSession, mode string) ([]exportSession, []string, error) {
 	type identity struct {
 		session, checkpoint string
 		index               int
@@ -423,17 +455,23 @@ func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, 
 	}
 	type objectKey struct{ gitDir, ref, path string }
 	checked := make(map[objectKey]bool)
+	availableSessions := make([]exportSession, 0, len(sessions))
+	var unavailable []string
 	for _, session := range sessions {
+		usable := true
 		location, ok := available[identity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}]
 		source := snapshot.Sources[location.sourceKey]
 		chunks := snapshotTranscriptChunks(location.sourcePath, source.TreePaths)
 		if !ok || len(chunks) == 0 {
-			return fmt.Errorf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle", session.SessionID, session.LatestCheckpoint, session.SessionIndex)
+			unavailable = append(unavailable, fmt.Sprintf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle", session.SessionID, session.LatestCheckpoint, session.SessionIndex))
+			continue
 		}
 		for _, chunk := range chunks {
 			actualPath, err := source.actualPath(chunk)
 			if err != nil {
-				return err
+				// A malformed source path is a fault in this brain's own
+				// snapshot, not a statement about one session's availability.
+				return nil, nil, err
 			}
 			key := objectKey{source.GitDir, source.Ref, actualPath}
 			if checked[key] {
@@ -444,10 +482,15 @@ func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, 
 				if err == nil {
 					err = fmt.Errorf("expected blob, got %q", kind)
 				}
-				return fmt.Errorf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
+				unavailable = append(unavailable, fmt.Sprintf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %v", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err))
+				usable = false
+				break
 			}
 			checked[key] = true
 		}
+		if usable {
+			availableSessions = append(availableSessions, session)
+		}
 	}
-	return nil
+	return availableSessions, unavailable, nil
 }

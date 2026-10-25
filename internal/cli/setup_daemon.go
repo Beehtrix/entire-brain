@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // setup_daemon.go is the install glue behind `setup`: it turns one
@@ -461,7 +463,7 @@ func withDaemonRegistrationLock(env EntireEnv, fn func() error) error {
 		return fn()
 	}
 	stateDir := filepath.Dir(planPath)
-	if err := rejectExistingSymlinkPathComponents(stateDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(stateDir, brainLockDirName); err != nil {
 		return fn()
 	}
 	lock, err := acquireFileLock(filepath.Join(stateDir, brainLockDirName, setupDaemonLockName), "daemon_install_locked", brainWriteLockTimeout)

@@ -180,7 +180,7 @@ func readFactFilesManifest(dir string) (factFilesManifest, error) {
 	// the manifest would feed this export a reconciliation record from outside
 	// --dir — and then act on it, deleting whatever it named. A symlinked
 	// manifest reads as no manifest, which prunes nothing.
-	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
 		return manifest, nil
 	}
 	data, err := os.ReadFile(filepath.Join(dir, factFilesManifestName))
@@ -229,7 +229,7 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, "..") {
 			continue
 		}
-		if err := rejectExistingSymlinkPathComponents(dir, clean); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(dir, clean); err != nil {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, clean)); err != nil {
@@ -249,7 +249,7 @@ func pruneStaleFactFiles(dir string, previous factFilesManifest, written map[str
 	sort.Sort(sort.Reverse(sort.StringSlice(dirs)))
 	for _, rel := range dirs {
 		for current := rel; current != "."; current = filepath.Dir(current) {
-			if err := rejectExistingSymlinkPathComponents(dir, current); err != nil {
+			if err := base.RejectExistingSymlinkPathComponents(dir, current); err != nil {
 				break
 			}
 			if err := os.Remove(filepath.Join(dir, current)); err != nil {
@@ -318,7 +318,7 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 		// name and the escape happens in the filesystem, not in the string.
 		// Every other place in this codebase that writes under a user-named
 		// output directory checks this first.
-		if err := rejectExistingSymlinkPathComponents(dir, relDir); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(dir, relDir); err != nil {
 			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("refusing to write into %s: %w", relDir, err), manifestErr)
 		}
@@ -333,7 +333,7 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 			return result, withManifestFailure(fmt.Errorf("memories %s and %s both map to %s; one would silently replace the other", owner, fact.ID, rel), manifestErr)
 		}
 		claimed[rel] = fact.ID
-		if err := rejectExistingSymlinkPathComponents(dir, rel); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(dir, rel); err != nil {
 			manifestErr := recordPartialExport(dir, branch, previous, result.Files)
 			return result, withManifestFailure(fmt.Errorf("refusing to write %s: %w", rel, err), manifestErr)
 		}
@@ -379,7 +379,7 @@ func writeFactFiles(dir, branch string, facts []factRecord) (factFilesResult, er
 //
 // The caller reports failures so an unrecorded export is never silent.
 func writeFactFilesManifest(dir, branch string, files []string) error {
-	if err := rejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(dir, factFilesManifestName); err != nil {
 		// The manifest is a file like any other, in a directory somebody could
 		// have planted a symlink in. Without this check it is the one write in
 		// this function that could still be redirected out of --dir.

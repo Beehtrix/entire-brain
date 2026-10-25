@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -265,7 +265,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return errors.New("--agent-timeout-action must be keep-quick, continue, or fail")
 	}
 
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -622,7 +622,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		// the digest and discard the binary verdict rather than skipping both.
 		// Without it, editing a PDF under docs/ leaves the fingerprint
 		// identical and the packet looks fresh when it is not.
-		if sum, _, hashErr := base.HashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
+		if sum, _, hashErr := clibase.HashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
 			entry.Hash = sum
 		}
 		entry.Reason = "included as an extracted document"
@@ -639,7 +639,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 	// an ordinary refresh allocate the full size of the largest doc in the repo —
 	// unbounded, and attacker- or accident-controlled. Hashing incrementally keeps
 	// the recorded digest byte-identical while holding only one buffer.
-	if sum, binary, err := base.HashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
+	if sum, binary, err := clibase.HashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
 		if binary {
 			entry.Included = false
 			entry.Reason = "binary content"
@@ -770,7 +770,7 @@ func isTestPath(path string) bool {
 func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
+	data, err := clibase.SafeReadFile(path, clibase.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -791,7 +791,7 @@ func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 func miseCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
+	data, err := clibase.SafeReadFile(path, clibase.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -975,12 +975,12 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		}
 		dir := filepath.Dir(cleanDst)
 		if dir != "." {
-			if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+			if err := clibase.RejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
 		src := filepath.Join(scan.RepoDir, cleanSrc)
-		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
 		if doc.Extracted {
@@ -988,7 +988,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// zip's central directory both live at the end, so the prefix read
 			// below would hand the extractor a file it cannot parse. The output
 			// is bounded instead, by extractDocumentText.
-			data, err := base.SafeReadFile(src, maxExtractDocumentBytes)
+			data, err := clibase.SafeReadFile(src, maxExtractDocumentBytes)
 			if err != nil {
 				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
@@ -1013,7 +1013,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// detect that truncation is needed. Slurping the whole file first made
 		// the peak allocation the SOURCE file's size, which for a doc that is
 		// kept precisely because it is oversized is pure waste.
-		data, truncated, err := base.ReadFilePrefix(src, limit)
+		data, truncated, err := clibase.ReadFilePrefix(src, limit)
 		if err != nil {
 			continue
 		}
@@ -1397,7 +1397,7 @@ func splitCommitParents(value string) []string {
 
 func checkpointTrailers(body string) []string {
 	var checkpoints []string
-	for _, match := range base.CheckpointTrailerRegex.FindAllStringSubmatch(body, -1) {
+	for _, match := range clibase.CheckpointTrailerRegex.FindAllStringSubmatch(body, -1) {
 		if len(match) > 1 {
 			checkpoints = append(checkpoints, match[1])
 		}
@@ -1419,7 +1419,7 @@ func commitBodyExcerpt(body string) string {
 	var lines []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, base.CheckpointTrailerKey+":") {
+		if line == "" || strings.HasPrefix(line, clibase.CheckpointTrailerKey+":") {
 			continue
 		}
 		lines = append(lines, line)

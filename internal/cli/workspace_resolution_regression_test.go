@@ -1,29 +1,33 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
+)
 
 func TestWorkspaceResolutionPayloadSelectsBestCrossRepoSymbols(t *testing.T) {
 	const (
 		consumer = "local/app"
 		library  = "npm/@acme/lib"
 	)
-	source := workspaceGraphSymbolRef{
+	source := workspace.SymbolRef{
 		RepoKey: consumer, ID: "app:run", Kind: "function", Name: "run",
 		QualifiedName: "app.run", FilePath: "src/app.ts",
 	}
-	indexes := []workspaceRepoGraphIndex{
+	indexes := []workspace.RepoGraphIndex{
 		{
 			RepoKey: consumer,
-			Imports: []workspaceGraphImportRef{{
+			Imports: []workspace.ImportRef{{
 				Spec: "@acme/lib/api/Client", Source: source, Count: 3,
 			}},
-			ExternalSymbols: []workspaceGraphExternalSymbolRef{{
+			ExternalSymbols: []workspace.ExternalSymbolRef{{
 				Spec: "api.Client", Type: "CALLS", Source: source, Count: 2,
 			}},
 		},
 		{
 			RepoKey: library,
-			Candidates: []workspaceGraphSymbolRef{
+			Candidates: []workspace.SymbolRef{
 				// These malformed and file records look exact but cannot be targets.
 				{RepoKey: library, ID: "", Kind: "class", Name: "Client", QualifiedName: "api.Client", FilePath: "src/api/empty.ts"},
 				{RepoKey: library, ID: "lib:file", Kind: "file", Name: "Client", QualifiedName: "api.Client", FilePath: "src/api/client.ts"},
@@ -36,20 +40,20 @@ func TestWorkspaceResolutionPayloadSelectsBestCrossRepoSymbols(t *testing.T) {
 		},
 		{
 			RepoKey: "npm/@acme/unrelated",
-			Candidates: []workspaceGraphSymbolRef{{
+			Candidates: []workspace.SymbolRef{{
 				RepoKey: "npm/@acme/unrelated", ID: "wrong:client", Kind: "class",
 				Name: "Other", QualifiedName: "other.Other", FilePath: "other/other.ts",
 			}},
 		},
 	}
 
-	crossEdges := workspaceGraphImportCrossEdges(indexes, 20)
-	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(indexes, 20)...)
+	crossEdges := workspace.GraphImportCrossEdges(indexes, 20)
+	crossEdges = append(crossEdges, workspace.GraphExternalSymbolCrossEdges(indexes, 20)...)
 	if len(crossEdges) != 2 {
 		t.Fatalf("cross edges = %#v, want one import and one external-symbol edge", crossEdges)
 	}
 
-	seen := map[string]workspaceGraphCrossEdge{}
+	seen := map[string]workspace.CrossEdge{}
 	for _, edge := range crossEdges {
 		seen[edge.RelationKind] = edge
 		if edge.ToRepo != library {
@@ -67,22 +71,22 @@ func TestWorkspaceResolutionPayloadSelectsBestCrossRepoSymbols(t *testing.T) {
 }
 
 func TestWorkspaceResolutionPayloadUsesDeterministicTiesAndRejectsNonMatches(t *testing.T) {
-	source := workspaceGraphSymbolRef{RepoKey: "local/app", ID: "app:run", Kind: "function", Name: "run"}
-	indexes := []workspaceRepoGraphIndex{
+	source := workspace.SymbolRef{RepoKey: "local/app", ID: "app:run", Kind: "function", Name: "run"}
+	indexes := []workspace.RepoGraphIndex{
 		{
 			RepoKey: "local/app",
-			Imports: []workspaceGraphImportRef{
+			Imports: []workspace.ImportRef{
 				{Spec: "@acme/lib/api/Client", Source: source, Count: 1},
 				{Spec: "@acme/missing/Client", Source: source, Count: 1},
 			},
-			ExternalSymbols: []workspaceGraphExternalSymbolRef{
+			ExternalSymbols: []workspace.ExternalSymbolRef{
 				{Spec: "Client", Type: "CALLS", Source: source, Count: 1},
 				{Spec: "DoesNotExist", Type: "CALLS", Source: source, Count: 1},
 			},
 		},
 		{
 			RepoKey: "npm/@acme/lib",
-			Candidates: []workspaceGraphSymbolRef{
+			Candidates: []workspace.SymbolRef{
 				{RepoKey: "npm/@acme/lib", ID: "lib:z", Kind: "class", Name: "Client", QualifiedName: "Client", FilePath: "z/client.ts"},
 				{RepoKey: "npm/@acme/lib", ID: "lib:b", Kind: "class", Name: "Client", QualifiedName: "Client", FilePath: "a/client.ts"},
 				{RepoKey: "npm/@acme/lib", ID: "lib:a", Kind: "class", Name: "Client", QualifiedName: "Client", FilePath: "a/client.ts"},
@@ -91,8 +95,8 @@ func TestWorkspaceResolutionPayloadUsesDeterministicTiesAndRejectsNonMatches(t *
 		},
 	}
 
-	imports := workspaceGraphImportCrossEdges(indexes, 10)
-	externals := workspaceGraphExternalSymbolCrossEdges(indexes, 10)
+	imports := workspace.GraphImportCrossEdges(indexes, 10)
+	externals := workspace.GraphExternalSymbolCrossEdges(indexes, 10)
 	if len(imports) != 1 || imports[0].ToSymbol.ID != "lib:a" {
 		t.Fatalf("deterministic import resolution = %#v", imports)
 	}
@@ -105,7 +109,7 @@ func TestWorkspaceResolutionPayloadUsesDeterministicTiesAndRejectsNonMatches(t *
 }
 
 func TestWorkspaceResolutionPayloadFallsBackToCodeTargets(t *testing.T) {
-	candidates := []workspaceGraphSymbolRef{
+	candidates := []workspace.SymbolRef{
 		{RepoKey: "npm/@acme/lib", ID: "lib:docs", Kind: "section", Name: "Overview", FilePath: "README.md"},
 		{RepoKey: "npm/@acme/lib", ID: "lib:file", Kind: "file", Name: "client", FilePath: "src/client.ts"},
 		{RepoKey: "npm/@acme/lib", ID: "lib:code", Kind: "function", Name: "createClient", FilePath: "src/client.ts"},
@@ -120,12 +124,12 @@ func TestWorkspaceResolutionPayloadFallsBackToCodeTargets(t *testing.T) {
 		{name: "unknown subpath", spec: "@acme/lib/not/present"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
+			edges := workspace.GraphImportCrossEdges([]workspace.RepoGraphIndex{
 				{
 					RepoKey: "local/app",
-					Imports: []workspaceGraphImportRef{{
+					Imports: []workspace.ImportRef{{
 						Spec:   tc.spec,
-						Source: workspaceGraphSymbolRef{RepoKey: "local/app", ID: "app:run", Kind: "function"},
+						Source: workspace.SymbolRef{RepoKey: "local/app", ID: "app:run", Kind: "function"},
 						Count:  1,
 					}},
 				},
@@ -137,13 +141,13 @@ func TestWorkspaceResolutionPayloadFallsBackToCodeTargets(t *testing.T) {
 		})
 	}
 
-	if edges := workspaceGraphImportCrossEdges([]workspaceRepoGraphIndex{
-		{RepoKey: "local/app", Imports: []workspaceGraphImportRef{{Spec: "@acme/empty", Count: 1}}},
+	if edges := workspace.GraphImportCrossEdges([]workspace.RepoGraphIndex{
+		{RepoKey: "local/app", Imports: []workspace.ImportRef{{Spec: "@acme/empty", Count: 1}}},
 		{RepoKey: "npm/@acme/empty"},
 	}, 10); len(edges) != 0 {
 		t.Fatalf("empty target repository produced edges: %#v", edges)
 	}
-	if _, ok := workspaceExternalSymbolTarget(candidates, "   "); ok {
+	if _, ok := workspace.ExternalSymbolTarget(candidates, "   "); ok {
 		t.Fatal("blank external symbol unexpectedly resolved")
 	}
 }

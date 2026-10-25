@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -156,7 +157,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed derived corpus fails closed", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patternCorpusPath))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patterncore.CorpusPath))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}

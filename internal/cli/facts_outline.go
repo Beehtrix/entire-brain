@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_outline.go builds the Appendix-D "synthesized hierarchical outline": a
@@ -78,7 +78,7 @@ func factHomeKey(f factRecord) string {
 		return ""
 	}
 	best := ""
-	for _, tok := range base.FactLocusOf(f) {
+	for _, tok := range clibase.FactLocusOf(f) {
 		if !looksLikeSourcePath(tok) {
 			continue
 		}
@@ -231,7 +231,7 @@ func writeFactOutline(brainDir, branch string, outline factOutline) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(outline, "", "  ")
@@ -325,7 +325,7 @@ func outlineCleanSummary(out string) string {
 		line = strings.TrimSpace(line)
 		line = strings.TrimLeft(line, "-*• ")
 		if line != "" {
-			return base.TruncateString(line, 280)
+			return clibase.TruncateString(line, 280)
 		}
 	}
 	return ""

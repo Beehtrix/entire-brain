@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // historyLegacyIdentity is a complete strong identity derived from one fully
@@ -171,15 +173,15 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 		return "", err
 	}
 	path := filepath.Join(brainDir, clean)
-	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
+	if err := base.RejectUnsafeExistingRegularFile(path, "history index"); err != nil {
 		return "", historyHardlinkRepairHint(err)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags(), 0)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
 		return "", historyHardlinkRepairHint(err)
 	}
 	before, err := f.Stat()
@@ -211,7 +213,7 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		return "", errors.New("history index changed while verifying identity")
 	}
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
 		return "", historyHardlinkRepairHint(err)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil

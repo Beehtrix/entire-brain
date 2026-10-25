@@ -638,7 +638,7 @@ func withWatchCursorLock(cursorPath string, fn func() error) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(root, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(root, brainLockDirName); err != nil {
 		return err
 	}
 	lock, err := acquireFileLock(filepath.Join(root, brainLockDirName, watchCursorLockName), "watch_locked", brainWriteLockTimeout)

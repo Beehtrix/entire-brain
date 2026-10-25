@@ -79,7 +79,7 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 		}
 		storedJSON, _ := json.Marshal(in.rec)
 		currentJSON, _ := json.Marshal(current)
-		if current.Fingerprint != fingerprint || redactText(string(storedJSON)) != redactText(string(currentJSON)) {
+		if current.Fingerprint != fingerprint || base.RedactText(string(storedJSON)) != base.RedactText(string(currentJSON)) {
 			return deepSkillInput{}, false, nil
 		}
 	}
@@ -94,7 +94,7 @@ func knowledgeDossierFingerprint(rec deepDossierRecord, sampleFP string) string 
 	if err != nil {
 		return ""
 	}
-	return "sha256:" + hexSHA("knowledge/v2\x00"+sampleFP+"\x00"+redactText(string(payload)))
+	return "sha256:" + base.HexSHA("knowledge/v2\x00"+sampleFP+"\x00"+base.RedactText(string(payload)))
 }
 
 func knowledgeSampleFingerprint(payload []byte) string {
@@ -252,5 +252,5 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 		fmt.Fprintf(&b, "Evidence (%s, %s):\n%s\n", a.SessionID, a.Outcome, base.TruncateString(a.Excerpt, 1200))
 		excerpts++
 	}
-	return redactText(b.String())
+	return base.RedactText(b.String())
 }

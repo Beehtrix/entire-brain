@@ -23,16 +23,6 @@ import (
 // brain_delete_project hands to os.RemoveAll: the whole plugin data root,
 // workspaces and every other project's brain included.
 
-func TestRejectExistingSymlinkPathComponentsRejectsBareDotDot(t *testing.T) {
-	t.Parallel()
-	// root deliberately absent — the first-write case the guard is written to
-	// tolerate, and the case where the containment check short-circuits.
-	root := filepath.Join(t.TempDir(), "repos")
-	if err := rejectExistingSymlinkPathComponents(root, ".."); err == nil {
-		t.Fatalf("guard accepted %q, which resolves to the parent of root (%s)", "..", filepath.Dir(root))
-	}
-}
-
 func TestRejectSymlinkPathComponentsRejectsBareDotDot(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join(t.TempDir(), "repos")

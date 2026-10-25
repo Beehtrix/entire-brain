@@ -6,11 +6,15 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func openCorpus(t *testing.T, brainDir string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath)))
+	db, err := sql.Open(sqlitedriver.Name, filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,19 +35,6 @@ func openCorpusReadSnapshot(t *testing.T, brainDir string) *patternCorpusReadDB 
 	return db
 }
 
-type corpusRowQueryer interface {
-	QueryRow(query string, args ...any) *sql.Row
-}
-
-func corpusCount(t *testing.T, db corpusRowQueryer, table string) int {
-	t.Helper()
-	var n int
-	if err := db.QueryRow("SELECT COUNT(*) FROM " + table).Scan(&n); err != nil {
-		t.Fatalf("count %s: %v", table, err)
-	}
-	return n
-}
-
 const codexCommitTranscript = `{"type":"event_msg","payload":{"type":"user_message","message":"run the tests and commit the change"}}
 {"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"go test ./...\"}"}}
 {"type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\"cmd\":\"git commit -am wip\"}"}}
@@ -59,13 +50,13 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openCorpusReadSnapshot(t, brainDir)
-	ep1 := corpusCount(t, db, "episodes")
-	cmd1 := corpusCount(t, db, "episode_commands")
-	gram1 := corpusCount(t, db, "grams")
+	ep1 := patterntest.CorpusCount(t, db, "episodes")
+	cmd1 := patterntest.CorpusCount(t, db, "episode_commands")
+	gram1 := patterntest.CorpusCount(t, db, "grams")
 	if ep1 == 0 || cmd1 < 2 || gram1 < 1 {
 		t.Fatalf("expected episodes/commands/grams populated: ep=%d cmd=%d gram=%d", ep1, cmd1, gram1)
 	}
-	if n := corpusCount(t, db, "indexed_sessions"); n != 1 {
+	if n := patterntest.CorpusCount(t, db, "indexed_sessions"); n != 1 {
 		t.Errorf("indexed_sessions=%d, want 1", n)
 	}
 
@@ -75,13 +66,13 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	db = openCorpusReadSnapshot(t, brainDir)
-	if ep2 := corpusCount(t, db, "episodes"); ep2 != ep1 {
+	if ep2 := patterntest.CorpusCount(t, db, "episodes"); ep2 != ep1 {
 		t.Errorf("episodes after re-build = %d, want %d (no duplication)", ep2, ep1)
 	}
-	if cmd2 := corpusCount(t, db, "episode_commands"); cmd2 != cmd1 {
+	if cmd2 := patterntest.CorpusCount(t, db, "episode_commands"); cmd2 != cmd1 {
 		t.Errorf("episode_commands after re-build = %d, want %d", cmd2, cmd1)
 	}
-	if gram2 := corpusCount(t, db, "grams"); gram2 != gram1 {
+	if gram2 := patterntest.CorpusCount(t, db, "grams"); gram2 != gram1 {
 		t.Errorf("grams after re-build = %d, want %d", gram2, gram1)
 	}
 
@@ -101,7 +92,7 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	db = openCorpusReadSnapshot(t, brainDir)
-	if ep3 := corpusCount(t, db, "episodes"); ep3 != ep1 {
+	if ep3 := patterntest.CorpusCount(t, db, "episodes"); ep3 != ep1 {
 		t.Errorf("episodes after version-bump rebuild = %d, want %d", ep3, ep1)
 	}
 }
@@ -115,7 +106,7 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openCorpusReadSnapshot(t, brainDir)
-	before := corpusCount(t, db, "episodes")
+	before := patterntest.CorpusCount(t, db, "episodes")
 
 	// Rewrite the transcript with a single user turn → one episode, no commands.
 	tp := filepath.Join(brainDir, "sessions", "main", "s1.jsonl")
@@ -127,7 +118,7 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	db = openCorpusReadSnapshot(t, brainDir)
-	after := corpusCount(t, db, "episodes")
+	after := patterntest.CorpusCount(t, db, "episodes")
 	if after != 1 {
 		t.Fatalf("replacement transcript produced %d episodes, want 1", after)
 	}
@@ -135,7 +126,7 @@ func TestPatternCorpusChangedSessionReplaces(t *testing.T) {
 		t.Errorf("changed session should replace rows: before=%d after=%d", before, after)
 	}
 	// No orphaned child rows from the replaced episodes.
-	if c := corpusCount(t, db, "episode_commands"); c != 0 {
+	if c := patterntest.CorpusCount(t, db, "episode_commands"); c != 0 {
 		t.Errorf("expected commands replaced to 0 for the new single-turn transcript, got %d", c)
 	}
 }
@@ -150,7 +141,7 @@ func TestPatternCorpusPrunesDeletedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openCorpusReadSnapshot(t, brainDir)
-	if n := corpusCount(t, db, "indexed_sessions"); n != 2 {
+	if n := patterntest.CorpusCount(t, db, "indexed_sessions"); n != 2 {
 		t.Fatalf("indexed_sessions=%d, want 2", n)
 	}
 
@@ -168,7 +159,7 @@ func TestPatternCorpusPrunesDeletedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	db = openCorpusReadSnapshot(t, brainDir)
-	if n := corpusCount(t, db, "indexed_sessions"); n != 1 {
+	if n := patterntest.CorpusCount(t, db, "indexed_sessions"); n != 1 {
 		t.Errorf("indexed_sessions after prune = %d, want 1", n)
 	}
 	var leftover int

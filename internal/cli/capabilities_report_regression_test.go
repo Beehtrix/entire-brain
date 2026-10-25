@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestCapabilitiesHumanReportNamesBuildGatesWithoutRepositoryAccess(t *testing.T) {
@@ -15,7 +17,7 @@ func TestCapabilitiesHumanReportNamesBuildGatesWithoutRepositoryAccess(t *testin
 	}
 	for _, want := range []string{
 		"Entire Brain regression-capability-version",
-		fmt.Sprintf("Build: %s (brain_cgo=%t)", sqliteDriverName, brainCGOBuild),
+		fmt.Sprintf("Build: %s (brain_cgo=%t)", sqlitedriver.Name, brainCGOBuild),
 		"Retrieval: BM25 keyword (semantic retrieval removed)",
 		"fact: keyword; semantic compiled=false (default)",
 		"conversation: keyword; semantic compiled=false (experimental, explicit opt-in)",

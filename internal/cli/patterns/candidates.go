@@ -1,4 +1,4 @@
-package cli
+package patterns
 
 import (
 	"database/sql"
@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Pattern candidate discovery (V2, Phase 3).
@@ -24,7 +26,7 @@ import (
 
 const (
 	candidateMinSupport = 3
-	promotionThreshold  = 0.65
+	PromotionThreshold  = 0.65
 	// A task only promotes if its command shape is itself non-generic. This is
 	// what keeps generic git/review loops out of the promotable set even when an
 	// episode incidentally touched a file we hold a fact about — that knowledge
@@ -32,13 +34,13 @@ const (
 	promotionSpecFloor = 0.35
 )
 
-// buildPatternCandidates rebuilds the patterns/pattern_evidence tables from the
+// BuildCandidates rebuilds the patterns/pattern_evidence tables from the
 // freshly-indexed corpus. Deterministic; runs inside the corpus build.
-func buildPatternCandidates(db *sql.DB, repoKey string, now time.Time) error {
+func BuildCandidates(db *sql.DB, repoKey string, now time.Time) error {
 	if _, err := db.Exec(`DELETE FROM patterns`); err != nil { // cascades pattern_evidence
 		return err
 	}
-	corpusN := corpusScalar(db, `SELECT COUNT(*) FROM episodes WHERE n_cmds > 0`)
+	corpusN := CorpusScalar(db, `SELECT COUNT(*) FROM episodes WHERE n_cmds > 0`)
 	if corpusN == 0 {
 		return nil
 	}
@@ -204,11 +206,10 @@ func insertPracticeCandidates(db *sql.DB, repoKey string, _ map[string]int, _ in
 	return rows.Err()
 }
 
-// --- scoring (per docs/pattern_v2.md) ---
-
-func supportScoreV2(support int) float64 {
-	return clamp01(math.Log2(1+float64(support)) / math.Log2(31))
+func SupportScoreV2(support int) float64 {
+	return base.Clamp01(math.Log2(1+float64(support)) / math.Log2(31))
 }
+
 func recencyScoreV2(lastSeen string) float64 {
 	t, err := time.Parse(time.RFC3339, lastSeen)
 	if err != nil {
@@ -224,14 +225,16 @@ func recencyScoreV2(lastSeen string) float64 {
 		return 0.3
 	}
 }
-func outcomeScoreV2(support, succ, corr, fail int) float64 {
+
+func OutcomeScoreV2(support, succ, corr, fail int) float64 {
 	if support == 0 {
 		return 0.5
 	}
-	return clamp01(0.5 + 0.5*float64(succ-corr-fail)/float64(support))
+	return base.Clamp01(0.5 + 0.5*float64(succ-corr-fail)/float64(support))
 }
+
 func diversityScoreV2(repos, authors, branches int) float64 {
-	d := func(n int) float64 { return clamp01(float64(n-1) / 2.0) }
+	d := func(n int) float64 { return base.Clamp01(float64(n-1) / 2.0) }
 	return (d(repos) + d(authors) + d(branches)) / 3.0
 }
 
@@ -252,7 +255,7 @@ func gramSpecificity(gram string, commandDF map[string]int, corpusN int) float64
 		return 0
 	}
 	best := 0.0
-	for _, head := range strings.Split(gram, gramSep) {
+	for _, head := range strings.Split(gram, GramSep) {
 		head = strings.TrimSpace(head)
 		if head == "" {
 			continue
@@ -265,16 +268,18 @@ func gramSpecificity(gram string, commandDF map[string]int, corpusN int) float64
 			best = idf
 		}
 	}
-	return clamp01(best / maxIDF)
+	return base.Clamp01(best / maxIDF)
 }
 
 func taskScoreV2(support int, spec float64, succ, corr, fail, repos, authors, branches int, lastSeen string) float64 {
-	return 0.35*supportScoreV2(support) + 0.10*recencyScoreV2(lastSeen) +
-		0.25*spec + 0.20*outcomeScoreV2(support, succ, corr, fail) + 0.10*diversityScoreV2(repos, authors, branches)
+	return 0.35*SupportScoreV2(support) + 0.10*recencyScoreV2(lastSeen) +
+		0.25*spec + 0.20*OutcomeScoreV2(support, succ, corr, fail) + 0.10*diversityScoreV2(repos, authors, branches)
 }
+
 func procedureScoreV2(support int, spec float64, succ, corr, fail int, lastSeen string) float64 {
-	return 0.30*supportScoreV2(support) + 0.10*recencyScoreV2(lastSeen) + 0.25*spec + 0.20*outcomeScoreV2(support, succ, corr, fail) + 0.15*0
+	return 0.30*SupportScoreV2(support) + 0.10*recencyScoreV2(lastSeen) + 0.25*spec + 0.20*OutcomeScoreV2(support, succ, corr, fail) + 0.15*0
 }
+
 func riskScoreV2(support int, spec float64, corr, fail int, lastSeen string) float64 {
 	rate := 1.0 // these episodes are by definition corrected/failed
 	if support == 0 {
@@ -282,20 +287,21 @@ func riskScoreV2(support int, spec float64, corr, fail int, lastSeen string) flo
 	}
 	_ = corr
 	_ = fail
-	return 0.30*supportScoreV2(support) + 0.30*rate + 0.20*spec + 0.20*recencyScoreV2(lastSeen)
+	return 0.30*SupportScoreV2(support) + 0.30*rate + 0.20*spec + 0.20*recencyScoreV2(lastSeen)
 }
+
 func practiceScoreV2(support, succ, corr, repos, authors, branches int, lastSeen string) float64 {
-	return 0.30*supportScoreV2(support) + 0.20*outcomeScoreV2(support, succ, corr, 0) + 0.15*diversityScoreV2(repos, authors, branches) + 0.10*recencyScoreV2(lastSeen) + 0.25*0.5
+	return 0.30*SupportScoreV2(support) + 0.20*OutcomeScoreV2(support, succ, corr, 0) + 0.15*diversityScoreV2(repos, authors, branches) + 0.10*recencyScoreV2(lastSeen) + 0.25*0.5
 }
 
 func applyPromotionGate(score float64, corroborated bool) float64 {
-	if !corroborated && score >= promotionThreshold {
-		return promotionThreshold - 0.01 // visible, but not dossier-eligible without corroboration
+	if !corroborated && score >= PromotionThreshold {
+		return PromotionThreshold - 0.01 // visible, but not dossier-eligible without corroboration
 	}
 	return score
 }
 
-func strengthLabelV2(score float64) string {
+func StrengthLabelV2(score float64) string {
 	switch {
 	case score >= 0.70:
 		return "high"
@@ -306,24 +312,23 @@ func strengthLabelV2(score float64) string {
 	}
 }
 
-// --- insertion + evidence ---
-
 func insertPattern(db *sql.DB, typ, repoKey, cluster, title, intentSig, gram string, score float64, support, repos, authors, branches, succ, corr, fail int, ts string) error {
 	return insertPatternRow(db, typ, repoKey, cluster, title, intentSig, gram, "", score, support, repos, authors, branches, succ, corr, fail, ts)
 }
+
 func insertPatternMeta(db *sql.DB, typ, repoKey, cluster, title, metaID string, score float64, support, repos, authors, branches, succ, corr, fail int, ts string) error {
 	return insertPatternRow(db, typ, repoKey, cluster, title, "", "", metaID, score, support, repos, authors, branches, succ, corr, fail, ts)
 }
 
 func insertPatternRow(db *sql.DB, typ, repoKey, cluster, title, intentSig, gram, metaID string, score float64, support, repos, authors, branches, succ, corr, fail int, ts string) error {
-	id := "pattern:" + hexSHA(typ+"\x00repo\x00"+repoKey+"\x00\x00"+cluster)
+	id := "pattern:" + base.HexSHA(typ+"\x00repo\x00"+repoKey+"\x00\x00"+cluster)
 	score = math.Round(score*1000) / 1000
 	if _, err := db.Exec(`INSERT INTO patterns
 		(id, type, scope, repo_key, workspace, cluster_key, title, intent_sig, gram, meta_id, strength, strength_label, support,
 		 n_repos, n_authors, n_branches, outcome_success, outcome_corrected, outcome_neutral, outcome_failed, fingerprint, status, created_at, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, typ, "repo", repoKey, "", cluster, redactText(title), intentSig, gram, metaID, score, strengthLabelV2(score), support,
-		repos, authors, branches, succ, corr, 0, fail, hexSHA(cluster+strconv.Itoa(support)), "active", ts, ts,
+		id, typ, "repo", repoKey, "", cluster, base.RedactText(title), intentSig, gram, metaID, score, StrengthLabelV2(score), support,
+		repos, authors, branches, succ, corr, 0, fail, base.HexSHA(cluster+strconv.Itoa(support)), "active", ts, ts,
 	); err != nil {
 		return err
 	}
@@ -402,7 +407,7 @@ func loadCommandDF(db *sql.DB) map[string]int {
 	return out
 }
 
-func corpusScalar(db *sql.DB, q string, args ...any) int {
+func CorpusScalar(db *sql.DB, q string, args ...any) int {
 	var n int
 	if err := db.QueryRow(q, args...).Scan(&n); err != nil {
 		return 0

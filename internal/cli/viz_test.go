@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // A server with no manifest (unbuilt brain) must degrade to an empty graph with
@@ -135,7 +137,7 @@ func TestVizNodeEdgeJSON(t *testing.T) {
 func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	t.Parallel()
 	dbPath := filepath.Join(t.TempDir(), "semantic.sqlite")
-	db, err := sql.Open(sqliteDriverName, dbPath)
+	db, err := sql.Open(sqlitedriver.Name, dbPath)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

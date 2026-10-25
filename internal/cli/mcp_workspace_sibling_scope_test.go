@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // workspaceSiblingFixture builds the layout every multi-repo workspace on this
@@ -36,15 +38,15 @@ func workspaceSiblingFixture(t *testing.T, workspaceName string) (opts Options, 
 	writeWorkspaceBrainRepoAt(t, env, boundKey, boundDir, session, "pkg/review_context.go", body)
 	writeWorkspaceBrainRepoAt(t, env, siblingKey, siblingDir, session, "pkg/review_context.go", body)
 
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          workspaceName,
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: boundKey, Name: "cli", LocalPathHint: boundDir},
 			{RepoKey: siblingKey, Name: "entiredb", LocalPathHint: siblingDir},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	return opts, boundDir, siblingKey
@@ -92,12 +94,12 @@ func TestMCPWorkspaceToolsRefuseWorkspaceWithoutTheBoundRepo(t *testing.T) {
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	strangerKey := testLocalRepoStorageKey(t, strangerDir)
 	writeWorkspaceBrainRepoAt(t, env, strangerKey, strangerDir, session, "pkg/review_context.go", "package x\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "not-mine",
-		Repos:         []workspaceRepo{{RepoKey: strangerKey, Name: "unrelated", LocalPathHint: strangerDir}},
+		Repos:         []workspace.Repo{{RepoKey: strangerKey, Name: "unrelated", LocalPathHint: strangerDir}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -230,15 +232,15 @@ func TestMCPWorkspaceMemberOutsideTheParentIsRefused(t *testing.T) {
 	writeWorkspaceBrainRepoAt(t, env, farKey, farDir, session, "pkg/review_context.go", "package x\n")
 
 	boundKey := testLocalRepoStorageKey(t, boundDir)
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "reaches-out",
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: boundKey, Name: "cli", LocalPathHint: boundDir},
 			{RepoKey: farKey, Name: "far", LocalPathHint: farDir},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, "brain_workspace_graph", map[string]any{"workspace": "reaches-out", "limit": float64(10)}))

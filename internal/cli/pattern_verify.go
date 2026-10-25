@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Pattern consolidation verifier (V2, Phase 4).
@@ -74,7 +76,7 @@ type dossierVerifyStats struct {
 // so hashing it captures all of them. Marshaled maps have deterministic
 // (key-sorted) output, so the fingerprint is stable for unchanged evidence.
 func proposalSampleFingerprint(payload []byte) string {
-	return "sha256:" + hexSHA(string(payload))
+	return "sha256:" + base.HexSHA(string(payload))
 }
 
 // verifyDossiers runs the agent verifier over the promotable dossiers that need
@@ -127,7 +129,7 @@ func verifyDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, m
 		}
 		if _, err := db.Exec(`UPDATE dossiers
 			SET verifier_json_redacted=?, verdict=?, verified_fingerprint=?, status='current', updated_at=?
-			WHERE pattern_id=?`, redactText(raw), verdict.Verdict, t.fingerprint, ts, t.patternID); err != nil {
+			WHERE pattern_id=?`, base.RedactText(raw), verdict.Verdict, t.fingerprint, ts, t.patternID); err != nil {
 			return stats, err
 		}
 		stats.Verified++
@@ -200,7 +202,7 @@ func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agen
 			stats.Failed++
 			continue
 		}
-		jsonRedacted := redactText(string(blob))
+		jsonRedacted := base.RedactText(string(blob))
 		var prior dossierVerdict
 		cacheBound := json.Unmarshal([]byte(cachedVerifier), &prior) == nil && prior.Verdict == cachedVerdict && prior.EvidenceFingerprint == deep.Fingerprint
 		if cachedFP == deep.Fingerprint && cachedVerdict != "" && cacheBound {
@@ -222,7 +224,7 @@ func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agen
 			VALUES (?,?,?,?,?,'current',?,?)
 			ON CONFLICT(pattern_id) DO UPDATE SET fingerprint=excluded.fingerprint, json_redacted=excluded.json_redacted,
 			    verifier_json_redacted=excluded.verifier_json_redacted, verdict=excluded.verdict, status='current', updated_at=excluded.updated_at`,
-			pid, deep.Fingerprint, jsonRedacted, redactText(raw), verdict.Verdict, ts, ts); err != nil {
+			pid, deep.Fingerprint, jsonRedacted, base.RedactText(raw), verdict.Verdict, ts, ts); err != nil {
 			return stats, err
 		}
 		stats.Verified++
@@ -231,7 +233,7 @@ func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agen
 }
 
 func runDeepVerifier(ctx context.Context, repoDir string, args []string, deepJSON, fingerprint string, run distillAgentRunner) (dossierVerdict, string, error) {
-	input := redactText(deepJSON)
+	input := base.RedactText(deepJSON)
 	out, err := run(ctx, repoDir, args, []byte(input), dossierVerifyTimeout)
 	if err != nil {
 		return dossierVerdict{}, "", fmt.Errorf("deep verifier agent: %w", err)
@@ -248,7 +250,7 @@ func runDeepVerifier(ctx context.Context, repoDir string, args []string, deepJSO
 func runDossierVerifier(ctx context.Context, repoDir string, args []string, dossierJSON, fingerprint string, run distillAgentRunner) (dossierVerdict, string, error) {
 	// Redaction boundary: the dossier is already redacted at rest, but redact
 	// again defensively before it leaves the brain as agent input.
-	input := redactText(dossierJSON)
+	input := base.RedactText(dossierJSON)
 	out, err := run(ctx, repoDir, args, []byte(input), dossierVerifyTimeout)
 	if err != nil {
 		return dossierVerdict{}, "", fmt.Errorf("verifier agent: %w", err)

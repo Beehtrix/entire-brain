@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // patternCorpusPrivacyArtifactRels derives the privacy inventory from the
@@ -15,7 +17,7 @@ import (
 // must agree about every SQLite leaf, including rollback journals.
 func patternCorpusPrivacyArtifactRels() []string {
 	rels := make([]string, 0, 1+len(patternCorpusSidecarNames))
-	rels = append(rels, patternCorpusPath)
+	rels = append(rels, patterncore.CorpusPath)
 	for _, name := range patternCorpusSidecarNames {
 		rels = append(rels, filepath.ToSlash(filepath.Join("patterns", name)))
 	}

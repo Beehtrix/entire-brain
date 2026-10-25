@@ -12,6 +12,7 @@ import (
 type capabilityRunner struct {
 	capabilitiesJSON string
 	capabilitiesErr  error
+	contextErr       error
 	calls            [][]string
 }
 
@@ -22,6 +23,9 @@ func (r *capabilityRunner) Run(ctx context.Context, dir, name string, args ...st
 			return nil, nil, r.capabilitiesErr
 		}
 		return []byte(r.capabilitiesJSON), nil, nil
+	}
+	if r.contextErr != nil {
+		return nil, []byte(r.contextErr.Error()), r.contextErr
 	}
 	// Any context call: a minimal exact answer.
 	return []byte(`{"schema_version":"1.1","commit":"c","tree":"t","symbols":[],"relations":[],"tests":[]}`), nil, nil
@@ -187,5 +191,36 @@ func TestAncestorProbeUsesTheHostVerbAndFailsClosedOnAPluginBinary(t *testing.T)
 	}
 	if !probed {
 		t.Fatalf("the probe did not use the host verb `<binary> graph capabilities`: %v", runner.calls)
+	}
+}
+
+// The flag documents itself as "Entire CLI binary that exposes `graph`
+// provider commands", so a bare provider plugin is an unsupported input and
+// failing closed is correct. Failing SILENTLY is the defect: every provider
+// call degrades, the brief simply has no code context, and nothing says why.
+func TestAPluginBinaryIsNamedAsTheCauseRatherThanDegradingSilently(t *testing.T) {
+	t.Parallel()
+	hostVerbRejected := errors.New(`unknown command "graph"; run "entire graph help" to list commands`)
+
+	if !graphBinaryRejectsHostVerb(hostVerbRejected) {
+		t.Fatal("the one failure that identifies an unsupported binary is not recognised")
+	}
+	for _, other := range []error{nil, errors.New("exit status 1"), errors.New("no such file or directory")} {
+		if graphBinaryRejectsHostVerb(other) {
+			t.Fatalf("an unrelated failure was blamed on the binary shape: %v", other)
+		}
+	}
+
+	runner := &capabilityRunner{capabilitiesErr: hostVerbRejected}
+	// The context call fails the same way a real plugin binary would.
+	runner.contextErr = hostVerbRejected
+	_, err := fetchGraphTaskContext(context.Background(), runner, "/repo", "eg-bare-plugin", "task", 8, 8)
+	if err == nil {
+		t.Fatal("an unsupported binary produced no error at all")
+	}
+	for _, want := range []string{"--graph-binary", "bare provider plugin", "eg-bare-plugin"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error does not tell the reader what is wrong (missing %q): %v", want, err)
+		}
 	}
 }

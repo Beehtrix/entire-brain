@@ -162,6 +162,11 @@ func fetchGraphTaskContext(ctx context.Context, runner CommandRunner, repoDir, g
 		if detail == "" {
 			detail = strings.TrimSpace(string(stdout))
 		}
+		if graphBinaryRejectsHostVerb(err) || strings.Contains(detail, `unknown command "graph"`) {
+			// Named rather than wrapped: a reader who passed the wrong kind of
+			// binary otherwise sees only "code context unavailable".
+			return graphTaskContext{}, fmt.Errorf("graph context: %s", graphHostVerbDetail(binary))
+		}
 		if detail != "" {
 			return graphTaskContext{}, fmt.Errorf("graph context: %w: %s", err, firstLine(detail))
 		}
@@ -322,6 +327,28 @@ func graphContextAllowsAncestor(ctx context.Context, runner CommandRunner, repoD
 	supported := probeGraphAncestorSupport(ctx, runner, repoDir, binary)
 	graphAncestorSupport.Store(binary, supported)
 	return supported
+}
+
+// graphBinaryRejectsHostVerb recognises the one failure that means the binary
+// is not what --graph-binary asks for.
+//
+// That flag documents itself as "Entire CLI binary that exposes `graph`
+// provider commands", so a bare provider plugin — which answers `capabilities`
+// and `context` directly and rejects the `graph` prefix — is an unsupported
+// input rather than a shape to accommodate. Failing closed is therefore
+// correct. Failing SILENTLY is not: every provider call degrades, the brief
+// simply has no code context, and nothing says why.
+func graphBinaryRejectsHostVerb(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), `unknown command "graph"`)
+}
+
+// graphHostVerbDetail is the one wording for that cause, so the brief and the
+// capability probe explain it identically.
+func graphHostVerbDetail(binary string) string {
+	return fmt.Sprintf("%s does not expose `graph` provider commands; --graph-binary needs an Entire CLI, not a bare provider plugin", binary)
 }
 
 func probeGraphAncestorSupport(ctx context.Context, runner CommandRunner, repoDir, binary string) bool {

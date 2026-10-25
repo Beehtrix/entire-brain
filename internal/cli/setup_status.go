@@ -350,70 +350,19 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	return components
 }
 
-// semanticReadabilityAxes are the freshness axes that report whether the
-// semantic index's own bytes on disk can be read at all, as opposed to how far
-// behind the worktree they are.
-var semanticReadabilityAxes = []string{"store", "snapshot"}
-
-// markUnreadableSemanticComponent downgrades the instant phase's `semantic`
-// marker when the index is present on disk but unreadable.
-//
-// instantPhaseComponents answers from manifest PRESENCE, and a shredded SQLite
-// file is still present, so the default report printed `+ semantic` directly
-// above a verdict naming `store=unsafe`: the one line a reader scans for "did
-// every source build" contradicted the line below it. The setup record already
-// wins over presence for exactly this reason — a source that is there but that
-// every query fails against is not built — and store integrity is the same
-// signal arriving from the freshness report instead of from the last setup.
-//
-// Only the readability axes count. A merely stale index still built, and the
-// verdict already says so; marking it failed would report a rebuild as a
-// breakage.
-func markUnreadableSemanticComponent(onboarding *brainStatusOnboarding, freshness *staleReport) {
-	if onboarding == nil || freshness == nil {
-		return
-	}
-	unsafe, ok := staleAxis{}, false
-	for _, name := range semanticReadabilityAxes {
-		if axis, found := freshness.Axes[name]; found && axis.State == "unsafe" {
-			unsafe, ok = axis, true
-			break
-		}
-	}
-	if !ok {
-		return
-	}
-	for i, component := range onboarding.Components {
-		// A component the last setup already recorded as failed keeps that
-		// record: it carries the build's own reason, which is more specific
-		// than "the file will not open now".
-		if component.Name != "semantic" || component.State != "built" {
-			continue
-		}
-		onboarding.Components[i].State = "failed"
-		onboarding.Components[i].Detail = unsafe.Detail
-	}
-}
-
 // markMissingDeclaredIndexes downgrades an instant component whose manifest
 // entry declares an artifact the store no longer holds.
 //
-// Same mechanism as markUnreadableSemanticComponent, one source wider. That
-// function taught the instant line to stop answering from manifest PRESENCE for
-// `semantic`, using the freshness report's readability axes; docs and history
-// have no such axes on this line, so they kept reporting `+ docs  + history`
-// with both directories deleted. The signal here is the weakest and most
-// direct one there is — is the declared file on disk — which is precisely what
-// "report what is on disk, not what the manifest claims" asks for.
+// Manifest presence alone cannot show whether a declared index still exists.
+// Inspect the files so deleted docs and history indexes are not reported as built.
 //
 // "failed", not "missing": missing means never attempted, and a manifest entry
 // is proof it WAS. Reporting a deleted index as never-built is how a corrupt
 // brain reads as a new one, and the new-brain case is protected instead by the
 // only rule that can protect it — an undeclared source is never inspected.
 //
-// A component the last setup already recorded as failed keeps that record, for
-// the same reason as the semantic case: the build's own reason is more specific
-// than "the file is not there now".
+// A component the last setup already recorded as failed keeps that record:
+// the build's own reason is more specific than "the file is not there now".
 func markMissingDeclaredIndexes(onboarding *brainStatusOnboarding, brainDir string, manifest *exportManifest) {
 	if onboarding == nil {
 		return

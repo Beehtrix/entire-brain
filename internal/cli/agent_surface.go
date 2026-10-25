@@ -4721,7 +4721,6 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" setup so your agent uses this brain")
 		}
 	}
-	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
 	if backgroundPaused(opts.Env) {

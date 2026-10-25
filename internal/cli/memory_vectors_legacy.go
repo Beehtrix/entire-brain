@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Semantic retrieval was removed (trail #278), and with it every vector
@@ -70,7 +72,7 @@ func newMemoryVectorProgressLoadError(err error, version int) *memoryVectorProgr
 }
 
 func loadMemoryVectorProgress(brainDir string) (memoryVectorProgress, bool, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryVectorProgressRel, "vector progress", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryVectorProgressRel, "vector progress", base.MaxManifestBytes)
 	if err != nil {
 		return memoryVectorProgress{}, present, newMemoryVectorProgressLoadError(err, 0)
 	}

@@ -11,6 +11,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Task candidates (Pattern Consolidation, Phase 2 redo).
@@ -276,7 +278,7 @@ func matchFactsToTask(facts []factRecord, label string, cmdFreq map[string]int) 
 			}
 		}
 		if overlap > 0 {
-			matched = append(matched, scored{truncateString(f.Text, 200), overlap})
+			matched = append(matched, scored{base.TruncateString(f.Text, 200), overlap})
 		}
 	}
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].overlap > matched[j].overlap })
@@ -342,7 +344,7 @@ func representativeIntent(intents []string) string {
 			best = s
 		}
 	}
-	return truncateString(best, 160)
+	return base.TruncateString(best, 160)
 }
 
 func distinctSample(intents []string, n int) []string {
@@ -354,7 +356,7 @@ func distinctSample(intents []string, n int) []string {
 			continue
 		}
 		seen[key] = true
-		out = append(out, truncateString(s, 160))
+		out = append(out, base.TruncateString(s, 160))
 		if len(out) >= n {
 			break
 		}

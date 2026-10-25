@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Pattern corpus enrichment (V2, Phase 2): turn episodes into brain events by
@@ -60,7 +62,7 @@ func corpusCommits(workText string) []corpusCommit {
 		out = append(out, corpusCommit{
 			hash:    hash,
 			branch:  m[1],
-			subject: redactText(truncateString(strings.TrimSpace(m[3]), 160)),
+			subject: redactText(base.TruncateString(strings.TrimSpace(m[3]), 160)),
 			line:    i + 1,
 		})
 	}
@@ -245,7 +247,7 @@ func classifyMetaHits(intent, workText string, nCmds int, validationCmd bool) []
 	li := strings.ToLower(intent)
 	var hits []corpusMetaHit
 	add := func(id, quote string) {
-		hits = append(hits, corpusMetaHit{metaID: id, quote: redactText(truncateString(quote, 160))})
+		hits = append(hits, corpusMetaHit{metaID: id, quote: redactText(base.TruncateString(quote, 160))})
 	}
 	for _, set := range metaCueSet {
 		for _, cue := range set.cues {

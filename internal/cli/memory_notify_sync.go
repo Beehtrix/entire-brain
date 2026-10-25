@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +56,7 @@ func newMemoryPushWorkCommand(opts Options) *cobra.Command {
 			// One repo resolution: resolveSessionsBrain would run the same
 			// resolveLocalTargetRepoDir again internally, a redundant git
 			// spawn on every push.
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
 			}

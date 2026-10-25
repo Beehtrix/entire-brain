@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // historyOversizeFixture writes a brain holding three sessions: two small
@@ -73,9 +75,9 @@ func TestHistoryIndexSkipsAnOversizeTranscriptAndIndexesTheRest(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	brainDir, oversizeRel, capBytes := historyOversizeFixture(t, now)
 
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = capBytes
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = capBytes
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	source, err := writeBrainHistoryIndexAndSource(brainDir, now, nil)
 	if err != nil {
@@ -120,9 +122,9 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	brainDir, oversizeRel, capBytes := historyOversizeFixture(t, now)
 
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = capBytes
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = capBytes
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	// Identity capture, which runs first and used to refuse here.
 	identity, manifest, _, err := captureHistoryProjectionIdentityMode(context.Background(), brainDir, true)
@@ -168,7 +170,7 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 // the same classified error the three inventory readers skip on.
 func TestStoreSizeRefusalClassifiesAsTheSkippableOversizeError(t *testing.T) {
 	t.Parallel()
-	bound := &readBoundExceededError{source: "transcript sessions/main/huge.jsonl", max: 1024}
+	bound := &readBoundExceededError{Source: "transcript sessions/main/huge.jsonl", Max: 1024}
 
 	classified := classifyTranscriptReadError(bound)
 	if !errors.Is(classified, errHistoryTranscriptTooLarge) {

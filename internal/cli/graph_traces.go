@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,7 @@ func readGraphTraces(brainDir string) ([]graphTraceObservation, error) {
 	if err := rejectExistingSymlinkPathComponents(brainDir, graphTraceFile); err != nil {
 		return nil, err
 	}
-	data, err := safeReadFile(filepath.Join(brainDir, graphTraceFile), graphTraceMaxBytes)
+	data, err := base.SafeReadFile(filepath.Join(brainDir, graphTraceFile), graphTraceMaxBytes)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}

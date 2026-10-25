@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-// CommandRunner runs external commands. Tests replace it so export behavior
-// can be verified without requiring a real Entire checkout.
-type CommandRunner interface {
-	Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error)
-}
-
 // EnvironmentCommandRunner is the narrow capability used when a child process
 // needs an operation-specific environment safety boundary. Keeping it optional
 // avoids making every test runner and provider adapter environment-aware while

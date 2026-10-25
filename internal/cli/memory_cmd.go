@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -246,7 +247,7 @@ func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
 		return
 	}
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		return
 	}
@@ -282,7 +283,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil {
 				return err
 			}
@@ -1440,7 +1441,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil {
 				return err
 			}

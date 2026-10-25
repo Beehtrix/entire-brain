@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -463,9 +464,9 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
 	}})
-	originalMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = originalMax })
+	originalMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = originalMax })
 	err := buildPatternCorpus(brainDir, now)
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("oversized pattern transcript error = %v", err)

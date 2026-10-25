@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -139,7 +140,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 }
 
 func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, target string, s skillFormOptions) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}

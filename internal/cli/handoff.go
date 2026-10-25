@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -256,19 +257,19 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 		meta = append(meta, s.CreatedAt.Format("2006-01-02 15:04"))
 		fmt.Fprintf(w, " (%s)\n", strings.Join(meta, ", "))
 		if s.Request != "" {
-			fmt.Fprintf(w, "request: %s\n", truncateString(s.Request, 200))
+			fmt.Fprintf(w, "request: %s\n", base.TruncateString(s.Request, 200))
 		}
 		for _, d := range s.Decisions {
-			fmt.Fprintf(w, "  - %s\n", truncateString(d, 200))
+			fmt.Fprintf(w, "  - %s\n", base.TruncateString(d, 200))
 		}
 		for _, v := range s.Validations {
-			fmt.Fprintf(w, "  ✓ %s\n", truncateString(v, 200))
+			fmt.Fprintf(w, "  ✓ %s\n", base.TruncateString(v, 200))
 		}
 	}
 	if len(p.RecentFacts) > 0 {
 		fmt.Fprintf(w, "\n## Recently updated facts\n")
 		for _, f := range p.RecentFacts {
-			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), truncateString(f.Text, 200))
+			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), base.TruncateString(f.Text, 200))
 		}
 	}
 	if len(p.Consolidations) > 0 {
@@ -278,7 +279,7 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 			if c.Verdict != "" {
 				state += "/" + c.Verdict
 			}
-			fmt.Fprintf(w, "- [%s %s] %s   id %s\n", c.Type, state, truncateString(c.Title, 120), c.PatternID)
+			fmt.Fprintf(w, "- [%s %s] %s   id %s\n", c.Type, state, base.TruncateString(c.Title, 120), c.PatternID)
 		}
 	}
 }

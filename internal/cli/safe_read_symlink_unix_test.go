@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ func TestSafeReadFileFollowsASymlinkToARegularFile(t *testing.T) {
 		t.Skipf("symlinks unsupported here: %v", err)
 	}
 
-	got, err := safeReadFile(link, maxManifestBytes)
+	got, err := base.SafeReadFile(link, base.MaxManifestBytes)
 	if err != nil {
 		t.Fatalf("safeReadFile through a symlink to a regular file: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestSafeReadFileRefusesASymlinkToAFIFO(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := safeReadFile(link, maxManifestBytes)
+		_, err := base.SafeReadFile(link, base.MaxManifestBytes)
 		done <- err
 	}()
 	select {
@@ -80,7 +81,7 @@ func TestSafeReadFileRefusesASymlinkToAFIFO(t *testing.T) {
 // honest: a directory opens fine and then fails on read, which is a confusing
 // error a long way from the cause.
 func TestSafeReadFileRefusesADirectory(t *testing.T) {
-	if _, err := safeReadFile(t.TempDir(), maxManifestBytes); err == nil || !strings.Contains(err.Error(), "regular file") {
+	if _, err := base.SafeReadFile(t.TempDir(), base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory error = %v, want it to name the regular-file requirement", err)
 	}
 }
@@ -112,7 +113,7 @@ func TestSafeReadFileRefusesACharacterDevice(t *testing.T) {
 	if err != nil || info.Mode()&os.ModeCharDevice == 0 {
 		t.Skip("no character device available")
 	}
-	if _, err := safeReadFile(os.DevNull, maxManifestBytes); err == nil || !strings.Contains(err.Error(), "regular file") {
+	if _, err := base.SafeReadFile(os.DevNull, base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("character device error = %v, want it to name the regular-file requirement", err)
 	}
 }

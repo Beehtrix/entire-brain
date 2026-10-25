@@ -1,10 +1,13 @@
-package cli
+package entities
 
 import (
 	"context"
 	"path"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // entities_provenance.go sharpens a distilled fact's anchor.
@@ -46,10 +49,10 @@ const (
 	entityProvenanceMaxLocus = 16
 )
 
-// entityProvenanceResolver answers "which checkpoint of THIS session changed
+// ProvenanceResolver answers "which checkpoint of THIS session changed
 // this identifier" from the derived entity-index cache. It is built once per
 // distill run and is read-only afterwards.
-type entityProvenanceResolver struct {
+type ProvenanceResolver struct {
 	byName map[string]*entityProvenanceEntry
 	byPath map[string]*entityProvenanceEntry
 	// branchBySession is the branch each session was exported on, so a fact can
@@ -72,31 +75,31 @@ type entityProvenanceCandidate struct {
 	at           time.Time
 }
 
-// newEntityProvenanceResolver builds the resolver from the entity index. It
+// NewProvenanceResolver builds the resolver from the entity index. It
 // returns nil (never an error) when the index is absent or empty: distill's
 // existing anchoring is then used unchanged.
-func newEntityProvenanceResolver(ctx context.Context, opts Options, repoDir string) *entityProvenanceResolver {
+func NewProvenanceResolver(ctx context.Context, opts Config, repoDir string) *ProvenanceResolver {
 	view, err := loadEntityIndexView(ctx, opts, repoDir)
 	if err != nil || view == nil || len(view.cache.Entries) == 0 {
 		return nil
 	}
 	return buildEntityProvenanceResolver(
 		view.cache,
-		sessionBranchByID(ctx, opts, repoDir),
-		branchReachabilityLookup(ctx, opts, repoDir),
+		opts.Deps.SessionBranchByID(ctx, opts.Options, repoDir),
+		BranchReachabilityLookup(ctx, opts, repoDir),
 	)
 }
 
-// provenanceBranchReachability answers "which commits are reachable from this
+// BranchReachability answers "which commits are reachable from this
 // branch", or nil when that cannot be determined. It is the same walk
 // `entities history` already filters its answers through
 // (branchReachableCommits); provenance needs it for the same reason.
-type provenanceBranchReachability func(branch string) map[string]struct{}
+type BranchReachability func(branch string) map[string]struct{}
 
-// branchReachabilityLookup memoizes branchReachableCommits per branch, so one
+// BranchReachabilityLookup memoizes branchReachableCommits per branch, so one
 // distill run pays for one rev-list per branch it distills rather than one per
 // candidate.
-func branchReachabilityLookup(ctx context.Context, opts Options, repoDir string) provenanceBranchReachability {
+func BranchReachabilityLookup(ctx context.Context, opts Config, repoDir string) BranchReachability {
 	cache := map[string]map[string]struct{}{}
 	return func(branch string) map[string]struct{} {
 		branch = strings.TrimSpace(branch)
@@ -107,7 +110,7 @@ func branchReachabilityLookup(ctx context.Context, opts Options, repoDir string)
 			return set
 		}
 		set := branchReachableCommits(ctx, opts.Runner, repoDir, branch)
-		if len(set) >= entityBranchRevWalkMax {
+		if len(set) >= BranchRevWalkMax {
 			// The walk hit its bound, so the answer is the branch's NEWEST
 			// commits, not its commits. Reporting that as a reachability set
 			// would call every older indexed commit off-branch and silently
@@ -120,7 +123,7 @@ func branchReachabilityLookup(ctx context.Context, opts Options, repoDir string)
 	}
 }
 
-// provenanceCommitOnBranch reports whether a candidate commit may anchor work
+// ProvenanceCommitOnBranch reports whether a candidate commit may anchor work
 // distilled on branch.
 //
 // UNKNOWN reachability is not a refusal. A branch that is gone locally, a walk
@@ -128,7 +131,7 @@ func branchReachabilityLookup(ctx context.Context, opts Options, repoDir string)
 // treating that as "nothing is on this branch" would silently downgrade every
 // fact in the run to the coarse anchor. A KNOWN set that does not contain the
 // commit is a refusal: the commit is real, but it is not on this branch.
-func provenanceCommitOnBranch(reachable provenanceBranchReachability, branch, commit string) bool {
+func ProvenanceCommitOnBranch(reachable BranchReachability, branch, commit string) bool {
 	if reachable == nil || strings.TrimSpace(branch) == "" || strings.TrimSpace(commit) == "" {
 		return true
 	}
@@ -141,10 +144,10 @@ func provenanceCommitOnBranch(reachable provenanceBranchReachability, branch, co
 }
 
 // buildEntityProvenanceResolver folds a derived cache into the resolver. It is
-// the pure half of newEntityProvenanceResolver, so the resolution order can be
+// the pure half of NewProvenanceResolver, so the resolution order can be
 // tested against a cache built by hand.
-func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[string]string, reachable provenanceBranchReachability) *entityProvenanceResolver {
-	resolver := &entityProvenanceResolver{
+func buildEntityProvenanceResolver(cache IndexCache, branchBySession map[string]string, reachable BranchReachability) *ProvenanceResolver {
+	resolver := &ProvenanceResolver{
 		byName:          map[string]*entityProvenanceEntry{},
 		byPath:          map[string]*entityProvenanceEntry{},
 		branchBySession: branchBySession,
@@ -197,7 +200,7 @@ func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[s
 				// instead of a dangling one.) Drop it here, so the winner is
 				// the newest ON-BRANCH candidate rather than the newest
 				// candidate anywhere.
-				if !provenanceCommitOnBranch(reachable, branchBySession[sessionID], candidate.commit) {
+				if !ProvenanceCommitOnBranch(reachable, branchBySession[sessionID], candidate.commit) {
 					continue
 				}
 				if name != "" {
@@ -225,7 +228,7 @@ func buildEntityProvenanceResolver(cache entityIndexCache, branchBySession map[s
 
 // observe records a candidate under a token for one session, keeping that
 // session's newest occurrence and counting how ambiguous the token is.
-func (r *entityProvenanceResolver) observe(into map[string]*entityProvenanceEntry, token, distinct, sessionID string, candidate entityProvenanceCandidate) {
+func (r *ProvenanceResolver) observe(into map[string]*entityProvenanceEntry, token, distinct, sessionID string, candidate entityProvenanceCandidate) {
 	entry, ok := into[token]
 	if !ok {
 		entry = &entityProvenanceEntry{
@@ -280,7 +283,7 @@ func (e *entityProvenanceEntry) candidateFor(sessionID string) (entityProvenance
 
 // anchorFor returns a sharpened anchor for a record, and ok=false when the
 // index cannot improve on the caller's fallback.
-func (r *entityProvenanceResolver) anchorFor(record factRecord, fallback factAnchor) (factAnchor, bool) {
+func (r *ProvenanceResolver) anchorFor(record factmerge.Record, fallback factmerge.Anchor) (factmerge.Anchor, bool) {
 	if r == nil {
 		return fallback, false
 	}
@@ -295,7 +298,7 @@ func (r *entityProvenanceResolver) anchorFor(record factRecord, fallback factAnc
 			return fallback, false
 		}
 	}
-	locus := factLocusOf(record)
+	locus := base.FactLocusOf(record)
 	if len(locus) > entityProvenanceMaxLocus {
 		locus = locus[:entityProvenanceMaxLocus]
 	}
@@ -338,37 +341,10 @@ func newerProvenance(current, candidate *entityProvenanceCandidate) *entityProve
 	return current
 }
 
-// sessionBranchByID maps a session id to the branch the brain exported it on.
-func sessionBranchByID(ctx context.Context, opts Options, repoDir string) map[string]string {
-	out := map[string]string{}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return out
-	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil || manifest == nil {
-		return out
-	}
-	sessions := manifest.Sessions
-	if manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-		sessions = manifest.Sources.Sessions.Sessions
-	}
-	for _, session := range sessions {
-		id := strings.TrimSpace(session.SessionID)
-		if id == "" {
-			continue
-		}
-		if branch := strings.TrimSpace(resolveDistillBranch(manifest, session)); branch != "" {
-			out[id] = branch
-		}
-	}
-	return out
-}
-
-// applyEntityProvenance rewrites each record's single distill-time anchor with
+// ApplyProvenance rewrites each record's single distill-time anchor with
 // the entity-resolved one where the index has an answer. Records the index
 // cannot place keep the anchor distill built, byte for byte.
-func applyEntityProvenance(records []factRecord, resolver *entityProvenanceResolver) []factRecord {
+func ApplyProvenance(records []factmerge.Record, resolver *ProvenanceResolver) []factmerge.Record {
 	if resolver == nil || len(records) == 0 {
 		return records
 	}

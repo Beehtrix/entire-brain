@@ -21,6 +21,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -270,7 +271,7 @@ func newHistoryIndexCommand(opts Options) *cobra.Command {
 }
 
 func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -726,7 +727,7 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return false, fmt.Errorf("projection receipt must be a regular file and must not be a symlink: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return false, err
 	}
@@ -734,7 +735,7 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
 		return false, err
 	}
-	data, err := safeReadAll(f, maxManifestBytes, path)
+	data, err := base.SafeReadAll(f, base.MaxManifestBytes, path)
 	if err != nil {
 		return false, err
 	}
@@ -783,7 +784,7 @@ func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, nil, fmt.Errorf("history projection path must be a directory and must not be a symlink: %s", display)
 	}
-	dir, err := os.OpenFile(abs, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := os.OpenFile(abs, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1086,7 +1087,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}
 		contentIdentity = historyScanCacheContentIdentity(contentCache)
 	}
-	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, defaultMaxReadBytes)
+	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, base.DefaultMaxReadBytes)
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1420,7 +1421,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 var errHistoryTranscriptTooLarge = errors.New(memoryErrInputTooLarge)
 
 func historyTranscriptTooLargeError(rel string) error {
-	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, maxDocumentTranscriptBytes)
+	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, base.MaxDocumentTranscriptBytes)
 }
 
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
@@ -1429,7 +1430,7 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 		_, digest, err := readHistorySessionInventoryFile(ctx, inventory, file)
 		return digest, err
 	}
-	if file.Size > maxDocumentTranscriptBytes {
+	if file.Size > base.MaxDocumentTranscriptBytes {
 		return "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
@@ -1438,9 +1439,9 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	}
 	defer f.Close()
 	h := sha256.New()
-	limit := maxDocumentTranscriptBytes + 1
+	limit := base.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
-	if written > maxDocumentTranscriptBytes {
+	if written > base.MaxDocumentTranscriptBytes {
 		readErr = errors.Join(readErr, historyTranscriptTooLargeError(file.Rel))
 	}
 	finishErr := inventory.validateAfterRead(file, f)
@@ -1497,14 +1498,14 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 		sum := sha256.Sum256(data)
 		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
-	if file.Size > maxDocumentTranscriptBytes {
+	if file.Size > base.MaxDocumentTranscriptBytes {
 		return nil, "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
 		return nil, "", err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
+	data, readErr := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: f}, base.MaxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
 	finishErr := inventory.validateAfterRead(file, f)
 	closeErr := f.Close()
 	if readErr != nil || finishErr != nil || closeErr != nil {
@@ -1723,7 +1724,7 @@ func historyRecordBranchForPath(path string, branchByPath map[string]string) str
 // footprint (the record text compresses heavily).
 func loadHistoryScanCache(outputDir string) historyScanCache {
 	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
-	data, err := safeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), semanticSnapshotMaxBytes())
+	data, err := base.SafeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), base.SemanticSnapshotMaxBytes())
 	if err != nil {
 		return empty
 	}
@@ -1734,7 +1735,7 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	defer gz.Close()
 	// Bound the decompressed stream so a gzip bomb cannot exhaust memory; an
 	// over-cap or truncated stream simply rebuilds the cache from scratch.
-	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, base.SemanticSnapshotMaxBytes())
 	var cache historyScanCache
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
@@ -1875,7 +1876,7 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return nil, fmt.Errorf("history transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1956,7 +1957,7 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: base.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -2012,7 +2013,7 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: base.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -2041,7 +2042,7 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil // JSONL or non-JSON: the line scanner's job
 	}
-	data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+rel)
+	data, err := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, base.MaxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}
@@ -2064,7 +2065,7 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 				Kind:    kind,
 				Path:    rel,
 				Line:    line,
-				Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+				Summary: base.TruncateString(cleanHistorySummary(fragment.Text), 700),
 				Terms:   historyTerms(fragment.Text),
 			})
 		}
@@ -2302,7 +2303,7 @@ func cleanHistoryCodeFactSnippet(value string) string {
 	if value == "" {
 		return ""
 	}
-	return truncateString(value, 4000)
+	return base.TruncateString(value, 4000)
 }
 
 // historyFactSignal matches output that states a durable fact about the code:
@@ -3098,7 +3099,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -3106,7 +3107,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
 		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, historyHardlinkRepairHint(err))
 	}
-	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
+	data, err := base.SafeReadAll(f, base.SemanticSnapshotMaxBytes(), path)
 	if err != nil {
 		return nil, "", false, err
 	}

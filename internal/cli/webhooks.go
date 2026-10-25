@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -155,7 +156,7 @@ func webhookRepoName(repoDir string) string {
 // The git toplevel is the one that is stable under both, and it falls back to
 // the configured root when git cannot answer.
 func webhookRepoIdentity(ctx context.Context, opts Options) string {
-	if top, err := gitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
+	if top, err := base.GitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
 		if name := webhookRepoName(strings.TrimSpace(top)); name != "" {
 			return name
 		}

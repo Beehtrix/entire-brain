@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/entities"
 )
 
 // entityFixtureRevListKey is the reachability walk the entity index already
 // runs for `entities history` (branchReachableCommits).
 func entityFixtureRevListKey(branch string) string {
-	return fakeCommandKey("git", "rev-list", fmt.Sprintf("--max-count=%d", entityBranchRevWalkMax), branch)
+	return fakeCommandKey("git", "rev-list", fmt.Sprintf("--max-count=%d", entities.BranchRevWalkMax), branch)
 }
 
 // TestEntityProvenanceRefusesACommitThatIsNotOnTheFactsBranch pins the branch
@@ -40,7 +42,7 @@ func TestEntityProvenanceRefusesACommitThatIsNotOnTheFactsBranch(t *testing.T) {
 	// carries the session's checkpoint trailer, so the index still lists it.
 	fixture.runner.responses[entityFixtureRevListKey("main")] = fakeCommandResponse{stdout: entityFixtureCommitA + "\n"}
 
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
@@ -56,7 +58,7 @@ func TestEntityProvenanceRefusesACommitThatIsNotOnTheFactsBranch(t *testing.T) {
 		Locus:      []string{"refundcard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	got := applyEntityProvenance(records, resolver)[0].Provenance[0]
+	got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]
 	if got.Commit == entityFixtureCommitB {
 		t.Fatalf("a fact on main was anchored to %s, a commit that is not reachable from main", got.Commit)
 	}
@@ -72,7 +74,7 @@ func TestEntityProvenanceRefusesACommitThatIsNotOnTheFactsBranch(t *testing.T) {
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
 		t.Fatalf("an on-branch anchor stopped sharpening: %+v", got)
 	}
 }
@@ -90,7 +92,7 @@ func TestEntityProvenanceKeepsSharpeningWhenReachabilityIsUnknown(t *testing.T) 
 	// `git rev-list main` fails: reachability is unknown, not "empty".
 	fixture.runner.responses[entityFixtureRevListKey("main")] = fakeCommandResponse{err: errors.New("unknown revision")}
 
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
@@ -101,7 +103,7 @@ func TestEntityProvenanceKeepsSharpeningWhenReachabilityIsUnknown(t *testing.T) 
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
 		t.Fatalf("unknown reachability disabled sharpening: %+v", got)
 	}
 }
@@ -121,12 +123,12 @@ func TestEntityProvenanceTreatsATruncatedReachabilityWalkAsUnknown(t *testing.T)
 	// A full walk: exactly the bound's worth of commits, none of them the
 	// fixture's — i.e. the answer got clipped before reaching them.
 	var walk strings.Builder
-	for i := 0; i < entityBranchRevWalkMax; i++ {
+	for i := 0; i < entities.BranchRevWalkMax; i++ {
 		walk.WriteString(fmt.Sprintf("%040x\n", i+1))
 	}
 	fixture.runner.responses[entityFixtureRevListKey("main")] = fakeCommandResponse{stdout: walk.String()}
 
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
@@ -137,7 +139,7 @@ func TestEntityProvenanceTreatsATruncatedReachabilityWalkAsUnknown(t *testing.T)
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptA || got.Commit != entityFixtureCommitA {
 		t.Fatalf("a truncated walk disabled sharpening: %+v", got)
 	}
 }

@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
+	"github.com/spf13/cobra"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -725,7 +725,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// skip and failure line, the hints, and the summary's Next block all move
 	// together and cannot drift apart. See setupCommandPrefix.
 	brainCmd := setupCommandPrefix(os.LookupEnv)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -1304,7 +1304,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	// Remove our pre-push hook (restoring any hook we had chained to).
 	// Best-effort: a hook problem must not block the daemon uninstall report.
-	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+	if repoDir, local, repoErr := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
 		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
 		}

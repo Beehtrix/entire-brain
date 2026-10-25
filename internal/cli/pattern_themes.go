@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Themes / latent practices (Pattern Consolidation v2, Priority 5).
@@ -482,8 +484,8 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
-			title:       redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
-			description: redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			title:       redactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
+			description: redactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
 		})
@@ -557,7 +559,7 @@ func sampleShapedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, []s
 		}
 		sample = append(sample, map[string]string{
 			"episode_key": key, "shape": shape,
-			"intent": redactText(truncateString(intent, 160)), "excerpt": ex,
+			"intent": redactText(base.TruncateString(intent, 160)), "excerpt": ex,
 		})
 		keys = append(keys, key)
 	}

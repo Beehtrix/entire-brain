@@ -100,7 +100,7 @@ func TestPublishBlobSizeErrorUsesOpenedPath(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", "3")
 	_, _, err := readBrainBlob(brainDir, "  facts//sample.ndjson  ")
 	bound, ok := err.(*readBoundExceededError)
-	if !ok || bound.source != path {
+	if !ok || bound.Source != path {
 		t.Fatalf("size error should name opened path %q: %v", path, err)
 	}
 }

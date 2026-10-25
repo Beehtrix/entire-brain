@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const historySessionInventoryErrorCode = memoryErrSessionInventory
@@ -239,7 +241,7 @@ func (i *historySessionInventory) walkDirectory(ctx context.Context, rel string,
 		return fmt.Errorf("%s: transcript directory changed after enumeration: %s", memoryErrSourceStale, rel)
 	}
 	i.entries = append(i.entries, newHistorySessionTreeEntry(rel, before))
-	dir, err := i.root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := i.root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return &historySessionInventoryError{Path: rel, Reason: "open transcript directory", Err: err}
 	}
@@ -349,7 +351,7 @@ func (i *historySessionInventory) open(ctx context.Context, file historySessionF
 		return nil, fmt.Errorf("%s: transcript changed after inventory: %s", memoryErrSourceStale, file.Rel)
 	}
 	beforeHistorySessionDescriptorOpen(file.Rel)
-	f, err := i.root.OpenFile(file.Rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := i.root.OpenFile(file.Rel, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		current, currentErr := i.root.Lstat(file.Rel)
 		if currentErr == nil && current.Mode().IsRegular() && current.Mode()&os.ModeSymlink == 0 && file.info != nil && os.SameFile(file.info, current) && sameHistoryFileMetadata(file, current) {
@@ -550,7 +552,7 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 		_ = root.Close()
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript is not a regular file"}
 	}
-	f, err := root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		_ = root.Close()
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "open canonical transcript", Err: err}

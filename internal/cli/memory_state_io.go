@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // memoryStateInventoryMaxEntries bounds every operational directory scan. It
@@ -59,7 +61,7 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 		return nil, present, err
 	}
 	defer f.Close()
-	data, err := safeReadAll(f, maxBytes, filepath.Join(brainDir, rel))
+	data, err := base.SafeReadAll(f, maxBytes, filepath.Join(brainDir, rel))
 	if err != nil {
 		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(rel), err)
 	}
@@ -90,7 +92,7 @@ func openMemoryStateFileExpected(brainDir, rel, label string, expected os.FileIn
 	if expected != nil && !os.SameFile(expected, before) {
 		return nil, true, fmt.Errorf("%s: %s changed after directory enumeration: %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), errMemoryStateEnumerationStale)
 	}
-	f, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
 	}
@@ -148,7 +150,7 @@ func readMemoryStateDirectory(brainDir, rel, label string, ceiling int) (memoryS
 	if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
 		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s is not a directory: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
 	}
-	dir, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: open %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
 	}

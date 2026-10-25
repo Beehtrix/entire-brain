@@ -461,3 +461,84 @@ func TestOversizeIsTheSoleFaultOnlyWhenItReallyIs(t *testing.T) {
 		})
 	}
 }
+
+// The digest path's half of the same contract. It was missed when the read
+// path was fixed, which is why both rules are now named functions with a table
+// each: captureHistoryProjectionIdentityMode skips on
+// errors.Is(errHistoryTranscriptTooLarge), so attaching the sentinel while
+// validateAfterRead has failed drops a swapped or escaped transcript out of the
+// content identity and publishes the generation.
+func TestOversizeMayBeAttributedToTheFileOnlyWhenNothingElseFailed(t *testing.T) {
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+	containment := &historySessionInventoryError{Path: "sessions/main/huge.jsonl", Reason: "transcript path changed while reading"}
+
+	for _, probe := range []struct {
+		name               string
+		readErr, finishErr error
+		want               bool
+	}{
+		{"the byte count alone is a statement about one file", nil, nil, true},
+		{"a source race during the read must refuse", nil, stale, false},
+		{"a containment breach during the read must refuse", nil, containment, false},
+		{"another read failure must refuse", errors.New("permission denied"), nil, false},
+		{"both must refuse", errors.New("permission denied"), stale, false},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			if got := oversizeMayBeAttributedToTheFile(probe.readErr, probe.finishErr); got != probe.want {
+				t.Fatalf("oversizeMayBeAttributedToTheFile(%v, %v) = %v, want %v", probe.readErr, probe.finishErr, got, probe.want)
+			}
+		})
+	}
+}
+
+// The store path's half, which is the one with teeth: transcriptStore.Read
+// hands the classifier errors.Join(readErr, finishErr), and finish() validates
+// file identity AND the current privacy gate. errors.As walks a join, so a
+// bound breach anywhere in the chain used to label the whole error skippable --
+// and every inventory reader skips on errors.Is(errHistoryTranscriptTooLarge).
+// A privacy-gate or identity refusal arriving beside an oversize transcript was
+// therefore dropped and the generation published.
+func TestStoreSizeRefusalIsSkippableOnlyWhenItIsTheOnlyFault(t *testing.T) {
+	bound := &readBoundExceededError{Source: "canonical transcript sessions/main/huge.jsonl", Max: 64}
+	gate := errors.New("privacy gate: session is tombstoned")
+	identity := errors.New("transcript identity changed before publishing")
+
+	// Alone, with or without context around it, it stays skippable: this is
+	// what #483 depends on.
+	for _, probe := range []struct {
+		name string
+		err  error
+	}{
+		{"the bound error alone", bound},
+		{"the bound error with context", fmt.Errorf("read transcript sessions/main/huge.jsonl: %w", bound)},
+		{"a join carrying only the bound error", errors.Join(bound, nil)},
+	} {
+		t.Run("skippable/"+probe.name, func(t *testing.T) {
+			if got := classifyTranscriptReadError(probe.err); !errors.Is(got, errHistoryTranscriptTooLarge) {
+				t.Fatalf("a lone size refusal stopped being skippable, which re-breaks the oversize tolerance: %v", got)
+			}
+		})
+	}
+
+	// Joined with anything else, it must NOT be skippable.
+	for _, probe := range []struct {
+		name string
+		err  error
+	}{
+		{"joined with a privacy-gate refusal", errors.Join(bound, gate)},
+		{"joined with an identity refusal", errors.Join(bound, identity)},
+		{"joined with cancellation", errors.Join(bound, context.Canceled)},
+		{"a join nested inside a context wrap", fmt.Errorf("read transcript sessions/main/huge.jsonl: %w", errors.Join(bound, gate))},
+	} {
+		t.Run("refusing/"+probe.name, func(t *testing.T) {
+			got := classifyTranscriptReadError(probe.err)
+			if errors.Is(got, errHistoryTranscriptTooLarge) {
+				t.Fatalf("the size breach made another refusal skippable: %v", got)
+			}
+			// And the other fault must still be reachable.
+			if !errors.Is(got, gate) && !errors.Is(got, identity) && !errors.Is(got, context.Canceled) {
+				t.Fatalf("the other fault was lost entirely: %v", got)
+			}
+		})
+	}
+}

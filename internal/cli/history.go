@@ -1441,10 +1441,19 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	h := sha256.New()
 	limit := clibase.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
-	if written > clibase.MaxDocumentTranscriptBytes {
-		readErr = errors.Join(readErr, historyTranscriptTooLargeError(file.Rel))
-	}
 	finishErr := inventory.validateAfterRead(file, f)
+	// The containment check is consulted BEFORE the sentinel is attached,
+	// which is the same rule oversizeIsTheSoleFault enforces on the read path
+	// and the reason this is not just `errors.Join(readErr, oversize)`.
+	//
+	// captureHistoryProjectionIdentityMode skips a file on
+	// errors.Is(errHistoryTranscriptTooLarge). Joining the sentinel onto an
+	// error that also carries finishErr therefore dropped a transcript that was
+	// swapped mid-read, or whose path became a symlink out of the brain root,
+	// out of the content identity -- silently, with the generation published.
+	if written > clibase.MaxDocumentTranscriptBytes && oversizeMayBeAttributedToTheFile(readErr, finishErr) {
+		readErr = historyTranscriptTooLargeError(file.Rel)
+	}
 	if readErr != nil || finishErr != nil {
 		return "", errors.Join(readErr, finishErr)
 	}
@@ -1509,6 +1518,20 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 // appending to its own transcript is exactly that writer, which is why this is
 // a truth table with its own test rather than a condition read once and
 // trusted.
+// oversizeMayBeAttributedToTheFile is oversizeIsTheSoleFault for the digest
+// path, which discovers a size breach by COUNTING bytes rather than from a
+// reader's message and so has no readErr to inspect.
+//
+// Same contract, same reason: attaching errHistoryTranscriptTooLarge makes the
+// error skippable by every inventory reader, so it may be attached only when
+// nothing else went wrong. A separate function rather than a bare condition
+// because the rule is the whole guarantee, and because the two paths drifting
+// apart is exactly what happened -- the read path was fixed first and this one
+// kept the bug.
+func oversizeMayBeAttributedToTheFile(readErr, finishErr error) bool {
+	return readErr == nil && finishErr == nil
+}
+
 func oversizeIsTheSoleFault(readErr, finishErr, closeErr error) bool {
 	if readErr == nil || finishErr != nil || closeErr != nil {
 		return false

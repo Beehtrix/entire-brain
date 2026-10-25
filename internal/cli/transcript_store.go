@@ -410,10 +410,49 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 // the substring check in history_delta.go still matches.
 func classifyTranscriptReadError(err error) error {
 	var bound *readBoundExceededError
-	if errors.As(err, &bound) {
-		return fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, err)
+	if !errors.As(err, &bound) {
+		return err
 	}
-	return err
+	// The size breach must be the ONLY fault, the same rule
+	// oversizeIsTheSoleFault and oversizeMayBeAttributedToTheFile enforce on
+	// the two local read paths.
+	//
+	// errors.As walks a join, so a bound breach ANYWHERE in the chain used to
+	// label the whole error skippable. Read hands this
+	// errors.Join(readErr, finishErr) and finish() validates file identity and
+	// the current privacy gate -- refusals that must never be swallowed by a
+	// per-file skip, because every inventory reader skips on
+	// errors.Is(errHistoryTranscriptTooLarge).
+	if !everyFaultIsABoundBreach(err) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, err)
+}
+
+// everyFaultIsABoundBreach reports whether every distinct fault in err is a
+// read-bound breach, walking both unwrap forms: errors.Join's Unwrap() []error
+// for several faults, and a single Unwrap() error for one fault carrying
+// context. A join with no leaves answers false rather than vacuously true.
+func everyFaultIsABoundBreach(err error) bool {
+	switch unwrapper := err.(type) {
+	case interface{ Unwrap() []error }:
+		leaves := unwrapper.Unwrap()
+		if len(leaves) == 0 {
+			return false
+		}
+		for _, leaf := range leaves {
+			if leaf != nil && !everyFaultIsABoundBreach(leaf) {
+				return false
+			}
+		}
+		return true
+	case interface{ Unwrap() error }:
+		if inner := unwrapper.Unwrap(); inner != nil {
+			return everyFaultIsABoundBreach(inner)
+		}
+	}
+	var bound *readBoundExceededError
+	return errors.As(err, &bound)
 }
 
 // validateLocalTranscriptSessions checks the exact selected identities and every

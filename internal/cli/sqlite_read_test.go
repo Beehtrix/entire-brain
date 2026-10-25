@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestSQLiteReadOnlyDSNOpensNativeAbsolutePath(t *testing.T) {
@@ -35,7 +37,7 @@ func TestSQLiteReadOnlyDSNOpensNativeAbsolutePath(t *testing.T) {
 		}
 	}
 
-	db, err := sql.Open(sqliteDriverName, dsn)
+	db, err := sql.Open(sqlitedriver.Name, dsn)
 	if err != nil {
 		t.Fatalf("open sqlite fixture read-only: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestSQLiteLiveReadOnlyDSNUsesPlatformSafeURIWithoutImmutable(t *testing.T) 
 		}
 	}
 
-	db, err := sql.Open(sqliteDriverName, dsn)
+	db, err := sql.Open(sqlitedriver.Name, dsn)
 	if err != nil {
 		t.Fatalf("open sqlite fixture live read-only: %v", err)
 	}
@@ -84,7 +86,7 @@ func createSQLiteFixture(path string) error {
 	if err := ensureDir(filepath.Dir(path)); err != nil {
 		return err
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return err
 	}

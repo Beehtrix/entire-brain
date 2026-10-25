@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -287,7 +288,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 	t.Run("corrupt matched payload", func(t *testing.T) {
 		brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 		_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
-		db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+		db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 		if err != nil {
 			t.Fatal(err)
 		}

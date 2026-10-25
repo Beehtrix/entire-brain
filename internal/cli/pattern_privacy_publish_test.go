@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +23,7 @@ func prepareDistinctPatternCorpusPublication(t *testing.T, brainDir string) (str
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
@@ -464,14 +466,14 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
 	}})
-	originalMax := base.MaxDocumentTranscriptBytes
-	base.MaxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = originalMax })
+	originalMax := clibase.MaxDocumentTranscriptBytes
+	clibase.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { clibase.MaxDocumentTranscriptBytes = originalMax })
 	err := buildPatternCorpus(brainDir, now)
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("oversized pattern transcript error = %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(statErr) {
 		t.Fatalf("failed bounded read published a corpus: %v", statErr)
 	}
 	entries, readErr := os.ReadDir(filepath.Join(brainDir, "patterns"))
@@ -508,7 +510,7 @@ func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), memoryErrSessionInventory) {
 		t.Fatalf("symlinked pattern transcript error = %v, want %s", err, memoryErrSessionInventory)
 	}
-	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(statErr) {
 		t.Fatalf("unsafe transcript published a corpus: %v", statErr)
 	}
 }
@@ -523,7 +525,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	beforeCorpus, err := os.ReadFile(corpusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -557,7 +559,7 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	beforeCorpus, err := os.ReadFile(corpusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -649,7 +651,7 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 			if err := saveSessionTombstones(brainDir, stones); err != nil {
 				return err
 			}
-			return removeBrainRelativeFile(brainDir, patternCorpusPath)
+			return removeBrainRelativeFile(brainDir, patterncore.CorpusPath)
 		})
 	}()
 	select {
@@ -664,7 +666,7 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 	if err := <-tombstoneDone; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(err) {
 		t.Fatalf("stale corpus was published after tombstone commit: %v", err)
 	}
 }

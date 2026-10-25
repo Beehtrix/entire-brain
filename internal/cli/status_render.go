@@ -211,6 +211,8 @@ type statusHealth struct {
 	Warnings int
 	Failed   []string
 	Severity string
+	// An old layout needs the migration bridge, even when Graph is absent.
+	BrainLayoutRemedy string
 	// BrainMissing reports that this repository has no brain at all: the
 	// manifest is absent and every source is unbuilt. It is a STATE, not a
 	// problem count, which is why it cannot be folded into Issues — and why
@@ -276,6 +278,12 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 		// was never built (and for one just removed by `reset --force`).
 		BrainMissing: report.Brain.ManifestState == "absent",
 		Cause:        statusFreshnessCause(report),
+	}
+	for _, issue := range report.Issues {
+		if issue.Kind == "brain_layout" {
+			health.BrainLayoutRemedy = issue.Action
+			break
+		}
 	}
 	// Only one of the two: "no brain" already implies "no semantic index", and
 	// a verdict that said both would be reporting one fact twice.
@@ -386,6 +394,8 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	brainCmd = setupBrainCommand(brainCmd)
 	command := "run `" + brainCmd + " " + h.repairCommand() + "`"
 	switch {
+	case h.BrainLayoutRemedy != "":
+		return h.BrainLayoutRemedy
 	case h.BrainMissing:
 		return command
 	case h.SemanticMissing && h.SemanticProviderAbsent:

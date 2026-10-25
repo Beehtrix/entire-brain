@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func TestParseDossierVerdict(t *testing.T) {
@@ -32,9 +35,9 @@ func TestParseDossierVerdict(t *testing.T) {
 
 func TestVerifyDossiersNoEgressRejected(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	db := promotableCorpus(t, time.Now())
+	db := patterntest.PromotableCorpus(t, time.Now())
 	now := time.Now()
-	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
+	if err := patterncore.BuildCandidates(db, "gh/acme/cli", now); err != nil {
 		t.Fatal(err)
 	}
 	called := false
@@ -55,9 +58,9 @@ func TestVerifyDossiersNoEgressRejected(t *testing.T) {
 }
 
 func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
-	db := promotableCorpus(t, time.Now())
+	db := patterntest.PromotableCorpus(t, time.Now())
 	now := time.Now()
-	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
+	if err := patterncore.BuildCandidates(db, "gh/acme/cli", now); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
@@ -98,20 +101,5 @@ func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("agent called %d times, want exactly 1 (second run served from cache)", calls)
-	}
-}
-
-// TestRefreshDoesNotInvokeVerifier proves the deterministic build never produces
-// a verdict — the agent path is reachable only through the explicit verify
-// surface (refresh/watch/brief/query/MCP must stay token-free).
-func TestRefreshDoesNotInvokeVerifier(t *testing.T) {
-	db := promotableCorpus(t, time.Now())
-	if err := buildPatternCandidates(db, "gh/acme/cli", time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	var withVerdict int
-	db.QueryRow(`SELECT COUNT(*) FROM dossiers WHERE verdict IS NOT NULL`).Scan(&withVerdict)
-	if withVerdict != 0 {
-		t.Errorf("deterministic build set %d verdict(s); the verifier must only run via explicit `patterns verify`", withVerdict)
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 const privacyCanary = "CANARY-XYZQ-SECRET-TOKEN"
@@ -340,7 +342,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), []byte(episodesBuf.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patternCorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -365,7 +367,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if plan.FactsDeleted != 1 || plan.FactAnchorsStripped != 1 || plan.Episodes != 1 {
 		t.Fatalf("plan = facts_deleted=%d stripped=%d episodes=%d, want 1/1/1", plan.FactsDeleted, plan.FactAnchorsStripped, plan.Episodes)
 	}
-	wantStores := map[string]bool{patternCorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
+	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
 	for _, store := range plan.DerivedStores {
 		if _, ok := wantStores[store.Path]; ok {
 			wantStores[store.Path] = true
@@ -753,7 +755,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternCorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -866,7 +868,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if err := os.MkdirAll(patternsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.WriteFile(corpusFull, []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -889,11 +891,11 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if err == nil {
 		t.Fatal("purge with an undeletable store must fail")
 	}
-	if !strings.Contains(err.Error(), patternCorpusPath) {
+	if !strings.Contains(err.Error(), patterncore.CorpusPath) {
 		t.Fatalf("failure must name the artifact: %v", err)
 	}
 	// The failure is a durable error state naming what stopped it.
-	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patternCorpusPath) {
+	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patterncore.CorpusPath) {
 		t.Fatalf("transaction record after failure = %+v ok=%v", tx, ok)
 	}
 	// Verification independently flags the survivor.
@@ -903,7 +905,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	}
 	flagged := false
 	for _, finding := range report.Findings {
-		if finding.Artifact == "derived_store" && strings.Contains(finding.Detail, patternCorpusPath) {
+		if finding.Artifact == "derived_store" && strings.Contains(finding.Detail, patterncore.CorpusPath) {
 			flagged = true
 		}
 	}

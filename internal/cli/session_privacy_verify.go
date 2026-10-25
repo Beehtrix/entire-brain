@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -127,7 +129,7 @@ func validatePrivacyJSONLines(brainDir, rel string) error {
 }
 
 func validatePrivacySQLiteSnapshot(path, rel string) error {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(path))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(path))
 	if err != nil {
 		return fmt.Errorf("%s: open derived SQLite store %s: %w", memoryErrStateCorrupt, rel, err)
 	}
@@ -162,7 +164,7 @@ type privacySQLiteSnapshotSource struct {
 // would miss committed rows that have not yet been checkpointed from WAL.
 // SQLite never receives a repository-controlled path.
 func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
 		return "", nil, fmt.Errorf("%s: unsafe SQLite store path: %w", memoryErrStateUnsafe, err)
 	}
@@ -180,11 +182,11 @@ func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
 			return nil, false, nil
 		}
 		path := filepath.Join(brainDir, filepath.FromSlash(sourceRel))
-		file, openErr := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+		file, openErr := privacyOpen(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 		if openErr != nil {
 			return nil, true, fmt.Errorf("%s: open %s without following links: %w", memoryErrStateUnsafe, label, openErr)
 		}
-		if aliasErr := rejectOpenFileAlias(path, file, label); aliasErr != nil {
+		if aliasErr := base.RejectOpenFileAlias(path, file, label); aliasErr != nil {
 			_ = file.Close()
 			return nil, true, fmt.Errorf("%s: validate %s identity: %w", memoryErrStateUnsafe, label, aliasErr)
 		}
@@ -251,7 +253,7 @@ func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
 			cleanup()
 			return "", nil, fmt.Errorf("%s: SQLite store or WAL changed while snapshotting", memoryErrStateUnsafe)
 		}
-		if aliasErr := rejectOpenFileAlias(source.path, source.file, "SQLite snapshot source"); aliasErr != nil {
+		if aliasErr := base.RejectOpenFileAlias(source.path, source.file, "SQLite snapshot source"); aliasErr != nil {
 			cleanup()
 			return "", nil, fmt.Errorf("%s: SQLite store or WAL path changed while snapshotting: %w", memoryErrStateUnsafe, aliasErr)
 		}
@@ -270,7 +272,7 @@ func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
 
 	// Replay committed WAL frames only inside the trusted temporary directory.
 	// The later immutable readers can now inspect one self-contained main file.
-	db, err := sql.Open(sqliteDriverName, snapshotPath)
+	db, err := sql.Open(sqlitedriver.Name, snapshotPath)
 	if err != nil {
 		cleanup()
 		return "", nil, fmt.Errorf("%s: open private SQLite snapshot: %w", memoryErrStateCorrupt, err)
@@ -287,7 +289,7 @@ func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
 }
 
 func inspectPrivacyVectorIDsSnapshot(snapshot, rel string, wanted map[string]struct{}, findingSessionID string) ([]privacyVerifyFinding, error) {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(snapshot))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshot))
 	if err != nil {
 		return nil, fmt.Errorf("%s: open vector store %s: %w", memoryErrStateCorrupt, rel, err)
 	}
@@ -339,9 +341,9 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 			ownerByPath[normalizePrivacyTranscriptPath(rel)] = id
 		}
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(snapshotPath))
+	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshotPath))
 	if err != nil {
-		return nil, fmt.Errorf("%s: open %s: %w", memoryErrStateCorrupt, patternCorpusPath, err)
+		return nil, fmt.Errorf("%s: open %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, err)
 	}
 	defer db.Close()
 	type corpusTable struct {
@@ -365,19 +367,19 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		query := fmt.Sprintf("SELECT id, session_id, %s FROM %s LIMIT %d", table.pathColumn, table.name, privacyCorpusVerifyMaxRows+1)
 		rows, err := db.Query(query)
 		if err != nil {
-			return nil, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, patternCorpusPath, table.name, err)
+			return nil, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
 		}
 		count := 0
 		for rows.Next() {
 			count++
 			if count > privacyCorpusVerifyMaxRows {
 				rows.Close()
-				return nil, fmt.Errorf("%s: %s %s exceeds %d rows", memoryErrStateCorrupt, patternCorpusPath, table.name, privacyCorpusVerifyMaxRows)
+				return nil, fmt.Errorf("%s: %s %s exceeds %d rows", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, privacyCorpusVerifyMaxRows)
 			}
 			var rowID, sessionID, sourcePath string
 			if err := rows.Scan(&rowID, &sessionID, &sourcePath); err != nil {
 				rows.Close()
-				return nil, fmt.Errorf("%s: scan %s %s: %w", memoryErrStateCorrupt, patternCorpusPath, table.name, err)
+				return nil, fmt.Errorf("%s: scan %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
 			}
 			owner := ""
 			if _, excluded := stones.Excluded[strings.TrimSpace(sessionID)]; excluded {
@@ -397,7 +399,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("%s: iterate %s %s: %w", memoryErrStateCorrupt, patternCorpusPath, table.name, err)
+			return nil, fmt.Errorf("%s: iterate %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
 		}
 		rows.Close()
 	}
@@ -837,7 +839,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	// store is copied only once for integrity plus row-level inspection.
 	sqliteSnapshots := map[string]string{}
 	for _, rel := range []string{
-		patternCorpusPath,
+		patterncore.CorpusPath,
 		historyFTSDBRelPath(),
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
 		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
@@ -855,8 +857,8 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 		sqliteSnapshots[rel] = snapshot
 	}
-	if currentArtifacts[patternCorpusPath] {
-		corpusFindings, err := inspectPrivacyPatternCorpus(sqliteSnapshots[patternCorpusPath], stones, pathsBySession, tombstoneState.Identity, newestID)
+	if currentArtifacts[patterncore.CorpusPath] {
+		corpusFindings, err := inspectPrivacyPatternCorpus(sqliteSnapshots[patterncore.CorpusPath], stones, pathsBySession, tombstoneState.Identity, newestID)
 		if err != nil {
 			return report, err
 		}

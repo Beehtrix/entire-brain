@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // deepCorpus builds a corpus with a promotable deploy:release task whose evidence
@@ -14,7 +17,7 @@ import (
 // real failure modes. Returns the db and the deploy pattern id.
 func deepCorpus(t *testing.T, now time.Time) (*sql.DB, string) {
 	t.Helper()
-	db := freshCorpusDB(t)
+	db := patterntest.FreshCorpusDB(t)
 	mkFact := func(id string) {
 		if _, err := db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 			id, "fact:deploy", "architecture", "ops/deploy.go"); err != nil {
@@ -23,15 +26,15 @@ func deepCorpus(t *testing.T, now time.Time) (*sql.DB, string) {
 	}
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("episode:ok%d", i)
-		insertCorpusEpisode(t, db, id, "deploy:release", "success", 2, now)
-		insertCorpusShape(t, db, id, "mise build", "mise deploy")
+		patterntest.InsertCorpusEpisode(t, db, id, "deploy:release", "success", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "mise build", "mise deploy")
 		mkFact(id)
 	}
 	// Two corrected episodes whose go-test command failed (the failure mode).
 	for i := 0; i < 2; i++ {
 		id := fmt.Sprintf("episode:fix%d", i)
-		insertCorpusEpisode(t, db, id, "deploy:release", "corrected", 3, now)
-		insertCorpusShape(t, db, id, "mise build", "mise deploy")
+		patterntest.InsertCorpusEpisode(t, db, id, "deploy:release", "corrected", 3, now)
+		patterntest.InsertCorpusShape(t, db, id, "mise build", "mise deploy")
 		if _, err := db.Exec(`INSERT INTO episode_commands (episode_id, ord, head, raw_redacted, line, exit_code, failed) VALUES (?,?,?,?,?,?,1)`,
 			id, 9, "go test", "go test ./... # token ghp_SECRETTOKEN0123456789abcdef", 9, 1); err != nil {
 			t.Fatal(err)
@@ -40,10 +43,10 @@ func deepCorpus(t *testing.T, now time.Time) (*sql.DB, string) {
 	}
 	for i := 0; i < 200; i++ {
 		id := fmt.Sprintf("episode:noise%d", i)
-		insertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
-		insertCorpusShape(t, db, id, "ls", "cat")
+		patterntest.InsertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "ls", "cat")
 	}
-	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
+	if err := patterncore.BuildCandidates(db, "gh/acme/cli", now); err != nil {
 		t.Fatal(err)
 	}
 	var pid string
@@ -124,8 +127,8 @@ func TestDeepVerifyCachesAndInvalidates(t *testing.T) {
 
 	// Materially change the evidence → fingerprint moves → re-verify.
 	id := "episode:fix-new"
-	insertCorpusEpisode(t, db, id, "deploy:release", "corrected", 2, now)
-	insertCorpusShape(t, db, id, "mise build", "mise deploy")
+	patterntest.InsertCorpusEpisode(t, db, id, "deploy:release", "corrected", 2, now)
+	patterntest.InsertCorpusShape(t, db, id, "mise build", "mise deploy")
 	stats3, err := verifyDeepDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)

@@ -14,9 +14,6 @@ import (
 	"io"
 	"math"
 	"os"
-
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
-
 	pathpkg "path"
 	"path/filepath"
 	"runtime"
@@ -29,6 +26,7 @@ import (
 	"time"
 	"unicode"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
@@ -467,7 +465,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if !resetOpts.force {
 		return errors.New("reset requires --force")
 	}
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -478,7 +476,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if err != nil {
 		return err
 	}
-	if err := rejectSymlinkedBrainRoot(storage.BrainDir); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(storage.BrainDir); err != nil {
 		return err
 	}
 	if resetOpts.semanticOnly {
@@ -496,7 +494,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		}
 		manifest.Sources.Semantic = nil
 		applySessionSourceAliases(manifest)
-		if err := rejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
 			return err
 		}
 		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
@@ -596,10 +594,10 @@ func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourc
 }
 
 func acquireSemanticIndexLock(brainDir string) (func(), error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, semanticLockDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, semanticLockDir); err != nil {
 		return nil, err
 	}
 	lockPath := filepath.Join(brainDir, semanticLockDir, semanticIndexLockName)
@@ -1134,7 +1132,7 @@ func writeSemanticOverlayFile(brainDir, base, head, branch string, now time.Time
 		return "", err
 	}
 	data = append(data, '\n')
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.FromSlash(rel)); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, filepath.FromSlash(rel)); err != nil {
 		return "", err
 	}
 	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(rel)), data, 0o600); err != nil {
@@ -2240,7 +2238,7 @@ type brainBlindSpot struct {
 }
 
 func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([]brainBlindSpot, error) {
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return nil, err
 	}
@@ -2292,7 +2290,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 
 // Status checks availability and freshness; doctor and retrieval retain content validation.
 func semanticFreshnessReport(ctx context.Context, opts Options, target string, audit bool) (staleReport, error) {
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return staleReport{}, err
 	}
@@ -2306,6 +2304,9 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	manifest, err := loadBrainManifest(storage.BrainDir)
 	if err != nil {
 		return staleReport{}, err
+	}
+	if err := checkLegacyBrainLayout(storage.BrainDir, manifest); err != nil {
+		return staleReport{Severity: "unsafe", Axes: map[string]staleAxis{"brain_layout": {State: "unsafe", Detail: err.Error()}}}, nil
 	}
 	d, err := fetchGraphStore(ctx, opts, repoDir, "", graphStoreProfile(manifest))
 	if err != nil {
@@ -2867,7 +2868,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	// error on the changes command. Skipped on a clean tree — no changed files
 	// means there is nothing to match a fact's locus against.
 	if !report.Clean {
-		if branch, branchErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
+		if branch, branchErr := clibase.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
 			if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
 				report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
 			}
@@ -4304,7 +4305,7 @@ func writeSemanticChangesReport(brainDir string, report semanticChangesReport) e
 	}
 	data = append(data, '\n')
 	rel := filepath.Join(semanticDirName, "changes", "latest.json")
-	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return err
 	}
 	return writeFileAtomic(filepath.Join(brainDir, rel), data, 0o600)
@@ -4729,7 +4730,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if err := migrateLegacyGraphTraces(storage.BrainDir); err != nil {
+	if err := checkLegacyBrainLayout(storage.BrainDir, manifest); err != nil {
 		return err
 	}
 	if manifest.Sources == nil {
@@ -4928,7 +4929,7 @@ func addBundlePath(tw *tar.Writer, root, rel string) error {
 	if info.IsDir() {
 		return nil
 	}
-	data, err := base.SafeReadFile(path, base.SemanticSnapshotMaxBytes())
+	data, err := clibase.SafeReadFile(path, clibase.SemanticSnapshotMaxBytes())
 	if err != nil {
 		return err
 	}
@@ -4987,84 +4988,17 @@ func rejectSymlinkPathComponents(root, rel string) error {
 	if err != nil {
 		return err
 	}
-	if !pathInside(rootResolved, pathResolved) {
+	if !clibase.PathInside(rootResolved, pathResolved) {
 		return fmt.Errorf("path escapes root through symlinks: %s", rel)
-	}
-	return nil
-}
-
-func rejectExistingSymlinkPathComponents(root, rel string) error {
-	clean := filepath.Clean(rel)
-	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
-	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
-	// falls through this whole test. The per-component walk below then Lstats
-	// the PARENT of root — a real directory, not a symlink — and passes it, and
-	// the closing containment check returns nil early whenever root does not
-	// exist yet. One level up is exactly the escape the guard exists to stop.
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path is outside root: %s", rel)
-	}
-	current := root
-	deepestExisting := root
-	for _, part := range strings.Split(clean, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			if os.IsNotExist(err) {
-				break // tolerate not-yet-created leaves on the write path
-			}
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path component must not be a symlink: %s", rel)
-		}
-		deepestExisting = current
-	}
-	// Parity with rejectSymlinkPathComponents (the read path): verify the existing
-	// prefix still resolves inside root once symlinks in root's own ancestry are
-	// normalized. The per-component checks alone miss an ancestor-symlink escape,
-	// which is exactly the gap the write path previously had. The root may not be
-	// created yet on a first write — there is nothing to escape through then, so a
-	// not-yet-existing prefix is treated as safe.
-	rootResolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	existingResolved, err := filepath.EvalSymlinks(deepestExisting)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if !pathInside(rootResolved, existingResolved) {
-		return fmt.Errorf("path escapes root through symlinks: %s", rel)
-	}
-	return nil
-}
-
-func rejectSymlinkedBrainRoot(brainDir string) error {
-	info, err := os.Lstat(brainDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("brain directory must not be a symlink: %s", brainDir)
 	}
 	return nil
 }
 
 func rejectBrainRootPathSymlinks(brainRoot, rel string) error {
-	if err := rejectSymlinkedBrainRoot(brainRoot); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(brainRoot); err != nil {
 		return err
 	}
-	return rejectExistingSymlinkPathComponents(brainRoot, rel)
+	return clibase.RejectExistingSymlinkPathComponents(brainRoot, rel)
 }
 
 func rejectBundleOutputInsideBrain(output, brainDir string) error {
@@ -5076,7 +5010,7 @@ func rejectBundleOutputInsideBrain(output, brainDir string) error {
 	if err != nil {
 		return err
 	}
-	if pathInside(brainAbs, outputAbs) {
+	if clibase.PathInside(brainAbs, outputAbs) {
 		return fmt.Errorf("bundle output must be outside the active brain directory: %s", output)
 	}
 	outputResolved, err := resolvedOutputPath(output)
@@ -5087,7 +5021,7 @@ func rejectBundleOutputInsideBrain(output, brainDir string) error {
 	if err != nil {
 		brainResolved = brainAbs
 	}
-	if pathInside(brainResolved, outputResolved) {
+	if clibase.PathInside(brainResolved, outputResolved) {
 		return fmt.Errorf("bundle output must be outside the active brain directory: %s", output)
 	}
 	return nil
@@ -5188,18 +5122,10 @@ func enforceIndexContainment(containRoot, repoDir string) error {
 	if resolved, err := filepath.EvalSymlinks(repoAbs); err == nil {
 		repoAbs = resolved
 	}
-	if !pathInside(rootAbs, repoAbs) {
+	if !clibase.PathInside(rootAbs, repoAbs) {
 		return fmt.Errorf("indexed repository %q is outside the bound repository root", repoDir)
 	}
 	return nil
-}
-
-func pathInside(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		return false
-	}
-	return rel == "." || (!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != "..")
 }
 
 func resolvedOutputPath(output string) (string, error) {
@@ -5262,6 +5188,9 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
+		return err
+	}
+	if err := requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
 	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
@@ -5329,7 +5258,14 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if err := migrateLegacyGraphTraces(tmpDir); err != nil {
+	if err := checkLegacyBrainLayout(tmpDir, importManifest); err != nil {
+		if errors.Is(err, errLegacyBrainLayout) {
+			return fmt.Errorf("%w in this bundle; import it with entire-brain 0.2.0 to preserve runtime traces, then export it again before retrying", errLegacyBrainLayout)
+		}
+		return err
+	}
+	// The destination may have changed before we acquired the writer lock.
+	if err := requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
 	// Decide the overwrite question BEFORE the first byte is written, so a
@@ -5383,12 +5319,8 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
 	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(restored, ", "))
-	// brainBundleLayers carries no semantic layer: a 0.1.0-era bundle's code
-	// index (sources.semantic plus its semantic/snapshots|generations entries)
-	// is validated above but never restored. Without this, the import prints
-	// success and the operator finds out their code index is gone only when a
-	// later query comes back empty. slices.Contains guards against the notice
-	// going stale if a semantic layer is ever added to the table.
+	// Graph-owned source metadata is not restored; Graph resolves its own store
+	// locally. Old bundles with Brain-owned stores were refused above.
 	if importManifest.Sources.Semantic != nil && !slices.Contains(restored, bundleLayerSemantic) {
 		fmt.Fprintln(out, "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0")
 	}
@@ -5454,11 +5386,11 @@ func restoreBundleBrainLayers(brainDir, bundleRoot string) ([]string, error) {
 			continue
 		}
 		for _, rel := range paths {
-			content, err := base.SafeReadFile(filepath.Join(bundleRoot, rel), base.SemanticSnapshotMaxBytes())
+			content, err := clibase.SafeReadFile(filepath.Join(bundleRoot, rel), clibase.SemanticSnapshotMaxBytes())
 			if err != nil {
 				return nil, err
 			}
-			if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+			if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 				return nil, err
 			}
 			target := filepath.Join(brainDir, rel)
@@ -5530,111 +5462,9 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if manifest.Sources == nil {
 		return nil, errors.New("bundle manifest missing sources")
 	}
-	// The bundle's code-index layer is ignored entirely: it is never restored
-	// (brainBundleLayers has no semantic entry) and never persisted
-	// (writeBrainBundleLayerSources copies restored layers only), so nothing
-	// about it — schema version included — may reject an otherwise valid
-	// bundle. It stays on the returned manifest only so the import can print
-	// the not-imported notice.
+	// Code-index schemas are not validated here: no code layer is restored.
+	// The caller separately checks for old layouts before restoring any data.
 	return &manifest, nil
-}
-
-func validateSemanticSQLiteStore(path string, expectedCounts ...int) error {
-	expectedFiles := -1
-	expectedSymbols := 0
-	expectedRelations := 0
-	switch len(expectedCounts) {
-	case 2:
-		expectedSymbols = expectedCounts[0]
-		expectedRelations = expectedCounts[1]
-	case 3:
-		expectedFiles = expectedCounts[0]
-		expectedSymbols = expectedCounts[1]
-		expectedRelations = expectedCounts[2]
-	default:
-		return fmt.Errorf("validate semantic sqlite store: expected 2 or 3 count arguments, got %d", len(expectedCounts))
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return fmt.Errorf("semantic sqlite store missing: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("semantic sqlite store must not be a symlink: %s", path)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("semantic sqlite store must be a file: %s", path)
-	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(path))
-	if err != nil {
-		return fmt.Errorf("open semantic sqlite store: %w", err)
-	}
-	defer db.Close()
-	var integrity string
-	if err := db.QueryRow(`PRAGMA integrity_check`).Scan(&integrity); err != nil {
-		return fmt.Errorf("validate semantic sqlite integrity: %w", err)
-	}
-	if integrity != "ok" {
-		return fmt.Errorf("semantic sqlite integrity check failed: %s", integrity)
-	}
-	if expectedFiles >= 0 {
-		files, err := semanticSQLiteTableCount(db, "files")
-		if err != nil {
-			return err
-		}
-		if files != expectedFiles {
-			return fmt.Errorf("semantic sqlite file count %d does not match manifest %d", files, expectedFiles)
-		}
-	}
-	symbols, err := semanticSQLiteTableCount(db, "symbols")
-	if err != nil {
-		return err
-	}
-	relations, err := semanticSQLiteTableCount(db, "relations")
-	if err != nil {
-		return err
-	}
-	if symbols != expectedSymbols {
-		return fmt.Errorf("semantic sqlite symbol count %d does not match manifest %d", symbols, expectedSymbols)
-	}
-	if relations != expectedRelations {
-		return fmt.Errorf("semantic sqlite relation count %d does not match manifest %d", relations, expectedRelations)
-	}
-	return nil
-}
-
-func semanticSQLiteTableCount(db *sql.DB, table string) (int, error) {
-	var count int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
-		return 0, fmt.Errorf("validate semantic sqlite table %s: %w", table, err)
-	}
-	return count, nil
-}
-
-func validateSemanticGenerationPath(generationPath string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(generationPath))
-	cleanSlash := filepath.ToSlash(clean)
-	if cleanSlash != generationPath {
-		return "", fmt.Errorf("semantic generation_path must be canonical: %s", generationPath)
-	}
-	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || !strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir))+"/") {
-		return "", fmt.Errorf("semantic generation_path is unsafe: %s", generationPath)
-	}
-	return clean, nil
-}
-
-func validateSemanticGenerationFilePath(path, generationPath, basename string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(path))
-	cleanSlash := filepath.ToSlash(clean)
-	if cleanSlash != path {
-		return "", fmt.Errorf("semantic generation file path must be canonical: %s", path)
-	}
-	if !strings.HasPrefix(cleanSlash, filepath.ToSlash(generationPath)+"/") {
-		return "", fmt.Errorf("semantic generation file path %s is outside generation %s", path, generationPath)
-	}
-	if basename != "" && filepath.Base(clean) != basename {
-		return "", fmt.Errorf("semantic generation file path must end with %s: %s", basename, path)
-	}
-	return clean, nil
 }
 
 // The integrity checks over a generation — that the snapshot still matches the
@@ -5886,14 +5716,14 @@ func appendSemanticAuditLayers(brainDir, action, path, checksum string, layers [
 }
 
 func ensureSemanticAuditPathSafe(brainDir string) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticAuditLogName)); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticAuditLogName)); err != nil {
 		return err
 	}
 	return nil

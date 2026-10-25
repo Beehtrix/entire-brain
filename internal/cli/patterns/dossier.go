@@ -1,4 +1,4 @@
-package cli
+package patterns
 
 import (
 	"database/sql"
@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Pattern consolidation records (V2, Phase 4).
@@ -19,12 +21,12 @@ import (
 // rebuilt each time; the agent verdict is the expensive part and is cached by
 // evidence fingerprint, surviving pattern rebuilds.
 
-const dossierSchemaVersion = 1
+const DossierSchemaVersion = 1
 
 // maxDossierAnchors caps how many source episodes a dossier cites.
 const maxDossierAnchors = 6
 
-type dossierAnchor struct {
+type DossierAnchor struct {
 	SessionID    string `json:"session_id"`
 	CheckpointID string `json:"checkpoint_id"`
 	Transcript   string `json:"transcript"`
@@ -36,7 +38,7 @@ type dossierAnchor struct {
 	Excerpt string `json:"excerpt,omitempty"`
 }
 
-type dossierRecord struct {
+type DossierRecord struct {
 	SchemaVersion int             `json:"schema_version"`
 	PatternID     string          `json:"pattern_id"`
 	ClusterKey    string          `json:"cluster_key"`
@@ -49,7 +51,7 @@ type dossierRecord struct {
 	Verification  []string        `json:"verification"`
 	FailureModes  []string        `json:"failure_modes"`
 	Facts         []string        `json:"facts"`
-	SourceAnchors []dossierAnchor `json:"source_anchors"`
+	SourceAnchors []DossierAnchor `json:"source_anchors"`
 	Confidence    float64         `json:"confidence"`
 }
 
@@ -63,7 +65,7 @@ func buildDossiers(db *sql.DB, repoKey string, now time.Time) error {
 		       outcome_corrected, outcome_failed
 		FROM patterns
 		WHERE repo_key=? AND strength >= ?
-		ORDER BY strength DESC`, repoKey, promotionThreshold)
+		ORDER BY strength DESC`, repoKey, PromotionThreshold)
 	if err != nil {
 		return err
 	}
@@ -98,7 +100,7 @@ func buildDossiers(db *sql.DB, repoKey string, now time.Time) error {
 		if err != nil {
 			return err
 		}
-		if err := upsertDossier(db, rec, redactText(string(blob)), ts); err != nil {
+		if err := upsertDossier(db, rec, base.RedactText(string(blob)), ts); err != nil {
 			return err
 		}
 	}
@@ -107,9 +109,9 @@ func buildDossiers(db *sql.DB, repoKey string, now time.Time) error {
 
 // assembleDossier builds the consolidation record for one pattern from corpus
 // evidence. Deterministic and token-free.
-func assembleDossier(db *sql.DB, patternID, typ, cluster, title, intentSig, gram, metaID string, strength float64) (dossierRecord, error) {
-	rec := dossierRecord{
-		SchemaVersion: dossierSchemaVersion,
+func assembleDossier(db *sql.DB, patternID, typ, cluster, title, intentSig, gram, metaID string, strength float64) (DossierRecord, error) {
+	rec := DossierRecord{
+		SchemaVersion: DossierSchemaVersion,
 		PatternID:     patternID,
 		ClusterKey:    cluster,
 		Title:         title,
@@ -120,11 +122,11 @@ func assembleDossier(db *sql.DB, patternID, typ, cluster, title, intentSig, gram
 		Verification:  []string{},
 		FailureModes:  []string{},
 		Facts:         []string{},
-		SourceAnchors: []dossierAnchor{},
+		SourceAnchors: []DossierAnchor{},
 	}
-	rec.Trigger = dossierTrigger(typ, intentSig, metaID)
-	rec.Workflow = splitGramHeads(gram)
-	rec.Variants = dossierVariants(db, typ, intentSig, gram)
+	rec.Trigger = DossierTrigger(typ, intentSig, metaID)
+	rec.Workflow = SplitGramHeads(gram)
+	rec.Variants = DossierVariants(db, typ, intentSig, gram)
 
 	anchors, err := dossierAnchors(db, patternID)
 	if err != nil {
@@ -138,11 +140,11 @@ func assembleDossier(db *sql.DB, patternID, typ, cluster, title, intentSig, gram
 	if err != nil {
 		return rec, err
 	}
-	rec.Fingerprint = dossierFingerprint(rec, strength)
+	rec.Fingerprint = DossierFingerprint(rec, strength)
 	return rec, nil
 }
 
-func dossierTrigger(typ, intentSig, metaID string) string {
+func DossierTrigger(typ, intentSig, metaID string) string {
 	switch typ {
 	case "practice":
 		return "way-of-working: " + metaID
@@ -153,9 +155,9 @@ func dossierTrigger(typ, intentSig, metaID string) string {
 	}
 }
 
-func splitGramHeads(gram string) []string {
+func SplitGramHeads(gram string) []string {
 	var out []string
-	for _, h := range strings.Split(gram, gramSep) {
+	for _, h := range strings.Split(gram, GramSep) {
 		if h = strings.TrimSpace(h); h != "" {
 			out = append(out, h)
 		}
@@ -166,9 +168,9 @@ func splitGramHeads(gram string) []string {
 	return out
 }
 
-// dossierVariants lists other command shapes recorded for the same intent — the
+// DossierVariants lists other command shapes recorded for the same intent — the
 // alternative methods seen for one task/risk.
-func dossierVariants(db *sql.DB, typ, intentSig, gram string) []string {
+func DossierVariants(db *sql.DB, typ, intentSig, gram string) []string {
 	if typ == "practice" || intentSig == "" {
 		return []string{}
 	}
@@ -181,7 +183,7 @@ func dossierVariants(db *sql.DB, typ, intentSig, gram string) []string {
 	for rows.Next() {
 		var g string
 		if rows.Scan(&g) == nil {
-			out = append(out, strings.Join(splitGramHeads(g), " → "))
+			out = append(out, strings.Join(SplitGramHeads(g), " → "))
 		}
 	}
 	if out == nil {
@@ -190,7 +192,7 @@ func dossierVariants(db *sql.DB, typ, intentSig, gram string) []string {
 	return out
 }
 
-func dossierAnchors(db *sql.DB, patternID string) ([]dossierAnchor, error) {
+func dossierAnchors(db *sql.DB, patternID string) ([]DossierAnchor, error) {
 	rows, err := db.Query(`
 		SELECT e.session_id, COALESCE(e.checkpoint_id,''), pe.source_path, pe.start_line, pe.end_line, COALESCE(pe.outcome,e.outcome)
 		FROM pattern_evidence pe JOIN episodes e ON e.id=pe.episode_id
@@ -200,17 +202,17 @@ func dossierAnchors(db *sql.DB, patternID string) ([]dossierAnchor, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []dossierAnchor
+	var out []DossierAnchor
 	for rows.Next() {
-		var a dossierAnchor
+		var a DossierAnchor
 		if err := rows.Scan(&a.SessionID, &a.CheckpointID, &a.Transcript, &a.StartLine, &a.EndLine, &a.Outcome); err != nil {
 			return nil, err
 		}
-		a.Transcript = redactText(a.Transcript)
+		a.Transcript = base.RedactText(a.Transcript)
 		out = append(out, a)
 	}
 	if out == nil {
-		return []dossierAnchor{}, rows.Err()
+		return []DossierAnchor{}, rows.Err()
 	}
 	return out, rows.Err()
 }
@@ -229,7 +231,7 @@ func dossierVerification(db *sql.DB, patternID string) []string {
 	var out []string
 	for rows.Next() {
 		var h string
-		if rows.Scan(&h) == nil && validationCommandHeads[h] {
+		if rows.Scan(&h) == nil && ValidationCommandHeads[h] {
 			out = append(out, h)
 		}
 	}
@@ -239,7 +241,7 @@ func dossierVerification(db *sql.DB, patternID string) []string {
 	return out
 }
 
-func dossierFailureModes(typ string, anchors []dossierAnchor) []string {
+func dossierFailureModes(typ string, anchors []DossierAnchor) []string {
 	var out []string
 	for _, a := range anchors {
 		if a.Outcome == "corrected" || a.Outcome == "failed" {
@@ -279,7 +281,7 @@ func dossierFacts(db *sql.DB, patternID string) ([]string, error) {
 			entry += " (" + kind + ")"
 		}
 		if paths != "" {
-			entry += " @ " + redactText(paths)
+			entry += " @ " + base.RedactText(paths)
 		}
 		out = append(out, entry)
 	}
@@ -289,20 +291,20 @@ func dossierFacts(db *sql.DB, patternID string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// dossierFingerprint binds all redacted verifier inputs, excluding its own field.
-func dossierFingerprint(rec dossierRecord, strength float64) string {
+// DossierFingerprint binds all redacted verifier inputs, excluding its own field.
+func DossierFingerprint(rec DossierRecord, strength float64) string {
 	rec.Fingerprint = ""
 	payload, err := json.Marshal(struct {
-		Dossier  dossierRecord
+		Dossier  DossierRecord
 		Strength float64
 	}{rec, strength})
 	if err != nil {
 		return ""
 	}
-	return "sha256:" + hexSHA("dossier/v2\x00"+redactText(string(payload)))
+	return "sha256:" + base.HexSHA("dossier/v2\x00"+base.RedactText(string(payload)))
 }
 
-func upsertDossier(db *sql.DB, rec dossierRecord, jsonRedacted, ts string) error {
+func upsertDossier(db *sql.DB, rec DossierRecord, jsonRedacted, ts string) error {
 	var (
 		existVerdict, existVerified string
 		exists                      bool

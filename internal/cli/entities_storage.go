@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // gitmetaDirForKey resolves the local git-meta store path for a repo key
@@ -20,8 +21,8 @@ import (
 // records (and, historically, the retired local-gitmeta fact-set heads —
 // COR-2236).
 func gitmetaDirForKey(env EntireEnv, key string) (string, error) {
-	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
+		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 	}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {

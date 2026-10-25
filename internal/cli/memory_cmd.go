@@ -1545,7 +1545,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// storm with no cause attached to any of it.
 				// `entire memory worker --json` is pasted into issues, so the
 				// same redaction the durable log applies is applied here.
-				stats.PrepassError = redactText(err.Error())
+				stats.PrepassError = base.RedactText(err.Error())
 				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
 				// Some failures are durable: no retry changes the bytes on

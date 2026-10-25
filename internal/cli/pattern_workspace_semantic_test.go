@@ -8,6 +8,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // seedPromotableMember builds a member corpus whose (intentSig, heads) task is
@@ -15,16 +21,16 @@ import (
 // task candidate for the workspace judgment layer.
 func seedPromotableMember(t *testing.T, brainDir, repoKey, intentSig string, heads ...string) {
 	t.Helper()
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, s := range patternCorpusSchema {
+	for _, s := range patterncore.CorpusSchema {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("schema: %v", err)
 		}
@@ -32,17 +38,17 @@ func seedPromotableMember(t *testing.T, brainDir, repoKey, intentSig string, hea
 	now := time.Now()
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("%s:ok%d", intentSig, i)
-		insertCorpusEpisode(t, db, id, intentSig, "success", len(heads), now)
-		insertCorpusShape(t, db, id, heads...)
+		patterntest.InsertCorpusEpisode(t, db, id, intentSig, "success", len(heads), now)
+		patterntest.InsertCorpusShape(t, db, id, heads...)
 		db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 			id, "fact:"+intentSig, "architecture", "ops/x.go")
 	}
 	for i := 0; i < 120; i++ {
 		id := fmt.Sprintf("%s:noise%d", intentSig, i)
-		insertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
-		insertCorpusShape(t, db, id, "ls", "cat")
+		patterntest.InsertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "ls", "cat")
 	}
-	if err := buildPatternCandidates(db, repoKey, now); err != nil {
+	if err := patterncore.BuildCandidates(db, repoKey, now); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -85,15 +91,15 @@ func releaseGroupingAgent(t *testing.T) distillAgentRunner {
 	}
 }
 
-func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bIntent string, bHeads []string) (EntireEnv, workspaceManifest) {
+func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bIntent string, bHeads []string) (EntireEnv, workspace.Manifest) {
 	t.Helper()
 	env := EntireEnv{PluginDataDir: t.TempDir()}
 	aDir, _ := brainDirForKey(env, a)
 	bDir, _ := brainDirForKey(env, b)
 	seedPromotableMember(t, aDir, a, aIntent, aHeads...)
 	seedPromotableMember(t, bDir, b, bIntent, bHeads...)
-	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: a}, {RepoKey: b}}}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: a}, {RepoKey: b}}}
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
@@ -117,7 +123,7 @@ func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
 	if stats.Verified != 1 {
 		t.Fatalf("expected 1 accepted family, got %+v", stats)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	fams := loadAcceptedWorkspaceFamilies(wsDir)
 	if len(fams) != 1 {
 		t.Fatalf("expected 1 family, got %d", len(fams))
@@ -151,7 +157,7 @@ func TestWorkspaceFamilyRejectsGeneric(t *testing.T) {
 	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	if fams := loadAcceptedWorkspaceFamilies(wsDir); len(fams) != 0 {
 		t.Errorf("generic git workflows must not produce an accepted workspace family, got %d", len(fams))
 	}
@@ -191,7 +197,7 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	if len(loadAcceptedWorkspaceFamilies(wsDir)) != 1 {
 		t.Fatal("setup: expected 1 accepted family before refresh")
 	}
@@ -275,7 +281,7 @@ func TestWorkspaceFamilyUnknownVerdictNotAccepted(t *testing.T) {
 		if stats.Verified != 0 {
 			t.Errorf("verdict %q must not count as Verified, got %+v", v, stats)
 		}
-		wsDir, _ := workspaceDir(env, "plat")
+		wsDir, _ := workspaceStore(env).Dir("plat")
 		if n := len(loadAcceptedWorkspaceFamilies(wsDir)); n != 0 {
 			t.Errorf("verdict %q must not surface as an accepted family, got %d", v, n)
 		}

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // writeVizOptimizationStore builds a Graph-owned store fixture (sqlite with the
@@ -45,7 +47,7 @@ func writeVizOptimizationStore(t *testing.T, brainDir string, records []semantic
 		t.Fatal(err)
 	}
 	path := filepath.Join(providerDir, generation, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

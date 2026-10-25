@@ -144,7 +144,7 @@ func scanConversationTranscriptContext(ctx context.Context, path string) (conver
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return conversationScanResult{}, fmt.Errorf("transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return conversationScanResult{}, err
 	}
@@ -613,7 +613,7 @@ func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must remain under sessions/"}
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path is unsafe", Err: err}
 	}
 	return filepath.Join(brainDir, clean), nil

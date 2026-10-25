@@ -146,10 +146,10 @@ func withVitalityLock(brainDir string, fn func() error) error {
 }
 
 func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
 		return err
 	}
 	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
@@ -165,15 +165,15 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 // fsynced — a torn tail line on power loss is tolerated by the log parser. A
 // later append first terminates that torn line so it cannot consume a new event.
 func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
 	if dir := filepath.Dir(clean); dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
 			return err
 		}
 	}
@@ -181,18 +181,18 @@ func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
-	if err := rejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
+	if err := base.RejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|fileLockOpenFlags(), 0o600)
+	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(abs, f, "vitality log"); err != nil {
+	if err := base.RejectOpenFileAlias(abs, f, "vitality log"); err != nil {
 		return err
 	}
 	info, err := f.Stat()

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestClassifyEpisodeShape(t *testing.T) {
@@ -90,7 +92,7 @@ func TestThemeProposalGroupsByMeaningNotIntentSig(t *testing.T) {
 	db := openCorpus(t, brainDir)
 
 	// Refresh does NOT create themes (agent-only).
-	if n := corpusCount(t, db, "themes"); n != 0 {
+	if n := patterntest.CorpusCount(t, db, "themes"); n != 0 {
 		t.Fatalf("refresh must not create themes (agent-only), got %d", n)
 	}
 

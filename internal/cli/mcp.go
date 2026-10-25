@@ -19,6 +19,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -581,7 +582,7 @@ func mcpDebugToolCall(raw json.RawMessage) mcpDebugToolCallInfo {
 	if name == "brain_workspace_graph" || name == "brain_workspace_regressions" || name == "brain_workspace_review" {
 		if value, ok := params.Arguments["workspace"].(string); ok {
 			workspace := strings.TrimSpace(value)
-			if validateWorkspaceName(workspace) == nil {
+			if workspacelib.ValidateName(workspace) == nil {
 				safe["workspace"] = workspace
 			}
 		}
@@ -1558,8 +1559,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = runBrainReview(ctx, cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, query)
 		}
 	case "brain_workspace_regressions":
-		var manifest workspaceManifest
-		var skipped []workspaceRepoFreshness
+		var manifest workspacelib.Manifest
+		var skipped []workspacelib.RepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1582,8 +1583,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = runWorkspaceRegressionsManifest(cmd, opts, regressionDetectorOptions{limit: limit, json: true, includeDeletions: inc, locationOnly: loc}, manifest, query, skipped)
 		}
 	case "brain_workspace_graph":
-		var manifest workspaceManifest
-		var skipped []workspaceRepoFreshness
+		var manifest workspacelib.Manifest
+		var skipped []workspacelib.RepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1596,8 +1597,8 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			err = runWorkspaceGraphManifest(cmd, opts, workspaceGraphOptions{limit: limit, json: true}, manifest, skipped)
 		}
 	case "brain_workspace_review":
-		var manifest workspaceManifest
-		var skipped []workspaceRepoFreshness
+		var manifest workspacelib.Manifest
+		var skipped []workspacelib.RepoFreshness
 		workspace, stringErr := mcpOptionalString(params.Arguments, "workspace")
 		if stringErr != nil {
 			err = stringErr
@@ -1978,7 +1979,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 // since repoStorageContainsState counts either half -- a deleted duplicate was
 // still a second identity, so the conflict outlived the call meant to end it.
 func deleteRepoStore(storage repoStorage) error {
-	if err := rejectSymlinkedBrainRoot(storage.BrainDir); err != nil && !os.IsNotExist(err) {
+	if err := base.RejectSymlinkedBrainRoot(storage.BrainDir); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if err := os.RemoveAll(storage.BrainDir); err != nil {
@@ -2200,14 +2201,14 @@ func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
 
 // mcpWorkspaceManifest loads once so execution uses exactly the members checked
 // at the MCP boundary. CLI callers continue to load their own unrestricted manifest.
-func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspaceManifest, []workspaceRepoFreshness, error) {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspacelib.Manifest, []workspacelib.RepoFreshness, error) {
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
-		return workspaceManifest{}, nil, err
+		return workspacelib.Manifest{}, nil, err
 	}
 	kept, excluded, err := mcpValidateWorkspaceScope(ctx, opts, tool, manifest)
 	if err != nil {
-		return workspaceManifest{}, nil, err
+		return workspacelib.Manifest{}, nil, err
 	}
 	manifest.Repos = kept
 	return manifest, excluded, nil
@@ -2223,7 +2224,7 @@ func mcpEnforceWorkspaceScope(ctx context.Context, opts Options, tool, workspace
 // call outright only for a member that is genuinely OUT OF SCOPE.
 //
 // The two outcomes are not interchangeable. See mcpWorkspaceMemberExcluded.
-func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspaceManifest) ([]workspaceRepo, []workspaceRepoFreshness, error) {
+func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, manifest workspacelib.Manifest) ([]workspacelib.Repo, []workspacelib.RepoFreshness, error) {
 	if mcpCrossRepoAllowed() {
 		return manifest.Repos, nil, nil
 	}
@@ -2259,10 +2260,10 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 	// refused the standard setup they exist to serve. That is the normal case,
 	// not an edge case.
 	scopeRoot := workspaceScopeRoot(opts.Env.RepoRoot)
-	kept := make([]workspaceRepo, 0, len(manifest.Repos))
-	var excluded []workspaceRepoFreshness
-	exclude := func(repo workspaceRepo, detail string) {
-		excluded = append(excluded, workspaceRepoFreshness{
+	kept := make([]workspacelib.Repo, 0, len(manifest.Repos))
+	var excluded []workspacelib.RepoFreshness
+	exclude := func(repo workspacelib.Repo, detail string) {
+		excluded = append(excluded, workspacelib.RepoFreshness{
 			RepoKey:       repo.RepoKey,
 			Name:          repo.Name,
 			State:         "unsafe",
@@ -2345,7 +2346,7 @@ const mcpWorkspaceMemberExcluded = "unverifiable member: dropped from the execut
 // because a member added under a different key spelling (a remote renamed since
 // `workspace add`, or a manifest written by another brain version) is still the
 // same checkout on disk.
-func workspaceIncludesBoundRepo(manifest workspaceManifest, boundKey, repoRoot string) bool {
+func workspaceIncludesBoundRepo(manifest workspacelib.Manifest, boundKey, repoRoot string) bool {
 	for _, repo := range manifest.Repos {
 		if boundKey != "" && repo.RepoKey == boundKey {
 			return true

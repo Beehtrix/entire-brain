@@ -336,7 +336,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, "sessions/") {
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript path is unsafe", Err: err}
 	}

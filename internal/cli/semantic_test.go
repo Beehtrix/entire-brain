@@ -20,9 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/entireio/entire-brain/internal/providerdetail"
+	"github.com/spf13/cobra"
 )
 
 func TestSemanticIndexCommandParsesGraphProviderFlags(t *testing.T) {
@@ -1270,7 +1270,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if afterIngest.Sources.Semantic.GenerationPath != beforeIngest.Sources.Semantic.GenerationPath {
 		t.Fatalf("trace ingest created a Brain-owned generation: %s", afterIngest.Sources.Semantic.GenerationPath)
 	}
-	oldDB, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(oldStorePath))
+	oldDB, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(oldStorePath))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2411,7 +2411,7 @@ func TestBundleImportRejectsRepoKeyMismatch(t *testing.T) {
 	}
 }
 
-func TestBundleImportQuerySkipsBlankSnapshotLines(t *testing.T) {
+func TestBundleImportRejectsLegacySnapshot(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -2420,15 +2420,9 @@ func TestBundleImportQuerySkipsBlankSnapshotLines(t *testing.T) {
 		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": strings.Replace(semanticFixtureSnapshot("1.0"), "\n{\"record_type\":\"relation\"", "\n\n{\"record_type\":\"relation\"", 1),
 	})
-	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	m, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m.Sources != nil && m.Sources.Semantic != nil {
-		t.Fatal("import recreated a retired semantic source")
+	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
+	if !errors.Is(err, errLegacyBrainLayout) {
+		t.Fatalf("expected old-layout error: %v", err)
 	}
 }
 
@@ -2629,9 +2623,8 @@ func TestBundleImportAcceptsOlderSchema(t *testing.T) {
 }
 
 // TestBundleImportNoticesDiscardedCodeIndex pins that a bundle carrying a
-// semantic source (the 0.1.0 bundle shape, before restoreBundleBrainLayers
-// grew its own layer table) tells the operator its code index was discarded
-// instead of silently dropping it while printing success.
+// Graph-owned source tells the operator its code index was not imported.
+// Pre-Graph sources are refused before any layers are restored.
 func TestBundleImportNoticesDiscardedCodeIndex(t *testing.T) {
 	const notice = "code index was not imported"
 
@@ -2641,8 +2634,7 @@ func TestBundleImportNoticesDiscardedCodeIndex(t *testing.T) {
 		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 		archive := filepath.Join(t.TempDir(), "legacy-semantic.tar")
 		writeTestBundle(t, archive, map[string]string{
-			exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
-			"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
+			exportManifestFileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{"semantic":{"store_owner":"graph","provider":"entire-graph"}}}`,
 		})
 		cmd := &cobra.Command{Use: "bundle import"}
 		var out bytes.Buffer
@@ -2702,18 +2694,18 @@ func TestBundleImportChecksumCoversTrailingBytes(t *testing.T) {
 	}
 }
 
-func TestBundleImportIgnoresUnreferencedSnapshots(t *testing.T) {
+func TestBundleImportRejectsUnreferencedSnapshots(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "extra-snapshot.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
-		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
-		"semantic/snapshots/extra/snapshot.ndjson":  `{"schema_version":"1.0","repo_key":"gh/other/repo"}` + "\n",
+		exportManifestFileName:                     `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		"semantic/snapshots/extra/snapshot.ndjson": `{"schema_version":"1.0","repo_key":"gh/other/repo"}` + "\n",
 	})
-	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
-		t.Fatalf("import: %v", err)
+	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
+	if !errors.Is(err, errLegacyBrainLayout) {
+		t.Fatalf("expected old-layout error: %v", err)
 	}
 	extraPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", "semantic", "snapshots", "extra", "snapshot.ndjson")
 	if _, err := os.Stat(extraPath); !os.IsNotExist(err) {
@@ -2775,7 +2767,7 @@ func shortSemanticLockTimeout(t *testing.T) {
 
 func semanticTestSQLCount(t *testing.T, path, table string) int {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

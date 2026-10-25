@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +17,7 @@ import (
 func seedSymbolKinds(t *testing.T, counts map[string]int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "semantic.db")
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}

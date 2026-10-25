@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const (
@@ -156,7 +157,7 @@ func factBranchStoreExists(brainDir, branch string) bool {
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
 	rel := factsFileRelPath(branch)
-	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(brainDir, filepath.FromSlash(rel))

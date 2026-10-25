@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testing.T) {
@@ -225,7 +227,7 @@ func writeHealthFTSMetaFixture(t *testing.T, brainDir, schema, fingerprint strin
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

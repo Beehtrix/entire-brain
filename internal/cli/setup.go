@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/spf13/cobra"
@@ -842,7 +843,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// service manager restarts it every 60s forever, and setup exits 0. Reject
 	// the name here, before anything is planned or installed, where the only
 	// thing it can cost is this command.
-	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
+	if err := workspace.ValidateName(setupOpts.workspace); err != nil {
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
 	}
 	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
@@ -1851,7 +1852,7 @@ func daemonEnv(env EntireEnv) map[string]string {
 // of the two registrations.
 func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	result, err := addWorkspaceRepoLocked(opts.Env, name, workspaceRepo{RepoKey: repoKey, LocalPathHint: repoDir})
+	result, err := workspaceStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
 		return state, err
 	}

@@ -255,6 +255,17 @@ def _rich_legacy_packet() -> dict[str, object]:
             "warnings": ["status warning"],
         },
         "semantic": {
+            # Mirrors comprehensiveCompactV1Report()'s Staleness on the Go
+            # side. On the REPORT-level semantic (the one holding context /
+            # runtime_traces / tests), not status.semantic: the projection reads
+            # report["semantic"]["staleness"] and never looks under status.
+            "staleness": {
+                "ancestor_commit": "ancestor1",
+                "commits_behind": 2,
+                "changed_files": ["internal/a.go", "internal/b.go"],
+                "unreliable": ["internal/a.go"],
+                "excluded_records": 12,
+            },
             "context": {
                 "symbols": [copy.deepcopy(symbol)],
                 "relations": [relation],
@@ -569,11 +580,11 @@ class PacketFormatV2ABFoundationTests(unittest.TestCase):
         )
         self.assertEqual(
             identity["compact_v2_golden_sha256"],
-            "e0bc12b75059a7bba809ef1a66739c49d397852a30271da1b3e2ef4f9a6ca982",
+            "e7dd2b621aba6d0c25ff465e9f7402078b2e8959a4df9a8c972185030de05816",
         )
         self.assertEqual(
             identity["compact_v2_contract_fingerprint_sha256"],
-            "df4b35287f95afc8773371006e83506e2f2b729e9a03ccd80f51b961de647d91",
+            "71293d9cb8379be4a72f821fb0e16272ecea7ae939652d1780dbf44b002917d6",
         )
         self.assertEqual(
             identity["compact_v2_contract_fingerprint_sha256"],
@@ -644,7 +655,11 @@ class PacketFormatV2ABFoundationTests(unittest.TestCase):
             tuple(schema[0] for schema in packet_format_v2_ab.COMPACT_V2_SCHEMAS),
             packet_format_v2_ab.COMPACT_BODY_TAG_ORDER,
         )
-        self.assertEqual(len(packet_format_v2_ab.COMPACT_V2_BY_OPCODE), 32)
+        # 33, not 32: opcode 'A' for the staleness record the ancestor
+        # disclosure adds. v2 is positional and refuses an unschemad v1 tag, so
+        # without this entry the whole packet would fail rather than merely
+        # omit the caveat.
+        self.assertEqual(len(packet_format_v2_ab.COMPACT_V2_BY_OPCODE), 33)
         denied = {
             "value",
             "diff_stat",
@@ -677,7 +692,8 @@ class PacketFormatV2ABFoundationTests(unittest.TestCase):
         projection = packet_format_v2_ab.canonical_projection_from_legacy(
             _repeat_rich_legacy_packet()
         )
-        self.assertEqual(len(projection), 65)
+        # 66, not 65: the staleness record the ancestor disclosure adds.
+        self.assertEqual(len(projection), 66)
         retained = json.dumps(projection, sort_keys=True)
         for forbidden in (
             "PRIVATE_GENERATED_AT",
@@ -896,19 +912,24 @@ class PacketFormatV2GoldenAndAdversarialTests(unittest.TestCase):
     def test_exhaustive_golden_identity_projection_and_numeric_attribution(self) -> None:
         self.assertEqual(
             hashlib.sha256(self.golden).hexdigest(),
-            "e0bc12b75059a7bba809ef1a66739c49d397852a30271da1b3e2ef4f9a6ca982",
+            "e7dd2b621aba6d0c25ff465e9f7402078b2e8959a4df9a8c972185030de05816",
         )
         parsed = packet_format_v2_ab.parse_compact_v2_packet(self.golden)
         legacy = packet_format_v2_ab.canonical_projection_from_legacy(
             _repeat_rich_legacy_packet()
         )
         self.assertEqual(parsed["records"], legacy)
-        self.assertEqual(parsed["body_record_count"], 65)
+        # 66, not 65: the staleness record the ancestor disclosure adds.
+        self.assertEqual(parsed["body_record_count"], 66)
         self.assertEqual(
             packet_format_v2_ab.sha256_bytes(
                 packet_format_v2_ab.canonical_json_bytes(parsed["records"])
             ),
-            "a934c2c5c12c96cff93f1c6e500a2cf61af1a985c40f7e57aad998961aba3a1c",
+            # Re-anchored for the added staleness record. Safe to move because the
+            # assertion directly above proves parsed["records"] equals the
+            # INDEPENDENT Python projection, so this digest is pinned to a
+            # state two implementations agree on, not merely to new output.
+            "68f467e78f59307ace04e98771a97aa87c367a850f3eb2005d870ec1a826cdd7",
         )
         attribution = parsed["structural_size_attribution"]
         _assert_int_leaves(self, attribution)
@@ -945,7 +966,10 @@ class PacketFormatV2GoldenAndAdversarialTests(unittest.TestCase):
             b"entire.brain_brief ",
             b"entire.brain_brief compact_v3",
         )
-        wrong_count = self.golden.replace(b"end\t65\t", b"end\t64\t", 1)
+        # Tracks the real body-record count. When the golden grew to 66 this
+        # still said 65, so the replace matched nothing, "wrong_count" WAS the
+        # pristine golden, and this tamper case silently asserted nothing.
+        wrong_count = self.golden.replace(b"end\t66\t", b"end\t65\t", 1)
         uppercase_hash = self.golden[:-65] + self.golden[-65:].upper()
         tampered_body = self.golden.replace(
             b"Decision: preserve validation order.",

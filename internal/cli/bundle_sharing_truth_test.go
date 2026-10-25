@@ -3,12 +3,13 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // Sharing a brain with a teammate is the one path that works today, and it is

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -47,7 +48,7 @@ type privacyVerifyReport struct {
 
 func loadHistoryShortTermForPrivacy(brainDir string) (shortTermIndex, error) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, present, err := readPrivacyArtifact(brainDir, historyShortTermPath, "short-term history", defaultMaxReadBytes)
+	data, present, err := readPrivacyArtifact(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return empty, err
 	}
@@ -73,7 +74,7 @@ func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 	if err != nil {
 		return empty, fmt.Errorf("%s: open %s: %w", memoryErrStateCorrupt, historyScanCachePath, err)
 	}
-	decoded, readErr := safeReadAll(gz, semanticSnapshotMaxBytes(), historyScanCachePath+" (decompressed)")
+	decoded, readErr := base.SafeReadAll(gz, base.SemanticSnapshotMaxBytes(), historyScanCachePath+" (decompressed)")
 	closeErr := gz.Close()
 	if readErr != nil {
 		return empty, fmt.Errorf("%s: read %s: %w", memoryErrStateCorrupt, historyScanCachePath, readErr)
@@ -93,7 +94,7 @@ func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 
 func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, present, err := readPrivacyArtifact(brainDir, distillCachePath, "distill cache", maxManifestBytes)
+	data, present, err := readPrivacyArtifact(brainDir, distillCachePath, "distill cache", base.MaxManifestBytes)
 	if err != nil || !present {
 		return empty, err
 	}
@@ -179,7 +180,7 @@ func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
 			return nil, false, nil
 		}
 		path := filepath.Join(brainDir, filepath.FromSlash(sourceRel))
-		file, openErr := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+		file, openErr := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 		if openErr != nil {
 			return nil, true, fmt.Errorf("%s: open %s without following links: %w", memoryErrStateUnsafe, label, openErr)
 		}
@@ -405,7 +406,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 
 func loadPrivacyTransactionChecked(brainDir, sessionID string) (privacyTransaction, bool, error) {
 	rel := privacyTransactionRel(sessionID)
-	data, present, err := readPrivacyArtifact(brainDir, rel, "privacy transaction", maxManifestBytes)
+	data, present, err := readPrivacyArtifact(brainDir, rel, "privacy transaction", base.MaxManifestBytes)
 	if err != nil || !present {
 		return privacyTransaction{}, present, err
 	}

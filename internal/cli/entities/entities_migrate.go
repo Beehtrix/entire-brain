@@ -1,11 +1,12 @@
-package cli
+package entities
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/entityindex"
 	"github.com/spf13/cobra"
 )
 
-func newEntitiesMigrateCommand(opts Options) *cobra.Command {
+func newEntitiesMigrateCommand(opts Config) *cobra.Command {
 	var binary string
 	cmd := &cobra.Command{
 		Use:   "migrate [path]",
@@ -25,7 +26,7 @@ func newEntitiesMigrateCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return writeIndentedJSON(cmd.OutOrStdout(), result)
+			return base.WriteIndentedJSON(cmd.OutOrStdout(), result)
 		},
 	}
 	cmd.Flags().StringVar(&binary, "graph-binary", "entire", "Entire CLI binary that exposes graph commands")

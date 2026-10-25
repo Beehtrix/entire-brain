@@ -18,14 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"
+	"github.com/spf13/cobra"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -718,14 +718,14 @@ func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	defer f.Close()
-	max := semanticSnapshotMaxBytes()
+	max := base.SemanticSnapshotMaxBytes()
 	path := f.Name()
 	if info, err := f.Stat(); err != nil {
 		return nil, false, err
 	} else if info.Size() > max {
-		return nil, false, &readBoundExceededError{source: path, max: max}
+		return nil, false, &readBoundExceededError{Source: path, Max: max}
 	}
-	data, err := safeReadAll(f, max, path)
+	data, err := base.SafeReadAll(f, max, path)
 	if err != nil {
 		return nil, false, err
 	}

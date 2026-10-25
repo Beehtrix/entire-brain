@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -995,7 +997,7 @@ func TestMemoryJobV1StringErrorAdaptsToV2(t *testing.T) {
 	}
 	// The exact legacy filename remains discoverable until migration removes it;
 	// the canonical rewrite itself must be v2.
-	canonical, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryJobRel(jobID))), maxManifestBytes)
+	canonical, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryJobRel(jobID))), base.MaxManifestBytes)
 	if err != nil || !strings.Contains(string(canonical), `"schema_version": 2`) || strings.Contains(string(canonical), "private/path") {
 		t.Fatalf("canonical v2 rewrite err=%v data=%s", err, canonical)
 	}

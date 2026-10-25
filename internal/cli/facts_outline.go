@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_outline.go builds the Appendix-D "synthesized hierarchical outline": a
@@ -76,7 +78,7 @@ func factHomeKey(f factRecord) string {
 		return ""
 	}
 	best := ""
-	for _, tok := range factLocusOf(f) {
+	for _, tok := range base.FactLocusOf(f) {
 		if !looksLikeSourcePath(tok) {
 			continue
 		}
@@ -323,7 +325,7 @@ func outlineCleanSummary(out string) string {
 		line = strings.TrimSpace(line)
 		line = strings.TrimLeft(line, "-*• ")
 		if line != "" {
-			return truncateString(line, 280)
+			return base.TruncateString(line, 280)
 		}
 	}
 	return ""

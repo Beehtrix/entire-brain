@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -3498,10 +3499,10 @@ func TestWorkspaceAddValidatesTheMemberDisplayName(t *testing.T) {
 	} {
 		_, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", name)
 		if err == nil {
-			t.Fatalf("workspace add accepted --name %q", truncateString(name, 40))
+			t.Fatalf("workspace add accepted --name %q", base.TruncateString(name, 40))
 		}
 		if !strings.Contains(err.Error(), "workspace repo name must") {
-			t.Fatalf("the refusal for --name %q does not say what a name may be: %v", truncateString(name, 40), err)
+			t.Fatalf("the refusal for --name %q does not say what a name may be: %v", base.TruncateString(name, 40), err)
 		}
 		// The refusal must not echo a 5000-character value back at the reader.
 		if len(err.Error()) > 200 {

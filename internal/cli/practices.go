@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Practice detection (Pattern Consolidation, Phase 3).
@@ -146,7 +148,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 			Scope:         "repo",
 			RepoKey:       repoKey,
 			Kind:          kind,
-			Statement:     truncateString(f.Text, 280),
+			Statement:     base.TruncateString(f.Text, 280),
 			Paths:         f.Paths,
 			Locus:         f.Locus,
 			Support:       support,

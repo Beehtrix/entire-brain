@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -687,7 +688,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	if err := validateWorkspaceRepoName(addOpts.name); err != nil {
 		return err
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
 	if err != nil {
 		return err
 	}
@@ -2587,7 +2588,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if r.Line > 0 {
 				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 			}
-			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
+			ex := base.TruncateString(strings.Join(strings.Fields(r.Text), " "), 200)
 			// Member ids are repo-qualified; workspace-level graph ids are already pasteable.
 			printedID := result.RepoKey + "/" + r.ID
 			if result.RepoKey == manifest.Name && strings.HasPrefix(r.ID, "graph:") {
@@ -2887,7 +2888,7 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	data, err := safeReadFile(filepath.Join(dir, workspaceGraphName), defaultMaxReadBytes)
+	data, err := base.SafeReadFile(filepath.Join(dir, workspaceGraphName), base.DefaultMaxReadBytes)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -3064,7 +3065,7 @@ func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, mani
 // fan-out that touches a member's working tree (watch, refresh --full) applies
 // before acting on a repo.
 func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, repo workspaceRepo) (string, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil || !local {
 		return "", errors.New("no resolvable local path")
 	}
@@ -3112,7 +3113,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = "no local_path_hint"
 		return status
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
 		status.State = "unsafe"
 		status.Detail = err.Error()
@@ -3697,7 +3698,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 	if repo.LocalPathHint == "" {
 		return "", nil, 0, nil, false, "no local_path_hint (re-add the repo to record its working tree)"
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
 		return "", nil, 0, nil, false, err.Error()
 	}

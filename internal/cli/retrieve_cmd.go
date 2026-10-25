@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -317,7 +318,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
 			}
 			for _, result := range results {
-				ex := truncateString(strings.Join(strings.Fields(result.Text), " "), 200)
+				ex := base.TruncateString(strings.Join(strings.Fields(result.Text), " "), 200)
 				label := result.Source
 				if result.VerificationRequired {
 					label += " verify"

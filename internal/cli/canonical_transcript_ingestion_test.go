@@ -10,15 +10,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, "0123456789")
 
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	data, err := readCanonicalHistoryTranscript(context.Background(), brainDir, "sessions/main/s1.jsonl")
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
@@ -32,9 +34,9 @@ func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
 func TestUnsafeTranscriptNeverInvokesDistillProvider(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, "0123456789")
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	calls := 0
 	opts := distillCommandOptions{
@@ -81,9 +83,9 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 		mutate func(t *testing.T, brainDir string)
 	}{
 		{name: "over limit", mutate: func(t *testing.T, brainDir string) {
-			oldMax := maxDocumentTranscriptBytes
-			maxDocumentTranscriptBytes = 8
-			t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+			oldMax := base.MaxDocumentTranscriptBytes
+			base.MaxDocumentTranscriptBytes = 8
+			t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 		}},
 		{name: "inventory ceiling", mutate: func(t *testing.T, brainDir string) {
 			oldLimit := historySessionInventoryMaxEntries

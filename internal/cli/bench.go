@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -84,7 +85,7 @@ func newSemanticBenchCommand(opts Options) *cobra.Command {
 }
 
 func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, benchOpts semanticBenchOptions, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}

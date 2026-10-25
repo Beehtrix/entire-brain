@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -66,14 +67,8 @@ const (
 	// summary's sessions[].compact_transcript.
 	v1CompactTranscriptFileName = "transcript.jsonl"
 
-	checkpointTrailerKey = "Entire-Checkpoint"
-
 	gitLogRecordSeparator = "\x1e"
 	gitLogFieldSeparator  = "\x00"
-)
-
-var checkpointTrailerRegex = regexp.MustCompile(
-	checkpointTrailerKey + `:\s*([a-f0-9]{12}|[0-7][0-9A-HJKMNP-TV-Z]{25})(?:\s|$)`,
 )
 
 type exportCommandOptions struct {
@@ -778,7 +773,7 @@ func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner
 		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
 	}
 
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", base.CheckpointTrailerKey+":", defaultRef)
 	warnings := warningLines("default branch checkpoint reachability", stderr)
 	if err != nil {
 		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
@@ -802,36 +797,14 @@ func resolveDefaultBranchRef(ctx context.Context, runner CommandRunner, repoDir,
 
 func checkpointIDsFromCommitMessages(data []byte) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, checkpointID := range checkpointIDsFromCommitMessageText(string(data)) {
+	for _, checkpointID := range base.CheckpointIDsFromCommitMessageText(string(data)) {
 		ids[checkpointID] = struct{}{}
 	}
 	return ids
 }
 
-func checkpointIDsFromCommitMessageText(message string) []string {
-	matches := checkpointTrailerRegex.FindAllStringSubmatch(message, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, len(matches))
-	ids := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		checkpointID := strings.TrimSpace(match[1])
-		if _, ok := seen[checkpointID]; ok {
-			continue
-		}
-		seen[checkpointID] = struct{}{}
-		ids = append(ids, checkpointID)
-	}
-	return ids
-}
-
 func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", base.CheckpointTrailerKey+":")
 	warnings := warningLines("checkpoint author index", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
@@ -860,7 +833,7 @@ func checkpointAuthorsFromGitLog(data []byte) checkpointAuthorIndex {
 			Email: strings.TrimSpace(parts[2]),
 		}
 		authoredAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(parts[3])) //nolint:errcheck // Timestamp is optional metadata.
-		checkpointIDs := checkpointIDsFromCommitMessageText(parts[4])
+		checkpointIDs := base.CheckpointIDsFromCommitMessageText(parts[4])
 		if commitSHA == "" || len(checkpointIDs) == 0 {
 			continue
 		}
@@ -1202,7 +1175,7 @@ func checkpointIDFromRefName(ref string) (string, bool) {
 }
 
 func isCheckpointRefID(value string) bool {
-	if isCheckpointID(value) {
+	if base.IsCheckpointID(value) {
 		return true
 	}
 	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
@@ -1217,7 +1190,7 @@ func isCheckpointRefID(value string) bool {
 }
 
 func checkpointULIDTime(value string) (time.Time, bool) {
-	if len(value) != 26 || !isCheckpointRefID(value) || isCheckpointID(value) {
+	if len(value) != 26 || !isCheckpointRefID(value) || base.IsCheckpointID(value) {
 		return time.Time{}, false
 	}
 	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -1823,7 +1796,7 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	unreadable := make(map[string]struct{})
 	for _, id := range sortedIDs {
 		var candidates []checkpointSnapshotSource
-		if isCheckpointID(id) {
+		if base.IsCheckpointID(id) {
 			if primary == checkpointBackendGitRefs {
 				if source, ok := refSources[id]; ok {
 					candidates = append(candidates, source)
@@ -2829,7 +2802,7 @@ func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
 	// expanding to terabytes) would otherwise drive the JSON decoder out of memory.
 	// Exceeding the cap makes Decode fail, which falls through to rebuilding the
 	// cache — the same graceful degradation as any other corrupt-cache case.
-	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, base.SemanticSnapshotMaxBytes())
 	var file checkpointMetadataCacheFile
 	if err := json.NewDecoder(limited).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
 		return newCheckpointMetadataCache(nil)
@@ -2952,18 +2925,6 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 		return nil, err
 	}
 	return stdout, nil
-}
-
-func isCheckpointID(value string) bool {
-	if len(value) != 12 {
-		return false
-	}
-	for _, r := range value {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entireBinary, checkpointID string) (checkpointExportEnvelope, error) {
@@ -3311,8 +3272,8 @@ func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error))
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
 		total += int64(len(data))
-		if total > maxDocumentTranscriptBytes {
-			return nil, &readBoundExceededError{source: "stored transcript " + chunks[0], max: maxDocumentTranscriptBytes}
+		if total > base.MaxDocumentTranscriptBytes {
+			return nil, &readBoundExceededError{Source: "stored transcript " + chunks[0], Max: base.MaxDocumentTranscriptBytes}
 		}
 		parts = append(parts, data)
 	}

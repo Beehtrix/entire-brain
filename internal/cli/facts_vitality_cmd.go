@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -187,7 +188,7 @@ func printFactsVitality(cmd *cobra.Command, report factsVitalityReport, factID s
 		fmt.Fprintf(out, "%s served=%d last=%s surface=%s%s\n",
 			entry.ID, entry.Served, entry.LastServed.UTC().Format(time.RFC3339), valueOrUnset(entry.LastSurface), marker)
 		if text := strings.TrimSpace(entry.Text); text != "" {
-			fmt.Fprintf(out, "  %s\n", truncateString(text, 120))
+			fmt.Fprintf(out, "  %s\n", base.TruncateString(text, 120))
 		}
 	}
 	fmt.Fprintf(out, "log: pending_events=%d malformed_lines=%d bytes=%d\n",

@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/factsync"
-
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +85,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		return fmt.Errorf("unknown --memories-backend %q: only %q (the hosted per-fact wire) is supported; the local-gitmeta backend was removed (COR-2236)", backend, factsBackendHTTP)
 	}
 
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 
 	branch := strings.TrimSpace(syncOpts.branch)
 	if branch == "" {
-		if current, gitErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 			branch = strings.TrimSpace(current)
 		}
 	}

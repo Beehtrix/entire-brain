@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -626,7 +627,7 @@ type memoryMigrationProgress struct {
 }
 
 func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", base.MaxManifestBytes)
 	if err != nil {
 		return memoryMigrationProgress{}, present, err
 	}
@@ -820,7 +821,7 @@ func rewriteLegacyMemoryJob(brainDir, rel string) error {
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return fmt.Errorf("%s: unsafe legacy job path", memoryErrStateCorrupt)
 	}
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("%s: read legacy job: %w", memoryErrStateCorrupt, err)
 	}
@@ -1378,7 +1379,7 @@ func memoryProviderEgressHealth(brainDir string) map[string]any {
 // It does not turn a corrupt/unsafe config into a supported one; the strict
 // loader above remains the authority for state and error classification.
 func memoryConfigObservedSchemaVersion(brainDir string) (int, bool) {
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
 	if err != nil || !present {
 		return 0, false
 	}

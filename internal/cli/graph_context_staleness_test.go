@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 // Absence of the block means the answer is exact. This is the property that
@@ -343,5 +346,65 @@ func TestAnEmptyUnreliableListStillReportsThatRecordsWereDropped(t *testing.T) {
 	}
 	if got.ExcludedRecords != 12 {
 		t.Fatalf("ExcludedRecords = %d, want 12: an empty Unreliable would otherwise read as a complete answer", got.ExcludedRecords)
+	}
+}
+
+// The DEFAULT output of `brain brief` -- no --json, no packet_format -- is the
+// surface most answers are read through, and it was the last one still silent
+// about staleness. An ancestor-served answer printed there looked exact, so a
+// symbol the ancestor store had dropped read as "no consumers": the precise
+// misreading this disclosure exists to prevent.
+//
+// The ordering assertion is load-bearing, not cosmetic: a reader that caps how
+// much of the output it consumes must meet the caveat before the results it
+// qualifies.
+func TestDefaultTextOutputDisclosesAncestorStaleness(t *testing.T) {
+	t.Parallel()
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := emitBrainBriefReport(cmd, stalenessCompactReport(), false); err != nil {
+		t.Fatalf("emit text report: %v", err)
+	}
+	text := out.String()
+
+	const wantLine = "staleness: ancestor_commit=ancestor1 commits_behind=2 changed_files=2 unreliable=1 excluded_records=12"
+	if !strings.Contains(text, wantLine) {
+		t.Fatalf("the default output does not disclose staleness.\nwant line: %s\ngot:\n%s", wantLine, text)
+	}
+	if !strings.Contains(text, "staleness_unreliable internal/a.go") {
+		t.Fatalf("the unreliable paths must be named, not just counted:\n%s", text)
+	}
+	stalenessAt := strings.Index(text, "staleness:")
+	symbolAt := strings.Index(text, "symbol ")
+	if symbolAt < 0 {
+		t.Fatalf("fixture produced no symbol line, so the ordering assertion proves nothing:\n%s", text)
+	}
+	if stalenessAt > symbolAt {
+		t.Fatalf("the caveat must precede the results it qualifies: staleness at %d, first symbol at %d\n%s", stalenessAt, symbolAt, text)
+	}
+}
+
+// excluded_records is printed even at zero, because an empty unreliable list is
+// the common case for an incomplete answer: the ancestor store has already
+// dropped the records for changed files, so nothing RETURNED is tainted while
+// records are still missing. A count omitted at zero would be indistinguishable
+// from a renderer that does not report it at all.
+func TestDefaultTextOutputPrintsExcludedRecordsEvenAtZero(t *testing.T) {
+	t.Parallel()
+	report := stalenessCompactReport()
+	report.Semantic.Staleness.Unreliable = nil
+	report.Semantic.Staleness.ExcludedRecords = 0
+
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	if err := emitBrainBriefReport(cmd, report, false); err != nil {
+		t.Fatalf("emit text report: %v", err)
+	}
+	if !strings.Contains(out.String(), "unreliable=0 excluded_records=0") {
+		t.Fatalf("an incomplete answer with nothing tainted must still say so:\n%s", out.String())
 	}
 }

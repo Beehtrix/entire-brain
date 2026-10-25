@@ -1982,6 +1982,24 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", severity)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "live: dirty=%t changed_files=%d\n", report.Status.Live.Dirty, len(report.Status.Live.ChangedFiles))
+	// Emitted here, BEFORE the symbols and tests it qualifies, for the same
+	// reason the compact renderer puts it first: a reader that caps how much of
+	// this packet it consumes would never reach a caveat printed after the
+	// results, and this is the default output of `brain brief` -- the surface
+	// most answers are actually read through.
+	//
+	// excluded_records is printed even at zero. Unreliable can only name paths
+	// the answer returned records for, and an ancestor store has already
+	// dropped the records for changed files, so an empty unreliable list is the
+	// common case even when the answer is incomplete; a count omitted at zero
+	// would be indistinguishable from a renderer that does not report it.
+	if staleness := report.Semantic.Staleness; staleness != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "staleness: ancestor_commit=%s commits_behind=%d changed_files=%d unreliable=%d excluded_records=%d\n",
+			staleness.AncestorCommit, staleness.CommitsBehind, len(staleness.ChangedFiles), len(staleness.Unreliable), staleness.ExcludedRecords)
+		for _, path := range staleness.Unreliable {
+			fmt.Fprintf(cmd.OutOrStdout(), "staleness_unreliable %s\n", path)
+		}
+	}
 	for _, file := range report.LikelyEditFiles {
 		fmt.Fprintf(cmd.OutOrStdout(), "edit_file %s\n", file)
 	}

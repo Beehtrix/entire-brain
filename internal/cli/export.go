@@ -358,10 +358,12 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 				return validateErr
 			}
 			if unavailableSessionsAreFatal(len(usable), len(unavailable)) {
-				return errors.New(unavailable[0])
+				// Returned as-is, so errors.Is upstream still reaches the cause
+				// underneath instead of a re-worded copy of its message.
+				return unavailable[0]
 			}
 			if len(unavailable) > 0 {
-				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %s", len(unavailable), unavailable[0]))
+				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
 				// An exempted session must SURVIVE: the cache sweep learns
 				// from this list which cached transcripts to retain, and that
 				// retention is what lets `privacy include` recover it. So keep
@@ -3014,7 +3016,7 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	// bypass their per-call seam.
 	if runnerAllowsCatFileBatch(runner) {
 		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
-		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return data, err
 		}
 	}

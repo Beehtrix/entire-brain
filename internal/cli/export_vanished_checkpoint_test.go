@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -66,7 +68,7 @@ func TestVanishedCheckpointIsPartitionedOutNotFatal(t *testing.T) {
 	if len(unavailable) != 1 {
 		t.Fatalf("unavailable = %d, want 1: %v", len(unavailable), unavailable)
 	}
-	if !strings.Contains(unavailable[0], "fd86c6e4bdb2") {
+	if !strings.Contains(unavailable[0].Error(), "fd86c6e4bdb2") {
 		t.Fatalf("the diagnostic does not name the checkpoint whose bytes are gone: %s", unavailable[0])
 	}
 	if len(usable) != 1 || usable[0].SessionID != "alive" {
@@ -146,5 +148,198 @@ func TestUnavailableSessionsAreFatalOnlyWhenNothingIsServable(t *testing.T) {
 		if got := unavailableSessionsAreFatal(c.usable, c.unavailable); got != c.fatal {
 			t.Errorf("%s: usable=%d unavailable=%d -> fatal=%v, want %v", name, c.usable, c.unavailable, got, c.fatal)
 		}
+	}
+}
+
+// stubExitError models a process exit status without spawning a process, so a
+// fixture can script git's exit 1 ("that object name is not present here")
+// against the per-exec probe. *exec.ExitError carries the same ExitCode()
+// capability from a real child.
+type stubExitError struct{ code int }
+
+func (e stubExitError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
+func (e stubExitError) ExitCode() int { return e.code }
+
+// probedFixture puts BOTH sessions in the snapshot with transcript paths the
+// source lists, so the git object probe actually runs for both. vanishedFixture
+// never reaches it: its second session is absent from the snapshot entirely, so
+// it is classified from data alone and no git command is issued.
+func probedFixture() (*checkpointSnapshot, []exportSession) {
+	snap := &checkpointSnapshot{
+		TranscriptMode:     "raw",
+		TranscriptFileName: "full.jsonl",
+		SessionCheckpoints: []sessionCheckpoint{
+			{CheckpointID: "aaa111aaa111", SessionID: "alive", SessionIndex: 0,
+				TranscriptPath: "checkpoints/aaa111aaa111/0/full.jsonl", SourceKey: "src"},
+			{CheckpointID: "bbb222bbb222", SessionID: "probed", SessionIndex: 0,
+				TranscriptPath: "checkpoints/bbb222bbb222/0/full.jsonl", SourceKey: "src"},
+		},
+		Sources: map[string]checkpointSnapshotSource{
+			"src": {
+				GitDir: "/repo/.git",
+				Ref:    "refs/heads/entire/checkpoints/v1",
+				TreePaths: map[string]struct{}{
+					"checkpoints/aaa111aaa111/0/full.jsonl": {},
+					"checkpoints/bbb222bbb222/0/full.jsonl": {},
+				},
+			},
+		},
+	}
+	sessions := []exportSession{
+		{SessionID: "alive", LatestCheckpoint: "aaa111aaa111", SessionIndex: 0, Branch: "main"},
+		{SessionID: "probed", LatestCheckpoint: "bbb222bbb222", SessionIndex: 0, Branch: "main"},
+	}
+	return snap, sessions
+}
+
+// probeRunner serves "blob" for every chunk except the probed session's, whose
+// `cat-file -t` and `cat-file -e` answers the caller scripts.
+func probeRunner(objectType, exists fakeCommandResponse) *fakeCommandRunner {
+	const probed = "bbb222bbb222"
+	return &fakeCommandRunner{fallback: func(name string, args []string) (fakeCommandResponse, bool) {
+		if name != "git" || len(args) != 3 || args[0] != "cat-file" {
+			return fakeCommandResponse{}, false
+		}
+		if !strings.Contains(args[2], probed) {
+			return fakeCommandResponse{stdout: "blob\n"}, true
+		}
+		switch args[1] {
+		case "-t":
+			return objectType, true
+		case "-e":
+			return exists, true
+		}
+		return fakeCommandResponse{}, false
+	}}
+}
+
+// git's own "that object is not present here" answer -- confirmed by the exit
+// code of a second, narrower probe -- is the ONE probe failure that costs its
+// session instead of the export.
+func TestConfirmedMissingObjectCostsOnlyItsOwnSession(t *testing.T) {
+	t.Parallel()
+	snap, sessions := probedFixture()
+	runner := probeRunner(
+		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
+		fakeCommandResponse{err: stubExitError{code: 1}},
+	)
+	usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
+	if err != nil {
+		t.Fatalf("a confirmed-missing object must not fail the export: %v", err)
+	}
+	if len(unavailable) != 1 || !strings.Contains(unavailable[0].Error(), "bbb222bbb222") {
+		t.Fatalf("unavailable = %v, want just the probed session", unavailable)
+	}
+	if len(usable) != 1 || usable[0].SessionID != "alive" {
+		t.Fatalf("usable = %+v, want just the available session", usable)
+	}
+}
+
+// The defect this guard exists for. A git invocation that could not run says
+// NOTHING about whether the bytes are there, and the caller is fatal only when
+// nothing at all is servable -- so recording it as unavailability drops the
+// session and republishes a shrunken corpus, silently. These must be errors.
+func TestProbeFailureThatIsNotAMissingObjectFailsTheExport(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		objectType, exists fakeCommandResponse
+	}{
+		// git never ran: no exit status to read at all.
+		"spawn failure": {
+			objectType: fakeCommandResponse{err: errors.New("fork/exec git: resource temporarily unavailable")},
+			exists:     fakeCommandResponse{err: errors.New("fork/exec git: resource temporarily unavailable")},
+		},
+		// The runner refuses because it cannot enforce the local-only policy.
+		"runner cannot enforce policy": {
+			objectType: fakeCommandResponse{err: errors.New("no_egress: command runner cannot enforce GIT_NO_LAZY_FETCH=1")},
+			exists:     fakeCommandResponse{err: errors.New("no_egress: command runner cannot enforce GIT_NO_LAZY_FETCH=1")},
+		},
+		// The child was killed, so it has no exit code of its own.
+		"child killed": {
+			objectType: fakeCommandResponse{err: stubExitError{code: -1}},
+			exists:     fakeCommandResponse{err: stubExitError{code: -1}},
+		},
+		// 128 is git's generic fatal: shared between "this spec does not
+		// resolve", "this is not a repository" and a bad config value. Not
+		// evidence about one object.
+		"generic git fatal": {
+			objectType: fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: not a git repository\n"},
+			exists:     fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: not a git repository\n"},
+		},
+		// The confirming probe says the object IS there, so the type probe
+		// failed for some other, transient reason.
+		"object is present after all": {
+			objectType: fakeCommandResponse{err: stubExitError{code: 128}},
+			exists:     fakeCommandResponse{},
+		},
+		// git answered, and the answer is that the snapshot's own path is not
+		// a transcript blob. A fault in this brain, not in one session.
+		"snapshot path is not a blob": {
+			objectType: fakeCommandResponse{stdout: "tree\n"},
+			exists:     fakeCommandResponse{},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			snap, sessions := probedFixture()
+			usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), probeRunner(c.objectType, c.exists), snap, sessions, "raw")
+			if err == nil {
+				t.Fatalf("partition reported data instead of an error: usable=%+v unavailable=%v", usable, unavailable)
+			}
+			if len(usable) != 0 || len(unavailable) != 0 {
+				t.Fatalf("an error must carry no partition: usable=%+v unavailable=%v", usable, unavailable)
+			}
+		})
+	}
+}
+
+// A cancelled context is never evidence about an object, and it must not even
+// be investigated: the confirming probe would be killed on arrival.
+func TestCancelledContextFailsTheExportRatherThanShrinkingIt(t *testing.T) {
+	t.Parallel()
+	snap, sessions := probedFixture()
+	runner := probeRunner(
+		fakeCommandResponse{err: context.Canceled},
+		// Scripted as a missing answer on purpose: if cancellation were
+		// classified by asking git again, this would wrongly read as missing.
+		fakeCommandResponse{err: stubExitError{code: 1}},
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, unavailable, err := partitionLocalTranscriptSessions(ctx, runner, snap, sessions, "raw")
+	if err == nil {
+		t.Fatalf("a cancelled probe was reported as unavailability: %v", unavailable)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("the cancellation was lost: %v", err)
+	}
+}
+
+// A skipped session's diagnostic must keep the IDENTITY of what git said, not
+// only its wording, and must keep it through the strict all-or-nothing wrapper
+// too. Flattening it to a formatted string leaves the message intact and makes
+// a cancellation indistinguishable from a vanished object upstream -- the same
+// conflation this partition exists to remove, one layer higher.
+func TestUnavailableDiagnosticsKeepTheirErrorIdentity(t *testing.T) {
+	t.Parallel()
+	snap, sessions := probedFixture()
+	missing := func() *fakeCommandRunner {
+		return probeRunner(
+			fakeCommandResponse{err: stubExitError{code: 128}},
+			fakeCommandResponse{err: stubExitError{code: 1}},
+		)
+	}
+	_, unavailable, err := partitionLocalTranscriptSessions(context.Background(), missing(), snap, sessions, "raw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(unavailable) != 1 {
+		t.Fatalf("unavailable = %v, want 1", unavailable)
+	}
+	if !errors.Is(unavailable[0], errGitObjectMissing) {
+		t.Fatalf("the diagnostic kept its message and lost its cause: %v", unavailable[0])
+	}
+	if wrapped := validateLocalTranscriptSessions(context.Background(), missing(), snap, sessions, "raw"); !errors.Is(wrapped, errGitObjectMissing) {
+		t.Fatalf("the strict wrapper flattened the cause: %v", wrapped)
 	}
 }

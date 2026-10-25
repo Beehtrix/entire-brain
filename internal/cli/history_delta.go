@@ -230,19 +230,41 @@ type shortTermStats struct {
 
 // shortTermCanonicalInputRefusal separates ordinary availability failures,
 // which remain durably visible as an incomplete overlay, from failures that
-// make the canonical input unsafe or unbounded. Permission-denied preserves
-// the established retryable FailedFiles behavior; containment, source races,
-// cancellation, and bounds refuse publication and leave the prior generation
-// untouched.
+// make the canonical input unsafe or unbounded. Permission-denied and a single
+// over-cap transcript preserve the established retryable FailedFiles
+// behavior; containment, source races, cancellation, and any other bound
+// breach refuse publication and leave the prior generation untouched.
 func shortTermCanonicalInputRefusal(err error) bool {
 	if err == nil || os.IsPermission(err) {
 		return false
 	}
-	return errors.Is(err, errHistorySessionInventoryDegraded) ||
+	// One transcript too large to read is a statement about that file, not
+	// about the corpus, so it must cost its own session and nothing else —
+	// the same conclusion the three long-term readers of this inventory
+	// reached for the identical sentinel. Refusing here left the overlay
+	// blocked for every other session by one 438.9MB transcript, after the
+	// full index had already learned to survive it. The delta's own
+	// partial-success channel carries it: the file joins FailedFiles, so the
+	// gap stays durably visible and no surface claims complete coverage.
+	//
+	// Every OTHER refusal reason is tested FIRST, because one error value can
+	// carry several: readers return errors.Join(readErr, finishErr, closeErr),
+	// and a degraded inventory or a cancelled context can arrive joined with an
+	// oversize transcript. Asking about the sentinel first answered "skip" for
+	// the whole join and published the delta, dropping the refusal. The
+	// sentinel excuses only itself.
+	if errors.Is(err, errHistorySessionInventoryDegraded) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) ||
-		strings.Contains(err.Error(), memoryErrSourceStale) ||
-		strings.Contains(err.Error(), memoryErrInputTooLarge)
+		strings.Contains(err.Error(), memoryErrSourceStale) {
+		return true
+	}
+	// The substring check below still refuses every OTHER bound breach,
+	// which is why this is errors.Is on the sentinel and not a code match.
+	if errors.Is(err, errHistoryTranscriptTooLarge) {
+		return false
+	}
+	return strings.Contains(err.Error(), memoryErrInputTooLarge)
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript
@@ -316,10 +338,13 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
 		if readErr != nil {
 			if shortTermCanonicalInputRefusal(readErr) {
-				// Canonical containment, bound, and source-stability failures
-				// refuse the entire delta. The prior overlay remains active.
+				// Canonical containment, corpus-level bound, and
+				// source-stability failures refuse the entire delta. The prior
+				// overlay remains active.
 				return stats, readErr
 			}
+			// Everything else — unreadable, and one transcript past the
+			// per-file cap — costs this file alone and is recorded below.
 			overlay.FailedFiles = append(overlay.FailedFiles, rel)
 			stats.Failed++
 			continue

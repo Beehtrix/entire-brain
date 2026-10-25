@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -58,7 +59,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	storePath := filepath.Join(t.TempDir(), "graph.sqlite")
-	db, err := sql.Open(sqliteDriverName, storePath)
+	db, err := sql.Open(sqlitedriver.Name, storePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +525,7 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 // intentionally legacy: status must resolve live metadata from Graph instead.
 func registerStatusGraphFixture(t *testing.T, runner *fakeCommandRunner, repo, path string, s *semanticSourceManifest) {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // fakeGraphStoreCommand models the provider-owned store for existing symbol
@@ -69,7 +71,7 @@ func (r *fakeCommandRunner) fakeGraphStoreCommand(dir, name string, args []strin
 		return fakeCommandResponse{err: err}, true
 	}
 	path := filepath.Join(providerDir, generation, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return fakeCommandResponse{err: err}, true
 	}

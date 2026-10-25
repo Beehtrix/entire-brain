@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 // seedCapabilityFactsFile writes durable facts to brainDir/facts/main/facts.ndjson.
@@ -117,7 +119,7 @@ func TestConventionDossierCarriesSourceEvidence(t *testing.T) {
 	})
 	// An episode that corroborates the facts (episode_facts link) → corroboration anchor.
 	db, _ := openPatternCorpusMutableDB(brainDir)
-	insertCorpusEpisode(t, db, "episode:radar0", "radar:evidence", "corrected", 2, now)
+	patterntest.InsertCorpusEpisode(t, db, "episode:radar0", "radar:evidence", "corrected", 2, now)
 	if _, err := db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 		"episode:radar0", "fact:pinned", "convention", "mcp.go"); err != nil {
 		t.Fatal(err)

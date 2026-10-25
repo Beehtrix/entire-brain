@@ -6,6 +6,9 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Deep dossiers (Pattern Consolidation v2, Priority 4).
@@ -48,21 +51,21 @@ type deepDossierRecord struct {
 	// (a failure→recovery lesson from corrected episodes), "capability" (a
 	// non-obvious convention/gotcha from durable facts), or "" for the legacy
 	// command-sequence task dossier (now demoted to supporting evidence).
-	Archetype        string            `json:"archetype,omitempty"`
-	Title            string            `json:"title"`
-	Trigger          string            `json:"trigger"`
-	NotWhen          string            `json:"not_when,omitempty"`
-	Knowledge        []string          `json:"knowledge,omitempty"`
-	Preconditions    []string          `json:"preconditions"`
-	Workflow         []string          `json:"workflow"`
-	Variations       []string          `json:"variations"`
-	Verification     []string          `json:"verification"`
-	Parameters       []string          `json:"parameters"`
-	FailureModes     []deepFailureMode `json:"failure_modes"`
-	Facts            []string          `json:"facts"`
-	SourceAnchors    []dossierAnchor   `json:"source_anchors"`
-	Confidence       float64           `json:"confidence"`
-	EvidenceEpisodes int               `json:"evidence_episodes"` // total in the full set
+	Archetype        string                      `json:"archetype,omitempty"`
+	Title            string                      `json:"title"`
+	Trigger          string                      `json:"trigger"`
+	NotWhen          string                      `json:"not_when,omitempty"`
+	Knowledge        []string                    `json:"knowledge,omitempty"`
+	Preconditions    []string                    `json:"preconditions"`
+	Workflow         []string                    `json:"workflow"`
+	Variations       []string                    `json:"variations"`
+	Verification     []string                    `json:"verification"`
+	Parameters       []string                    `json:"parameters"`
+	FailureModes     []deepFailureMode           `json:"failure_modes"`
+	Facts            []string                    `json:"facts"`
+	SourceAnchors    []patterncore.DossierAnchor `json:"source_anchors"`
+	Confidence       float64                     `json:"confidence"`
+	EvidenceEpisodes int                         `json:"evidence_episodes"` // total in the full set
 }
 
 type deepEpisode struct {
@@ -88,16 +91,16 @@ func buildDeepDossier(db *sql.DB, brainDir, patternID string) (deepDossierRecord
 		PatternID:     patternID,
 		ClusterKey:    cluster,
 		Title:         title,
-		Trigger:       dossierTrigger(typ, intentSig, metaID),
+		Trigger:       patterncore.DossierTrigger(typ, intentSig, metaID),
 		Confidence:    math.Round(strength*1000) / 1000,
 		Preconditions: []string{},
-		Workflow:      splitGramHeads(gram),
-		Variations:    dossierVariants(db, typ, intentSig, gram),
+		Workflow:      patterncore.SplitGramHeads(gram),
+		Variations:    patterncore.DossierVariants(db, typ, intentSig, gram),
 		Verification:  []string{},
 		Parameters:    []string{},
 		FailureModes:  []deepFailureMode{},
 		Facts:         []string{},
-		SourceAnchors: []dossierAnchor{},
+		SourceAnchors: []patterncore.DossierAnchor{},
 	}
 
 	episodes, err := deepEvidenceEpisodes(db, typ, intentSig, gram, metaID)
@@ -113,8 +116,8 @@ func buildDeepDossier(db *sql.DB, brainDir, patternID string) (deepDossierRecord
 		if i >= deepMaxEpisodes {
 			break
 		}
-		a := dossierAnchor{
-			SessionID: e.session, Transcript: redactText(e.sourcePath),
+		a := patterncore.DossierAnchor{
+			SessionID: e.session, Transcript: base.RedactText(e.sourcePath),
 			StartLine: e.startLine, EndLine: e.endLine, Outcome: e.outcome,
 		}
 		if i < deepExcerptEpisodes {
@@ -123,7 +126,7 @@ func buildDeepDossier(db *sql.DB, brainDir, patternID string) (deepDossierRecord
 				lines = deepExcerptLines
 			}
 			if ex := transcriptExcerpt(brainDir, episodeAnchor{Path: e.sourcePath, Line: e.startLine}, lines, deepExcerptBytes); ex != "" {
-				a.Excerpt = redactText(ex)
+				a.Excerpt = base.RedactText(ex)
 			}
 		}
 		rec.SourceAnchors = append(rec.SourceAnchors, a)
@@ -183,7 +186,7 @@ func deepVerification(db *sql.DB, epIDs []string) []string {
 	seen := map[string]bool{}
 	var out []string
 	forEachCommand(db, epIDs, func(head, raw string, failed bool) {
-		if validationCommandHeads[head] && !seen[head] {
+		if patterncore.ValidationCommandHeads[head] && !seen[head] {
 			seen[head] = true
 			out = append(out, head)
 		}
@@ -245,7 +248,7 @@ func deepFailureModes(db *sql.DB, episodes []deepEpisode) []deepFailureMode {
 					recovery = ""
 					continue
 				}
-				if failure != "" && validationCommandHeads[head] && exit.Valid && exit.Int64 == 0 && recovery == "" {
+				if failure != "" && patterncore.ValidationCommandHeads[head] && exit.Valid && exit.Int64 == 0 && recovery == "" {
 					recovery = "validated with " + head + " after failure"
 				}
 			}
@@ -282,7 +285,7 @@ func deepFacts(db *sql.DB, epIDs []string) []string {
 			entry += " (" + kind + ")"
 		}
 		if paths != "" {
-			entry += " @ " + redactText(paths)
+			entry += " @ " + base.RedactText(paths)
 		}
 		out = append(out, entry)
 	}
@@ -343,5 +346,5 @@ func deepFingerprint(rec deepDossierRecord, episodes []deepEpisode, strength flo
 	if err != nil {
 		return ""
 	}
-	return "sha256:" + hexSHA("deep/v2\x00"+redactText(string(payload)))
+	return "sha256:" + base.HexSHA("deep/v2\x00"+base.RedactText(string(payload)))
 }

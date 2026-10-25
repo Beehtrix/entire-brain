@@ -3,6 +3,8 @@ package cli
 import (
 	"database/sql"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Corpus link layers (Pattern Consolidation v2, Priority 3): episode→symbol
@@ -91,7 +93,7 @@ func linkEpisodeSymbols(db *sql.DB, brainDir string, sem *semanticSourceManifest
 				break
 			}
 			if _, err := tx.Exec(`INSERT OR IGNORE INTO episode_symbols (episode_id, symbol_id, name, file_path) VALUES (?,?,?,?)`,
-				e.ep, s.ID, s.Name, redactText(s.FilePath)); err != nil {
+				e.ep, s.ID, s.Name, base.RedactText(s.FilePath)); err != nil {
 				return err
 			}
 			perEpisode[e.ep]++
@@ -118,7 +120,7 @@ func buildSynapses(db *sql.DB, now time.Time) error {
 		if from == "" || to == "" {
 			return nil
 		}
-		id := "syn:" + hexSHA(from+"\x00"+to+"\x00"+kind)
+		id := "syn:" + base.HexSHA(from+"\x00"+to+"\x00"+kind)
 		_, err := tx.Exec(`INSERT OR IGNORE INTO synapses (id, from_id, to_id, kind, created_at) VALUES (?,?,?,?,?)`,
 			id, from, to, kind, ts)
 		return err

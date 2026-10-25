@@ -20,7 +20,7 @@ func workspaceStore(env EntireEnv) workspace.StoreConfig {
 				return dirs.Data, err
 			},
 			RejectRootPath:       rejectBrainRootPathSymlinks,
-			RejectPathComponents: rejectExistingSymlinkPathComponents,
+			RejectPathComponents: base.RejectExistingSymlinkPathComponents,
 			AcquireLock: func(path string) (io.Closer, error) {
 				lock, err := acquireFileLock(path, "workspace_manifest_locked", brainWriteLockTimeout)
 				if err != nil {

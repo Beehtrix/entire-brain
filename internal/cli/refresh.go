@@ -1000,7 +1000,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	}
 	data = append(data, '\n')
 	rel := filepath.Join(semanticDirName, "overlays", "all-branches.json")
-	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
 		return err
 	}
 	if err := writeFileAtomic(filepath.Join(storage.BrainDir, rel), data, 0o600); err != nil {

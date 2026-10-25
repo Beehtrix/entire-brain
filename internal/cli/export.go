@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -648,10 +648,10 @@ func rejectDangerousForcedOutputDir(abs, repoDir string) error {
 				repoCandidates = append(repoCandidates, filepath.Clean(repoResolved))
 			}
 			for _, repoCandidate := range uniqueCleanPaths(repoCandidates) {
-				if pathInside(clean, repoCandidate) {
+				if clibase.PathInside(clean, repoCandidate) {
 					return fmt.Errorf("--force refuses to remove a directory containing the repository: %s", abs)
 				}
-				if pathInside(repoCandidate, clean) {
+				if clibase.PathInside(repoCandidate, clean) {
 					return fmt.Errorf("--force refuses to remove a directory inside the repository: %s", abs)
 				}
 			}
@@ -773,7 +773,7 @@ func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner
 		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
 	}
 
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", base.CheckpointTrailerKey+":", defaultRef)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", clibase.CheckpointTrailerKey+":", defaultRef)
 	warnings := warningLines("default branch checkpoint reachability", stderr)
 	if err != nil {
 		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
@@ -797,14 +797,14 @@ func resolveDefaultBranchRef(ctx context.Context, runner CommandRunner, repoDir,
 
 func checkpointIDsFromCommitMessages(data []byte) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, checkpointID := range base.CheckpointIDsFromCommitMessageText(string(data)) {
+	for _, checkpointID := range clibase.CheckpointIDsFromCommitMessageText(string(data)) {
 		ids[checkpointID] = struct{}{}
 	}
 	return ids
 }
 
 func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", base.CheckpointTrailerKey+":")
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", clibase.CheckpointTrailerKey+":")
 	warnings := warningLines("checkpoint author index", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
@@ -833,7 +833,7 @@ func checkpointAuthorsFromGitLog(data []byte) checkpointAuthorIndex {
 			Email: strings.TrimSpace(parts[2]),
 		}
 		authoredAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(parts[3])) //nolint:errcheck // Timestamp is optional metadata.
-		checkpointIDs := base.CheckpointIDsFromCommitMessageText(parts[4])
+		checkpointIDs := clibase.CheckpointIDsFromCommitMessageText(parts[4])
 		if commitSHA == "" || len(checkpointIDs) == 0 {
 			continue
 		}
@@ -1175,7 +1175,7 @@ func checkpointIDFromRefName(ref string) (string, bool) {
 }
 
 func isCheckpointRefID(value string) bool {
-	if base.IsCheckpointID(value) {
+	if clibase.IsCheckpointID(value) {
 		return true
 	}
 	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
@@ -1190,7 +1190,7 @@ func isCheckpointRefID(value string) bool {
 }
 
 func checkpointULIDTime(value string) (time.Time, bool) {
-	if len(value) != 26 || !isCheckpointRefID(value) || base.IsCheckpointID(value) {
+	if len(value) != 26 || !isCheckpointRefID(value) || clibase.IsCheckpointID(value) {
 		return time.Time{}, false
 	}
 	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -1796,7 +1796,7 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	unreadable := make(map[string]struct{})
 	for _, id := range sortedIDs {
 		var candidates []checkpointSnapshotSource
-		if base.IsCheckpointID(id) {
+		if clibase.IsCheckpointID(id) {
 			if primary == checkpointBackendGitRefs {
 				if source, ok := refSources[id]; ok {
 					candidates = append(candidates, source)
@@ -2802,7 +2802,7 @@ func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
 	// expanding to terabytes) would otherwise drive the JSON decoder out of memory.
 	// Exceeding the cap makes Decode fail, which falls through to rebuilding the
 	// cache — the same graceful degradation as any other corrupt-cache case.
-	limited := io.LimitReader(gz, base.SemanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, clibase.SemanticSnapshotMaxBytes())
 	var file checkpointMetadataCacheFile
 	if err := json.NewDecoder(limited).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
 		return newCheckpointMetadataCache(nil)
@@ -3173,7 +3173,7 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	}
 	dir := filepath.Dir(clean)
 	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
 			return fmt.Errorf("validate transcript directory %s: %w", dir, err)
 		}
 	}
@@ -3181,7 +3181,7 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}
-	if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
 		return fmt.Errorf("validate transcript path %s: %w", clean, err)
 	}
 	if err := writeFileAtomic(abs, data, 0o600); err != nil {
@@ -3196,7 +3196,7 @@ func ensureExportDirectories(outputDir string, branchDirs map[string]string) err
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("unsafe branch transcript directory: %s", relPath)
 		}
-		if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
 			return fmt.Errorf("validate branch transcript directory %s: %w", relPath, err)
 		}
 		if err := os.MkdirAll(filepath.Join(outputDir, clean), 0o700); err != nil {
@@ -3272,8 +3272,8 @@ func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error))
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
 		total += int64(len(data))
-		if total > base.MaxDocumentTranscriptBytes {
-			return nil, &readBoundExceededError{Source: "stored transcript " + chunks[0], Max: base.MaxDocumentTranscriptBytes}
+		if total > clibase.MaxDocumentTranscriptBytes {
+			return nil, &readBoundExceededError{Source: "stored transcript " + chunks[0], Max: clibase.MaxDocumentTranscriptBytes}
 		}
 		parts = append(parts, data)
 	}

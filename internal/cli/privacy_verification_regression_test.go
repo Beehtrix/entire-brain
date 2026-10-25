@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func privacyRegressionCommandFixture(t *testing.T, now time.Time) (Options, string) {
@@ -48,7 +50,7 @@ func privacyRegressionCommandFixture(t *testing.T, now time.Time) (Options, stri
 func writePrivacyVectorFixture(t *testing.T, statements ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "vectors.sqlite")
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

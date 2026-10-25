@@ -312,14 +312,14 @@ func loadAllActiveFacts(brainDir string) []factRecord {
 }
 
 func taskStrength(support, withCommands int, r reinforcementCounts, procs []taskProcedure, factCount int) float64 {
-	recurrence := clamp01(math.Log2(1+float64(support)) / math.Log2(1+15))
+	recurrence := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+15))
 	activity := 0.0
 	if support > 0 {
-		activity = clamp01(float64(withCommands) / float64(support))
+		activity = base.Clamp01(float64(withCommands) / float64(support))
 	}
 	reinf := 0.5
 	if support > 0 {
-		reinf = clamp01(0.5 + 0.5*float64(r.Success-r.Corrected)/float64(support))
+		reinf = base.Clamp01(0.5 + 0.5*float64(r.Success-r.Corrected)/float64(support))
 	}
 	// Evidence dominates: best procedure specificity, lifted to 0.6 when repo
 	// facts corroborate even if the commands themselves are common.
@@ -332,7 +332,7 @@ func taskStrength(support, withCommands int, r reinforcementCounts, procs []task
 	if factCount > 0 && evidence < 0.6 {
 		evidence = 0.6
 	}
-	return 0.30*recurrence + 0.10*activity + 0.20*reinf + 0.40*clamp01(evidence)
+	return 0.30*recurrence + 0.10*activity + 0.20*reinf + 0.40*base.Clamp01(evidence)
 }
 
 // representativeIntent picks the longest sample intent (most descriptive),

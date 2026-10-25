@@ -1979,7 +1979,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 // since repoStorageContainsState counts either half -- a deleted duplicate was
 // still a second identity, so the conflict outlived the call meant to end it.
 func deleteRepoStore(storage repoStorage) error {
-	if err := rejectSymlinkedBrainRoot(storage.BrainDir); err != nil && !os.IsNotExist(err) {
+	if err := base.RejectSymlinkedBrainRoot(storage.BrainDir); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	if err := os.RemoveAll(storage.BrainDir); err != nil {

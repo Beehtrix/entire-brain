@@ -9,6 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -17,16 +21,16 @@ import (
 // task candidate for the workspace judgment layer.
 func seedPromotableMember(t *testing.T, brainDir, repoKey, intentSig string, heads ...string) {
 	t.Helper()
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, s := range patternCorpusSchema {
+	for _, s := range patterncore.CorpusSchema {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("schema: %v", err)
 		}
@@ -34,17 +38,17 @@ func seedPromotableMember(t *testing.T, brainDir, repoKey, intentSig string, hea
 	now := time.Now()
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("%s:ok%d", intentSig, i)
-		insertCorpusEpisode(t, db, id, intentSig, "success", len(heads), now)
-		insertCorpusShape(t, db, id, heads...)
+		patterntest.InsertCorpusEpisode(t, db, id, intentSig, "success", len(heads), now)
+		patterntest.InsertCorpusShape(t, db, id, heads...)
 		db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 			id, "fact:"+intentSig, "architecture", "ops/x.go")
 	}
 	for i := 0; i < 120; i++ {
 		id := fmt.Sprintf("%s:noise%d", intentSig, i)
-		insertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
-		insertCorpusShape(t, db, id, "ls", "cat")
+		patterntest.InsertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "ls", "cat")
 	}
-	if err := buildPatternCandidates(db, repoKey, now); err != nil {
+	if err := patterncore.BuildCandidates(db, repoKey, now); err != nil {
 		t.Fatal(err)
 	}
 }

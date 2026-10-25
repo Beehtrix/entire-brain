@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 var errLegacyBrainLayout = errors.New("this brain uses an old layout")
@@ -14,7 +16,7 @@ var errLegacyBrainLayout = errors.New("this brain uses an old layout")
 func checkLegacyBrainLayout(brainDir string, manifest *exportManifest) error {
 	legacy := manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil && manifest.Sources.Semantic.StoreOwner != "graph"
 	for _, rel := range []string{"semantic/generations", "semantic/snapshots"} {
-		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return err
 		}
 		if _, err := os.Lstat(filepath.Join(brainDir, rel)); err == nil {

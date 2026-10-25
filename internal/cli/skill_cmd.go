@@ -130,9 +130,9 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 		}
 		for _, t := range tasks {
 			r := t.Reinforcement
-			fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, redactText(t.Label), t.Strength)
+			fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, base.RedactText(t.Label), t.Strength)
 			fmt.Fprintf(out, "    %d session(s), %d with commands; %d↑ %d↓ %d·; commands: %s\n",
-				t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, redactText(joinMax(t.Commands, 5)))
+				t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, base.RedactText(joinMax(t.Commands, 5)))
 			fmt.Fprintf(out, "    id %s\n", t.ID)
 		}
 		return nil
@@ -300,7 +300,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	if name == "" {
 		name = "skill"
 	}
-	skillText := redactText(res.SkillText)
+	skillText := base.RedactText(res.SkillText)
 
 	if s.draftOnly {
 		if s.asJSON {
@@ -403,7 +403,7 @@ func renderCandidateEvidence(out io.Writer, cand taskCandidate) {
 	if len(cand.Examples) > 0 {
 		fmt.Fprintln(out, "Source anchors:")
 		for _, a := range cand.Examples {
-			fmt.Fprintf(out, "  - %s:%d\n", redactText(a.Path), a.Line)
+			fmt.Fprintf(out, "  - %s:%d\n", base.RedactText(a.Path), a.Line)
 		}
 	}
 }

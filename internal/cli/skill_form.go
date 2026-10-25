@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Skill install destinations + skill-memory recording (Pattern Consolidation).
@@ -199,10 +201,10 @@ func writeSkillFile(d skillDestination, data []byte) error {
 func writeSkillFileBeforeReplace(d skillDestination, data []byte, beforeReplace func()) error {
 	base := skillFilePath(d.base)
 	rel := filepath.FromSlash(d.rel)
-	if err := rejectSymlinkedBrainRoot(base); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(base); err != nil {
 		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
 	}
-	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(base, rel); err != nil {
 		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
 	}
 	abs := filepath.Join(base, rel)
@@ -211,10 +213,10 @@ func writeSkillFileBeforeReplace(d skillDestination, data []byte, beforeReplace 
 	}
 	// Re-check after MkdirAll: the directories that did not exist a moment ago
 	// do now, and creating them must not have traversed a link.
-	if err := rejectSymlinkedBrainRoot(base); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(base); err != nil {
 		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
 	}
-	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(base, rel); err != nil {
 		return fmt.Errorf("refusing to write skill to %s: %w", d.Path, err)
 	}
 	parent := filepath.Dir(abs)
@@ -255,10 +257,10 @@ func writeSkillFileBeforeReplace(d skillDestination, data []byte, beforeReplace 
 	if beforeReplace != nil {
 		beforeReplace()
 	}
-	if err := rejectSymlinkedBrainRoot(base); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(base); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(base, rel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(base, rel); err != nil {
 		return err
 	}
 	current, err := os.Lstat(parent)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ func newGraphStoreFixture(t *testing.T) (Options, string, string, graphStoreDesc
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "graph.sqlite")
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +354,7 @@ func TestGraphStoreSchemaMinorSkewWarns(t *testing.T) {
 // both entire-brain and Graph instead.
 func TestGraphStoreViewMismatchNamesBothBinaries(t *testing.T) {
 	_, _, brain, d := newGraphStoreFixture(t)
-	db, err := sql.Open(sqliteDriverName, d.Path)
+	db, err := sql.Open(sqlitedriver.Name, d.Path)
 	if err != nil {
 		t.Fatal(err)
 	}

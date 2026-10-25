@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
@@ -106,11 +109,11 @@ func TestWorkspaceSkillFormRejectsUnreadableFamilyTableBeforeProvider(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	corpus := filepath.Join(wsDir, filepath.FromSlash(patternCorpusPath))
+	corpus := filepath.Join(wsDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.Remove(corpus); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, corpus)
+	db, err := sql.Open(sqlitedriver.Name, corpus)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Dossier-driven skill synthesis (PR #44 follow-up).
@@ -98,7 +99,7 @@ func knowledgeDossierFingerprint(rec deepDossierRecord, sampleFP string) string 
 }
 
 func knowledgeSampleFingerprint(payload []byte) string {
-	return proposalSampleFingerprint(append([]byte("knowledge/v2\x00"), payload...))
+	return patterncore.ProposalSampleFingerprint(append([]byte("knowledge/v2\x00"), payload...))
 }
 
 func currentKnowledgeSampleFingerprint(db *sql.DB, brainDir, patternID string) (string, bool) {
@@ -120,7 +121,7 @@ func currentKnowledgeSampleFingerprint(db *sql.DB, brainDir, patternID string) (
 		key = "conventions_sample_fingerprint"
 	}
 	fp := knowledgeSampleFingerprint(payload)
-	return fp, fp == corpusMeta(db, key)
+	return fp, fp == patterncore.CorpusMeta(db, key)
 }
 
 const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer new content.

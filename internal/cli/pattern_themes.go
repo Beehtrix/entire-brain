@@ -417,8 +417,8 @@ type proposedTheme struct {
 // membership to the agent's choice, expands each seed deterministically, and
 // stores the result. Egress-gated; cached by the sample fingerprint; never from
 // refresh.
-func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
+func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
@@ -433,8 +433,8 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 	// excerpt), so the cache invalidates when episode CONTENT changes, not only
 	// when the set of keys changes.
 	payload, _ := json.Marshal(map[string]any{"episodes": sample})
-	sampleFP := proposalSampleFingerprint(payload)
-	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
+	sampleFP := patterncore.ProposalSampleFingerprint(payload)
+	if patterncore.CorpusMeta(db, "themes_sample_fingerprint") == sampleFP && patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
 		stats.Cached = patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`)
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
@@ -456,7 +456,7 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	valid := map[string]bool{}
 	for _, k := range sampleKeys {
@@ -474,7 +474,7 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		// episodes whose intent/excerpt overlaps the proposed description.
 		members = expandThemeMembers(db, members, pt.Title+" "+pt.Desc)
 		verdict := strings.ToLower(strings.TrimSpace(pt.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			// A missing/unknown verdict must never be treated as accepted — it would
 			// surface an unverified theme. Default to the softest non-accepting verdict.
 			verdict = "low_confidence"

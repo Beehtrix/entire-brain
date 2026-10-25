@@ -68,8 +68,8 @@ type proposedConvention struct {
 // group related facts into capability skills, and stores accepted ones as deep
 // dossiers (archetype "capability") under `convention:` ids. Egress-gated; cached
 // by the sample fingerprint; never from refresh.
-func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
+func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
@@ -86,7 +86,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	// invalidates the cache even when the set of fact ids is unchanged.
 	payload, _ := json.Marshal(map[string]any{"facts": sample})
 	sampleFP := knowledgeSampleFingerprint(payload)
-	if corpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
+	if patterncore.CorpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
 		stats.Cached = count()
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
@@ -108,7 +108,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`); err != nil {
 		return stats, err
@@ -121,7 +121,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		stats.Considered++
 		members := uniqueStrings(filterValidKeys(pc.MemberFactIDs, valid))
 		verdict := strings.ToLower(strings.TrimSpace(pc.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			verdict = "low_confidence"
 		}
 		if len(members) == 0 || verdict == "rejected" {

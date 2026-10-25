@@ -154,8 +154,8 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 		mdb.Close()
 	}
 
-	membershipFP := workspaceMembershipFingerprint(manifest)
-	membershipChanged := corpusMeta(db, "workspace_families_membership") != membershipFP
+	membershipFP := patterncore.WorkspaceMembershipFingerprint(manifest)
+	membershipChanged := patterncore.CorpusMeta(db, "workspace_families_membership") != membershipFP
 	tx, err := db.Begin()
 	if err != nil {
 		return counts, err
@@ -193,7 +193,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 	ts := now.UTC().Format(time.RFC3339)
 	memberCount := counts.Members
 	for _, a := range aggs {
-		if len(a.repos) < workspaceMinRepos {
+		if len(a.repos) < patterncore.WorkspaceMinRepos {
 			continue // a workspace pattern must be shared across ≥2 repos
 		}
 		if err := writeWorkspacePattern(tx, manifest.Name, a, memberCount, ts); err != nil {

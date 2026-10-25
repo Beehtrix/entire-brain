@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Pattern consolidation verifier (V2, Phase 4).
@@ -58,32 +59,11 @@ type dossierVerdict struct {
 	EvidenceFingerprint  string   `json:"evidence_fingerprint"`
 }
 
-var allowedVerdicts = map[string]bool{
-	"accepted": true, "rejected": true, "needs_split": true, "low_confidence": true,
-}
-
-type dossierVerifyStats struct {
-	Considered int
-	Verified   int
-	Cached     int
-	Failed     int
-}
-
-// proposalSampleFingerprint hashes the exact evidence payload an agent proposal
-// phase sends to the agent, so the cache invalidates whenever the evidence
-// CONTENT changes — not only when ids change. The payload already carries each
-// item's content fields (excerpts, outcomes, commands, fact text, corroboration),
-// so hashing it captures all of them. Marshaled maps have deterministic
-// (key-sorted) output, so the fingerprint is stable for unchanged evidence.
-func proposalSampleFingerprint(payload []byte) string {
-	return "sha256:" + base.HexSHA(string(payload))
-}
-
 // verifyDossiers runs the agent verifier over the promotable dossiers that need
 // it (no cached verdict for the current evidence fingerprint). Egress-gated and
 // cached; deterministic dossiers themselves are never mutated here.
-func verifyDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
+func verifyDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
@@ -159,8 +139,8 @@ Verdicts: "accepted" (one coherent, supported, repo-specific pattern), "needs_sp
 // fingerprint has no
 // cached verdict. Egress-gated; cached in deep_dossiers; never called from
 // refresh/watch/brief/query/MCP/workspace.
-func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
+func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
@@ -277,7 +257,7 @@ func parseDossierVerdict(out string) (dossierVerdict, string, error) {
 		return dossierVerdict{}, "", fmt.Errorf("parse verifier output: %w", err)
 	}
 	v.Verdict = strings.ToLower(strings.TrimSpace(v.Verdict))
-	if !allowedVerdicts[v.Verdict] {
+	if !patterncore.AllowedVerdicts[v.Verdict] {
 		return dossierVerdict{}, "", fmt.Errorf("invalid verdict %q", v.Verdict)
 	}
 	if v.SchemaVersion == 0 {

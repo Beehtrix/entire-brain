@@ -262,7 +262,9 @@ func semanticDoctorFindings(report staleReport) []doctorCheckResult {
 			continue
 		}
 		brainParts = append(brainParts, semanticAxisPart(name, axis))
-		if brainState != "error" {
+		if name == "brain_layout" && axis.State == "unsafe" {
+			brainState = "error"
+		} else if brainState != "error" {
 			brainState = "warn"
 		}
 	}

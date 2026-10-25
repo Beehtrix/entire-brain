@@ -390,11 +390,9 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 	// A bundle that CARRIES facts, into a brain that has none.
 	archive := filepath.Join(t.TempDir(), "with-facts.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName: `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"` +
-			semanticSchemaVersion + `","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
-		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot(semanticSchemaVersion),
-		"facts/taxonomy.json":                       `{"version":1}`,
-		"facts/main-0000/" + factsFileName:          "{}\n",
+		exportManifestFileName:             `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		"facts/taxonomy.json":              `{"version":1}`,
+		"facts/main-0000/" + factsFileName: "{}\n",
 	})
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"},
 		Options{Version: "test", Env: env, Runner: runner, Now: time.Now},

@@ -58,12 +58,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	generationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "audit"))
-	storeRel := filepath.ToSlash(filepath.Join(generationRel, semanticSQLiteName))
-	storePath := filepath.Join(storage.BrainDir, filepath.FromSlash(storeRel))
-	if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	storePath := filepath.Join(t.TempDir(), "graph.sqlite")
 	db, err := sql.Open(sqliteDriverName, storePath)
 	if err != nil {
 		t.Fatal(err)
@@ -96,8 +91,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
 			Branch:           "main",
-			GenerationPath:   generationRel,
-			StorePath:        storeRel,
+			StoreOwner:       "graph",
 			Files:            3,
 			Symbols:          3,
 			Relations:        2,
@@ -299,6 +293,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
+			StoreOwner:       "graph",
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",

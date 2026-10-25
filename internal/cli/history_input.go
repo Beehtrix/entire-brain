@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const historySessionInventoryErrorCode = memoryErrSessionInventory
@@ -76,7 +77,7 @@ func (e *historySessionInventoryError) Error() string {
 	if e.Err != nil {
 		detail += ": " + e.Err.Error()
 	}
-	return memoryErrSessionInventory + ": " + memoryErrStateUnsafe + ": " + detail
+	return memoryErrSessionInventory + ": " + brainstore.StateUnsafeCode + ": " + detail
 }
 
 func (e *historySessionInventoryError) Unwrap() error { return e.Err }

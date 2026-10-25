@@ -1,21 +1,21 @@
-package cli
+package brainstore
 
 import (
 	"net/url"
 	"path/filepath"
 )
 
-// sqliteReadOnlyDSN opens an immutable generated index without asking SQLite
+// SQLiteReadOnlyDSN opens an immutable generated index without asking SQLite
 // to create journal or shared-memory sidecars beside it. Agents commonly run
 // with read access to the brain store but no write access to its data directory.
-func sqliteReadOnlyDSN(path string) string {
+func SQLiteReadOnlyDSN(path string) string {
 	return sqliteFileReadOnlyDSN(path, true)
 }
 
-// sqliteLiveReadOnlyDSN opens a read-only database while still allowing SQLite
+// SQLiteLiveReadOnlyDSN opens a read-only database while still allowing SQLite
 // to observe a live WAL. It shares the platform-safe file URI construction with
 // immutable generated indexes but deliberately omits immutable=1.
-func sqliteLiveReadOnlyDSN(path string) string {
+func SQLiteLiveReadOnlyDSN(path string) string {
 	return sqliteFileReadOnlyDSN(path, false)
 }
 

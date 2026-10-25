@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // memory_receipts.go is the projection receipt: the durable, content-free
@@ -112,14 +113,14 @@ func projectionStateAction(state projectionStateReadState) string {
 }
 
 func newProjectionStateLoadError(state projectionStateReadState, path, detail string, version int) error {
-	code := memoryErrStateCorrupt
+	code := brainstore.StateCorruptCode
 	switch state {
 	case projectionStateUnsupported:
 		code = memoryErrUnsupportedVersion
 	case projectionStateStale:
 		code = memoryErrSourceStale
 	case projectionStateUnsafe:
-		code = memoryErrStateUnsafe
+		code = brainstore.StateUnsafeCode
 	}
 	return &projectionStateLoadError{
 		State: state, Code: code, Path: path, Version: version,

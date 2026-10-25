@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -703,7 +704,7 @@ func TestUnreadableFTSStoreIsStillCorruption(t *testing.T) {
 	if got := normalizeMemoryObservedState(memoryObservedStateValue(health["state"])); got != "corrupt" {
 		t.Fatalf("a file that is not a database = %q, want corrupt: %#v", got, health)
 	}
-	if health["error_code"] != memoryErrStateCorrupt {
+	if health["error_code"] != brainstore.StateCorruptCode {
 		t.Fatalf("corrupt FTS store lost its error code: %#v", health)
 	}
 }

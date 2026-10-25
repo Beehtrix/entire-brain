@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // The failure these pin was found on a real machine, not imagined: a field
@@ -246,7 +248,7 @@ func TestARetiredFieldSatisfiesTheGeneralClassifier(t *testing.T) {
 func TestABarePrepassErrorStillGetsTheRemedy(t *testing.T) {
 	t.Parallel()
 	bare := wrapTestError("delta session export",
-		wrapTestError("parse brain manifest: "+memoryErrStateCorrupt+": brain manifest cannot be parsed",
+		wrapTestError("parse brain manifest: "+brainstore.StateCorruptCode+": brain manifest cannot be parsed",
 			errUnknownFieldForTest))
 
 	if strings.Contains(bare.Error(), "refresh --force") {

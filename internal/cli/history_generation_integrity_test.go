@@ -330,12 +330,12 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) || !strings.Contains(err.Error(), "digest") {
+		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "digest") {
 			t.Fatalf("tampered index error = %v", err)
 		}
 		found := false
 		for _, finding := range detectMemoryMigrations(brainDir, source) {
-			found = found || finding.Path == source.IndexPath && finding.State == memoryErrStateCorrupt
+			found = found || finding.Path == source.IndexPath && finding.State == brainstore.StateCorruptCode
 		}
 		if !found {
 			t.Fatalf("corrupt index not exposed by status findings: %+v", detectMemoryMigrations(brainDir, source))
@@ -347,7 +347,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		source, _ := activeHistoryProjection(t, brainDir)
 		malformed := *source
 		malformed.IndexDigest = "sha256:not-a-digest"
-		if _, err := loadBrainHistoryIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := loadBrainHistoryIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("malformed digest error = %v", err)
 		}
 	})
@@ -502,8 +502,8 @@ func TestSessionTranscriptDigestIsContainedRegularAndNoFollow(t *testing.T) {
 		"directory": "sessions/main",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := sessionTranscriptDigest(brainDir, unsafeRel); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-				t.Fatalf("digest error = %v, want %s", err, memoryErrStateUnsafe)
+			if _, err := sessionTranscriptDigest(brainDir, unsafeRel); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+				t.Fatalf("digest error = %v, want %s", err, brainstore.StateUnsafeCode)
 			}
 		})
 	}

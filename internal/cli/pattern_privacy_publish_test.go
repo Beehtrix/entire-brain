@@ -322,8 +322,8 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				if _, err := os.Lstat(marker); err != nil {
 					t.Fatalf("transactional failure did not retain marker: %v", err)
 				}
-				if _, err := openPatternCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-					t.Fatalf("marked corpus read error = %v, want %s", err, memoryErrStateUnsafe)
+				if _, err := openPatternCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+					t.Fatalf("marked corpus read error = %v, want %s", err, brainstore.StateUnsafeCode)
 				}
 				if err := recoverPatternCorpusPublicationLocked(brainDir); err != nil {
 					t.Fatalf("recover %s: %v", tc.step, err)
@@ -444,8 +444,8 @@ func TestPatternCorpusPublishDirectorySwapCannotTouchExternalTarget(t *testing.T
 	}
 	t.Cleanup(func() { patternCorpusPublishBoundary = original })
 	err := buildPatternCorpus(brainDir, now.Add(time.Minute))
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("directory swap publish error = %v, want %s", err, memoryErrStateUnsafe)
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("directory swap publish error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	for name, want := range externalFiles {
 		got, readErr := os.ReadFile(filepath.Join(external, name))

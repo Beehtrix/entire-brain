@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -213,7 +214,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 					}
 					code, _ := health["error_code"].(string)
 					switch code {
-					case memoryErrUnsupportedVersion, memoryErrStateCorrupt, memoryErrStateUnsafe, memoryErrMigrationRequired:
+					case memoryErrUnsupportedVersion, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, memoryErrMigrationRequired:
 						errorCodes[code] = true
 					}
 				}
@@ -271,7 +272,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	if migrations, ok := snapshot.Payload["migrations"].([]memoryMigrationFinding); ok && len(migrations) > 0 {
 		state := "warn"
 		for _, finding := range migrations {
-			if finding.State == memoryErrStateUnsafe || finding.State == memoryErrStateCorrupt {
+			if finding.State == brainstore.StateUnsafeCode || finding.State == brainstore.StateCorruptCode {
 				state = "error"
 				break
 			}

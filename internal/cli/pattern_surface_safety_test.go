@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestStrongestPatternsCheckedRejectsUnsafeLegacyState(t *testing.T) {
@@ -22,8 +24,8 @@ func TestStrongestPatternsCheckedRejectsUnsafeLegacyState(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(brainDir, filepath.FromSlash(patternsProceduresPath))); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if _, err := strongestPatternsChecked(brainDir, 3); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("unsafe strongest-pattern state error = %v, want %s", err, memoryErrStateUnsafe)
+	if _, err := strongestPatternsChecked(brainDir, 3); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("unsafe strongest-pattern state error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	got, err := os.ReadFile(external)
 	if err != nil || !bytes.Equal(got, externalData) {
@@ -44,7 +46,7 @@ func TestBriefConsolidationsCheckedRejectsMalformedDossier(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadBriefConsolidationsChecked(brainDir, []string{"deploy"}, 3); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("malformed dossier error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := loadBriefConsolidationsChecked(brainDir, []string{"deploy"}, 3); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("malformed dossier error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }

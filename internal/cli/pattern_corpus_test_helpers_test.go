@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -13,7 +14,7 @@ import (
 // openPatternCorpusMutableDB is test-only setup access. Production mutations
 // always clone into private staging and publish through a pinned os.Root.
 func openPatternCorpusMutableDB(brainDir string) (*sql.DB, error) {
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return nil, err
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func writePatternPublicationPrivacyFixture(t *testing.T, brainDir, candidate string, candidateData []byte) ([]byte, string) {
@@ -146,7 +148,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 		markerPath := writeForwardStateFixture(t, brainDir, patternCorpusPublicationMarkerPath, corrupt)
 		err := executeSessionCleanup(brainDir, "secret-sess", sessionPurgePlan{}, now, "test", true)
 		var typed *patternCorpusPublicationLoadError
-		if !errors.As(err, &typed) || typed.Code != memoryErrStateCorrupt || typed.State != patternCorpusPublicationCorrupt {
+		if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || typed.State != patternCorpusPublicationCorrupt {
 			t.Fatalf("error = %v typed=%+v, want typed corrupt", err, typed)
 		}
 		requireForwardStateBytes(t, markerPath, corrupt)
@@ -175,7 +177,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 		}
 		err := executeSessionCleanup(brainDir, "secret-sess", sessionPurgePlan{}, now, "test", true)
 		var typed *patternCorpusPublicationLoadError
-		if !errors.As(err, &typed) || typed.Code != memoryErrStateUnsafe || typed.State != patternCorpusPublicationUnsafe {
+		if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patternCorpusPublicationUnsafe {
 			t.Fatalf("error = %v typed=%+v, want typed unsafe", err, typed)
 		}
 		if info, statErr := os.Lstat(markerPath); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -218,7 +220,7 @@ func TestPatternCorpusPublicationPrivacyRemovalRejectsIdentityTakeover(t *testin
 		t.Fatal(swapErr)
 	}
 	var typed *patternCorpusPublicationLoadError
-	if !errors.As(err, &typed) || typed.Code != memoryErrStateUnsafe || typed.State != patternCorpusPublicationUnsafe {
+	if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patternCorpusPublicationUnsafe {
 		t.Fatalf("identity takeover error = %v typed=%+v, want typed unsafe", err, typed)
 	}
 	requireForwardStateBytes(t, markerPath, replacement)
@@ -299,8 +301,8 @@ func TestPatternCorpusRollbackJournalRemovalRejectsUnsafeAlias(t *testing.T) {
 	if err := os.Symlink(outside, journalPath); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := removePrivacyDerivedStoreArtifact(brainDir, journalRel); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("unsafe journal removal error = %v, want %s", err, memoryErrStateUnsafe)
+	if err := removePrivacyDerivedStoreArtifact(brainDir, journalRel); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("unsafe journal removal error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	requireForwardStateBytes(t, outside, want)
 }

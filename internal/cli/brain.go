@@ -207,7 +207,7 @@ func durablePrepassText(err error) string {
 
 func errRetiredManifestField(err error) bool {
 	return isUnknownFieldError(err) || (err != nil &&
-		strings.Contains(err.Error(), memoryErrStateCorrupt) &&
+		strings.Contains(err.Error(), brainstore.StateCorruptCode) &&
 		strings.Contains(err.Error(), "unknown field"))
 }
 

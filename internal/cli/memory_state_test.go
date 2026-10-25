@@ -158,7 +158,7 @@ func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testi
 		t.Fatalf("writer failure = %v, want original output error", err)
 	}
 	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(writer.output.String()), &failure); decodeErr != nil || failure.Operation != "reconcile" || failure.ErrorCode != memoryErrStateCorrupt || failure.FinishedAt.IsZero() || len(failure.Artifacts) != 1 || failure.Artifacts[0].NewState != memoryJobStatePending {
+	if decodeErr := json.Unmarshal([]byte(writer.output.String()), &failure); decodeErr != nil || failure.Operation != "reconcile" || failure.ErrorCode != brainstore.StateCorruptCode || failure.FinishedAt.IsZero() || len(failure.Artifacts) != 1 || failure.Artifacts[0].NewState != memoryJobStatePending {
 		t.Fatalf("output failure receipt=%+v decode=%v\n%s", failure, decodeErr, writer.output.String())
 	}
 	if jobs := loadMemoryJobs(brainDir); len(jobs) != 2 {
@@ -769,7 +769,7 @@ func TestMemoryManualMutationIgnoresUnrelatedJobIssue(t *testing.T) {
 	if err != nil || len(selected) != 1 {
 		t.Fatalf("valid retry selection blocked: jobs=%+v err=%v", selected, err)
 	}
-	if _, err := memoryJobsForSelector(brainDir, "", job.SessionRef); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if _, err := memoryJobsForSelector(brainDir, "", job.SessionRef); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("incomplete bulk session selection was not rejected: %v", err)
 	}
 	pending, err := transitionMemoryJob(brainDir, selected[0], memoryJobStatePending, now, "")
@@ -808,10 +808,10 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateCorrupt {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateCorruptCode {
 			t.Fatalf("arbitrary filename inventory = %+v", inventory)
 		}
-		if _, err := memoryJobsForSelector(brainDir, job.JobID, ""); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := memoryJobsForSelector(brainDir, job.JobID, ""); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("manual mutation error = %v", err)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != string(data) {
@@ -833,7 +833,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Migrations) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateCorrupt {
+		if len(inventory.Jobs) != 0 || len(inventory.Migrations) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateCorruptCode {
 			t.Fatalf("arbitrary legacy inventory = %+v", inventory)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != string(data) {
@@ -858,7 +858,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("symlink inventory = %+v", inventory)
 		}
 		if after, err := os.ReadFile(outside); err != nil || string(after) != string(data) {
@@ -873,7 +873,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("non-regular inventory = %+v", inventory)
 		}
 	})
@@ -889,10 +889,10 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Kind != "job_directory" || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Kind != "job_directory" || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("symlinked directory inventory = %+v", inventory)
 		}
-		if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("directory enumeration error = %v", err)
 		}
 	})

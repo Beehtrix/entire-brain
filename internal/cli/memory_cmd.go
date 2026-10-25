@@ -1271,7 +1271,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 				return err
 			}
 			if current.State != memoryJobStateRunning || current.OwnerToken != owner || !equalMemoryAbstractJobOverride(current.AbstractOverride, claimed.AbstractOverride) {
-				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", memoryErrStateCorrupt)
+				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", brainstore.StateCorruptCode)
 			}
 			request, err := loadMemoryCancellationRequest(brainDir, claimed.JobID)
 			if err != nil {

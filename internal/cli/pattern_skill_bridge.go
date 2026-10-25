@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -104,7 +105,7 @@ func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error
 		}
 		var rec deepDossierRecord
 		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
-			return nil, fmt.Errorf("%s: parse accepted knowledge skill proposal: %w", memoryErrStateCorrupt, err)
+			return nil, fmt.Errorf("%s: parse accepted knowledge skill proposal: %w", brainstore.StateCorruptCode, err)
 		}
 		support := rec.EvidenceEpisodes
 		strength := patterncore.SupportScoreV2(support)

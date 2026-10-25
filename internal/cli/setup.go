@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
@@ -2147,7 +2148,7 @@ func setupRecordIsCorrupt(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", memoryErrStateCorrupt} {
+	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", brainstore.StateCorruptCode} {
 		if strings.Contains(msg, mark) {
 			return true
 		}

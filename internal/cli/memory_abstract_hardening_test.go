@@ -168,7 +168,7 @@ func TestAbstractResolverCarriesAffectedJobIssue(t *testing.T) {
 	if err := os.Symlink(outside, jobPath); err != nil {
 		t.Fatal(err)
 	}
-	if status, exposed := sessionAbstractStatus(brainDir, view); status != memoryErrStateUnsafe || exposed != nil {
+	if status, exposed := sessionAbstractStatus(brainDir, view); status != brainstore.StateUnsafeCode || exposed != nil {
 		t.Fatalf("affected unsafe job status=%s exposed=%+v", status, exposed)
 	}
 }
@@ -179,7 +179,7 @@ func TestAbstractResolverPreservesCorruptAndUnsupportedJobCodes(t *testing.T) {
 		contents func(string, string) []byte
 		want     string
 	}{
-		{name: "corrupt", contents: func(_, _ string) []byte { return []byte("{broken") }, want: memoryErrStateCorrupt},
+		{name: "corrupt", contents: func(_, _ string) []byte { return []byte("{broken") }, want: brainstore.StateCorruptCode},
 		{name: "unsupported", contents: func(jobID, ref string) []byte {
 			data, _ := json.Marshal(map[string]any{"schema_version": memoryJobSchemaVersion + 1, "job_id": jobID, "session_ref": ref})
 			return data
@@ -224,14 +224,14 @@ func TestAutomaticAbstractEnqueueFailureDoesNotBreakRecall(t *testing.T) {
 		t.Fatal(err)
 	}
 	enqueueAutomaticAbstractReconciliationHook = func(string, string, time.Time) error {
-		return errors.New(memoryErrStateCorrupt + ": simulated enqueue failure")
+		return errors.New(brainstore.StateCorruptCode + ": simulated enqueue failure")
 	}
 	found, missing, err := getUnifiedBatchOptions(t.TempDir(), brainDir, "main", []string{view.Ref}, getOptions{})
-	if err != nil || len(found) != 1 || len(missing) != 0 || found[0].AbstractIssue != memoryErrStateCorrupt {
+	if err != nil || len(found) != 1 || len(missing) != 0 || found[0].AbstractIssue != brainstore.StateCorruptCode {
 		t.Fatalf("get found=%+v missing=%v err=%v", found, missing, err)
 	}
 	previews, _, err := abstractPreviewsForResults(brainDir, []unifiedResult{{ID: view.Records[0].ID, SessionRef: view.Ref}})
-	if err != nil || len(previews) != 1 || previews[0].AbstractIssue != memoryErrStateCorrupt {
+	if err != nil || len(previews) != 1 || previews[0].AbstractIssue != brainstore.StateCorruptCode {
 		t.Fatalf("previews=%+v err=%v", previews, err)
 	}
 }
@@ -848,7 +848,7 @@ func TestMemoryConfigClassifiesAdditiveFieldsBySchemaVersion(t *testing.T) {
 		state   memoryConfigReadState
 		code    string
 	}{
-		{name: "current strict", version: memoryConfigSchemaVersion, state: memoryConfigCorrupt, code: memoryErrStateCorrupt},
+		{name: "current strict", version: memoryConfigSchemaVersion, state: memoryConfigCorrupt, code: brainstore.StateCorruptCode},
 		{name: "newer read-only", version: memoryConfigSchemaVersion + 1, state: memoryConfigUnsupported, code: memoryErrUnsupportedVersion},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -899,7 +899,7 @@ func TestAbstractEgressTargetReaderRejectsShardAndLeafSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.link(t, brainDir, target, outside)
-			if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+			if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("target reader error=%v", err)
 			}
 			got, err := os.ReadFile(outside)
@@ -950,7 +950,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.link(t, brainDir, outside)
-			if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+			if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("cleanup error=%v", err)
 			}
 			got, err := os.ReadFile(outside)
@@ -1001,7 +1001,7 @@ func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 		}
 		return oldLstat(path)
 	}
-	if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("cleanup error=%v, want raced identity rejection", err)
 	}
 	if _, err := os.Stat(target); err != nil {

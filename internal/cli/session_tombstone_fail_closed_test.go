@@ -45,10 +45,10 @@ func TestSessionTombstonesInvalidStatesAreTyped(t *testing.T) {
 		state   sessionTombstoneState
 		version int
 	}{
-		{name: "malformed", data: "{broken", code: memoryErrStateCorrupt, state: sessionTombstoneCorrupt},
-		{name: "nil map", data: `{"version":1,"excluded":null}`, code: memoryErrStateCorrupt, state: sessionTombstoneCorrupt, version: 1},
-		{name: "zero version", data: `{"version":0,"excluded":{}}`, code: memoryErrStateCorrupt, state: sessionTombstoneCorrupt},
-		{name: "negative version", data: `{"version":-1,"excluded":{}}`, code: memoryErrStateCorrupt, state: sessionTombstoneCorrupt, version: -1},
+		{name: "malformed", data: "{broken", code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt},
+		{name: "nil map", data: `{"version":1,"excluded":null}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt, version: 1},
+		{name: "zero version", data: `{"version":0,"excluded":{}}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt},
+		{name: "negative version", data: `{"version":-1,"excluded":{}}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt, version: -1},
 		{name: "newer version", data: `{"version":2,"excluded":{}}`, code: memoryErrUnsupportedVersion, state: sessionTombstoneUnsupported, version: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -78,7 +78,7 @@ func TestCorruptSessionTombstonesFailClosedAcrossFreshRetrievalLoads(t *testing.
 		if len(results) != 0 {
 			t.Fatalf("request %d served excluded results: %+v", request, results)
 		}
-		requireSessionTombstoneError(t, err, memoryErrStateCorrupt, sessionTombstoneCorrupt)
+		requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestCorruptSessionTombstonesBlockConsolidationAndPreserveActiveGeneration(t
 	if prepared != nil {
 		t.Fatalf("prepared corrupt-tombstone projection: %+v", prepared)
 	}
-	requireSessionTombstoneError(t, err, memoryErrStateCorrupt, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 	current, currentIndex := activeHistoryProjection(t, brainDir)
 	if current.IndexPath != previous.IndexPath || current.ProjectionStatePath != previous.ProjectionStatePath {
 		t.Fatalf("failed consolidation switched generation: before=%+v after=%+v", previous, current)
@@ -115,7 +115,7 @@ func TestCorruptSessionTombstonesBlockDeltaAndPreserveOverlay(t *testing.T) {
 		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
 	})
-	requireSessionTombstoneError(t, err, memoryErrStateCorrupt, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 	after, err := os.ReadFile(overlayPath)
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestMemoryStatusReportsTombstoneStateWithoutWriting(t *testing.T) {
 		state sessionTombstoneState
 		code  string
 	}{
-		{name: "corrupt", data: "{broken", state: sessionTombstoneCorrupt, code: memoryErrStateCorrupt},
+		{name: "corrupt", data: "{broken", state: sessionTombstoneCorrupt, code: brainstore.StateCorruptCode},
 		{name: "unsupported", data: `{"version":2,"excluded":{}}`, state: sessionTombstoneUnsupported, code: memoryErrUnsupportedVersion},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -195,7 +195,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			requireSessionTombstoneError(t, run(), memoryErrStateCorrupt, sessionTombstoneCorrupt)
+			requireSessionTombstoneError(t, run(), brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 		})
 	}
 }
@@ -212,9 +212,9 @@ func TestCorruptTombstonesReturnTypedCLIAndMCPRetrievalErrors(t *testing.T) {
 	writeSessionTombstoneBytes(t, storage.BrainDir, []byte("{broken"))
 
 	out, cliErr := execute(t, NewRootCommand(opts), "search", "private canary", "--format", "json")
-	requireSessionTombstoneError(t, cliErr, memoryErrStateCorrupt, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, cliErr, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
 	var envelope commandJSONError
-	if err := json.Unmarshal([]byte(out), &envelope); err != nil || envelope.Code != memoryErrStateCorrupt {
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil || envelope.Code != brainstore.StateCorruptCode {
 		t.Fatalf("CLI error envelope = %+v decode=%v output=%s", envelope, err, out)
 	}
 
@@ -223,7 +223,7 @@ func TestCorruptTombstonesReturnTypedCLIAndMCPRetrievalErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
-	if response.Error == nil || !strings.HasPrefix(response.Error.Message, memoryErrStateCorrupt+":") {
+	if response.Error == nil || !strings.HasPrefix(response.Error.Message, brainstore.StateCorruptCode+":") {
 		t.Fatalf("MCP response did not carry typed tombstone error: %+v", response)
 	}
 }

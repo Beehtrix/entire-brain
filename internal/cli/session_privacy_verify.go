@@ -51,13 +51,13 @@ type privacyVerifyReport struct {
 
 func loadHistoryShortTermForPrivacy(brainDir string) (shortTermIndex, error) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, present, err := readPrivacyArtifact(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return empty, err
 	}
 	var overlay shortTermIndex
 	if err := json.Unmarshal(data, &overlay); err != nil || overlay.Files == nil {
-		return empty, fmt.Errorf("%s: decode %s", memoryErrStateCorrupt, historyShortTermPath)
+		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, historyShortTermPath)
 	}
 	if overlay.Version != historyShortTermVersion || overlay.ReconcilerVersion != historyShortTermReconcilerVersion {
 		return empty, fmt.Errorf("%s: unsupported %s schema/reconciler version", memoryErrUnsupportedVersion, historyShortTermPath)
@@ -69,25 +69,25 @@ func loadHistoryShortTermForPrivacy(brainDir string) (shortTermIndex, error) {
 
 func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
-	data, present, err := readPrivacyArtifact(brainDir, historyScanCachePath, "history scan cache", 256<<20)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, historyScanCachePath, "history scan cache", 256<<20)
 	if err != nil || !present {
 		return empty, err
 	}
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return empty, fmt.Errorf("%s: open %s: %w", memoryErrStateCorrupt, historyScanCachePath, err)
+		return empty, fmt.Errorf("%s: open %s: %w", brainstore.StateCorruptCode, historyScanCachePath, err)
 	}
 	decoded, readErr := base.SafeReadAll(gz, base.SemanticSnapshotMaxBytes(), historyScanCachePath+" (decompressed)")
 	closeErr := gz.Close()
 	if readErr != nil {
-		return empty, fmt.Errorf("%s: read %s: %w", memoryErrStateCorrupt, historyScanCachePath, readErr)
+		return empty, fmt.Errorf("%s: read %s: %w", brainstore.StateCorruptCode, historyScanCachePath, readErr)
 	}
 	if closeErr != nil {
-		return empty, fmt.Errorf("%s: close %s: %w", memoryErrStateCorrupt, historyScanCachePath, closeErr)
+		return empty, fmt.Errorf("%s: close %s: %w", brainstore.StateCorruptCode, historyScanCachePath, closeErr)
 	}
 	var cache historyScanCache
 	if err := json.Unmarshal(decoded, &cache); err != nil || cache.Files == nil {
-		return empty, fmt.Errorf("%s: decode %s", memoryErrStateCorrupt, historyScanCachePath)
+		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, historyScanCachePath)
 	}
 	if cache.Version != historyScanCacheVersion {
 		return empty, fmt.Errorf("%s: unsupported %s schema version %d", memoryErrUnsupportedVersion, historyScanCachePath, cache.Version)
@@ -97,13 +97,13 @@ func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 
 func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, present, err := readPrivacyArtifact(brainDir, distillCachePath, "distill cache", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, distillCachePath, "distill cache", base.MaxManifestBytes)
 	if err != nil || !present {
 		return empty, err
 	}
 	var cache distillCache
 	if err := json.Unmarshal(data, &cache); err != nil || cache.Sessions == nil {
-		return empty, fmt.Errorf("%s: decode %s", memoryErrStateCorrupt, distillCachePath)
+		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, distillCachePath)
 	}
 	if cache.Version != distillCacheVersion {
 		return empty, fmt.Errorf("%s: unsupported %s schema version %d", memoryErrUnsupportedVersion, distillCachePath, cache.Version)
@@ -112,7 +112,7 @@ func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 }
 
 func validatePrivacyJSONLines(brainDir, rel string) error {
-	data, present, err := readPrivacyArtifact(brainDir, rel, "derived JSON store", 256<<20)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "derived JSON store", 256<<20)
 	if err != nil || !present {
 		return err
 	}
@@ -123,24 +123,8 @@ func validatePrivacyJSONLines(brainDir, rel string) error {
 		}
 		var value map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(trimmed), &value); err != nil || value == nil {
-			return fmt.Errorf("%s: parse %s line %d", memoryErrStateCorrupt, rel, i+1)
+			return fmt.Errorf("%s: parse %s line %d", brainstore.StateCorruptCode, rel, i+1)
 		}
-	}
-	return nil
-}
-
-func validatePrivacySQLiteSnapshot(path, rel string) error {
-	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(path))
-	if err != nil {
-		return fmt.Errorf("%s: open derived SQLite store %s: %w", memoryErrStateCorrupt, rel, err)
-	}
-	defer db.Close()
-	var integrity string
-	if err := db.QueryRow(`PRAGMA quick_check`).Scan(&integrity); err != nil {
-		return fmt.Errorf("%s: verify derived SQLite store %s: %w", memoryErrStateCorrupt, rel, err)
-	}
-	if integrity != "ok" {
-		return fmt.Errorf("%s: derived SQLite store %s failed integrity check: %s", memoryErrStateCorrupt, rel, integrity)
 	}
 	return nil
 }
@@ -149,159 +133,19 @@ func validatePrivacySQLiteSnapshot(path, rel string) error {
 // scanning two million rows; production never changes it.
 var privacyVectorVerifyMaxRows = 2_000_000
 
-const privacySQLiteSnapshotMaxBytes int64 = 16 << 30
-
-type privacySQLiteSnapshotSource struct {
-	rel      string
-	path     string
-	expected os.FileInfo
-	file     *os.File
-}
-
-// snapshotPrivacySQLiteStore pins the Brain-relative main database and its WAL
-// through descriptor-bound, no-follow opens, then streams a bounded copy into
-// a private temporary directory. The private WAL is checkpointed before the
-// immutable verification readers open the snapshot. Copying only the main file
-// would miss committed rows that have not yet been checkpointed from WAL.
-// SQLite never receives a repository-controlled path.
-func snapshotPrivacySQLiteStore(brainDir, rel string) (string, func(), error) {
-	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	if err != nil {
-		return "", nil, fmt.Errorf("%s: unsafe SQLite store path: %w", memoryErrStateUnsafe, err)
-	}
-	rel = filepath.ToSlash(clean)
-
-	openSource := func(sourceRel, label string, required bool) (*privacySQLiteSnapshotSource, bool, error) {
-		expected, present, infoErr := privacyArtifactInfo(brainDir, sourceRel, label)
-		if infoErr != nil {
-			return nil, present, infoErr
-		}
-		if !present {
-			if required {
-				return nil, false, fmt.Errorf("%s: SQLite store disappeared before verification: %s", memoryErrStateCorrupt, sourceRel)
-			}
-			return nil, false, nil
-		}
-		path := filepath.Join(brainDir, filepath.FromSlash(sourceRel))
-		file, openErr := privacyOpen(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
-		if openErr != nil {
-			return nil, true, fmt.Errorf("%s: open %s without following links: %w", memoryErrStateUnsafe, label, openErr)
-		}
-		if aliasErr := base.RejectOpenFileAlias(path, file, label); aliasErr != nil {
-			_ = file.Close()
-			return nil, true, fmt.Errorf("%s: validate %s identity: %w", memoryErrStateUnsafe, label, aliasErr)
-		}
-		return &privacySQLiteSnapshotSource{rel: sourceRel, path: path, expected: expected, file: file}, true, nil
-	}
-
-	mainSource, _, err := openSource(rel, "SQLite store", true)
-	if err != nil {
-		return "", nil, err
-	}
-	sources := []*privacySQLiteSnapshotSource{mainSource}
-	defer func() {
-		for _, source := range sources {
-			_ = source.file.Close()
-		}
-	}()
-	walRel := rel + "-wal"
-	walSource, walPresent, err := openSource(walRel, "SQLite WAL", false)
-	if err != nil {
-		return "", nil, err
-	}
-	if walPresent {
-		sources = append(sources, walSource)
-	}
-
-	tempDir, err := os.MkdirTemp("", "entire-brain-privacy-sqlite-")
-	if err != nil {
-		return "", nil, fmt.Errorf("%s: create private SQLite verification directory: %w", memoryErrStateCorrupt, err)
-	}
-	cleanup := func() { _ = os.RemoveAll(tempDir) }
-	snapshotPath := filepath.Join(tempDir, "snapshot.sqlite")
-	totalCopied := int64(0)
-	for i, source := range sources {
-		if source.expected.Size() < 0 || source.expected.Size() > privacySQLiteSnapshotMaxBytes-totalCopied {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite store and WAL exceed the bounded snapshot ceiling", memoryErrStateUnsafe)
-		}
-		destination := snapshotPath
-		if i > 0 {
-			destination += "-wal"
-		}
-		snapshot, createErr := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-		if createErr != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: create SQLite verification snapshot: %w", memoryErrStateCorrupt, createErr)
-		}
-		remaining := privacySQLiteSnapshotMaxBytes - totalCopied
-		copied, copyErr := io.Copy(snapshot, io.LimitReader(source.file, remaining+1))
-		closeErr := snapshot.Close()
-		if copyErr != nil || closeErr != nil || copied != source.expected.Size() || copied > remaining {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite store or WAL changed or exceeded bounds while snapshotting", memoryErrStateUnsafe)
-		}
-		totalCopied += copied
-	}
-
-	// Revalidate every pinned descriptor and pathname after the complete set was
-	// copied. This catches a checkpoint, append, truncation, or path replacement
-	// that raced the main/WAL snapshot. Also prove an initially absent WAL did
-	// not appear while the main database was being copied.
-	for _, source := range sources {
-		after, statErr := source.file.Stat()
-		if statErr != nil || !os.SameFile(source.expected, after) || after.Size() != source.expected.Size() || !after.ModTime().Equal(source.expected.ModTime()) {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite store or WAL changed while snapshotting", memoryErrStateUnsafe)
-		}
-		if aliasErr := base.RejectOpenFileAlias(source.path, source.file, "SQLite snapshot source"); aliasErr != nil {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite store or WAL path changed while snapshotting: %w", memoryErrStateUnsafe, aliasErr)
-		}
-		current, present, infoErr := privacyArtifactInfo(brainDir, source.rel, "SQLite snapshot source")
-		if infoErr != nil || !present || !os.SameFile(source.expected, current) || current.Size() != source.expected.Size() || !current.ModTime().Equal(source.expected.ModTime()) {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite store or WAL identity changed while snapshotting", memoryErrStateUnsafe)
-		}
-	}
-	if !walPresent {
-		if _, present, infoErr := privacyArtifactInfo(brainDir, walRel, "SQLite WAL"); infoErr != nil || present {
-			cleanup()
-			return "", nil, fmt.Errorf("%s: SQLite WAL appeared while snapshotting", memoryErrStateUnsafe)
-		}
-	}
-
-	// Replay committed WAL frames only inside the trusted temporary directory.
-	// The later immutable readers can now inspect one self-contained main file.
-	db, err := sql.Open(sqlitedriver.Name, snapshotPath)
-	if err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("%s: open private SQLite snapshot: %w", memoryErrStateCorrupt, err)
-	}
-	db.SetMaxOpenConns(1)
-	var busy, logFrames, checkpointedFrames int
-	checkpointErr := db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &checkpointedFrames)
-	closeErr := db.Close()
-	if checkpointErr != nil || closeErr != nil || busy != 0 || (logFrames > 0 && checkpointedFrames != logFrames) {
-		cleanup()
-		return "", nil, fmt.Errorf("%s: replay private SQLite WAL before verification", memoryErrStateCorrupt)
-	}
-	return snapshotPath, cleanup, nil
-}
-
 func inspectPrivacyVectorIDsSnapshot(snapshot, rel string, wanted map[string]struct{}, findingSessionID string) ([]privacyVerifyFinding, error) {
-	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshot))
+	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(snapshot))
 	if err != nil {
-		return nil, fmt.Errorf("%s: open vector store %s: %w", memoryErrStateCorrupt, rel, err)
+		return nil, fmt.Errorf("%s: open vector store %s: %w", brainstore.StateCorruptCode, rel, err)
 	}
 	defer db.Close()
 	var integrity string
 	if err := db.QueryRow(`PRAGMA quick_check`).Scan(&integrity); err != nil || integrity != "ok" {
-		return nil, fmt.Errorf("%s: vector store %s failed integrity verification", memoryErrStateCorrupt, rel)
+		return nil, fmt.Errorf("%s: vector store %s failed integrity verification", brainstore.StateCorruptCode, rel)
 	}
 	rows, err := db.Query(fmt.Sprintf(`SELECT record_id FROM history_ids LIMIT %d`, privacyVectorVerifyMaxRows+1))
 	if err != nil {
-		return nil, fmt.Errorf("%s: inspect vector IDs in %s: %w", memoryErrStateCorrupt, rel, err)
+		return nil, fmt.Errorf("%s: inspect vector IDs in %s: %w", brainstore.StateCorruptCode, rel, err)
 	}
 	defer rows.Close()
 	var findings []privacyVerifyFinding
@@ -309,11 +153,11 @@ func inspectPrivacyVectorIDsSnapshot(snapshot, rel string, wanted map[string]str
 	for rows.Next() {
 		count++
 		if count > privacyVectorVerifyMaxRows {
-			return nil, fmt.Errorf("%s: vector store %s exceeds verification ceiling", memoryErrStateUnsafe, rel)
+			return nil, fmt.Errorf("%s: vector store %s exceeds verification ceiling", brainstore.StateUnsafeCode, rel)
 		}
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("%s: inspect vector ID in %s: %w", memoryErrStateCorrupt, rel, err)
+			return nil, fmt.Errorf("%s: inspect vector ID in %s: %w", brainstore.StateCorruptCode, rel, err)
 		}
 		if _, current := wanted[id]; !current {
 			findings = append(findings, privacyVerifyFinding{
@@ -324,7 +168,7 @@ func inspectPrivacyVectorIDsSnapshot(snapshot, rel string, wanted map[string]str
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s: inspect vector IDs in %s: %w", memoryErrStateCorrupt, rel, err)
+		return nil, fmt.Errorf("%s: inspect vector IDs in %s: %w", brainstore.StateCorruptCode, rel, err)
 	}
 	return findings, nil
 }
@@ -342,9 +186,9 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 			ownerByPath[normalizePrivacyTranscriptPath(rel)] = id
 		}
 	}
-	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshotPath))
+	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(snapshotPath))
 	if err != nil {
-		return nil, fmt.Errorf("%s: open %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, err)
+		return nil, fmt.Errorf("%s: open %s: %w", brainstore.StateCorruptCode, patterncore.CorpusPath, err)
 	}
 	defer db.Close()
 	type corpusTable struct {
@@ -368,19 +212,19 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		query := fmt.Sprintf("SELECT id, session_id, %s FROM %s LIMIT %d", table.pathColumn, table.name, privacyCorpusVerifyMaxRows+1)
 		rows, err := db.Query(query)
 		if err != nil {
-			return nil, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
+			return nil, fmt.Errorf("%s: inspect %s %s: %w", brainstore.StateCorruptCode, patterncore.CorpusPath, table.name, err)
 		}
 		count := 0
 		for rows.Next() {
 			count++
 			if count > privacyCorpusVerifyMaxRows {
 				rows.Close()
-				return nil, fmt.Errorf("%s: %s %s exceeds %d rows", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, privacyCorpusVerifyMaxRows)
+				return nil, fmt.Errorf("%s: %s %s exceeds %d rows", brainstore.StateCorruptCode, patterncore.CorpusPath, table.name, privacyCorpusVerifyMaxRows)
 			}
 			var rowID, sessionID, sourcePath string
 			if err := rows.Scan(&rowID, &sessionID, &sourcePath); err != nil {
 				rows.Close()
-				return nil, fmt.Errorf("%s: scan %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
+				return nil, fmt.Errorf("%s: scan %s %s: %w", brainstore.StateCorruptCode, patterncore.CorpusPath, table.name, err)
 			}
 			owner := ""
 			if _, excluded := stones.Excluded[strings.TrimSpace(sessionID)]; excluded {
@@ -400,7 +244,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		}
 		if err := rows.Err(); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("%s: iterate %s %s: %w", memoryErrStateCorrupt, patterncore.CorpusPath, table.name, err)
+			return nil, fmt.Errorf("%s: iterate %s %s: %w", brainstore.StateCorruptCode, patterncore.CorpusPath, table.name, err)
 		}
 		rows.Close()
 	}
@@ -409,7 +253,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 
 func loadPrivacyTransactionChecked(brainDir, sessionID string) (privacyTransaction, bool, error) {
 	rel := privacyTransactionRel(sessionID)
-	data, present, err := readPrivacyArtifact(brainDir, rel, "privacy transaction", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "privacy transaction", base.MaxManifestBytes)
 	if err != nil || !present {
 		return privacyTransaction{}, present, err
 	}
@@ -431,20 +275,20 @@ func decodePrivacyTransaction(data []byte, sessionID string) (privacyTransaction
 	if (version != privacyTransactionLegacyVersion && version != privacyTransactionVersion) || tx.SchemaVersion != version || tx.SessionID != sessionID ||
 		(tx.Operation != "exclude" && tx.Operation != "purge") || !validState || tx.StartedAt.IsZero() || tx.UpdatedAt.IsZero() ||
 		tx.UpdatedAt.Before(tx.StartedAt) {
-		return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction %s", memoryErrStateCorrupt, privacyTransactionRel(sessionID))
+		return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
 	}
 	for _, artifact := range tx.Artifacts {
 		if strings.TrimSpace(artifact.Path) == "" || artifact.Bytes < 0 {
-			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction artifact %s", memoryErrStateCorrupt, privacyTransactionRel(sessionID))
+			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction artifact %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
 		}
 	}
 	if len(tx.SessionRefs) > privacyTransactionSessionRefMax {
-		return privacyTransaction{}, fmt.Errorf("%s: privacy transaction has too many session refs %s", memoryErrStateCorrupt, privacyTransactionRel(sessionID))
+		return privacyTransaction{}, fmt.Errorf("%s: privacy transaction has too many session refs %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
 	}
 	seenRefs := map[string]bool{}
 	for _, ref := range tx.SessionRefs {
 		if !strings.HasPrefix(ref, conversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(ref, conversationSessionIDPrefix)) == "" || seenRefs[ref] {
-			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction session ref %s", memoryErrStateCorrupt, privacyTransactionRel(sessionID))
+			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction session ref %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
 		}
 		seenRefs[ref] = true
 	}
@@ -779,12 +623,12 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			newestID, newestAt = id, stone.At
 		}
 	}
-	tombstoneInfo, tombstonesPresent, statErr := privacyArtifactInfo(brainDir, sessionTombstonesPath, "session tombstones")
+	tombstoneInfo, tombstonesPresent, statErr := brainstore.PrivacyArtifactInfo(brainDir, sessionTombstonesPath, "session tombstones")
 	if statErr != nil {
 		return report, statErr
 	}
 	if !tombstonesPresent {
-		return report, fmt.Errorf("%s: session tombstones disappeared during privacy verification", memoryErrStateCorrupt)
+		return report, fmt.Errorf("%s: session tombstones disappeared during privacy verification", brainstore.StateCorruptCode)
 	}
 	cutoff := tombstoneInfo.ModTime()
 	artifacts, inventoryErr := privacyDerivedStoreArtifacts(brainDir)
@@ -794,7 +638,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	presentArtifacts := map[string]bool{}
 	currentArtifacts := map[string]bool{}
 	for _, rel := range artifacts {
-		storeInfo, present, statErr := privacyArtifactInfo(brainDir, rel, "derived privacy store")
+		storeInfo, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, rel, "derived privacy store")
 		if statErr != nil {
 			return report, statErr
 		}
@@ -848,12 +692,12 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		if !currentArtifacts[rel] {
 			continue
 		}
-		snapshot, cleanup, snapshotErr := snapshotPrivacySQLiteStore(brainDir, rel)
+		snapshot, cleanup, snapshotErr := brainstore.SnapshotPrivacySQLiteStore(brainDir, rel)
 		if snapshotErr != nil {
 			return report, snapshotErr
 		}
 		defer cleanup()
-		if err := validatePrivacySQLiteSnapshot(snapshot, rel); err != nil {
+		if err := brainstore.ValidatePrivacySQLiteSnapshot(snapshot, rel); err != nil {
 			return report, err
 		}
 		sqliteSnapshots[rel] = snapshot
@@ -913,7 +757,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			for rel := range paths {
 				hits, checkErr := historyFTSContainsPathPhraseAt(sqliteSnapshots[historyFTSDBRelPath()], rel)
 				if checkErr != nil {
-					return report, fmt.Errorf("%s: inspect %s: %w", memoryErrStateCorrupt, historyFTSDBRelPath(), checkErr)
+					return report, fmt.Errorf("%s: inspect %s: %w", brainstore.StateCorruptCode, historyFTSDBRelPath(), checkErr)
 				}
 				if hits {
 					add(id, "fts_store", "rows for excluded transcript "+rel+" remain in the BM25 store; re-run purge or delete "+historyFTSDBRelPath())
@@ -972,7 +816,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			continue
 		}
 		for rel := range pathsBySession[id] {
-			_, present, statErr := privacyArtifactInfo(brainDir, rel, "exported transcript")
+			_, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, rel, "exported transcript")
 			if statErr != nil {
 				return report, statErr
 			}

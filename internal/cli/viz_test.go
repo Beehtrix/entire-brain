@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -340,7 +341,7 @@ func TestVizReloadsPrivacyStateForEveryRequest(t *testing.T) {
 
 	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
 	corrupt := request()
-	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), canary) || !strings.Contains(corrupt.Body.String(), memoryErrStateCorrupt) {
+	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), canary) || !strings.Contains(corrupt.Body.String(), brainstore.StateCorruptCode) {
 		t.Fatalf("corrupt live policy did not fail closed: %d %s", corrupt.Code, corrupt.Body.String())
 	}
 }

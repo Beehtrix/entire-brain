@@ -295,8 +295,8 @@ func TestSessionTombstonesRoundTripAndCorruptFailClosed(t *testing.T) {
 	}
 	_, state, err := loadSessionTombstonesChecked(brainDir)
 	var loadErr *sessionTombstoneLoadError
-	if !errors.As(err, &loadErr) || loadErr.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
-		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, memoryErrStateCorrupt)
+	if !errors.As(err, &loadErr) || loadErr.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
+		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, brainstore.StateCorruptCode)
 	}
 }
 

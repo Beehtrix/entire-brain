@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestSessionTombstoneLoaderRejectsFIFOBeforeOpen(t *testing.T) {
@@ -22,7 +24,7 @@ func TestSessionTombstoneLoaderRejectsFIFOBeforeOpen(t *testing.T) {
 	}
 	_, state, err := loadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !errors.As(err, &typed) || typed.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
+	if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
 		t.Fatalf("FIFO state=%+v err=%v", state, err)
 	}
 	if !strings.Contains(err.Error(), "not a regular file") {
@@ -39,7 +41,7 @@ func TestMemoryMigrationProgressRejectsFIFOBeforeOpen(t *testing.T) {
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, present, err := loadMemoryMigrationProgress(brainDir); !present || err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if _, present, err := loadMemoryMigrationProgress(brainDir); !present || err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("FIFO migration progress present=%v err=%v", present, err)
 	}
 }
@@ -55,9 +57,9 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToSymlink(t *testing.T) {
 	if err := os.WriteFile(outside, []byte(`{"version":1,"excluded":{}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	original := privacyOpen
+	original := brainstore.PrivacyOpen
 	swapped := false
-	privacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.PrivacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if path == target && !swapped {
 			swapped = true
 			if err := os.Remove(target); err != nil {
@@ -69,10 +71,10 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToSymlink(t *testing.T) {
 		}
 		return original(path, flag, perm)
 	}
-	t.Cleanup(func() { privacyOpen = original })
+	t.Cleanup(func() { brainstore.PrivacyOpen = original })
 	_, state, err := loadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !swapped || !errors.As(err, &typed) || typed.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
+	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
 		t.Fatalf("leaf swap state=%+v err=%v swapped=%v", state, err, swapped)
 	}
 }
@@ -84,9 +86,9 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToFIFOWithoutBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
-	original := privacyOpen
+	original := brainstore.PrivacyOpen
 	swapped := false
-	privacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.PrivacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if path == target && !swapped {
 			swapped = true
 			if err := os.Remove(target); err != nil {
@@ -101,10 +103,10 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToFIFOWithoutBlocking(t *testing.T) {
 		}
 		return original(path, flag, perm)
 	}
-	t.Cleanup(func() { privacyOpen = original })
+	t.Cleanup(func() { brainstore.PrivacyOpen = original })
 	_, state, err := loadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !swapped || !errors.As(err, &typed) || typed.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
+	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
 		t.Fatalf("FIFO leaf swap state=%+v err=%v swapped=%v", state, err, swapped)
 	}
 }
@@ -116,9 +118,9 @@ func TestPrivacyCheckedDirectoryOpenRejectsSwapToSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-	original := privacyOpen
+	original := brainstore.PrivacyOpen
 	swapped := false
-	privacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.PrivacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if path == target && !swapped {
 			swapped = true
 			if err := os.Rename(target, target+"-old"); err != nil {
@@ -130,9 +132,9 @@ func TestPrivacyCheckedDirectoryOpenRejectsSwapToSymlink(t *testing.T) {
 		}
 		return original(path, flag, perm)
 	}
-	t.Cleanup(func() { privacyOpen = original })
+	t.Cleanup(func() { brainstore.PrivacyOpen = original })
 	_, err := privacyDerivedStoreArtifacts(brainDir)
-	if !swapped || err == nil || (!strings.Contains(err.Error(), memoryErrStateCorrupt) && !strings.Contains(err.Error(), memoryErrStateUnsafe)) {
+	if !swapped || err == nil || (!strings.Contains(err.Error(), brainstore.StateCorruptCode) && !strings.Contains(err.Error(), brainstore.StateUnsafeCode)) {
 		t.Fatalf("directory swap err=%v swapped=%v", err, swapped)
 	}
 }
@@ -152,7 +154,7 @@ func TestPrivacyVectorSnapshotRejectsSymlinkAndLeafSwap(t *testing.T) {
 		if err := os.Symlink(outside, path); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		if _, _, err := snapshotPrivacySQLiteStore(brainDir, vectorRel); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if _, _, err := brainstore.SnapshotPrivacySQLiteStore(brainDir, vectorRel); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("vector symlink snapshot error = %v", err)
 		}
 	})
@@ -170,9 +172,9 @@ func TestPrivacyVectorSnapshotRejectsSymlinkAndLeafSwap(t *testing.T) {
 		if err := os.WriteFile(outside, []byte("external-canary"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		original := privacyOpen
+		original := brainstore.PrivacyOpen
 		swapped := false
-		privacyOpen = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		brainstore.PrivacyOpen = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 			if name == path && !swapped {
 				swapped = true
 				if err := os.Rename(path, path+".original"); err != nil {
@@ -184,8 +186,8 @@ func TestPrivacyVectorSnapshotRejectsSymlinkAndLeafSwap(t *testing.T) {
 			}
 			return original(name, flag, perm)
 		}
-		t.Cleanup(func() { privacyOpen = original })
-		if _, _, err := snapshotPrivacySQLiteStore(brainDir, vectorRel); !swapped || err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		t.Cleanup(func() { brainstore.PrivacyOpen = original })
+		if _, _, err := brainstore.SnapshotPrivacySQLiteStore(brainDir, vectorRel); !swapped || err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("vector swap snapshot error = %v swapped=%v", err, swapped)
 		}
 	})

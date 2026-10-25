@@ -110,12 +110,12 @@ func (db *patternCorpusReadDB) Close() error {
 // never accept a main/WAL combination observed inside the multi-file commit
 // window.
 func rejectInterruptedPatternCorpusPublication(brainDir string) error {
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
 	if err != nil {
 		return err
 	}
 	if present {
-		return fmt.Errorf("%s: pattern corpus publication was interrupted; run a locked pattern refresh to recover", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication was interrupted; run a locked pattern refresh to recover", brainstore.StateUnsafeCode)
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
 		return nil, err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		}
 		return nil, fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
 	}
-	snapshotPath, cleanup, err := snapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
+	snapshotPath, cleanup, err := brainstore.SnapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		return nil, err
 	}
@@ -146,15 +146,15 @@ func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
 		cleanup()
 		return nil, err
 	}
-	db, err := sql.Open(sqlitedriver.Name, sqliteReadOnlyDSN(snapshotPath))
+	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(snapshotPath))
 	if err != nil {
 		cleanup()
-		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", memoryErrStateCorrupt, err)
+		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", brainstore.StateCorruptCode, err)
 	}
 	if err := db.Ping(); err != nil {
 		_ = db.Close()
 		cleanup()
-		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", memoryErrStateCorrupt, err)
+		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", brainstore.StateCorruptCode, err)
 	}
 	return &patternCorpusReadDB{DB: db, cleanup: cleanup}, nil
 }
@@ -177,7 +177,7 @@ func patternCorpusHasTable(db *sql.DB, table string) (bool, error) {
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("%s: inspect pattern corpus schema: %w", memoryErrStateCorrupt, err)
+		return false, fmt.Errorf("%s: inspect pattern corpus schema: %w", brainstore.StateCorruptCode, err)
 	}
 	return true, nil
 }
@@ -206,14 +206,14 @@ func validatePatternCorpusReadSafety(brainDir string) error {
 	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
 	if !present {
 		return rejectInterruptedPatternCorpusPublication(brainDir)
 	}
-	_, _, err = privacyArtifactInfo(brainDir, patterncore.CorpusPath+"-wal", "pattern corpus WAL")
+	_, _, err = brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath+"-wal", "pattern corpus WAL")
 	if err != nil {
 		return err
 	}
@@ -224,7 +224,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 	if err := validatePatternCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
@@ -522,7 +522,7 @@ func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error
 	if err := recoverPatternCorpusPublicationLocked(brainDir); err != nil {
 		return err
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		return err
 	}
@@ -583,7 +583,7 @@ func finalizePatternCorpusStagingLocked(brainDir, path string, db *sql.DB) error
 	var integrity string
 	if err := normalizer.QueryRow(`PRAGMA quick_check`).Scan(&integrity); err != nil || integrity != "ok" {
 		_ = normalizer.Close()
-		return fmt.Errorf("%s: staged pattern corpus failed integrity check", memoryErrStateCorrupt)
+		return fmt.Errorf("%s: staged pattern corpus failed integrity check", brainstore.StateCorruptCode)
 	}
 	if err := normalizer.Close(); err != nil {
 		return err
@@ -623,13 +623,13 @@ func preparePatternCorpusStaging(brainDir string) (string, func(), error) {
 		cleanup()
 		return "", nil, fmt.Errorf("create staged pattern corpus: %w", err)
 	}
-	_, present, err := privacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
 	if err != nil {
 		cleanup()
 		return "", nil, err
 	}
 	if present {
-		snapshot, snapshotCleanup, err := snapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
+		snapshot, snapshotCleanup, err := brainstore.SnapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
 		if err != nil {
 			cleanup()
 			return "", nil, err
@@ -640,9 +640,9 @@ func preparePatternCorpusStaging(brainDir string) (string, func(), error) {
 			cleanup()
 			return "", nil, err
 		}
-		copied, copyErr := io.Copy(stage, io.LimitReader(source, privacySQLiteSnapshotMaxBytes+1))
+		copied, copyErr := io.Copy(stage, io.LimitReader(source, brainstore.PrivacySQLiteSnapshotMaxBytes+1))
 		closeErr := source.Close()
-		if copyErr != nil || closeErr != nil || copied > privacySQLiteSnapshotMaxBytes {
+		if copyErr != nil || closeErr != nil || copied > brainstore.PrivacySQLiteSnapshotMaxBytes {
 			cleanup()
 			return "", nil, fmt.Errorf("copy checked pattern corpus into staging")
 		}
@@ -679,24 +679,24 @@ func (p *pinnedPatternCorpusDirectory) Close() {
 func openPinnedPatternCorpusDirectory(brainDir string, create bool) (*pinnedPatternCorpusDirectory, bool, error) {
 	brainInfo, err := os.Lstat(brainDir)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: inspect Brain root for corpus publication: %w", memoryErrStateUnsafe, err)
+		return nil, false, fmt.Errorf("%s: inspect Brain root for corpus publication: %w", brainstore.StateUnsafeCode, err)
 	}
 	if brainInfo.Mode()&os.ModeSymlink != 0 || !brainInfo.IsDir() {
-		return nil, false, fmt.Errorf("%s: Brain root is not a stable directory", memoryErrStateUnsafe)
+		return nil, false, fmt.Errorf("%s: Brain root is not a stable directory", brainstore.StateUnsafeCode)
 	}
 	root, err := os.OpenRoot(brainDir)
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: open Brain root for corpus publication: %w", memoryErrStateUnsafe, err)
+		return nil, false, fmt.Errorf("%s: open Brain root for corpus publication: %w", brainstore.StateUnsafeCode, err)
 	}
 	openedBrain, err := root.Stat(".")
 	if err != nil || !openedBrain.IsDir() || !os.SameFile(brainInfo, openedBrain) {
 		_ = root.Close()
-		return nil, false, fmt.Errorf("%s: Brain root changed while it was being pinned", memoryErrStateUnsafe)
+		return nil, false, fmt.Errorf("%s: Brain root changed while it was being pinned", brainstore.StateUnsafeCode)
 	}
 	if create {
 		if err := root.MkdirAll("patterns", 0o700); err != nil {
 			_ = root.Close()
-			return nil, false, fmt.Errorf("%s: create pinned pattern corpus directory: %w", memoryErrStateUnsafe, err)
+			return nil, false, fmt.Errorf("%s: create pinned pattern corpus directory: %w", brainstore.StateUnsafeCode, err)
 		}
 	}
 	patternsInfo, err := root.Lstat("patterns")
@@ -706,16 +706,16 @@ func openPinnedPatternCorpusDirectory(brainDir string, create bool) (*pinnedPatt
 	}
 	if err != nil {
 		_ = root.Close()
-		return nil, false, fmt.Errorf("%s: inspect pattern corpus directory: %w", memoryErrStateUnsafe, err)
+		return nil, false, fmt.Errorf("%s: inspect pattern corpus directory: %w", brainstore.StateUnsafeCode, err)
 	}
 	if patternsInfo.Mode()&os.ModeSymlink != 0 || !patternsInfo.IsDir() {
 		_ = root.Close()
-		return nil, false, fmt.Errorf("%s: pattern corpus directory is not a regular directory", memoryErrStateUnsafe)
+		return nil, false, fmt.Errorf("%s: pattern corpus directory is not a regular directory", brainstore.StateUnsafeCode)
 	}
 	patternsRoot, err := root.OpenRoot("patterns")
 	if err != nil {
 		_ = root.Close()
-		return nil, false, fmt.Errorf("%s: pin pattern corpus directory: %w", memoryErrStateUnsafe, err)
+		return nil, false, fmt.Errorf("%s: pin pattern corpus directory: %w", brainstore.StateUnsafeCode, err)
 	}
 	pinned := &pinnedPatternCorpusDirectory{
 		brainDir: brainDir, brainInfo: brainInfo, patternsInfo: patternsInfo,
@@ -731,19 +731,19 @@ func openPinnedPatternCorpusDirectory(brainDir string, create bool) (*pinnedPatt
 func (p *pinnedPatternCorpusDirectory) validate() error {
 	currentBrain, err := os.Lstat(p.brainDir)
 	if err != nil || currentBrain.Mode()&os.ModeSymlink != 0 || !os.SameFile(p.brainInfo, currentBrain) {
-		return fmt.Errorf("%s: Brain root changed during corpus publication", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: Brain root changed during corpus publication", brainstore.StateUnsafeCode)
 	}
 	pinnedBrain, err := p.root.Stat(".")
 	if err != nil || !pinnedBrain.IsDir() || !os.SameFile(p.brainInfo, pinnedBrain) {
-		return fmt.Errorf("%s: pinned Brain root changed during corpus publication", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pinned Brain root changed during corpus publication", brainstore.StateUnsafeCode)
 	}
 	currentPatterns, err := p.root.Lstat("patterns")
 	if err != nil || currentPatterns.Mode()&os.ModeSymlink != 0 || !os.SameFile(p.patternsInfo, currentPatterns) {
-		return fmt.Errorf("%s: pattern corpus directory changed during publication", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus directory changed during publication", brainstore.StateUnsafeCode)
 	}
 	pinned, err := p.patternsRoot.Stat(".")
 	if err != nil || !pinned.IsDir() || !os.SameFile(p.patternsInfo, pinned) {
-		return fmt.Errorf("%s: pinned pattern corpus directory changed during publication", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pinned pattern corpus directory changed during publication", brainstore.StateUnsafeCode)
 	}
 	return nil
 }
@@ -754,10 +754,10 @@ func inspectPinnedPatternCorpusLeaf(root *os.Root, name, label string) (os.FileI
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: inspect %s: %w", memoryErrStateUnsafe, label, err)
+		return nil, false, fmt.Errorf("%s: inspect %s: %w", brainstore.StateUnsafeCode, label, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("%s: %s is not a regular file", memoryErrStateUnsafe, label)
+		return nil, false, fmt.Errorf("%s: %s is not a regular file", brainstore.StateUnsafeCode, label)
 	}
 	return info, true, nil
 }
@@ -794,27 +794,27 @@ func readPinnedPatternCorpusPublication(pinned *pinnedPatternCorpusDirectory) (p
 		return publication, nil, err
 	}
 	if !present || info.Size() < 1 || info.Size() > patternCorpusPublicationMarkerMax {
-		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker is missing or malformed", memoryErrStateUnsafe)
+		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker is missing or malformed", brainstore.StateUnsafeCode)
 	}
 	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
-		return publication, nil, fmt.Errorf("%s: open pattern corpus publication marker: %w", memoryErrStateUnsafe, err)
+		return publication, nil, fmt.Errorf("%s: open pattern corpus publication marker: %w", brainstore.StateUnsafeCode, err)
 	}
 	defer marker.Close()
 	opened, err := marker.Stat()
 	if err != nil || !os.SameFile(info, opened) || opened.Size() != info.Size() {
-		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker changed while opening", memoryErrStateUnsafe)
+		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker changed while opening", brainstore.StateUnsafeCode)
 	}
 	if err := base.RejectOpenFileHardlink(patternCorpusPublicationMarkerName, marker, opened, "pattern corpus publication marker"); err != nil {
-		return publication, nil, fmt.Errorf("%s: %w", memoryErrStateUnsafe, err)
+		return publication, nil, fmt.Errorf("%s: %w", brainstore.StateUnsafeCode, err)
 	}
 	data, err := io.ReadAll(io.LimitReader(marker, patternCorpusPublicationMarkerMax+1))
 	if err != nil || int64(len(data)) > patternCorpusPublicationMarkerMax {
-		return publication, nil, fmt.Errorf("%s: read bounded pattern corpus publication marker", memoryErrStateUnsafe)
+		return publication, nil, fmt.Errorf("%s: read bounded pattern corpus publication marker", brainstore.StateUnsafeCode)
 	}
 	current, present, err := inspectPinnedPatternCorpusLeaf(pinned.patternsRoot, patternCorpusPublicationMarkerName, "pattern corpus publication marker")
 	if err != nil || !present || !os.SameFile(info, current) || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
-		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker changed while reading", memoryErrStateUnsafe)
+		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker changed while reading", brainstore.StateUnsafeCode)
 	}
 	publication, err = decodePatternCorpusPublication(data)
 	if err != nil {
@@ -832,19 +832,19 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 		return nil, err
 	}
 	if !present || info.Size() != publication.Size {
-		return nil, fmt.Errorf("%s: pattern corpus recovery candidate is missing or changed", memoryErrStateUnsafe)
+		return nil, fmt.Errorf("%s: pattern corpus recovery candidate is missing or changed", brainstore.StateUnsafeCode)
 	}
 	source, err := root.OpenFile(name, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
-		return nil, fmt.Errorf("%s: open pattern corpus recovery candidate: %w", memoryErrStateUnsafe, err)
+		return nil, fmt.Errorf("%s: open pattern corpus recovery candidate: %w", brainstore.StateUnsafeCode, err)
 	}
 	defer source.Close()
 	opened, err := source.Stat()
 	if err != nil || !os.SameFile(info, opened) || opened.Size() != info.Size() {
-		return nil, fmt.Errorf("%s: pattern corpus recovery candidate changed while opening", memoryErrStateUnsafe)
+		return nil, fmt.Errorf("%s: pattern corpus recovery candidate changed while opening", brainstore.StateUnsafeCode)
 	}
 	if err := base.RejectOpenFileHardlink(name, source, opened, "pattern corpus recovery candidate"); err != nil {
-		return nil, fmt.Errorf("%s: %w", memoryErrStateUnsafe, err)
+		return nil, fmt.Errorf("%s: %w", brainstore.StateUnsafeCode, err)
 	}
 	tempDir, err := os.MkdirTemp("", "entire-brain-pattern-recovery-")
 	if err != nil {
@@ -857,18 +857,18 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 		return nil, err
 	}
 	hash := sha256.New()
-	copied, copyErr := io.Copy(io.MultiWriter(snapshot, hash), io.LimitReader(source, privacySQLiteSnapshotMaxBytes+1))
+	copied, copyErr := io.Copy(io.MultiWriter(snapshot, hash), io.LimitReader(source, brainstore.PrivacySQLiteSnapshotMaxBytes+1))
 	syncErr := snapshot.Sync()
 	closeErr := snapshot.Close()
-	if copyErr != nil || syncErr != nil || closeErr != nil || copied != publication.Size || copied > privacySQLiteSnapshotMaxBytes || hex.EncodeToString(hash.Sum(nil)) != publication.SHA256 {
-		return nil, fmt.Errorf("%s: pattern corpus recovery candidate failed its durable digest", memoryErrStateUnsafe)
+	if copyErr != nil || syncErr != nil || closeErr != nil || copied != publication.Size || copied > brainstore.PrivacySQLiteSnapshotMaxBytes || hex.EncodeToString(hash.Sum(nil)) != publication.SHA256 {
+		return nil, fmt.Errorf("%s: pattern corpus recovery candidate failed its durable digest", brainstore.StateUnsafeCode)
 	}
 	after, statErr := source.Stat()
 	current, currentPresent, currentErr := inspectPinnedPatternCorpusLeaf(root, name, "pattern corpus recovery candidate")
 	if statErr != nil || currentErr != nil || !currentPresent || !os.SameFile(info, after) || !os.SameFile(info, current) || after.Size() != info.Size() || !after.ModTime().Equal(info.ModTime()) {
-		return nil, fmt.Errorf("%s: pattern corpus recovery candidate changed while validating", memoryErrStateUnsafe)
+		return nil, fmt.Errorf("%s: pattern corpus recovery candidate changed while validating", brainstore.StateUnsafeCode)
 	}
-	if err := validatePrivacySQLiteSnapshot(snapshotPath, name); err != nil {
+	if err := brainstore.ValidatePrivacySQLiteSnapshot(snapshotPath, name); err != nil {
 		return nil, err
 	}
 	return info, nil
@@ -879,7 +879,7 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 // candidate has already been renamed, the same digest must be present at the
 // live name. Any ambiguous state remains marked and therefore unreadable.
 func recoverPatternCorpusPublicationLocked(brainDir string) error {
-	_, present, err := privacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
+	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
 	if err != nil || !present {
 		return err
 	}
@@ -888,7 +888,7 @@ func recoverPatternCorpusPublicationLocked(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus publication directory disappeared during recovery", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication directory disappeared during recovery", brainstore.StateUnsafeCode)
 	}
 	defer pinned.Close()
 	publication, markerInfo, err := readPinnedPatternCorpusPublication(pinned)
@@ -916,7 +916,7 @@ func recoverPatternCorpusPublicationLocked(brainDir string) error {
 	if candidatePresent {
 		current, stillPresent, err := inspectPinnedPatternCorpusLeaf(pinned.patternsRoot, publication.Candidate, "pattern corpus recovery candidate")
 		if err != nil || !stillPresent || !os.SameFile(candidateInfo, current) {
-			return fmt.Errorf("%s: pattern corpus recovery candidate changed before rename", memoryErrStateUnsafe)
+			return fmt.Errorf("%s: pattern corpus recovery candidate changed before rename", brainstore.StateUnsafeCode)
 		}
 		if err := pinned.patternsRoot.Rename(publication.Candidate, "corpus.sqlite"); err != nil {
 			return fmt.Errorf("recover pinned pattern corpus: %w", err)
@@ -930,7 +930,7 @@ func recoverPatternCorpusPublicationLocked(brainDir string) error {
 	}
 	currentMarker, markerPresent, err := inspectPinnedPatternCorpusLeaf(pinned.patternsRoot, patternCorpusPublicationMarkerName, "pattern corpus publication marker")
 	if err != nil || !markerPresent || !os.SameFile(markerInfo, currentMarker) {
-		return fmt.Errorf("%s: pattern corpus publication marker changed before recovery commit", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication marker changed before recovery commit", brainstore.StateUnsafeCode)
 	}
 	if err := pinned.patternsRoot.Remove(patternCorpusPublicationMarkerName); err != nil {
 		return fmt.Errorf("remove recovered pattern corpus marker: %w", err)
@@ -958,8 +958,8 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	}
 	defer staging.Close()
 	stagingInfo, err := staging.Stat()
-	if err != nil || !stagingInfo.Mode().IsRegular() || stagingInfo.Size() < 1 || stagingInfo.Size() > privacySQLiteSnapshotMaxBytes {
-		return fmt.Errorf("%s: invalid staged pattern corpus", memoryErrStateUnsafe)
+	if err != nil || !stagingInfo.Mode().IsRegular() || stagingInfo.Size() < 1 || stagingInfo.Size() > brainstore.PrivacySQLiteSnapshotMaxBytes {
+		return fmt.Errorf("%s: invalid staged pattern corpus", brainstore.StateUnsafeCode)
 	}
 	pinned, _, err := openPinnedPatternCorpusDirectory(brainDir, true)
 	if err != nil {
@@ -970,7 +970,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 		if err != nil {
 			return err
 		}
-		return fmt.Errorf("%s: pattern corpus publication marker unexpectedly exists", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication marker unexpectedly exists", brainstore.StateUnsafeCode)
 	}
 	if _, currentPresent, err := inspectPinnedPatternCorpusLeaf(pinned.patternsRoot, "corpus.sqlite", "live pattern corpus"); err != nil {
 		return err
@@ -991,7 +991,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	tempName := patternCorpusStagingPrefix + hex.EncodeToString(random[:])
 	temp, err := pinned.patternsRoot.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
-		return fmt.Errorf("%s: create pinned corpus publication leaf: %w", memoryErrStateUnsafe, err)
+		return fmt.Errorf("%s: create pinned corpus publication leaf: %w", brainstore.StateUnsafeCode, err)
 	}
 	removeTemp := true
 	defer func() {
@@ -1001,9 +1001,9 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 		}
 	}()
 	hash := sha256.New()
-	copied, copyErr := io.Copy(io.MultiWriter(temp, hash), io.LimitReader(staging, privacySQLiteSnapshotMaxBytes+1))
-	if copyErr != nil || copied != stagingInfo.Size() || copied > privacySQLiteSnapshotMaxBytes {
-		return fmt.Errorf("%s: staged pattern corpus changed or exceeded bounds during publication", memoryErrStateUnsafe)
+	copied, copyErr := io.Copy(io.MultiWriter(temp, hash), io.LimitReader(staging, brainstore.PrivacySQLiteSnapshotMaxBytes+1))
+	if copyErr != nil || copied != stagingInfo.Size() || copied > brainstore.PrivacySQLiteSnapshotMaxBytes {
+		return fmt.Errorf("%s: staged pattern corpus changed or exceeded bounds during publication", brainstore.StateUnsafeCode)
 	}
 	if err := temp.Sync(); err != nil {
 		return err
@@ -1030,7 +1030,7 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	}
 	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_WRONLY|os.O_CREATE|os.O_EXCL|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
-		return fmt.Errorf("%s: create pattern corpus publication marker: %w", memoryErrStateUnsafe, err)
+		return fmt.Errorf("%s: create pattern corpus publication marker: %w", brainstore.StateUnsafeCode, err)
 	}
 	written, writeErr := marker.Write(markerData)
 	syncErr := marker.Sync()
@@ -1076,14 +1076,14 @@ func publishPatternCorpusLocked(brainDir, stagingPath string) error {
 	}
 	publicationMarker, markerInfo, err := readPinnedPatternCorpusPublication(pinned)
 	if err != nil || publicationMarker != publication {
-		return fmt.Errorf("%s: pattern corpus publication marker changed before commit", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication marker changed before commit", brainstore.StateUnsafeCode)
 	}
 	if err := patternCorpusPublishBoundary("before_marker_remove"); err != nil {
 		return err
 	}
 	currentMarker, markerPresent, err := inspectPinnedPatternCorpusLeaf(pinned.patternsRoot, patternCorpusPublicationMarkerName, "pattern corpus publication marker")
 	if err != nil || !markerPresent || !os.SameFile(markerInfo, currentMarker) {
-		return fmt.Errorf("%s: pattern corpus publication marker changed before removal", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: pattern corpus publication marker changed before removal", brainstore.StateUnsafeCode)
 	}
 	if err := pinned.patternsRoot.Remove(patternCorpusPublicationMarkerName); err != nil {
 		return fmt.Errorf("commit pattern corpus publication: %w", err)

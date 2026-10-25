@@ -18,8 +18,34 @@ import (
 // where a manual-commit checkpoint names a commit its branch deletion
 // destroyed.
 // vanishedRunner answers the object-type probe the validator makes for a
-// transcript chunk it can see, so "available" really means available.
+// transcript chunk it can see, so "available" really means available -- AND
+// answers the promisor-remote config read the way real git answers it in a
+// FULL clone (exit 1, nothing matched).
+//
+// That second answer is not decoration. Every test built on this fixture
+// asserts behaviour that is only true of a full clone, and leaving the probe
+// unhandled makes the fake return a plain "unexpected command" error: an
+// unasked question, which the guards deliberately read as "may still fetch".
+// Commit 5f15accf had to state the same thing for probedFixture once the
+// object-missing path grew its promisor gate; the snapshot-entry gate brings
+// the identical requirement here. Tests that want the UNASKED question use
+// vanishedRunnerWithUnansweredPromisorProbe below and say so in their name.
 func vanishedRunner() *fakeCommandRunner {
+	inner := vanishedRunnerWithUnansweredPromisorProbe()
+	fallback := inner.fallback
+	inner.fallback = func(name string, args []string) (fakeCommandResponse, bool) {
+		if name == "git" && len(args) == 3 && args[0] == "config" && args[1] == "--get-regexp" {
+			return fakeCommandResponse{err: stubExitError{code: 1}}, true
+		}
+		return fallback(name, args)
+	}
+	return inner
+}
+
+// vanishedRunnerWithUnansweredPromisorProbe serves transcript chunks but
+// leaves the promisor config read unhandled, which is how a probe that could
+// not be answered reaches the code under test.
+func vanishedRunnerWithUnansweredPromisorProbe() *fakeCommandRunner {
 	return &fakeCommandRunner{fallback: func(name string, args []string) (fakeCommandResponse, bool) {
 		for _, arg := range args {
 			if arg == "cat-file" {
@@ -45,7 +71,7 @@ func vanishedFixture() (*checkpointSnapshot, []exportSession) {
 		// than for the reason it claims.
 		Sources: map[string]checkpointSnapshotSource{
 			"src": {
-				GitDir:    "/repo/.git",
+				GitDir:    "/vanished-repo/.git",
 				Ref:       "refs/heads/entire/checkpoints/v1",
 				TreePaths: map[string]struct{}{"checkpoints/aaa111aaa111/0/full.jsonl": {}},
 			},
@@ -223,7 +249,7 @@ func probeRunner(objectType, exists fakeCommandResponse) *fakeCommandRunner {
 // session instead of the export.
 func TestConfirmedMissingObjectCostsOnlyItsOwnSession(t *testing.T) {
 	t.Parallel()
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-confirmed-missing/.git")
 	// promisorProbeRunner, not probeRunner: "costs only its own session" is
 	// true of a FULL clone, and the fixture has to say so. probeRunner leaves
 	// the promisor config probe unhandled, which the fake answers with a plain
@@ -291,7 +317,7 @@ func TestProbeFailureThatIsNotAMissingObjectFailsTheExport(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			snap, sessions := probedFixture()
+			snap, sessions := probedFixtureInGitDir(t, "/probed-probe-failure-"+name+"/.git")
 			usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), probeRunner(c.objectType, c.exists), snap, sessions, "raw")
 			if err == nil {
 				t.Fatalf("partition reported data instead of an error: usable=%+v unavailable=%v", usable, unavailable)
@@ -307,7 +333,7 @@ func TestProbeFailureThatIsNotAMissingObjectFailsTheExport(t *testing.T) {
 // be investigated: the confirming probe would be killed on arrival.
 func TestCancelledContextFailsTheExportRatherThanShrinkingIt(t *testing.T) {
 	t.Parallel()
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-cancelled/.git")
 	runner := probeRunner(
 		fakeCommandResponse{err: context.Canceled},
 		// Scripted as a missing answer on purpose: if cancellation were
@@ -332,7 +358,7 @@ func TestCancelledContextFailsTheExportRatherThanShrinkingIt(t *testing.T) {
 // conflation this partition exists to remove, one layer higher.
 func TestUnavailableDiagnosticsKeepTheirErrorIdentity(t *testing.T) {
 	t.Parallel()
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-identity/.git")
 	// Full clone, stated in the fixture: see the note in
 	// TestConfirmedMissingObjectCostsOnlyItsOwnSession.
 	missing := func() *fakeCommandRunner {
@@ -384,10 +410,7 @@ func promisorProbeRunner(objectType, exists fakeCommandResponse, promisor bool) 
 // the one already published, over bytes a sync would recover. This is the one
 // case where a confirmed-missing object must still fail the export.
 func TestAMissingObjectInAPartialCloneFailsTheExportRatherThanShrinkingIt(t *testing.T) {
-	promisorRemoteAnswers.Delete("/repo/.git")
-	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
-
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-partial/.git")
 	runner := promisorProbeRunner(
 		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
 		fakeCommandResponse{err: stubExitError{code: 1}},
@@ -408,10 +431,7 @@ func TestAMissingObjectInAPartialCloneFailsTheExportRatherThanShrinkingIt(t *tes
 // The same absent object in a FULL clone is absent for good, so it must still
 // cost only its own session -- otherwise this guard would have undone #489.
 func TestAMissingObjectWithoutAPromisorRemoteStillCostsOnlyItsSession(t *testing.T) {
-	promisorRemoteAnswers.Delete("/repo/.git")
-	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
-
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-full-clone/.git")
 	runner := promisorProbeRunner(
 		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
 		fakeCommandResponse{err: stubExitError{code: 1}},
@@ -535,13 +555,11 @@ func TestNoPromisorRemoteIsADefinitiveCachedAnswer(t *testing.T) {
 // promisor remote"; both now state the full clone explicitly.
 func TestAnUnansweredPromisorProbeRefusesRatherThanSkipping(t *testing.T) {
 	t.Parallel()
-	snap, sessions := probedFixture()
+	snap, sessions := probedFixtureInGitDir(t, "/probed-unanswered/.git")
 	runner := probeRunner(
 		fakeCommandResponse{err: stubExitError{code: 128}},
 		fakeCommandResponse{err: stubExitError{code: 1}},
 	)
-	promisorRemoteAnswers.Delete("/repo/.git")
-	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
 
 	_, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
 	if err == nil {
@@ -697,5 +715,159 @@ func TestVanishedSessionKeepsItsLastCachedTranscript(t *testing.T) {
 		if err != nil || string(got) != preserved {
 			t.Fatalf("round %d destroyed the only surviving copy of the skipped session's transcript: %q %v", round, got, err)
 		}
+	}
+}
+
+// vanishedFixtureInGitDir and probedFixtureInGitDir relocate a fixture's
+// source to a git directory of the calling test's own, and own that
+// directory's entry in promisorRemoteAnswers.
+//
+// That cache is process-global and these tests disagree about what it should
+// hold: several state a full clone (cached false), one states a probe nobody
+// answered (which must not be cached at all), one states a promisor remote.
+// Sharing "/repo/.git" between them made the answer depend on execution order,
+// and widening the promisor gate to the snapshot-entry path turned that latent
+// race into a reproducible failure of
+// TestAnUnansweredPromisorProbeRefusesRatherThanSkipping. One directory per
+// test removes the shared state instead of ordering around it.
+func vanishedFixtureInGitDir(t *testing.T, gitDir string) (*checkpointSnapshot, []exportSession) {
+	t.Helper()
+	snap, sessions := vanishedFixture()
+	return relocateSnapshotSource(t, snap, sessions, gitDir)
+}
+
+func probedFixtureInGitDir(t *testing.T, gitDir string) (*checkpointSnapshot, []exportSession) {
+	t.Helper()
+	snap, sessions := probedFixture()
+	return relocateSnapshotSource(t, snap, sessions, gitDir)
+}
+
+func relocateSnapshotSource(t *testing.T, snap *checkpointSnapshot, sessions []exportSession, gitDir string) (*checkpointSnapshot, []exportSession) {
+	t.Helper()
+	source := snap.Sources["src"]
+	source.GitDir = gitDir
+	snap.Sources["src"] = source
+	promisorRemoteAnswers.Delete(gitDir)
+	t.Cleanup(func() { promisorRemoteAnswers.Delete(gitDir) })
+	return snap, sessions
+}
+
+// "This snapshot names no transcript for that session" is NOT proof that the
+// bytes are gone. In a partial clone, or whenever the promisor probe could not
+// be answered, it is equally what an unfetched checkpoint ref looks like --
+// and a sync recovers those bytes. Skipping the session there republishes a
+// corpus smaller than the published one, which is exactly the loss the
+// object-missing path already refuses. This case was not gated at all.
+func TestANoSnapshotEntryInAPartialCloneFailsTheExportRatherThanShrinkingIt(t *testing.T) {
+	for name, c := range map[string]struct {
+		gitDir string
+		runner func() *fakeCommandRunner
+	}{
+		// git answered, and the answer names a promisor remote.
+		"promisor remote": {
+			gitDir: "/no-entry-partial/.git",
+			runner: func() *fakeCommandRunner {
+				inner := vanishedRunnerWithUnansweredPromisorProbe()
+				fallback := inner.fallback
+				inner.fallback = func(name string, args []string) (fakeCommandResponse, bool) {
+					if name == "git" && len(args) == 3 && args[0] == "config" && args[1] == "--get-regexp" {
+						return fakeCommandResponse{stdout: "remote.https://github.com/entireio/cli-checkpoints.git.promisor true\n"}, true
+					}
+					return fallback(name, args)
+				}
+				return inner
+			},
+		},
+		// Nobody answered: an unasked question must never license treating an
+		// absence as definitive, which is the same asymmetry
+		// probeGitDirPromisorRemote exists to preserve.
+		"unanswered probe": {
+			gitDir: "/no-entry-unanswered/.git",
+			runner: vanishedRunnerWithUnansweredPromisorProbe,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			snap, sessions := vanishedFixtureInGitDir(t, c.gitDir)
+			usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), c.runner(), snap, sessions, "raw")
+			if err == nil {
+				t.Fatalf("an unproven absence shrank the corpus instead of failing: usable=%d unavailable=%v", len(usable), unavailable)
+			}
+			if len(usable) != 0 || len(unavailable) != 0 {
+				t.Fatalf("an error must carry no partition: usable=%+v unavailable=%v", usable, unavailable)
+			}
+			if !errors.Is(err, errTranscriptNotInSnapshot) {
+				t.Fatalf("the cause must survive for errors.Is: %v", err)
+			}
+			if !strings.Contains(err.Error(), "sync checkpoints and retry") || !strings.Contains(err.Error(), "fd86c6e4bdb2") {
+				t.Fatalf("the error must keep the sync-and-retry shape and name the session's checkpoint: %v", err)
+			}
+			// The strict wrapper must not flatten the cause either.
+			if wrapped := validateLocalTranscriptSessions(context.Background(), c.runner(), snap, sessions, "raw"); !errors.Is(wrapped, errTranscriptNotInSnapshot) {
+				t.Fatalf("the strict wrapper lost the cause: %v", wrapped)
+			}
+		})
+	}
+}
+
+// The other half of the same contract, and the half that must not regress:
+// in a FULL clone a checkpoint with no snapshot entry is a destroyed
+// manual-commit checkpoint (measured on devenv/cli: 0 of 39 sampled
+// commit-style ids still resolved, and no fetch recovers them). It must cost
+// only its own session, or this gate would undo #489 from the other side.
+func TestANoSnapshotEntryWithoutAPromisorRemoteStillCostsOnlyItsSession(t *testing.T) {
+	snap, sessions := vanishedFixtureInGitDir(t, "/no-entry-full/.git")
+	usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), vanishedRunner(), snap, sessions, "raw")
+	if err != nil {
+		t.Fatalf("a full clone's absent snapshot entry must not fail the export: %v", err)
+	}
+	if len(usable) != 1 || usable[0].SessionID != "alive" {
+		t.Fatalf("usable = %+v, want just the available session", usable)
+	}
+	if len(unavailable) != 1 {
+		t.Fatalf("unavailable = %v, want just the vanished session", unavailable)
+	}
+	if !errors.Is(unavailable[0], errTranscriptNotInSnapshot) {
+		t.Fatalf("the diagnostic kept its message and lost its cause: %v", unavailable[0])
+	}
+	if !strings.Contains(unavailable[0].Error(), "sync checkpoints and retry") {
+		t.Fatalf("the diagnostic must keep its remedy: %v", unavailable[0])
+	}
+}
+
+// The gate reads EVERY source the snapshot was built from, not just the first
+// one it happens to visit: a session can be missing from a snapshot whose
+// fetchable source is a different checkpoint ref entirely. The two config
+// answers are scripted in sequence, and the probe visits git directories in
+// sorted order, so "/multi-definitive/.git" is asked first and answers git's
+// definitive exit 1 while "/multi-fetchable/.git" names a promisor remote. A
+// gate that stopped at the first definitive "no" would pass the two tests
+// above and lose bytes here.
+func TestAnyFetchableSnapshotSourceGatesTheSkip(t *testing.T) {
+	snap, sessions := vanishedFixtureInGitDir(t, "/multi-definitive/.git")
+	promisorRemoteAnswers.Delete("/multi-fetchable/.git")
+	t.Cleanup(func() { promisorRemoteAnswers.Delete("/multi-fetchable/.git") })
+	snap.Sources["second"] = checkpointSnapshotSource{
+		GitDir:    "/multi-fetchable/.git",
+		Ref:       "refs/heads/entire/checkpoints/v1",
+		TreePaths: map[string]struct{}{},
+	}
+	runner := vanishedRunnerWithUnansweredPromisorProbe()
+	runner.sequences = map[string][]fakeCommandResponse{
+		fakeCommandKey("git", "config", "--get-regexp", `\.promisor$`): {
+			{err: stubExitError{code: 1}},
+			{stdout: "remote.https://github.com/entireio/cli-checkpoints.git.promisor true\n"},
+		},
+	}
+	_, _, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
+	if err == nil {
+		t.Fatal("a fetchable second source did not gate the skip")
+	}
+	if !errors.Is(err, errTranscriptNotInSnapshot) {
+		t.Fatalf("the cause must survive for errors.Is: %v", err)
+	}
+	// Both sources were really asked: a gate that short-circuited on the first
+	// answer would leave the second response unconsumed.
+	if left := len(runner.sequences[fakeCommandKey("git", "config", "--get-regexp", `\.promisor$`)]); left != 0 {
+		t.Fatalf("%d scripted config answers were never consumed; the gate did not ask every source", left)
 	}
 }

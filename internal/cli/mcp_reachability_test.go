@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -431,7 +432,14 @@ func headerOnlyFrame(contentLength string) *bufio.Reader {
 // TestReadMCPFrameRefusesAnOversizedContentLength is the bound itself.
 func TestReadMCPFrameRefusesAnOversizedContentLength(t *testing.T) {
 	t.Parallel()
-	for _, length := range []int{maxMCPFrameBytes + 1, maxMCPFrameBytes * 4} {
+	// math.MaxInt is here to make the ORDER load-bearing, not for coverage of
+	// another magnitude. The two small cases are refused identically whether
+	// the cap is checked before or after the allocation -- 16 MiB allocates
+	// harmlessly -- so with only those, moving `make` above the cap check
+	// leaves this test and the probe's green while restoring the multi-GB
+	// allocation the finding was about. make([]byte, math.MaxInt) cannot
+	// succeed on any platform, so reaching it panics and this goes red.
+	for _, length := range []int{maxMCPFrameBytes + 1, maxMCPFrameBytes * 4, math.MaxInt} {
 		_, err := readMCPFrame(headerOnlyFrame(strconv.Itoa(length)))
 		if err == nil {
 			t.Fatalf("Content-Length %d was accepted", length)

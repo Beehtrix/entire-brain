@@ -19,7 +19,7 @@ func TestWorkspaceFamilyWithdrawnAfterMemberRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := workspaceDir(env, m.Name)
+	d, _ := workspaceStore(env).Dir(m.Name)
 	f := loadAcceptedWorkspaceFamilies(d)
 	if len(f) != 0 {
 		t.Fatalf("stale two-member family still accepted: %+v", f)
@@ -32,13 +32,13 @@ func TestWorkspaceFamilyConsumptionChecksCurrentMembership(t *testing.T) {
 	if _, err := proposeWorkspaceFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := workspaceDir(env, m.Name)
+	dir, _ := workspaceStore(env).Dir(m.Name)
 	families, err := loadAcceptedWorkspaceFamiliesChecked(dir)
 	if err != nil || len(families) != 1 {
 		t.Fatalf("valid family: %v %v", families, err)
 	}
 	m.Repos = m.Repos[:1]
-	if err := writeWorkspaceManifest(env, m); err != nil {
+	if err := workspaceStore(env).WriteManifest(m); err != nil {
 		t.Fatal(err)
 	}
 	families, err = loadAcceptedWorkspaceFamiliesChecked(dir)

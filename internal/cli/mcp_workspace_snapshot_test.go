@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // Resolve each fixture checkout independently, as git does for sibling repos.
@@ -70,13 +72,13 @@ func TestMCPWorkspaceNeverExecutesAForgedCheckoutIdentity(t *testing.T) {
 	t.Setenv(mcpAllowCrossRepoEnv, "")
 	for _, member := range []int{0, 1} {
 		opts, _, _ := workspaceSiblingFixture(t, "forged")
-		manifest, err := loadWorkspaceManifest(opts.Env, "forged")
+		manifest, err := workspaceStore(opts.Env).LoadManifest("forged")
 		if err != nil {
 			t.Fatal(err)
 		}
 		manifest.Repos[member].RepoKey = "gh/victim/other"
 		victim := writeScopeTestBrain(t, opts.Env, "gh/victim/other")
-		if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+		if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 			t.Fatal(err)
 		}
 		for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
@@ -110,18 +112,18 @@ func TestMCPWorkspaceExecutesValidatedManifestSnapshot(t *testing.T) {
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, _, siblingKey := workspaceSiblingFixture(t, "snapshot")
-			manifest, err := loadWorkspaceManifest(opts.Env, "snapshot")
+			manifest, err := workspaceStore(opts.Env).LoadManifest("snapshot")
 			if err != nil {
 				t.Fatal(err)
 			}
 			foreignKey := "gh/victim/other"
 			writeScopeTestBrain(t, opts.Env, foreignKey)
-			manifest.Repos = append(manifest.Repos, workspaceRepo{RepoKey: foreignKey, LocalPathHint: filepath.Join(t.TempDir(), "foreign")})
+			manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: foreignKey, LocalPathHint: filepath.Join(t.TempDir(), "foreign")})
 			// The first identity lookup runs after the manifest is loaded. Replace its
 			// file then: a second load during execution would consume the foreign key.
 			changed := false
 			opts.Runner = &workspaceScopeRunner{CommandRunner: opts.Runner, beforeRun: func() {
-				if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+				if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 					t.Fatal(err)
 				}
 				changed = true

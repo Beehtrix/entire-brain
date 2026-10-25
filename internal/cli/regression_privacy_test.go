@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +38,7 @@ func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 func runRegressionPrivacySurface(cmd *cobra.Command, f retrievalEmissionPrivacyFixture, surface string, json bool) error {
 	ro := regressionDetectorOptions{limit: 10, json: json}
 	query := "fix scopeBaseRef"
-	manifest := workspaceManifest{Name: "privacy", Repos: []workspaceRepo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
+	manifest := workspace.Manifest{Name: "privacy", Repos: []workspace.Repo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
 	switch surface {
 	case "regressions":
 		return runRegressionDetect(context.Background(), cmd, f.Options, ro, query)

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // watchCommandFixture supplies the real refresh route with a local repository,
@@ -93,12 +95,12 @@ func TestWatchRootCommandOnceRefreshesThenRepeatsAsNoop(t *testing.T) {
 
 func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 	opts, repoDir, storage, launches := watchCommandFixture(t)
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "watch-fixture",
-		Repos:         []workspaceRepo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
@@ -116,12 +118,12 @@ func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 
 func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
 	opts, repoDir, storage, launches := watchCommandFixture(t)
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "supervised-fixture",
-		Repos:         []workspaceRepo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := recordSetupWatchPlan(opts.Env, "test-daemon", setupWatchPlanEntry{Workspace: manifest.Name, Interval: "1h"}); err != nil {

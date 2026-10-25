@@ -20,7 +20,7 @@ func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, manifest := workspaceCommandFixture(t)
-			wsDir, err := workspaceDir(opts.Env, manifest.Name)
+			wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -68,7 +68,7 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, manifest := workspaceCommandFixture(t)
-			wsDir, err := workspaceDir(opts.Env, manifest.Name)
+			wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +102,7 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 func TestWorkspaceSkillFormRejectsUnreadableFamilyTableBeforeProvider(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	opts, _, manifest := workspaceCommandFixture(t)
-	wsDir, err := workspaceDir(opts.Env, manifest.Name)
+	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}

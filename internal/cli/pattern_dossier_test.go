@@ -32,6 +32,7 @@ func promotableCorpus(t *testing.T, now time.Time) *sql.DB {
 }
 
 func TestDossierBuiltForPromotablePattern(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	db := promotableCorpus(t, now)
 	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
@@ -68,6 +69,7 @@ func TestDossierBuiltForPromotablePattern(t *testing.T) {
 }
 
 func TestDossierOnlyForPromotable(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	db := freshCorpusDB(t)
 	// A generic, uncorroborated task: many episodes, generic commands → not promotable.
@@ -97,6 +99,7 @@ func TestDossierOnlyForPromotable(t *testing.T) {
 }
 
 func TestDossierFingerprintStableAndRebuildIdempotent(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	db := promotableCorpus(t, now)
 	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
@@ -116,6 +119,7 @@ func TestDossierFingerprintStableAndRebuildIdempotent(t *testing.T) {
 }
 
 func TestDossierPrunedWhenPatternVanishes(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	db := promotableCorpus(t, now)
 	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
@@ -137,6 +141,7 @@ func TestDossierPrunedWhenPatternVanishes(t *testing.T) {
 }
 
 func TestDossierStaleWhenEvidenceMovesUnderCachedVerdict(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	db := promotableCorpus(t, now)
 	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {

@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -560,7 +562,7 @@ type distillCommandOptions struct {
 	// entity the fact's locus names, instead of the session's LAST checkpoint.
 	// nil (the zero value, and the value in every pre-index caller) keeps the
 	// original coarse anchoring exactly.
-	entityProvenance *entityProvenanceResolver
+	entityProvenance *entities.ProvenanceResolver
 	// checkpointCommits resolves each fact's checkpoint to its on-branch
 	// commit (checkpoint_commit.go). nil stamps no commit, the pre-COR-2126
 	// behavior.
@@ -784,7 +786,7 @@ func newDistillCommand(opts Options) *cobra.Command {
 }
 
 func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOpts distillCommandOptions, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -914,7 +916,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// so a run that skips never pays for it and a run that proceeds reads
 		// the index as of the moment it actually owns the pass — the session-end
 		// hook refreshes that index just before calling in.
-		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		distillOpts.entityProvenance = entities.NewProvenanceResolver(ctx, entityConfig(opts), repoDir)
 		distillOpts.checkpointCommits = newCheckpointCommitResolver(ctx, opts, repoDir)
 		var runErr error
 		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
@@ -1455,7 +1457,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			stampFactExtractor(records, distillOpts.agent, distillOpts.model, distillOpts.effort)
 			// Sharpen provenance where the entity index can place the fact's
 			// locus; a no-op (and never an error) when the index is absent.
-			records = applyEntityProvenance(records, distillOpts.entityProvenance)
+			records = entities.ApplyProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				maybeFlush()
@@ -2534,7 +2536,7 @@ func cachedDistillFingerprintForKey(cache distillCache, key string) (string, boo
 // session transcripts. It shares the hardened state reader and an explicit
 // whole-file bound so derived JSON cannot revive the legacy unbounded read.
 func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", base.DefaultMaxReadBytes)
 	if err != nil {
 		return "", err
 	}
@@ -2549,7 +2551,7 @@ func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
 // run simply re-distills everything.
 func loadDistillCache(brainDir string) distillCache {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", defaultMaxReadBytes)
+	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", base.DefaultMaxReadBytes)
 	if err != nil {
 		return empty
 	}

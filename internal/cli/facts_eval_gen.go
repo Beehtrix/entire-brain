@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -453,7 +454,7 @@ func evalTaskDedupeKey(t evalTask) string {
 // truncated so near-identical prompts that differ only in a trailing clause
 // collapse together.
 func normalizeTaskText(task string) string {
-	return truncateString(strings.ToLower(strings.Join(strings.Fields(task), " ")), 160)
+	return base.TruncateString(strings.ToLower(strings.Join(strings.Fields(task), " ")), 160)
 }
 
 // sampleAcrossStrata caps tasks to n, taking them round-robin across query
@@ -567,7 +568,7 @@ func firstUserRequest(transcript string) string {
 			if message.Role != "user" || message.Text == "" || isWrapperRequest(message.Text) {
 				continue
 			}
-			return truncateString(message.Text, 280)
+			return base.TruncateString(message.Text, 280)
 		}
 		return ""
 	}
@@ -584,7 +585,7 @@ func firstUserRequest(transcript string) string {
 		if text == "" || isWrapperRequest(text) {
 			continue
 		}
-		return truncateString(strings.Join(strings.Fields(text), " "), 280)
+		return base.TruncateString(strings.Join(strings.Fields(text), " "), 280)
 	}
 	return ""
 }

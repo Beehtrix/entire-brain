@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // memory_state.go is the durable work record: content-free lifecycle hint
@@ -91,7 +93,7 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 	}
 	rel := memoryHintRel(repoKey, sessionID, branch)
 	hint := memoryLifecycleHint{SchemaVersion: memoryHintSchemaVersion, RepoKey: repoKey, SessionID: sessionID, Branch: branch}
-	if data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", maxManifestBytes); err == nil && present {
+	if data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes); err == nil && present {
 		var prev memoryLifecycleHint
 		if err := json.Unmarshal(data, &prev); err != nil {
 			return memoryLifecycleHint{}, fmt.Errorf("memory_state_corrupt: lifecycle hint cannot be parsed")
@@ -256,7 +258,7 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryHintsDirRel, entry.Name()))
-		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "lifecycle hint", maxManifestBytes, info)
+		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "lifecycle hint", base.MaxManifestBytes, info)
 		if err != nil || !present {
 			inventory.Degraded = true
 			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrorCode(err)})
@@ -307,7 +309,7 @@ func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool,
 	}
 	rel := memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)
 	full := filepath.Join(brainDir, filepath.FromSlash(rel))
-	data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", maxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes)
 	if err != nil {
 		return false, err
 	}
@@ -569,7 +571,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrStateUnsafe})
 			continue
 		}
-		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "memory job", maxManifestBytes, info)
+		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "memory job", base.MaxManifestBytes, info)
 		if err != nil || !present {
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrorCode(err)})
 			continue

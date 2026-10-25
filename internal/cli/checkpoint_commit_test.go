@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/entities"
 )
 
 const (
@@ -29,7 +31,7 @@ func checkpointCommitLogFixture() []byte {
 	return []byte(strings.Join(records, gitLogRecordSeparator))
 }
 
-func fixtureCheckpointResolver(reachable provenanceBranchReachability) *checkpointCommitResolver {
+func fixtureCheckpointResolver(reachable entities.BranchReachability) *checkpointCommitResolver {
 	return &checkpointCommitResolver{
 		byCheckpoint: checkpointCommitsFromGitLog(checkpointCommitLogFixture()),
 		reachable:    reachable,

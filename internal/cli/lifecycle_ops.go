@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -356,8 +357,8 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// silent (safe-mode stripping MCP, a comma in CLAUDE_CODE_PLUGIN_DIRS, a
 	// purged plugin path reported as CONNECTION_CLOSED). Opt-in, because it
 	// spawns a subprocess.
-	checkMCPSurfaceReachable(ctx, os.Getenv, os.Executable, add)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	doctorMCPSurfaceCheck(ctx, os.Getenv, os.Executable, add)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")
 		return checks, payload
@@ -435,7 +436,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
-			branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
+			branch, branchErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 			if branchErr != nil {
 				add("facts_verification", "warn", "branch unavailable: "+branchErr.Error())
 			} else {
@@ -624,7 +625,7 @@ func newStatsCommand(opts Options) *cobra.Command {
 
 func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOut bool) error {
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}

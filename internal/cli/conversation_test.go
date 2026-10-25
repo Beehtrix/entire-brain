@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Fixture transcripts for each supported dialect. Line numbers in assertions
@@ -906,10 +908,10 @@ func TestConversationExpansionDistinguishesFailureStates(t *testing.T) {
 	// Document form over the read ceiling: too-large caveat.
 	docBody := "{\n\"messages\": [\n{\"role\": \"user\", \"content\": \"why did the export fail\"},\n{\"role\": \"assistant\", \"content\": \"Decision: the cursor skipped it.\"}\n]\n}\n"
 	docRecord := write("sessions/main/20260808T000000Z_doc.jsonl", docBody)
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 16
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 16
 	result := conversationGetResult(brainDir, docRecord)
-	maxDocumentTranscriptBytes = oldMax
+	base.MaxDocumentTranscriptBytes = oldMax
 	if !hasCaveatKind(result, retrievalCaveatConversationSourceTooLarge) {
 		t.Fatalf("expected too-large caveat: %+v", result.Caveats)
 	}

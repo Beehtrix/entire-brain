@@ -196,7 +196,9 @@ jobs:
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with:
           go-version: "1.27.2"
-          cache-dependency-path: go.sum
+          # Shards execute precompiled binaries from the bundle; the module and
+          # build caches this restores (~25s/shard) are never read.
+          cache: false
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

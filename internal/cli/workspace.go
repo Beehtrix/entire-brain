@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -568,7 +569,7 @@ func newWorkspaceContextCommand(opts Options) *cobra.Command {
 	contextOpts := workspaceContextOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "context <workspace> <symbol-or-text>",
-		Short: "Build semantic context for a symbol or query across workspace repos",
+		Short: "Build code context for a symbol or query across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceContext(cmd, opts, contextOpts, args[0], args[1])
@@ -583,7 +584,7 @@ func newWorkspaceImpactCommand(opts Options) *cobra.Command {
 	impactOpts := workspaceImpactOptions{limit: 20, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <workspace> <symbol-or-text>",
-		Short: "Run semantic impact across workspace repos",
+		Short: "Run code-context impact across workspace repos",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceImpact(cmd, opts, impactOpts, args[0], args[1])
@@ -599,7 +600,7 @@ func newWorkspaceGraphCommand(opts Options) *cobra.Command {
 	graphOpts := workspaceGraphOptions{limit: 50}
 	cmd := &cobra.Command{
 		Use:   "graph <workspace>",
-		Short: "Summarize semantic graph schemas and cross-repo contracts in a workspace",
+		Short: "Summarize code graph schemas and cross-repo contracts in a workspace",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runWorkspaceGraph(cmd, opts, graphOpts, args[0])
@@ -687,7 +688,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	if err := validateWorkspaceRepoName(addOpts.name); err != nil {
 		return err
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
 	if err != nil {
 		return err
 	}
@@ -2587,7 +2588,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if r.Line > 0 {
 				loc = fmt.Sprintf("%s:%d", r.Path, r.Line)
 			}
-			ex := truncateString(strings.Join(strings.Fields(r.Text), " "), 200)
+			ex := base.TruncateString(strings.Join(strings.Fields(r.Text), " "), 200)
 			// Member ids are repo-qualified; workspace-level graph ids are already pasteable.
 			printedID := result.RepoKey + "/" + r.ID
 			if result.RepoKey == manifest.Name && strings.HasPrefix(r.ID, "graph:") {
@@ -2887,7 +2888,7 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	data, err := safeReadFile(filepath.Join(dir, workspaceGraphName), defaultMaxReadBytes)
+	data, err := base.SafeReadFile(filepath.Join(dir, workspaceGraphName), base.DefaultMaxReadBytes)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -3064,7 +3065,7 @@ func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, mani
 // fan-out that touches a member's working tree (watch, refresh --full) applies
 // before acting on a repo.
 func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, repo workspaceRepo) (string, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil || !local {
 		return "", errors.New("no resolvable local path")
 	}
@@ -3112,7 +3113,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = "no local_path_hint"
 		return status
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
 		status.State = "unsafe"
 		status.Detail = err.Error()
@@ -3643,7 +3644,7 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 	case "unsafe":
 		// Reached only for a SCANNED repo (PairingUnsafe blocks before this), so "unsafe" here means
 		// a stale/broken semantic index over a still-valid pairing — the scan ran on raw sessions.
-		return "semantic index unsafe/stale — scanned raw sessions only; verify findings"
+		return "code index unsafe/stale — scanned raw sessions only; verify findings"
 	case "degraded":
 		return "freshness degraded — brain/index may be stale; verify findings"
 	case "missing-brain":
@@ -3651,7 +3652,7 @@ func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
 		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
 		return "no export manifest — scanned raw sessions only (run `" + brainInvocation(os.LookupEnv, "refresh") + "` for a full brain)"
 	case "missing-semantic":
-		return "semantic index missing — scanned raw sessions only"
+		return "code index missing — scanned raw sessions only"
 	case "unknown":
 		detail := f.Detail
 		if detail == "" {
@@ -3697,7 +3698,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 	if repo.LocalPathHint == "" {
 		return "", nil, 0, nil, false, "no local_path_hint (re-add the repo to record its working tree)"
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil {
 		return "", nil, 0, nil, false, err.Error()
 	}

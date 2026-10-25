@@ -53,17 +53,6 @@ var knownRepoDomainSlugs = map[string]string{
 	"code.storage":  "cs",
 }
 
-// EntireEnv captures the environment variables supplied by the parent Entire
-// CLI when this binary is dispatched as an external command.
-type EntireEnv struct {
-	CLIVersion      string
-	RepoRoot        string
-	PluginConfigDir string
-	PluginDataDir   string
-	PluginStateDir  string
-	PluginCacheDir  string
-}
-
 func EnvFromOS() EntireEnv {
 	return EntireEnv{
 		CLIVersion: os.Getenv(envCLIVersion),
@@ -136,12 +125,6 @@ func resolveXDGDir(pluginDir, pluginEnv, xdgEnv, homeFallback string) (string, e
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
 	return filepath.Join(home, homeFallback), nil
-}
-
-type repoStorage struct {
-	Key      string
-	BrainDir string
-	HeadPath string
 }
 
 const localRepoIdentityConflictCode = "repo_identity_conflict"

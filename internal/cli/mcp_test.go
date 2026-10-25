@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"strconv"
+
+	"github.com/spf13/cobra"
 )
 
 type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
@@ -375,7 +376,7 @@ func TestMCPToolsListAdvertisesCompactStatusAndDetails(t *testing.T) {
 	}
 	responses := readMCPResponses(t, out.String())
 	data, _ := json.Marshal(responses[0]["result"])
-	for _, want := range []string{"brain_status", "semantic and retrieval freshness", "coverage totals/blind spots", "details=true"} {
+	for _, want := range []string{"brain_status", "code-index and retrieval freshness", "coverage totals/blind spots", "details=true"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("tools/list missing %q: %s", want, data)
 		}

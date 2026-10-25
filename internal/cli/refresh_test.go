@@ -60,7 +60,7 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 		"refresh: export sessions: unavailable, using seed baseline done",
 		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: history index: 0 records, 0 decisions, 0 tool calls done",
-		"refresh: semantic index: 1 symbol, 1 relation, 1 file done",
+		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 		"refreshed brain:",
 		// refresh closes with the SHORT status report: the phase lines above
 		// already said what was built, so repeating the full dump here was the

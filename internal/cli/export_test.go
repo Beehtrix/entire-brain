@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 type fakeCommandRunner struct {
@@ -1876,7 +1878,7 @@ func TestCheckpointIDsFromCommitMessageText(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := checkpointIDsFromCommitMessageText(test.message)
+			got := base.CheckpointIDsFromCommitMessageText(test.message)
 			if strings.Join(got, "\x00") != strings.Join(test.want, "\x00") {
 				t.Fatalf("checkpoint IDs = %q, want %q", got, test.want)
 			}
@@ -1893,7 +1895,7 @@ func TestBuildCheckpointBranchDestinationsRoutesCanonicalULIDToDefaultBranch(t *
 	repoDir := t.TempDir()
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "show-ref", "--verify", "--quiet", defaultRef): {},
-		fakeCommandKey("git", "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef): {
+		fakeCommandKey("git", "log", "--format=%B", "--grep", base.CheckpointTrailerKey+":", defaultRef): {
 			stdout: "Merge checkpoints\n\nEntire-Checkpoint: " + ulid + "\nEntire-Checkpoint: " + legacyID + "\n",
 		},
 	}}

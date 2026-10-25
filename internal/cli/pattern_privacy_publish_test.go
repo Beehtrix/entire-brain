@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -61,6 +62,7 @@ func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) strin
 }
 
 func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistence(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	policy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
@@ -130,6 +132,7 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 }
 
 func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	policy, err := captureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
@@ -338,6 +341,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 }
 
 func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	for _, action := range []struct {
 		name string
@@ -460,9 +464,9 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
 	}})
-	originalMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = originalMax })
+	originalMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = originalMax })
 	err := buildPatternCorpus(brainDir, now)
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("oversized pattern transcript error = %v", err)
@@ -487,6 +491,7 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 }
 
 func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -509,6 +514,7 @@ func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
 }
 
 func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	const rel = "sessions/main/s1.jsonl"
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
@@ -543,6 +549,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 }
 
 func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -578,6 +585,7 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 }
 
 func TestPatternCorpusStagingArtifactsAreInPrivacyInventory(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 		t.Fatal(err)

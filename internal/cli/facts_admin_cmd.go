@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -351,7 +352,7 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 			}
 			target := into
 			if strings.TrimSpace(target) == "" {
-				if current, gitErr := gitScalar(cmd.Context(), opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+				if current, gitErr := base.GitScalar(cmd.Context(), opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 					target = strings.TrimSpace(current)
 				}
 			}

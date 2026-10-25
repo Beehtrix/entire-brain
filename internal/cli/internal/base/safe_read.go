@@ -1,4 +1,4 @@
-package cli
+package base
 
 import (
 	"bytes"
@@ -21,58 +21,58 @@ import (
 // never changes them; TestOverridableProductionBoundsKeepTheirDefaults pins
 // the values.
 var (
-	// maxDocumentTranscriptBytes bounds a single document-form session
+	// MaxDocumentTranscriptBytes bounds a single document-form session
 	// transcript slurped into memory. Long sessions never approach this.
-	maxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
+	MaxDocumentTranscriptBytes int64 = 256 << 20 // 256 MiB
 
-	// defaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
-	defaultMaxReadBytes int64 = 64 << 20 // 64 MiB
+	// DefaultMaxReadBytes is the fallback ceiling when a caller passes max <= 0.
+	DefaultMaxReadBytes int64 = 64 << 20 // 64 MiB
 
-	// maxManifestBytes bounds auxiliary JSON state/index/cursor files.
+	// MaxManifestBytes bounds auxiliary JSON state/index/cursor files.
 	// Canonical Brain manifests use the dedicated, uncapped manifest reader.
-	maxManifestBytes int64 = 16 << 20 // 16 MiB
+	MaxManifestBytes int64 = 16 << 20 // 16 MiB
 )
 
 const (
-	// maxSeedDocBytes bounds a single seed/markdown document read for chunking.
-	maxSeedDocBytes = 32 << 20 // 32 MiB
+	// MaxSeedDocBytes bounds a single seed/markdown document read for chunking.
+	MaxSeedDocBytes = 32 << 20 // 32 MiB
 
-	// defaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is
+	// DefaultMaxSemanticSnapshotBytes bounds a full entire-graph snapshot read. It is
 	// generous because a large monorepo's snapshot is legitimately big; operators
 	// with even larger repos can raise it via ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES.
-	defaultMaxSemanticSnapshotBytes = 2 << 30 // 2 GiB
+	DefaultMaxSemanticSnapshotBytes = 2 << 30 // 2 GiB
 )
 
-// semanticSnapshotMaxBytes returns the ceiling for reading a full semantic
+// SemanticSnapshotMaxBytes returns the ceiling for reading a full semantic
 // snapshot, honoring an ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES override so unusually
 // large repositories are not artificially blocked.
-func semanticSnapshotMaxBytes() int64 {
+func SemanticSnapshotMaxBytes() int64 {
 	if v := os.Getenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
 			return n
 		}
 	}
-	return defaultMaxSemanticSnapshotBytes
+	return DefaultMaxSemanticSnapshotBytes
 }
 
-// safeReadOpenFile is a variable so adversarial tests can drive the
+// SafeReadOpenFile is a variable so adversarial tests can drive the
 // lstat-to-open TOCTOU window deterministically, matching the existing
 // memoryStateOpenFile and privacyOpen seams.
-var safeReadOpenFile = os.OpenFile
+var SafeReadOpenFile = os.OpenFile
 
-// safeOpenRegularFile opens path for reading and refuses anything that is not a
+// SafeOpenRegularFile opens path for reading and refuses anything that is not a
 // regular file.
 //
 // A size ceiling alone does not bound a read. open(2) on a FIFO with no writer
 // blocks inside the syscall before a single byte is read, and a character device
 // yields bytes forever, exhausting the ceiling and then reporting the wrong
 // reason. Both are reachable wherever the path is caller supplied, and several
-// safeReadFile call sites take an arbitrary path by design
+// SafeReadFile call sites take an arbitrary path by design
 // (brain_ingest_traces, loadEvalTasks).
 //
 // Two mechanisms, and only two:
 //
-//   - O_NONBLOCK on Unix (memoryStateReadOpenFlags) so opening a FIFO returns
+//   - O_NONBLOCK on Unix (MemoryStateReadOpenFlags) so opening a FIFO returns
 //     immediately instead of parking the calling thread until a writer appears;
 //   - fstat on the RESULTING DESCRIPTOR, which must be a regular file.
 //
@@ -95,10 +95,10 @@ var safeReadOpenFile = os.OpenFile
 // Write-side symlink escapes are a different problem with a different control:
 // see rejectOpenFileAlias for lock and privacy artifacts, which brain owns and
 // writes, and where following a link really would be an escape. Callers of
-// safeReadFile only read.
-func safeOpenRegularFile(path string) (*os.File, error) {
+// SafeReadFile only read.
+func SafeOpenRegularFile(path string) (*os.File, error) {
 	// O_NONBLOCK must be on the open itself; there is no way to add it later.
-	f, err := safeReadOpenFile(path, os.O_RDONLY|memoryStateReadOpenFlags(), 0)
+	f, err := SafeReadOpenFile(path, os.O_RDONLY|MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -117,15 +117,15 @@ func safeOpenRegularFile(path string) (*os.File, error) {
 	return f, nil
 }
 
-// safeReadFile reads up to max bytes from path. If the file is larger than max it
+// SafeReadFile reads up to max bytes from path. If the file is larger than max it
 // returns an error naming the path rather than allocating unbounded memory. A
-// max <= 0 falls back to defaultMaxReadBytes. The path must be a regular file:
-// see safeOpenRegularFile for why the size ceiling alone is not a bound.
-func safeReadFile(path string, max int64) ([]byte, error) {
+// max <= 0 falls back to DefaultMaxReadBytes. The path must be a regular file:
+// see SafeOpenRegularFile for why the size ceiling alone is not a bound.
+func SafeReadFile(path string, max int64) ([]byte, error) {
 	if max <= 0 {
-		max = defaultMaxReadBytes
+		max = DefaultMaxReadBytes
 	}
-	f, err := safeOpenRegularFile(path)
+	f, err := SafeOpenRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -134,35 +134,35 @@ func safeReadFile(path string, max int64) ([]byte, error) {
 	// decides the answer: refuse here so an oversized input costs nothing. Reading
 	// up to the ceiling first and only then rejecting still pays for the ceiling —
 	// and pays several times over, because the growing read buffer churns every
-	// intermediate size through the allocator on the way up. safeOpenRegularFile
+	// intermediate size through the allocator on the way up. SafeOpenRegularFile
 	// has already established that this descriptor IS a regular file, so the size
-	// it reports is meaningful; the streaming bound in safeReadAll stays the
+	// it reports is meaningful; the streaming bound in SafeReadAll stays the
 	// authority for a file that grows between this stat and the read.
 	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > max {
-		return nil, &readBoundExceededError{source: path, max: max}
+		return nil, &ReadBoundExceededError{Source: path, Max: max}
 	}
-	return safeReadAll(f, max, path)
+	return SafeReadAll(f, max, path)
 }
 
-// safeReadAll reads up to max bytes from r. If r yields more than max bytes it
+// SafeReadAll reads up to max bytes from r. If r yields more than max bytes it
 // returns an error naming source, so an oversized untrusted stream fails loudly
 // instead of being silently truncated or driving the process out of memory.
-// readBoundExceededError marks the ONE failure that is genuinely about size,
+// ReadBoundExceededError marks the ONE failure that is genuinely about size,
 // so a caller can tell it apart from an I/O error or a cancelled context that
 // io.ReadAll surfaces through the same return. The message is unchanged from
 // the plain error it replaces.
-type readBoundExceededError struct {
-	source string
-	max    int64
+type ReadBoundExceededError struct {
+	Source string
+	Max    int64
 }
 
-func (e *readBoundExceededError) Error() string {
-	return fmt.Sprintf("%s exceeds maximum size of %d bytes", e.source, e.max)
+func (e *ReadBoundExceededError) Error() string {
+	return fmt.Sprintf("%s exceeds maximum size of %d bytes", e.Source, e.Max)
 }
 
-func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
+func SafeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 	if max <= 0 {
-		max = defaultMaxReadBytes
+		max = DefaultMaxReadBytes
 	}
 	// Read one byte past the limit to detect overflow, guarding against max+1
 	// wrapping negative when max is near MaxInt64 (which would make LimitReader
@@ -176,21 +176,21 @@ func safeReadAll(r io.Reader, max int64, source string) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > max {
-		return nil, &readBoundExceededError{source: source, max: max}
+		return nil, &ReadBoundExceededError{Source: source, Max: max}
 	}
 	return data, nil
 }
 
-// readFilePrefix reads at most max bytes from path and reports whether the file has
-// more content beyond that. It is the truncating counterpart to safeReadFile: where
-// safeReadFile refuses an oversized input, callers that only ever keep a bounded
+// ReadFilePrefix reads at most max bytes from path and reports whether the file has
+// more content beyond that. It is the truncating counterpart to SafeReadFile: where
+// SafeReadFile refuses an oversized input, callers that only ever keep a bounded
 // prefix (the seed document copier) can take that prefix without the file's full
 // size ever entering memory.
-func readFilePrefix(path string, max int) ([]byte, bool, error) {
-	// safeOpenRegularFile, not os.Open: this takes a repository file path, which is
-	// as caller-supplied as safeReadFile's, so it needs the same refusal of a FIFO
+func ReadFilePrefix(path string, max int) ([]byte, bool, error) {
+	// SafeOpenRegularFile, not os.Open: this takes a repository file path, which is
+	// as caller-supplied as SafeReadFile's, so it needs the same refusal of a FIFO
 	// or device that would park or never end.
-	f, err := safeOpenRegularFile(path)
+	f, err := SafeOpenRegularFile(path)
 	if err != nil {
 		return nil, false, err
 	}
@@ -206,14 +206,14 @@ func readFilePrefix(path string, max int) ([]byte, bool, error) {
 	return data, false, nil
 }
 
-// hashFileDetectingNUL streams path through sha256 and reports whether any NUL byte
+// HashFileDetectingNUL streams path through sha256 and reports whether any NUL byte
 // was seen, returning the "sha256:"-prefixed digest in the same form as the callers'
 // previous sha256.Sum256 over the whole file. Streaming keeps peak memory at one
 // buffer regardless of file size while leaving the digest byte-identical.
-func hashFileDetectingNUL(path string) (digest string, binary bool, err error) {
-	// safeOpenRegularFile, not os.Open: hashing a FIFO or a character device would
+func HashFileDetectingNUL(path string) (digest string, binary bool, err error) {
+	// SafeOpenRegularFile, not os.Open: hashing a FIFO or a character device would
 	// never terminate, and this runs over whatever files a repository contains.
-	f, err := safeOpenRegularFile(path)
+	f, err := SafeOpenRegularFile(path)
 	if err != nil {
 		return "", false, err
 	}

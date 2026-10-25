@@ -1227,7 +1227,7 @@ the right surface before claiming a quality lift.
 entire brain facts eval-gen > facts-tasks.json
 entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
 entire brain facts eval-compare --a <before.json> --b <after.json>
-entire brain bench semantic .
+entire brain bench index .
 entire brain status --json --details
 ```
 

@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -157,7 +158,7 @@ func loadSemanticEnv(cmd *cobra.Command, opts Options) (semanticEnv, error) {
 
 func semanticStorePath(env semanticEnv) (string, error) {
 	if env.Source.StorePath == "" {
-		return "", errors.New("semantic graph command requires the SQLite semantic store; run `" + brainInvocation(os.LookupEnv, "repair") + "`")
+		return "", errors.New("code graph command requires the Graph-owned SQLite store; run `" + brainInvocation(os.LookupEnv, "repair") + "`")
 	}
 	return validateSemanticDeclaredStore(env.BrainDir, env.Source)
 }
@@ -1105,7 +1106,7 @@ func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 	// The trace path is caller-supplied (including via the brain_ingest_traces MCP
 	// tool), so bound the whole-file read before decoding: a giant array would
 	// otherwise drive json.Decode to allocate an unbounded slice.
-	data, err := safeReadFile(path, graphTraceMaxBytes)
+	data, err := base.SafeReadFile(path, graphTraceMaxBytes)
 	if err != nil {
 		return nil, err
 	}

@@ -183,7 +183,7 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 		t.Fatalf("refresh --worktree: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"semantic index not rebuilt",
+		"code index not rebuilt",
 		"--worktree refreshes seed and docs only",
 		"commit or stash the working tree",
 		"refreshed brain:",
@@ -199,7 +199,7 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh --worktree --semantic=false: %v\n%s", err, explicit)
 	}
-	if strings.Contains(explicit, "semantic index not rebuilt") {
+	if strings.Contains(explicit, "code index not rebuilt") {
 		t.Fatalf("an explicitly requested skip does not need explaining:\n%s", explicit)
 	}
 	// And an ordinary refresh, which builds it, says nothing at all.
@@ -207,7 +207,7 @@ func TestRefreshWorktreeSaysWhichStageItSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh: %v\n%s", err, ordinary)
 	}
-	if strings.Contains(ordinary, "semantic index not rebuilt") {
+	if strings.Contains(ordinary, "code index not rebuilt") {
 		t.Fatalf("a refresh that DID build the semantic index must not claim otherwise:\n%s", ordinary)
 	}
 }

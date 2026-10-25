@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -462,7 +463,7 @@ func (v *verifyContext) verifyAnchor(anchor factAnchor, factBranch string) verif
 		if !ok {
 			result.addCheck(verifyCheck{Name: "line", Verdict: verifyVerdictOrphaned, Reason: fmt.Sprintf("line %d is outside transcript", anchor.Line)})
 		} else {
-			result.LineExcerpt = truncateString(strings.Join(strings.Fields(line), " "), 200)
+			result.LineExcerpt = base.TruncateString(strings.Join(strings.Fields(line), " "), 200)
 			result.addCheck(verifyCheck{Name: "line", Verdict: verifyVerdictVerified, Reason: fmt.Sprintf("line %d resolved", anchor.Line)})
 		}
 	}

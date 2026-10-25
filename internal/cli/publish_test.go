@@ -299,13 +299,6 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 		t.Fatalf("manifest provider = %q, want entire-graph", wire.Manifest.Provider)
 	}
 
-	// Snapshot: keyed by commit, bytes preserved.
-	if snaps := byKind[brainKindSnapshot]; len(snaps) != 1 || snaps[0].Ref != testPublishCommit {
-		t.Fatalf("snapshot artifacts = %+v, want one ref %q", snaps, testPublishCommit)
-	} else if !strings.Contains(string(snaps[0].Data), "\"symbol\":\"Foo\"") {
-		t.Fatalf("snapshot data not preserved: %q", snaps[0].Data)
-	}
-
 	// Overlay: keyed by base..head; the all-branches report is not published.
 	overlays := byKind[brainKindOverlay]
 	wantOverlayRef := testPublishCommit + ".." + testPublishHead

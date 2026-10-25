@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // oversizedWorkspaceGroups returns a healthy member whose rows alone blow the
@@ -87,6 +89,6 @@ func TestBoundedWorkspaceRetrievalTextKeepsMemberErrors(t *testing.T) {
 		t.Fatalf("text is %d bytes, over the %d budget", len(data), conversationConceptResponseMaxBytes)
 	}
 	if !strings.Contains(string(data), "acme/broken error "+workspaceMemberFailure) {
-		t.Fatalf("member error was dropped to fit the budget; rendered text:\n%s", truncateString(string(data), 400))
+		t.Fatalf("member error was dropped to fit the budget; rendered text:\n%s", base.TruncateString(string(data), 400))
 	}
 }

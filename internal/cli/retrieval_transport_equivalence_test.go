@@ -154,6 +154,7 @@ func jsonPayloadBytes(t *testing.T, payload map[string]any) []byte {
 }
 
 func TestBoundedTruncationMatchesStepwiseReference(t *testing.T) {
+	t.Parallel()
 	// Three stop regimes: fits untrimmed, stops inside the extras phase, and
 	// stops inside the row phase. largeCoverageResults rows are a few tens of
 	// KB each, so 12 of them force deep row trimming against the 128 KiB
@@ -199,6 +200,7 @@ func TestBoundedTruncationMatchesStepwiseReference(t *testing.T) {
 }
 
 func TestBoundedWorkspaceTruncationMatchesStepwiseReference(t *testing.T) {
+	t.Parallel()
 	rows := largeCoverageResults(6)
 	// Untrimmable member errors big enough that dropping every row still
 	// exceeds the budget, forcing the whole-group-drop phase the single-repo
@@ -242,6 +244,7 @@ func TestBoundedWorkspaceTruncationMatchesStepwiseReference(t *testing.T) {
 }
 
 func TestSmallestTrimStepsThatFitMatchesLinearScan(t *testing.T) {
+	t.Parallel()
 	budget := conversationConceptResponseMaxBytes
 	for _, tc := range []struct {
 		name  string

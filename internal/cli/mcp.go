@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -319,7 +321,7 @@ func mcpConfigRepoRoot(ctx context.Context, opts Options) string {
 		}
 		target = wd
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		return ""
 	}
@@ -840,13 +842,13 @@ func mcpAllToolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "brain_status",
-			"description": "Lightweight local brain overview: recorded sources, semantic and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
+			"description": "Lightweight local brain overview: recorded sources, code-index and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
 			"inputSchema": objectSchema(nil, map[string]any{"details": boolArg("details", "Include staged, unstaged, and untracked file classifications without auditing index contents")}),
 		},
 		{
 			"name":        "brain_refresh",
-			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
-			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD."), "semantic": boolArg("semantic", "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
+			"description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the code index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+			"inputSchema": objectSchema(nil, map[string]any{"worktree": boolArg("worktree", "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the code index, which always builds from committed HEAD."), "semantic": boolArg("semantic", "Also rebuild the code index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)"), "force": boolArg("force", "Rebuild selected sources even when current")}),
 		},
 		{
 			"name":        "brain_brief",
@@ -901,13 +903,13 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_context",
-			"description": "Relation-aware local semantic context for a symbol or topic: the definition plus what it touches, compact by default (details=true for full provider records). Use instead of a grep-then-read-several-files sweep when orienting in unfamiliar code. Not for exact strings or unindexed/uncommitted files — grep those.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
+			"description": "Relation-aware local code context for a symbol or topic: the definition plus what it touches, compact by default (details=true for full provider records). Use instead of a grep-then-read-several-files sweep when orienting in unfamiliar code. Not for exact strings or unindexed/uncommitted files — grep those.",
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "details": boolArg("details", "Include full code-index records with provider metadata")}),
 		},
 		{
 			"name":        "brain_impact",
 			"description": "Blast radius of changing a symbol, over indexed call and type relations; compact by default (details=true for full records, depth to widen). Use instead of grepping a name to find callers — it follows relations, not text. Not for reflection, dynamic dispatch or unindexed languages; confirm an empty result with grep.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum symbols"), "depth": integerArg("depth", "Relation depth"), "details": boolArg("details", "Include full code-index records with provider metadata")}),
 		},
 		{
 			"name":        "brain_changes",
@@ -917,7 +919,7 @@ func mcpAllToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_code",
 			"description": "Locate code by symbol name or description in the indexed symbol graph; compact by default (details=true for full provider records). Use first, instead of grep/glob, when you need where something is defined and may not know its exact spelling. Not for string literals, comments, config values or uncommitted files — grep those.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full code-index records with provider metadata")}),
 		},
 		{
 			"name":        "brain_index_status",
@@ -931,7 +933,7 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_list_projects",
-			"description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
+			"description": "List locally indexed brain projects and code index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -981,21 +983,21 @@ func mcpAllToolDefinitions() []map[string]any {
 		{
 			"name":        "brain_search_code",
 			"description": "Alias for brain_code: search indexed source symbols, compact by default (details=true for full provider records). Use instead of grep to locate a definition. Not for literals, comments or uncommitted text — grep those.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol name or text query"), "limit": integerArg("limit", "Maximum results"), "details": boolArg("details", "Include full code-index records with provider metadata")}),
 		},
 		{
 			"name":        "brain_search_graph",
-			"description": "Search the semantic graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
+			"description": "Search the code graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or graph text query"), "limit": integerArg("limit", "Maximum results"), "offset": nonNegativeIntegerArg("offset", "Results to skip (default: 0)")}),
 		},
 		{
 			"name":        "brain_query_graph",
-			"description": "Read-only semantic graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
+			"description": "Read-only code graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
 			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Graph query, e.g. type:CALLS from:Foo"), "limit": integerArg("limit", "Maximum relations")}),
 		},
 		{
 			"name":        "brain_get_graph_schema",
-			"description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
+			"description": "Return code graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
 			"inputSchema": objectSchema(nil, map[string]any{}),
 		},
 		{
@@ -1025,13 +1027,13 @@ func mcpAllToolDefinitions() []map[string]any {
 		},
 		{
 			"name":        "brain_ingest_traces",
-			"description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static semantic graph.",
+			"description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static code graph.",
 			"inputSchema": objectSchema([]string{"path"}, map[string]any{"path": stringArg("path", "Local JSON or NDJSON trace file")}),
 		},
 		{
 			"name":        "brain_tests",
 			"description": "Suggest a compact set of existing tests relevant to a symbol or query (details=true for full provider records). Use instead of grepping for test files near a symbol. Not for running them, and not for tests the index has not seen — grep the test tree to confirm.",
-			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions"), "details": boolArg("details", "Include full semantic records with provider metadata")}),
+			"inputSchema": objectSchema([]string{"query"}, map[string]any{"query": stringArg("query", "Symbol or text query"), "limit": integerArg("limit", "Maximum test suggestions"), "details": boolArg("details", "Include full code-index records with provider metadata")}),
 		},
 		{
 			"name":        "brain_boundaries",
@@ -1648,7 +1650,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			// Same query path as `entities history --json`, so the agent
 			// surface and the CLI can never disagree about who changed what.
-			err = runEntitiesHistory(ctx, cmd, opts, query, branch, limit, true, target)
+			err = entities.RunHistory(ctx, cmd, entityConfig(opts), query, branch, limit, true, target)
 		}
 	default:
 		err = mcpInvalidParams("unknown tool: %s", params.Name)
@@ -1897,7 +1899,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 			}
 			// Explicitly opted-in unbound servers may use the process CWD.
 			target := "."
-			repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+			repoDir, local, resolveErr := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 			if resolveErr != nil {
 				return resolveErr
 			}
@@ -2060,7 +2062,7 @@ func mcpBoundRepoStorageSet(ctx context.Context, opts Options) (repoStorageSet, 
 	if root == "" {
 		return repoStorageSet{}, false, nil
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, root)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, root)
 	if err != nil {
 		return repoStorageSet{}, false, err
 	}
@@ -2099,7 +2101,7 @@ func mcpRepoLocalStorage(ctx context.Context, opts Options) (repoStorage, bool, 
 	if !bound {
 		target = "."
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		// An unbound server outside any repository is the refusal case, not an
 		// error case: report it the way the bound-repo gate reports its own.
@@ -2276,7 +2278,7 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 		if enforceIndexContainment(scopeRoot, workspaceMemberScopePath(hint)) != nil {
 			return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
 		}
-		repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, hint)
+		repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, hint)
 		if err != nil || !local {
 			// The member's declared location is inside scopeRoot (checked
 			// immediately above); the checkout simply is not there -- deleted,

@@ -263,6 +263,13 @@ func missingMCPTools(served []string) []string {
 // unrelated tests and locally only showed up as the probe taking its full
 // 20-second timeout. Injecting the resolver is what makes the check testable
 // without spawning anything real.
+// doctorMCPSurfaceCheck is the seam doctor calls through, so a test can prove
+// the check is WIRED without spawning anything. Injecting getenv and exePath
+// made the check itself testable; it did not make its presence in doctor
+// testable, and unwiring the call left every guard here green. A var, matching
+// how the read bounds in internal/base are overridable for the same reason.
+var doctorMCPSurfaceCheck = checkMCPSurfaceReachable
+
 func checkMCPSurfaceReachable(ctx context.Context, getenv func(string) string, exePath func() (string, error), add func(name, state, detail string)) {
 	if getenv == nil || strings.TrimSpace(getenv("ENTIRE_BRAIN_DOCTOR_PROBE_MCP")) == "" {
 		return

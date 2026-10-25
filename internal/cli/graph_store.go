@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -239,7 +240,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if indexOpts.worktree {
 		return errors.New("Graph owns the committed-tree index; use entire graph query without --head to inspect uncommitted code")
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -249,7 +250,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 	if err = enforceIndexContainment(indexOpts.containRoot, repoDir); err != nil {
 		return err
 	}
-	if _, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); err != nil {
+	if _, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); err != nil {
 		return nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for Graph index: %w", err))
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -347,7 +348,7 @@ func runGraphOwnedIndex(ctx context.Context, cmd *cobra.Command, opts Options, i
 		return err
 	}
 	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate code index; Graph owns code indexing now")
 	}
 
 	var indexed struct {
@@ -412,7 +413,7 @@ func migrateBrainGraphStorage(brainDir, repoKey string) error {
 		return err
 	}
 	if removed {
-		fmt.Fprintln(os.Stderr, "brain: retired the duplicate semantic index; Graph owns code indexing now")
+		fmt.Fprintln(os.Stderr, "brain: retired the duplicate code index; Graph owns code indexing now")
 	}
 	return nil
 }

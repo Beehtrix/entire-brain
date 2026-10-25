@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // queryExpansionPrompt instructs the agent to rewrite a task into retrieval
@@ -31,7 +33,7 @@ func parseExpansion(output string) string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		return truncateString(strings.Join(strings.Fields(line), " "), 240)
+		return base.TruncateString(strings.Join(strings.Fields(line), " "), 240)
 	}
 	return ""
 }

@@ -85,6 +85,7 @@ func TestBriefOutputRootMetadataAndPreviousResponseActions(t *testing.T) {
 }
 
 func TestBriefOutputRootProvenanceOrderingDedupAndBudgets(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	task := "ValidateToken public history provenance ordering budget"
 	fullPacket, err := execute(t, NewRootCommand(fixture.opts), "brief", task, "--json", "--limit", "8")
@@ -140,13 +141,14 @@ func TestBriefOutputRootProvenanceOrderingDedupAndBudgets(t *testing.T) {
 }
 
 func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
+	t.Parallel()
 	t.Run("missing indexes are explicit", func(t *testing.T) {
 		opts, _, _ := commandRegressionFixture(t)
 		out, err := execute(t, NewRootCommand(opts), "brief", "metadata", "--json", "--limit", "3")
 		if err != nil {
 			t.Fatalf("missing optional indexes: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic index missing", "history index missing"} {
+		for _, warning := range []string{"code context unavailable", "history index missing"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("missing input warning %q absent: %s", warning, out)
 			}
@@ -227,7 +229,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("corrupt semantic store should degrade: %v\n%s", err, out)
 		}
-		for _, warning := range []string{"semantic context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
+		for _, warning := range []string{"code context unavailable", "runtime trace context unavailable", "test suggestions unavailable"} {
 			if !strings.Contains(out, warning) {
 				t.Fatalf("semantic warning %q absent: %s", warning, out)
 			}
@@ -289,6 +291,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 }
 
 func TestBriefOutputRawHistoryFailureIsPublicWarning(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	cmd := &cobra.Command{}
 	var out strings.Builder
@@ -306,6 +309,7 @@ func TestBriefOutputRawHistoryFailureIsPublicWarning(t *testing.T) {
 }
 
 func TestBriefOutputCurrentOverlaySupersedesLongTermHistory(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	manifest, err := loadBrainManifest(fixture.brainDir)
 	if err != nil {
@@ -341,6 +345,7 @@ func TestBriefOutputCurrentOverlaySupersedesLongTermHistory(t *testing.T) {
 // This matrix pins fallback/primary selection and malformed-file behavior that
 // cannot all coexist in one bounded likely-file list.
 func TestBriefOutputActionScannerSelectionMatrix(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	files := map[string]string{
 		"src/fallback.ts":                        "function fallback() {\n  const request = { metadata: { value: 7 } };\n}\n",
@@ -413,6 +418,7 @@ func TestBriefOutputActionScannerSelectionMatrix(t *testing.T) {
 }
 
 func TestBriefOutputStatusAndProfileWriteFailures(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	profileDir := t.TempDir()
 	out, err := execute(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json", "--profile-json", profileDir)
@@ -422,6 +428,7 @@ func TestBriefOutputStatusAndProfileWriteFailures(t *testing.T) {
 }
 
 func TestBriefOutputWriterFailuresPropagate(t *testing.T) {
+	t.Parallel()
 	for _, profiled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "packet", true: "profiled packet"}[profiled], func(t *testing.T) {
 			fixture := newBrainBriefOutputFixture(t)
@@ -440,6 +447,7 @@ func TestBriefOutputWriterFailuresPropagate(t *testing.T) {
 }
 
 func TestBriefOutputEmptyBranchUsesDefaultFactBranch(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	fixture.opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("git", "branch", "--show-current")] = fakeCommandResponse{}
 	packet, err := execute(t, NewRootCommand(fixture.opts), "brief", "PRIVATE_FACT_PAYLOAD", "--json", "--limit", "3")
@@ -456,6 +464,7 @@ func TestBriefOutputEmptyBranchUsesDefaultFactBranch(t *testing.T) {
 }
 
 func TestBriefOutputRootPromotesGitIntentWhenNoActionsExist(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
 	const rel = "scripts/install-hooks.sh"
 	path := filepath.Join(fixture.repoDir, filepath.FromSlash(rel))
@@ -533,6 +542,7 @@ func TestBriefOutputRootFactReceiptAndConversationProvenance(t *testing.T) {
 }
 
 func TestBriefOutputLikelyFileGroupingUsesEveryPublicEvidenceLane(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	for _, rel := range []string{"src/context.go", "src/neighbor.go", "src/relation.go", "src/runtime.go", "src/evidence.go", "src/root.go", "src/suggested.go", "src/changed.go", "src/history.go", "src/named.go", "src/context_test.go"} {
 		path := filepath.Join(repo, filepath.FromSlash(rel))

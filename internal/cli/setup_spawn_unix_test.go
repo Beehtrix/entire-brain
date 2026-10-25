@@ -3,11 +3,12 @@
 package cli
 
 import (
-	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // Detached backfills must lead a new session and process group.

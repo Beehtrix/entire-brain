@@ -17,6 +17,7 @@ import (
 // and a doc indexer that only walks markdown.
 
 func TestExtractableDocumentsAreSelectedFromDocs(t *testing.T) {
+	t.Parallel()
 	for path, want := range map[string]bool{
 		"docs/spec.pdf":            true,
 		"docs/design.docx":         true,
@@ -44,6 +45,7 @@ func TestExtractableDocumentsAreSelectedFromDocs(t *testing.T) {
 }
 
 func TestDocumentsOutsideDocsDoNotBypassTheBinaryChecks(t *testing.T) {
+	t.Parallel()
 	// The bypass in inspectSeedFile is what lets a PDF through two gates that
 	// exist to keep binaries out. If it were not scoped, every .pdf, .xlsx and
 	// .docx anywhere in the tree — test fixtures, vendored manuals, sample data
@@ -67,6 +69,7 @@ func TestDocumentsOutsideDocsDoNotBypassTheBinaryChecks(t *testing.T) {
 }
 
 func TestExtractableDocumentSurvivesTheBinaryChecks(t *testing.T) {
+	t.Parallel()
 	// Two separate gates reject binary files, and a PDF fails both: .pdf is on
 	// the extension denylist, and every PDF and zip contains NUL bytes. Either
 	// one silently drops the document before extraction is ever reached, and
@@ -130,6 +133,7 @@ func seedWithDocument(t *testing.T, name string, content []byte) (*seedScanResul
 }
 
 func TestSeedWritesExtractedTextAsMarkdown(t *testing.T) {
+	t.Parallel()
 	pdf := simplePDF(t, "BT /F1 12 Tf (The retry budget is thirty seconds.) Tj ET")
 	scan, outputDir := seedWithDocument(t, "spec.pdf", pdf)
 
@@ -159,6 +163,7 @@ func TestSeedWritesExtractedTextAsMarkdown(t *testing.T) {
 }
 
 func TestSeedIndexesExtractedTextForRetrieval(t *testing.T) {
+	t.Parallel()
 	// The whole point: text out of a PDF has to become retrievable chunks, the
 	// same as text out of a markdown file.
 	pdf := simplePDF(t, "BT /F1 12 Tf (Compaction runs only when the segment count exceeds eight.) Tj ET")
@@ -186,6 +191,7 @@ func TestSeedIndexesExtractedTextForRetrieval(t *testing.T) {
 }
 
 func TestSeedReadsTheWholeContainerNotAPrefix(t *testing.T) {
+	t.Parallel()
 	// A PDF's cross-references and a zip's central directory both live at the
 	// END of the file, so the prefix read used for markdown hands the extractor
 	// something it cannot parse. A small fixture hides this — it fits inside any
@@ -224,6 +230,7 @@ func TestSeedReadsTheWholeContainerNotAPrefix(t *testing.T) {
 }
 
 func TestSeedReportsADocumentItCouldNotRead(t *testing.T) {
+	t.Parallel()
 	// A scan must not vanish. The refresh succeeds either way, so silence here
 	// means somebody puts a PDF in docs/, sees no error, and never learns that
 	// nothing was indexed.
@@ -256,6 +263,7 @@ func TestSeedReportsADocumentItCouldNotRead(t *testing.T) {
 }
 
 func TestSeedStillCopiesMarkdownUnchanged(t *testing.T) {
+	t.Parallel()
 	// The extraction path must not disturb the one that already worked.
 	scan, outputDir := seedWithDocument(t, "notes.md", []byte("# Notes\n\nOriginal markdown, byte for byte.\n"))
 	if scan.Docs[0].Extracted {
@@ -282,6 +290,7 @@ func TestSeedStillCopiesMarkdownUnchanged(t *testing.T) {
 // This goes through writeSeedArtifacts on purpose. The earlier test called
 // writeSeedDocs directly and passed the whole time the bug was live.
 func TestSeedArtifactsCarryBackWhatExtractionDiscovered(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	outputDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
@@ -332,6 +341,7 @@ func TestSeedArtifactsCarryBackWhatExtractionDiscovered(t *testing.T) {
 // without opening it — so the index must be written after extraction, with the
 // answer extraction found.
 func TestFileIndexReportsADocumentThatCouldNotBeRead(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	outputDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
@@ -387,6 +397,7 @@ func TestFileIndexReportsADocumentThatCouldNotBeRead(t *testing.T) {
 // that ends the loop — so a small file can ask for an unbounded amount of
 // decompression work.
 func TestPDFDecompressionIsBoundedAcrossTheWholeDocument(t *testing.T) {
+	t.Parallel()
 	budget := newPDFDecodeBudget()
 	if !budget.spend(maxPDFTotalDecodedBytes / 2) {
 		t.Fatal("half the budget was refused")
@@ -412,6 +423,7 @@ func TestPDFDecompressionIsBoundedAcrossTheWholeDocument(t *testing.T) {
 }
 
 func TestPDFStopsReadingPagesOnceTheBudgetIsGone(t *testing.T) {
+	t.Parallel()
 	// A per-stream cap is not a bound on a document: thousands of pages, each
 	// inflating to that cap and producing almost no text, advance nothing that
 	// ends the loop. The budget is what ends it, and this proves the loop
@@ -464,6 +476,7 @@ func TestPDFStopsReadingPagesOnceTheBudgetIsGone(t *testing.T) {
 // inside a document whose content streams are properly bounded. Font streams
 // have to spend from the same allowance.
 func TestFontStreamsSpendFromTheDocumentBudget(t *testing.T) {
+	t.Parallel()
 	b := &pdfBuilder{}
 	b.add("<< /Type /Catalog /Pages 2 0 R >>")
 	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
@@ -502,6 +515,7 @@ func TestFontStreamsSpendFromTheDocumentBudget(t *testing.T) {
 // maxExtractZipEntries parts, each able to expand to the full cap before the
 // aggregate output check ever runs.
 func TestOfficePartsDrawDownOneAllowance(t *testing.T) {
+	t.Parallel()
 	// Slides whose XML is large and yields little text, so the output check
 	// does not end the loop — the shape that defeats a per-part budget.
 	filler := strings.Repeat("<a:p><a:r><a:t> </a:t></a:r></a:p>", 30000)
@@ -532,6 +546,7 @@ func TestOfficePartsDrawDownOneAllowance(t *testing.T) {
 // A document whose bytes cannot be read is as absent as one whose extraction
 // fails, and must reach the file index and the warnings the same way.
 func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	outputDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
@@ -593,6 +608,7 @@ func TestUnreadableDocumentBytesAreReportedLikeAFailedExtraction(t *testing.T) {
 // return also skipped the content hash, so editing a PDF under docs/ left the
 // fingerprint identical and the packet looked fresh when it was not.
 func TestEditingAnExtractableDocumentChangesItsHash(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repoDir, "docs"), 0o755); err != nil {
 		t.Fatal(err)
@@ -635,6 +651,7 @@ func TestEditingAnExtractableDocumentChangesItsHash(t *testing.T) {
 // The document below has no page tree, so the page path yields nothing and the
 // fallback runs — with a CMap stream present for it to re-decode.
 func TestPDFFallbackDoesNotDecodeCMapStreamsTwice(t *testing.T) {
+	t.Parallel()
 	b := &pdfBuilder{}
 	b.add("<< /Type /Catalog >>") // no /Pages: forces the fallback
 	b.addStream(t, "/Type /CMap", strings.Repeat("begincmap endcmap\n", 400))
@@ -666,6 +683,7 @@ func TestPDFFallbackDoesNotDecodeCMapStreamsTwice(t *testing.T) {
 // decompression bomb the document-wide budget exists to stop, reachable before
 // the first page is read.
 func TestObjectStreamExpansionSpendsTheDocumentBudget(t *testing.T) {
+	t.Parallel()
 	b := &pdfBuilder{}
 	b.add("<< /Type /Catalog >>")
 	// A highly compressible object stream: small on disk, large decompressed.
@@ -690,6 +708,7 @@ func TestObjectStreamExpansionSpendsTheDocumentBudget(t *testing.T) {
 // product decides make([]byte, rowLen). A file could ask for an allocation far
 // larger than anything it actually contained.
 func TestPredictorRefusesParametersThatWouldOverAllocate(t *testing.T) {
+	t.Parallel()
 	data := []byte("short stream")
 	for _, tc := range []struct {
 		name  string
@@ -719,6 +738,7 @@ func TestPredictorRefusesParametersThatWouldOverAllocate(t *testing.T) {
 // A legal predictor must still work, or the bounds above would have closed the
 // feature rather than the hole.
 func TestPredictorStillAppliesForLegalParameters(t *testing.T) {
+	t.Parallel()
 	// Two PNG-Up rows (tag 2), one byte wide: 1, then +2 => 3.
 	raw := []byte{2, 1, 2, 2}
 	got := pdfApplyPredictor(raw, map[string]pdfValue{

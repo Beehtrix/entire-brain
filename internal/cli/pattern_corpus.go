@@ -17,6 +17,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Pattern corpus (V2, Phase 1).
@@ -1013,7 +1015,7 @@ func readPinnedPatternCorpusPublication(pinned *pinnedPatternCorpusDirectory) (p
 	if !present || info.Size() < 1 || info.Size() > patternCorpusPublicationMarkerMax {
 		return publication, nil, fmt.Errorf("%s: pattern corpus publication marker is missing or malformed", memoryErrStateUnsafe)
 	}
-	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	marker, err := pinned.patternsRoot.OpenFile(patternCorpusPublicationMarkerName, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return publication, nil, fmt.Errorf("%s: open pattern corpus publication marker: %w", memoryErrStateUnsafe, err)
 	}
@@ -1051,7 +1053,7 @@ func validatePinnedPatternCorpusDatabase(root *os.Root, name string, publication
 	if !present || info.Size() != publication.Size {
 		return nil, fmt.Errorf("%s: pattern corpus recovery candidate is missing or changed", memoryErrStateUnsafe)
 	}
-	source, err := root.OpenFile(name, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	source, err := root.OpenFile(name, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, fmt.Errorf("%s: open pattern corpus recovery candidate: %w", memoryErrStateUnsafe, err)
 	}
@@ -1399,7 +1401,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 			 source_path, start_line, end_line, intent_raw, intent_sig, n_tools, tool_mix, files, n_cmds, exit_fails, outcome, outcome_source)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			epID, epKey, repoKey, "", s.SessionID, s.LatestCheckpoint, s.TurnID, ord, s.Branch, author, s.Agent, createdAt,
-			filepath.ToSlash(rel), startLine, endLine, redactText(truncateString(seg.Request.Text, 280)), intentSignature(seg.Request.Text),
+			filepath.ToSlash(rel), startLine, endLine, redactText(base.TruncateString(seg.Request.Text, 280)), intentSignature(seg.Request.Text),
 			len(tools), toolMix(tools), filesJSON(files), len(commands), exitFails, outcome, outcomeSource,
 		); err != nil {
 			return err

@@ -115,7 +115,7 @@ func TestEntityAndSemanticAgreeOnMissingProvider(t *testing.T) {
 	}
 	entity := entityErr.Error()
 
-	for label, text := range map[string]string{"semantic index": semantic, "entity index": entity} {
+	for label, text := range map[string]string{"code index": semantic, "entity index": entity} {
 		if !strings.Contains(text, remedy) {
 			t.Errorf("%s does not carry the shared remedy sentence:\n got %s\nwant ...%s", label, text, remedy)
 		}

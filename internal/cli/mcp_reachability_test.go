@@ -376,3 +376,28 @@ func TestFakeServerDrainKeepsStdinOpen(t *testing.T) {
 		}
 	}
 }
+
+// Unwiring the check from doctor left every other guard in this file green:
+// they all call checkMCPSurfaceReachable directly, so none of them observes
+// whether doctor runs it. This one does, through the seam, so it never spawns
+// a process.
+func TestDoctorActuallyRunsTheMCPSurfaceCheck(t *testing.T) {
+	ran := false
+	original := doctorMCPSurfaceCheck
+	doctorMCPSurfaceCheck = func(ctx context.Context, getenv func(string) string, exePath func() (string, error), add func(name, state, detail string)) {
+		ran = true
+		if getenv == nil || exePath == nil || add == nil {
+			t.Error("doctor passed a nil argument to the MCP surface check")
+		}
+	}
+	t.Cleanup(func() { doctorMCPSurfaceCheck = original })
+
+	// A real repo and brain, so doctor runs its whole report rather than
+	// bailing out before or after the call under test.
+	opts, repoDir, _ := factsAvailabilityFixture(t)
+	brainDoctorReadOnlyReport(context.Background(), opts, repoDir)
+
+	if !ran {
+		t.Fatal("doctor did not run the MCP surface check at all")
+	}
+}

@@ -70,7 +70,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 		Use:   "verify <workspace>",
 		Short: "Agent-judge cross-repo families: merge equivalent workflows across repos by meaning (explicit, egress-gated, cached)",
 		Long: "Add the workspace judgment layer on top of exact aggregation: group member-repo task " +
-			"candidates into cross-repo families by semantic trigger + procedure purpose (equivalent workflows " +
+			"candidates into cross-repo families by trigger meaning + procedure purpose (equivalent workflows " +
 			"with different command names/order merge; generic git workflows are rejected). An accepted family " +
 			"dossier is required before `workspace patterns skills form`. The only agent path for workspaces; " +
 			"egress-gated and cached by the member-candidate fingerprint.",

@@ -26,7 +26,7 @@ func sampleSnapshot() Snapshot {
 			Sources: []SourceHealth{
 				{Name: "Seed", Present: true, Detail: "3 entrypoints"},
 				{Name: "Sessions", Present: true, Detail: "14 sessions"},
-				{Name: "Semantic", Present: true, Detail: "55 symbols · 8 files"},
+				{Name: "Code", Present: true, Detail: "55 symbols · 8 files"},
 				{Name: "History", Present: false, Detail: ""},
 				{Name: "Facts", Present: true, Detail: "12 facts across 1 branch(es)"},
 			},
@@ -156,7 +156,7 @@ func TestRenderDetailPerTab(t *testing.T) {
 		idx  int
 		want []string
 	}{
-		{TabHome, 0, []string{"Sources", "Semantic", "55 symbols", "Freshness", "Blind spots"}},
+		{TabHome, 0, []string{"Sources", "Code", "55 symbols", "Freshness", "Blind spots"}},
 		{TabFacts, 0, []string{"Fact", "SQLite", "Provenance", "decision"}},
 		{TabSessions, 0, []string{"Activity", "claude-code", "shipped", "checkpoints"}},
 		{TabHistory, 0, []string{"Summary", "RRF"}},
@@ -178,7 +178,7 @@ func TestViewSmoke(t *testing.T) {
 	m := NewModel(sampleSnapshot(), th)
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	view := updated.(Model).View()
-	for _, want := range []string{"entire-brain", "/work/acme", "Home", "Facts (3)", "Semantic (1)"} {
+	for _, want := range []string{"entire-brain", "/work/acme", "Home", "Facts (3)", "Code (1)"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("View missing %q", want)
 		}

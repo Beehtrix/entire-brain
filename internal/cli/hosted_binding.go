@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // hostedRepoBinding is the repo-level hosted-brain connection state, written
@@ -61,7 +63,7 @@ func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
 
 func readHostedRepoBinding(brainDir string) (hostedRepoBinding, bool, error) {
 	var binding hostedRepoBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}

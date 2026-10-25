@@ -14,11 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"strconv"
+
+	"github.com/spf13/cobra"
 )
 
 type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)

@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Episode layer (Pattern Consolidation, Phase 1).
@@ -199,7 +201,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 				Branch:          session.Branch,
 				Author:          author,
 				Agent:           session.Agent,
-				Intent:          truncateString(turn.Text, 280),
+				Intent:          base.TruncateString(turn.Text, 280),
 				IntentSignature: intentSignature(turn.Text),
 				ToolSequence:    tools,
 				CommandSequence: commands,

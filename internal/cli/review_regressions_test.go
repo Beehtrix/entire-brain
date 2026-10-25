@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // This file locks the defects found reviewing this branch. Every case below
@@ -622,7 +624,7 @@ func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 // violation, which is the one thing this surface promises not to do.
 func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
 	// A genuine bound violation is still reported as one.
-	if _, err := safeReadAll(strings.NewReader(strings.Repeat("x", 64)), 8, "probe"); err == nil {
+	if _, err := base.SafeReadAll(strings.NewReader(strings.Repeat("x", 64)), 8, "probe"); err == nil {
 		t.Fatal("oversized read must fail")
 	} else {
 		var bound *readBoundExceededError
@@ -635,7 +637,7 @@ func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
 	}
 	// An I/O failure must NOT be classified as a bound violation.
 	injected := errors.New("injected device failure")
-	_, err := safeReadAll(iotest.ErrReader(injected), 1<<20, "probe")
+	_, err := base.SafeReadAll(iotest.ErrReader(injected), 1<<20, "probe")
 	if !errors.Is(err, injected) {
 		t.Fatalf("read failure = %v, want the underlying error", err)
 	}
@@ -676,10 +678,10 @@ func TestLineTranscriptExpansionIsNotBoundedByTheDocumentCap(t *testing.T) {
 		Line: 1, EndLine: 2, Summary: "stored projection", ContentRole: conversationContentRole,
 		SourceDigest: conversationDigest(raw),
 	}
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 1024 // far below the transcript size
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
-	if int64(len(raw)) <= maxDocumentTranscriptBytes {
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 1024 // far below the transcript size
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
+	if int64(len(raw)) <= base.MaxDocumentTranscriptBytes {
 		t.Fatalf("fixture invalid: transcript must exceed the document cap (%d bytes)", len(raw))
 	}
 

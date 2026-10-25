@@ -18,11 +18,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -628,7 +628,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 		}
 		seen[key] = struct{}{}
 		match := historyRecordTextMatch(record)
-		match.Excerpt = strings.TrimSpace(truncateString(match.Excerpt, 280))
+		match.Excerpt = strings.TrimSpace(base.TruncateString(match.Excerpt, 280))
 		matches = append(matches, match)
 		if len(matches) >= limit {
 			break
@@ -4235,7 +4235,7 @@ func brainBriefLimitNormalizationActionsForFile(rel, source string) []brainBrief
 			File:     rel,
 			Symbol:   currentSymbol,
 			Action:   action,
-			Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+			Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 		})
 	}
 	return actions
@@ -4412,7 +4412,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete the loop-scoped browser response-id accumulator line; do not replace it with another accumulator. Each agentic perception turn must be built from fresh observed page state and recent local history.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && (strings.Contains(trimmed, "previousResponseId:") || trimmed == "previousResponseId") {
@@ -4422,7 +4422,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && trimmed == "};" {
@@ -4432,7 +4432,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete this browser-loop response-id carry-forward assignment entirely; browser decider turns should not chain `decision.previousResponseId` into later perception turns.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4463,7 +4463,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Preserve string conversion for Responses API metadata values.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 			})
 			continue
 		}
@@ -4474,7 +4474,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4527,7 +4527,7 @@ func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target s
 }
 
 func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, lightweight bool) (brainStatusReport, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
 	}
@@ -4847,12 +4847,12 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 
 func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest) (brainLiveState, error) {
 	var live brainLiveState
-	if head, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
+	if head, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
 		live.Head = head
 	} else {
 		live.Warnings = append(live.Warnings, "HEAD unavailable: "+err.Error())
 	}
-	if branch, err := gitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if branch, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		live.Branch = branch
 	} else {
 		live.Warnings = append(live.Warnings, "branch unavailable: "+err.Error())
@@ -4896,7 +4896,7 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	// --shortstat path reads content, so such a file is dropped from both.
 	// (The raw `diff-index --name-status` path does NOT read content and would
 	// report it, which is why this swap is safe only for stat output.)
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
+	if stat, err := base.GitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())
@@ -5548,7 +5548,7 @@ func historyRawLineExcerpt(line, query string) string {
 		}
 	}
 	if idx == -1 {
-		return strings.TrimSpace(truncateString(text, 700))
+		return strings.TrimSpace(base.TruncateString(text, 700))
 	}
 	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
 	// through rune positions before taking a byte-bounded original window.
@@ -5573,7 +5573,7 @@ func historyRawLineExcerpt(line, query string) string {
 	for end < len(text) && !utf8.RuneStart(text[end]) {
 		end++
 	}
-	return strings.TrimSpace(truncateString(text[start:end], 900))
+	return strings.TrimSpace(base.TruncateString(text[start:end], 900))
 }
 
 func normalizeHistoryTextForExcerpt(text string) string {
@@ -5705,26 +5705,4 @@ func agentSurfaceTarget(opts Options, args []string) string {
 		return opts.Env.RepoRoot
 	}
 	return "."
-}
-
-func truncateString(value string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if len(value) <= max {
-		return value
-	}
-	// Cut on a rune boundary so we never split a multi-byte UTF-8 rune in
-	// real (non-ASCII) transcripts, which would emit invalid UTF-8.
-	limit := max
-	suffix := ""
-	if max > 3 {
-		limit = max - 3
-		suffix = "..."
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(value[cut]) {
-		cut--
-	}
-	return value[:cut] + suffix
 }

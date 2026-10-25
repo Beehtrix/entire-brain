@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -317,7 +319,7 @@ func vitalityHead(ctx context.Context, runner CommandRunner, repoDir string) str
 	if runner == nil || repoDir == "" {
 		return ""
 	}
-	head, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	head, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}
@@ -348,7 +350,7 @@ func unifiedFactIDs(results []unifiedResult) []string {
 
 func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityRollupRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return newVitalityRollup(), nil
@@ -382,7 +384,7 @@ func writeVitalityRollup(brainDir, branch string, rollup vitalityRollup) error {
 
 func readVitalityLog(brainDir, branch string) ([]byte, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

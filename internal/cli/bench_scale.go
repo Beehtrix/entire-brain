@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -163,7 +164,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if benchOpts.repeats < 1 {
 		return fmt.Errorf("--repeats must be at least 1")
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -180,7 +181,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if len(report.Queries) == 0 {
 		report.Queries = defaultScaleQueries()
 	}
-	if commit, cerr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); cerr == nil {
+	if commit, cerr := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); cerr == nil {
 		report.Commit = strings.TrimSpace(commit)
 	}
 
@@ -286,7 +287,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	}
 
 	branch := distillDefaultBranch
-	if current, berr := gitScalar(ctx, benchRun.Runner, repoDir, "branch", "--show-current"); berr == nil && strings.TrimSpace(current) != "" {
+	if current, berr := base.GitScalar(ctx, benchRun.Runner, repoDir, "branch", "--show-current"); berr == nil && strings.TrimSpace(current) != "" {
 		branch = strings.TrimSpace(current)
 	}
 	// Code search is the measurement the large-codebase comparison is about: it

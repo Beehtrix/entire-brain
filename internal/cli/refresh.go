@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -1001,7 +1002,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 		return true, nil
 	}
 	seed := manifest.Sources.Seed
-	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
+	head, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for seed refresh: %w", err))
 	}

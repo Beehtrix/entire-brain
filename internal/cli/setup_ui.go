@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mattn/go-isatty"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/mattn/go-isatty"
 )
 
 // setup_ui.go is the seam between setup's orchestration and the seven-phase
@@ -446,10 +446,10 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if dirty, err := worktreeDirty(ctx, runner, repoDir); err == nil {
 		facts.Dirty = dirty
 	}
-	branch, branchErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	branch, branchErr := base.GitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
 	branch = strings.TrimSpace(branch)
 
-	count, err := gitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
+	count, err := base.GitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
 	if err == nil {
 		if parsed, convErr := strconv.Atoi(strings.TrimSpace(count)); convErr == nil && parsed >= 0 {
 			facts.Commits = parsed
@@ -470,7 +470,7 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if branchErr != nil || branch == "" {
 		return facts, false
 	}
-	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
+	if _, resolved := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
 		facts.Commits = 0
 		return facts, true
 	}

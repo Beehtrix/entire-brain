@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // TestHistoryTranscriptSingleReadYieldsDigestAndRecords locks the single-read
@@ -305,7 +307,7 @@ func scanDocumentHistoryFileHashThenScanReference(f *os.File, rel string) ([]his
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil
 	}
-	data, err := safeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), maxDocumentTranscriptBytes, "document transcript "+rel)
+	data, err := base.SafeReadAll(io.MultiReader(bytes.NewReader(probe[:n]), f), base.MaxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}

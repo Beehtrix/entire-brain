@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Procedure-skill source (PR #44 follow-up): skills from corrected episodes.
@@ -146,7 +148,7 @@ func lessonRecord(pl proposedLesson, members []string, repoKey string) deepDossi
 	var knowledge []string
 	for _, k := range pl.Knowledge {
 		if s := strings.TrimSpace(k); s != "" {
-			knowledge = append(knowledge, truncateString(s, 280))
+			knowledge = append(knowledge, base.TruncateString(s, 280))
 		}
 	}
 	return deepDossierRecord{
@@ -154,11 +156,11 @@ func lessonRecord(pl proposedLesson, members []string, repoKey string) deepDossi
 		PatternID:        id,
 		Archetype:        "procedure",
 		Fingerprint:      "sha256:" + hexSHA("lesson\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            truncateString(strings.TrimSpace(firstNonEmpty(pl.Title, "lesson")), 120),
-		Trigger:          truncateString(strings.TrimSpace(pl.Trigger), 280),
-		NotWhen:          truncateString(strings.TrimSpace(pl.NotWhen), 280),
+		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pl.Title, "lesson")), 120),
+		Trigger:          base.TruncateString(strings.TrimSpace(pl.Trigger), 280),
+		NotWhen:          base.TruncateString(strings.TrimSpace(pl.NotWhen), 280),
 		Knowledge:        knowledge,
-		FailureModes:     []deepFailureMode{{Failure: truncateString(strings.TrimSpace(pl.Failure), 280), Recovery: truncateString(strings.TrimSpace(pl.Recovery), 280)}},
+		FailureModes:     []deepFailureMode{{Failure: base.TruncateString(strings.TrimSpace(pl.Failure), 280), Recovery: base.TruncateString(strings.TrimSpace(pl.Recovery), 280)}},
 		EvidenceEpisodes: len(members),
 	}
 }
@@ -249,7 +251,7 @@ func sampleCorrectedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, 
 		}
 		sample = append(sample, map[string]string{
 			"episode_key":     r.key,
-			"intent":          redactText(truncateString(r.intent, 160)),
+			"intent":          redactText(base.TruncateString(r.intent, 160)),
 			"outcome":         r.outcome,
 			"failing_command": redactText(failing),
 			"excerpt":         ex,

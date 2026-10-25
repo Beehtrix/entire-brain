@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -138,7 +139,7 @@ type shortTermFile struct {
 // falls back to exact long-term-only behavior.
 func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	data, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), base.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -183,7 +184,7 @@ func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortT
 // from this view.
 func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	data, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), base.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -1000,7 +1001,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		}
 	}
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return shortTermStats{}, err
 	}

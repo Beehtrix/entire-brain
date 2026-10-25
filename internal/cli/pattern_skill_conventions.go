@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Capability-skill source (PR #44 follow-up): skills from durable conventions.
@@ -152,13 +154,13 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 	var knowledge []string
 	for _, k := range pc.Knowledge {
 		if s := strings.TrimSpace(k); s != "" {
-			knowledge = append(knowledge, truncateString(s, 280))
+			knowledge = append(knowledge, base.TruncateString(s, 280))
 		}
 	}
 	var facts []string
 	for _, m := range members {
 		if txt := strings.TrimSpace(factText[m]); txt != "" {
-			facts = append(facts, truncateString(txt, 280))
+			facts = append(facts, base.TruncateString(txt, 280))
 		}
 	}
 	return deepDossierRecord{
@@ -166,9 +168,9 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 		PatternID:        id,
 		Archetype:        "capability",
 		Fingerprint:      "sha256:" + hexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            truncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
-		Trigger:          truncateString(strings.TrimSpace(pc.Trigger), 280),
-		NotWhen:          truncateString(strings.TrimSpace(pc.NotWhen), 280),
+		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
+		Trigger:          base.TruncateString(strings.TrimSpace(pc.Trigger), 280),
+		NotWhen:          base.TruncateString(strings.TrimSpace(pc.NotWhen), 280),
 		Knowledge:        knowledge,
 		Facts:            facts,
 		EvidenceEpisodes: len(members),
@@ -288,7 +290,7 @@ func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, ma
 		sample = append(sample, map[string]string{
 			"fact_id":  e.f.ID,
 			"kind":     e.f.Kind,
-			"text":     redactText(truncateString(e.f.Text, 280)),
+			"text":     redactText(base.TruncateString(e.f.Text, 280)),
 			"locus":    redactText(strings.Join(e.f.Locus, ", ")),
 			"episodes": fmt.Sprintf("%d", e.count),
 		})

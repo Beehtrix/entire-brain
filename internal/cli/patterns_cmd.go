@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -495,7 +496,7 @@ func resolvePatternsBrainDir(ctx context.Context, opts Options, target string) (
 // resolvePatternsRepoAndBrain resolves both the local repo directory (needed as
 // the agent runner's working dir) and the brain storage dir for that repo.
 func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target string) (repoDir, brainDir string, err error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return "", "", err
 	}

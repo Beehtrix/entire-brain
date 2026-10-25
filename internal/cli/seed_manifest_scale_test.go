@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // coverageFixture builds a history-coverage record whose per-commit gap list has
@@ -50,7 +52,7 @@ func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if int64(len(unbounded)) <= maxManifestBytes {
+	if int64(len(unbounded)) <= base.MaxManifestBytes {
 		t.Fatalf("fixture is too small to exercise the bound: %d bytes", len(unbounded))
 	}
 
@@ -59,7 +61,7 @@ func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal bounded: %v", err)
 	}
-	if int64(len(encoded)) > maxManifestBytes {
+	if int64(len(encoded)) > base.MaxManifestBytes {
 		t.Fatalf("bounded coverage is still over the manifest read bound: %d bytes", len(encoded))
 	}
 	if got := len(bounded.UncoveredCommits); got != seedManifestMaxUncoveredCommits {
@@ -149,8 +151,8 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat manifest: %v", err)
 	}
-	if info.Size() > maxManifestBytes {
-		t.Fatalf("seed wrote a %d byte manifest against a %d byte read bound", info.Size(), maxManifestBytes)
+	if info.Size() > base.MaxManifestBytes {
+		t.Fatalf("seed wrote a %d byte manifest against a %d byte read bound", info.Size(), base.MaxManifestBytes)
 	}
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -214,9 +216,9 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 	records := 50000
 	if !observedScale() {
 		records = 1000
-		prev := maxManifestBytes
-		maxManifestBytes = 256 << 10
-		t.Cleanup(func() { maxManifestBytes = prev })
+		prev := base.MaxManifestBytes
+		base.MaxManifestBytes = 256 << 10
+		t.Cleanup(func() { base.MaxManifestBytes = prev })
 	}
 	brainDir := t.TempDir()
 	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
@@ -229,7 +231,7 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() <= maxManifestBytes {
+	if info.Size() <= base.MaxManifestBytes {
 		t.Fatal("fixture did not exceed old ceiling")
 	}
 	got, err := loadBrainManifest(brainDir)

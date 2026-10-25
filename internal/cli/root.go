@@ -14,16 +14,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
-
-type Options struct {
-	Version string
-	Env     EntireEnv
-	Runner  CommandRunner
-	Now     func() time.Time
-}
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
@@ -133,7 +127,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))
-	addGrouped("operations", newEntitiesCommand(opts))
+	addGrouped("operations", entities.NewCommand(entityConfig(opts)))
 	addGrouped("code", newVizCommand(opts))
 	addGrouped("operations", newSemanticRepairCommand(opts))
 

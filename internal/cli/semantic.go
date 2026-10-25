@@ -14,6 +14,9 @@ import (
 	"io"
 	"math"
 	"os"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+
 	pathpkg "path"
 	"path/filepath"
 	"runtime"
@@ -26,9 +29,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/internal/providerdetail"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -465,7 +467,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 	if !resetOpts.force {
 		return errors.New("reset requires --force")
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -1839,14 +1841,6 @@ func trimPathPositionSuffix(token string) string {
 	}
 }
 
-func gitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(stdout)), nil
-}
-
 // worktreeDirty answers the GATE question — "is there uncommitted work here
 // that a HEAD-attributed index must not absorb?" — so it reads the gate ignore,
 // not the indexing one.
@@ -2246,7 +2240,7 @@ type brainBlindSpot struct {
 }
 
 func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([]brainBlindSpot, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return nil, err
 	}
@@ -2298,7 +2292,7 @@ func semanticStaleReport(ctx context.Context, opts Options, target string) (stal
 
 // Status checks availability and freshness; doctor and retrieval retain content validation.
 func semanticFreshnessReport(ctx context.Context, opts Options, target string, audit bool) (staleReport, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return staleReport{}, err
 	}
@@ -2873,7 +2867,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	// error on the changes command. Skipped on a clean tree — no changed files
 	// means there is nothing to match a fact's locus against.
 	if !report.Clean {
-		if branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
+		if branch, branchErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
 			if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
 				report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
 			}
@@ -4934,7 +4928,7 @@ func addBundlePath(tw *tar.Writer, root, rel string) error {
 	if info.IsDir() {
 		return nil
 	}
-	data, err := safeReadFile(path, semanticSnapshotMaxBytes())
+	data, err := base.SafeReadFile(path, base.SemanticSnapshotMaxBytes())
 	if err != nil {
 		return err
 	}
@@ -5460,7 +5454,7 @@ func restoreBundleBrainLayers(brainDir, bundleRoot string) ([]string, error) {
 			continue
 		}
 		for _, rel := range paths {
-			content, err := safeReadFile(filepath.Join(bundleRoot, rel), semanticSnapshotMaxBytes())
+			content, err := base.SafeReadFile(filepath.Join(bundleRoot, rel), base.SemanticSnapshotMaxBytes())
 			if err != nil {
 				return nil, err
 			}

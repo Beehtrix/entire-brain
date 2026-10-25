@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestBriefResidualLikelyFilesEnforcesCombinedCap(t *testing.T) {
@@ -30,7 +32,7 @@ func TestBriefResidualLikelyFilesEnforcesCombinedCap(t *testing.T) {
 		t.Fatalf("combined cap/order=%#v, want edit prefix plus first four tests %#v", all, wantAll)
 	}
 	for _, dropped := range tests[4:] {
-		if containsString(all, dropped) {
+		if base.ContainsString(all, dropped) {
 			t.Fatalf("combined cap retained tail %q in %#v", dropped, all)
 		}
 	}

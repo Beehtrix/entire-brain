@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -319,7 +321,7 @@ func mcpConfigRepoRoot(ctx context.Context, opts Options) string {
 		}
 		target = wd
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		return ""
 	}
@@ -1648,7 +1650,7 @@ func handleMCPToolCall(ctx context.Context, opts Options, raw json.RawMessage) (
 			}
 			// Same query path as `entities history --json`, so the agent
 			// surface and the CLI can never disagree about who changed what.
-			err = runEntitiesHistory(ctx, cmd, opts, query, branch, limit, true, target)
+			err = entities.RunHistory(ctx, cmd, entityConfig(opts), query, branch, limit, true, target)
 		}
 	default:
 		err = mcpInvalidParams("unknown tool: %s", params.Name)
@@ -1897,7 +1899,7 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 			}
 			// Explicitly opted-in unbound servers may use the process CWD.
 			target := "."
-			repoDir, local, resolveErr := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+			repoDir, local, resolveErr := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 			if resolveErr != nil {
 				return resolveErr
 			}
@@ -2060,7 +2062,7 @@ func mcpBoundRepoStorageSet(ctx context.Context, opts Options) (repoStorageSet, 
 	if root == "" {
 		return repoStorageSet{}, false, nil
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, root)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, root)
 	if err != nil {
 		return repoStorageSet{}, false, err
 	}
@@ -2099,7 +2101,7 @@ func mcpRepoLocalStorage(ctx context.Context, opts Options) (repoStorage, bool, 
 	if !bound {
 		target = "."
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		// An unbound server outside any repository is the refusal case, not an
 		// error case: report it the way the bound-repo gate reports its own.
@@ -2276,7 +2278,7 @@ func mcpValidateWorkspaceScope(ctx context.Context, opts Options, tool string, m
 		if enforceIndexContainment(scopeRoot, workspaceMemberScopePath(hint)) != nil {
 			return nil, nil, mcpCrossRepoRefusal(tool, fmt.Sprintf("workspace %q includes repo %q outside %s", manifest.Name, repo.RepoKey, scopeRoot), boundKey)
 		}
-		repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, hint)
+		repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, hint)
 		if err != nil || !local {
 			// The member's declared location is inside scopeRoot (checked
 			// immediately above); the checkout simply is not there -- deleted,

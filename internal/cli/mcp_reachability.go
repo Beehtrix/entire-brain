@@ -193,8 +193,30 @@ func mcpProbeExitError(step, binary string, cause error, stderr *lockedBuilder) 
 
 // readMCPFrame reads one Content-Length framed message, the framing a host
 // speaks.
+//
+// THE ANNOUNCED LENGTH IS NOT TRUSTED, and the reason is the whole premise of
+// this check: it runs when something is already wrong with the server, so a
+// malformed or hostile frame is the expected case, not the exotic one. The body
+// buffer is sized from a number the child process chose, so a child that
+// announces `Content-Length: 2000000000` and sends nothing would have doctor
+// allocate two gigabytes and get itself OOM-killed -- before mcpProbeTimeout
+// has anything to say about it, because a timeout bounds waiting, not
+// allocating. Both bounds below are therefore checked BEFORE the make.
+//
+// The ceiling is maxMCPFrameBytes, the same one readMCPMessage enforces on the
+// server's own inbound frames: one number for one wire format, and no new
+// constant to drift. It is generous for this reader by construction, because
+// the server's own outbound budget cannot exceed it -- 32 KiB by default, and
+// resolveMCPToolResponseMaxBytes clamps any override to this same limit -- so
+// a legitimate tools/list response cannot be the thing this refuses.
+//
+// A zero length is legal framing with an empty body and stays accepted, which
+// matches readMCPMessage: the empty payload then fails JSON decoding, where it
+// is named accurately, rather than being refused here as a framing error it is
+// not.
 func readMCPFrame(reader *bufio.Reader) ([]byte, error) {
-	length := -1
+	const noContentLength = -1
+	length := noContentLength
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -213,11 +235,28 @@ func readMCPFrame(reader *bufio.Reader) ([]byte, error) {
 			if err != nil {
 				return nil, fmt.Errorf("unparsable Content-Length %q", strings.TrimSpace(value))
 			}
+			// A negative length is the other half of the same defect, and it
+			// was reported as the wrong thing entirely: -1 landed on the
+			// sentinel below and came back as "no Content-Length header",
+			// blaming a header the server did send. Refusing it here is also
+			// what keeps that sentinel's message true, and it is what keeps a
+			// negative out of make([]byte, n), which panics.
+			if parsed < 0 {
+				return nil, fmt.Errorf("Content-Length %d must be non-negative", parsed)
+			}
 			length = parsed
 		}
 	}
+	// `< 0`, not `== noContentLength`: the only negative that can reach here is
+	// the sentinel, because the parse above refuses a negative the server sent
+	// -- but a total comparison keeps make([]byte, n) unreachable for ANY
+	// negative, so a future edit that loses the parse check is misnamed rather
+	// than a panic.
 	if length < 0 {
 		return nil, errors.New("response had no Content-Length header")
+	}
+	if length > maxMCPFrameBytes {
+		return nil, &mcpOversizeFrameError{length: length}
 	}
 	body := make([]byte, length)
 	if _, err := io.ReadFull(reader, body); err != nil {

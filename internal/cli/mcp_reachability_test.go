@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bufio"
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -399,5 +403,152 @@ func TestDoctorActuallyRunsTheMCPSurfaceCheck(t *testing.T) {
 
 	if !ran {
 		t.Fatal("doctor did not run the MCP surface check at all")
+	}
+}
+
+// --- the announced length is not the server's to be trusted with ---------
+//
+// readMCPFrame sizes its body buffer from a number the child process chose.
+// The child is this project's own binary, which is exactly the reasoning that
+// left it unbounded -- and exactly the reasoning that does not hold here: this
+// check runs when something about that binary is ALREADY wrong, so a malformed
+// frame is its expected input, not an exotic one. A declared length of two
+// gigabytes has to be refused by the number, before the allocation, because a
+// process killed by the allocator reports nothing at all and mcpProbeTimeout
+// bounds waiting rather than allocating.
+//
+// These drive the reader directly instead of through a fake server: that the
+// refusal happens before a single body byte is read is not observable from
+// outside the process, and a fake cannot be made to announce a length its
+// shell could not also be made to send.
+
+// headerOnlyFrame yields a frame header with NO body, so any read of a body is
+// a read that cannot succeed.
+func headerOnlyFrame(contentLength string) *bufio.Reader {
+	return bufio.NewReader(strings.NewReader("Content-Length: " + contentLength + "\r\n\r\n"))
+}
+
+// TestReadMCPFrameRefusesAnOversizedContentLength is the bound itself.
+func TestReadMCPFrameRefusesAnOversizedContentLength(t *testing.T) {
+	t.Parallel()
+	for _, length := range []int{maxMCPFrameBytes + 1, maxMCPFrameBytes * 4} {
+		_, err := readMCPFrame(headerOnlyFrame(strconv.Itoa(length)))
+		if err == nil {
+			t.Fatalf("Content-Length %d was accepted", length)
+		}
+		var oversize *mcpOversizeFrameError
+		if !errors.As(err, &oversize) {
+			t.Fatalf("Content-Length %d: want an oversize frame error, got %T: %v", length, err, err)
+		}
+		// BOTH numbers, because a reader who is told only "too large" has to
+		// go to the source to find out what the limit was and what the server
+		// claimed.
+		if !strings.Contains(err.Error(), strconv.Itoa(length)) {
+			t.Fatalf("the error must name the announced length %d, got: %v", length, err)
+		}
+		if !strings.Contains(err.Error(), strconv.Itoa(maxMCPFrameBytes)) {
+			t.Fatalf("the error must name the cap %d, got: %v", maxMCPFrameBytes, err)
+		}
+	}
+}
+
+// TestReadMCPFrameAcceptsALengthAtTheCap pins the comparison at `>` and not
+// `>=`: a frame exactly at the limit is within it, so the only thing that may
+// end this read is the body that never came.
+func TestReadMCPFrameAcceptsALengthAtTheCap(t *testing.T) {
+	t.Parallel()
+	_, err := readMCPFrame(headerOnlyFrame(strconv.Itoa(maxMCPFrameBytes)))
+	if err == nil {
+		t.Fatal("a header with no body must not read clean")
+	}
+	var oversize *mcpOversizeFrameError
+	if errors.As(err, &oversize) {
+		t.Fatalf("a length exactly at the cap is within the cap, got: %v", err)
+	}
+}
+
+// TestReadMCPFrameRefusesANegativeContentLength is the other half of the same
+// defect. make([]byte, n) panics on a negative n, and the sentinel that kept
+// it from getting there reported the wrong thing entirely: -1 came back as
+// "response had no Content-Length header", blaming the server for omitting a
+// header it had sent.
+func TestReadMCPFrameRefusesANegativeContentLength(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"-1", "-2000000000"} {
+		_, err := readMCPFrame(headerOnlyFrame(value))
+		if err == nil {
+			t.Fatalf("Content-Length %s was accepted", value)
+		}
+		if !strings.Contains(err.Error(), "must be non-negative") {
+			t.Fatalf("Content-Length %s must be refused as negative, got: %v", value, err)
+		}
+		if strings.Contains(err.Error(), "no Content-Length header") {
+			t.Fatalf("Content-Length %s was misreported as a MISSING header: %v", value, err)
+		}
+		if !strings.Contains(err.Error(), value) {
+			t.Fatalf("the error must name the announced length, got: %v", err)
+		}
+	}
+}
+
+// TestReadMCPFrameStillReportsAMissingContentLength: the sentinel's own
+// message has to survive the negative check that now precedes it, because a
+// header that really is absent is a different diagnosis.
+func TestReadMCPFrameStillReportsAMissingContentLength(t *testing.T) {
+	t.Parallel()
+	_, err := readMCPFrame(bufio.NewReader(strings.NewReader("Content-Type: application/json\r\n\r\n{}")))
+	if err == nil {
+		t.Fatal("a frame with no Content-Length must not read clean")
+	}
+	if !strings.Contains(err.Error(), "no Content-Length header") {
+		t.Fatalf("a genuinely absent header must still be named as absent, got: %v", err)
+	}
+}
+
+// TestReadMCPFrameKeepsAZeroLengthBodyLegal: zero is an empty body, which is
+// well-formed framing, and readMCPMessage treats it the same way. Refusing it
+// here would rename a JSON problem as a framing problem.
+func TestReadMCPFrameKeepsAZeroLengthBodyLegal(t *testing.T) {
+	t.Parallel()
+	body, err := readMCPFrame(headerOnlyFrame("0"))
+	if err != nil {
+		t.Fatalf("a zero-length frame is legal framing: %v", err)
+	}
+	if len(body) != 0 {
+		t.Fatalf("body = %q, want empty", body)
+	}
+}
+
+// TestReadMCPFrameStillReadsAnOrdinaryFrame keeps the bound from being a
+// blanket refusal: the frames this probe exists to read must still arrive
+// byte for byte.
+func TestReadMCPFrameStillReadsAnOrdinaryFrame(t *testing.T) {
+	t.Parallel()
+	payload := `{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"brain_brief"}]}}`
+	body, err := readMCPFrame(bufio.NewReader(strings.NewReader(
+		fmt.Sprintf("Content-Length: %d\r\n\r\n%s", len(payload), payload))))
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(body) != payload {
+		t.Fatalf("body = %q, want %q", body, payload)
+	}
+}
+
+// TestMCPProbeRefusesAnOversizedFrameInsteadOfAllocatingIt is the same bound
+// through the real process path, because a refusal the probe swallows is a
+// refusal nobody reads.
+func TestMCPProbeRefusesAnOversizedFrameInsteadOfAllocatingIt(t *testing.T) {
+	t.Parallel()
+	server := mcpFakeServer(t, fmt.Sprintf("printf 'Content-Length: %d\\r\\n\\r\\n'\n", maxMCPFrameBytes+1))
+	_, err := probeMCPToolSurface(context.Background(), server, 10*time.Second)
+	if err == nil {
+		t.Fatal("a frame larger than the frame limit must not probe clean")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum frame size") {
+		t.Fatalf("the probe must report the refused frame, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(maxMCPFrameBytes+1)) {
+		t.Fatalf("the probe must name the length the server announced, got: %v", err)
 	}
 }

@@ -15,6 +15,7 @@ blind_spot path="generated.go" code="ignored" detail="excluded by policy"
 edit_file path="internal/a.go"
 test_file path="internal/a_test.go"
 likely_file path="docs/order.md"
+staleness ancestor_commit="ancestor1" commits_behind=2 changed_files=["internal/a.go","internal/b.go"] unreliable=["internal/a.go"] excluded_records=12
 symbol id="sym:validate" kind="function" name="pkg.Validate" short_name="Validate" file="internal/a.go" start=10 end=20 signature="func Validate(token string) error" language="go" score=9 confidence=0.95 reason="task term match" warning_codes=["partial"]
 relation index=0 id="rel:1" type="CALLS" from="sym:validate" to="sym:persist" file="internal/a.go" start=16 end=16 scope="file" resolution="exact" target_kind="symbol" confidence=0.9
 relation_evidence owner_index=0 index=0 kind="call" file="internal/a.go" start=16 end=16 detail="direct call"
@@ -34,4 +35,4 @@ guidance text="Inspect dirty files before trusting the snapshot."
 warning source="status" text="status warning"
 warning source="live" text="live warning"
 warning source="brief" text="brief warning"
-end symbols=1 relations=1 neighbors=1 runtime_traces=1 test_roots=1 test_suggestions=1 history=1 facts=1 actions=1 patterns=1 consolidations=1 themes=1 guidance=1 warnings=7 body_records=35 body_sha256="sha256:79b5a36dbf83afa8ababdad22729db272463ba8f0bbc7ecf6a50d13a3663e0db"
+end symbols=1 relations=1 neighbors=1 runtime_traces=1 test_roots=1 test_suggestions=1 history=1 facts=1 actions=1 patterns=1 consolidations=1 themes=1 guidance=1 warnings=7 body_records=36 body_sha256="sha256:578cc094700707ebec337627334d4d46b4062be3337e69283311f97653beed11"

@@ -78,7 +78,7 @@ func TestBrainBriefCompactV1CanonicalSemanticParity(t *testing.T) {
 		"task": 1, "status": 1, "sources": 1, "live": 1, "live_symbol": 1,
 		"facts_status": 1, "semantic_status": 1, "freshness_axis": 2,
 		"freshness_warning": 1, "semantic_warning": 1, "semantic_partial_failure": 1, "blind_spot": 1,
-		"edit_file": 1, "test_file": 1, "likely_file": 1,
+		"edit_file": 1, "test_file": 1, "likely_file": 1, "staleness": 1,
 		"symbol": 1, "relation": 1, "relation_evidence": 1, "neighbor": 1,
 		"runtime_trace": 1, "runtime_trace_evidence": 1, "test_root": 1, "test_suggestion": 1,
 		"history": 1, "fact": 1, "fact_drift": 1, "action": 1,
@@ -92,6 +92,8 @@ func TestBrainBriefCompactV1CanonicalSemanticParity(t *testing.T) {
 
 	assertCompactV1Field(t, records, "status", 0, "freshness", "degraded")
 	assertCompactV1Field(t, records, "live", 0, "staged", `["internal/a.go"]`)
+	assertCompactV1Field(t, records, "staleness", 0, "ancestor_commit", "ancestor1")
+	assertCompactV1Field(t, records, "staleness", 0, "excluded_records", "12")
 	assertCompactV1Field(t, records, "symbol", 0, "signature", "func Validate(token string) error")
 	assertCompactV1Field(t, records, "relation", 0, "from", "sym:validate")
 	assertCompactV1Field(t, records, "relation_evidence", 0, "detail", "direct call")
@@ -399,6 +401,17 @@ func comprehensiveCompactV1Report() brainBriefReport {
 			Tests: semanticTestsResult{
 				Roots:       []semanticRecord{{ID: "test:root", Kind: "function", Name: "TestValidate", FilePath: "internal/a_test.go", StartLine: 10, EndLine: 30}},
 				Suggestions: []semanticTestSuggestion{{Symbol: semanticRecord{ID: "test:suggestion", Kind: "function", Name: "TestValidateOrder", FilePath: "internal/a_test.go", StartLine: 32, EndLine: 44}, Reason: "covers the boundary"}},
+			},
+			// The all-sections fixture carries an ancestor-served answer so the
+			// exhaustive golden and the per-tag counts cover the staleness
+			// disclosure the same way they cover every other retained record.
+			Staleness: &semanticContextStaleness{
+				AncestorCommit: "ancestor1", CommitsBehind: 2,
+				ChangedFiles: []string{"internal/a.go", "internal/b.go"},
+				Unreliable:   []string{"internal/a.go"},
+				// Non-zero on purpose: zero here would let the renderer omit the
+				// count without the golden noticing.
+				ExcludedRecords: 12,
 			},
 		},
 		History: brainBriefHistory{Matches: []brainTextMatch{{Path: "history/main.jsonl", Line: 8, Excerpt: "Decision: preserve validation order.", Timestamp: "2026-07-01", Score: 12, MatchedTerms: []string{"validation", "order"}}}},

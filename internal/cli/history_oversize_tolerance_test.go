@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -159,6 +160,95 @@ func TestOversizeTranscriptIsSkippedByEveryInventoryReader(t *testing.T) {
 	}
 	if !historyIndexCurrent(brainDir, manifest) {
 		t.Fatal("the index built over a skipped transcript reports stale, so every refresh would rebuild it")
+	}
+}
+
+// The short-term delta is the FOURTH reader of this inventory, and the one the
+// first fix missed: it calls the same readHistorySessionInventoryFile and used
+// to classify the size refusal as a canonical-input refusal of the whole
+// delta. One oversize transcript therefore still blocked the overlay for every
+// other session, which is the same defect one layer further on. The file must
+// cost its own session only, and the delta's own partial-success channel must
+// carry it so nothing claims complete coverage.
+func TestShortTermDeltaSkipsAnOversizeTranscriptAndIndexesTheRest(t *testing.T) {
+	now := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	brainDir, oversizeRel, capBytes := historyOversizeFixture(t, now)
+
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = capBytes
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
+
+	stats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatalf("one oversize transcript refused the whole delta: %v", err)
+	}
+	if stats.Scanned != 2 {
+		t.Fatalf("scanned %d transcripts, want the two readable ones: %+v", stats.Scanned, stats)
+	}
+	if stats.Failed != 1 {
+		t.Fatalf("failed %d transcripts, want only the oversize one: %+v", stats.Failed, stats)
+	}
+
+	// The overlay is published, current, and holds the other sessions.
+	overlay, state := loadHistoryShortTermState(brainDir, nil)
+	if state != shortTermStateCurrent {
+		t.Fatalf("overlay state = %s, want a usable published overlay", state)
+	}
+	covered := make([]string, 0, len(overlay.Files))
+	for rel := range overlay.Files {
+		covered = append(covered, rel)
+	}
+	for _, want := range []string{"sessions/main/small-one.jsonl", "sessions/main/small-two.jsonl"} {
+		if entry, ok := overlay.Files[want]; !ok || len(entry.Records) == 0 {
+			t.Errorf("readable transcript %s is missing from the overlay: covered=%v", want, covered)
+		}
+	}
+	if _, ok := overlay.Files[oversizeRel]; ok {
+		t.Error("the oversize transcript produced overlay records, so the cap was not applied")
+	}
+
+	// Skipped, never silently complete: FailedFiles is the delta's existing
+	// durable record of a transcript it could not read, and it voids every
+	// coverage claim doctor and stats would otherwise make.
+	if len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != oversizeRel {
+		t.Fatalf("the skipped transcript was not recorded durably: %v", overlay.FailedFiles)
+	}
+	if overlay.complete() {
+		t.Fatal("an overlay missing a whole session claimed complete coverage")
+	}
+}
+
+// The classifier change has two sides and both are load-bearing: the per-file
+// transcript cap stops refusing, and every OTHER unbounded input keeps
+// refusing. A code match on memory_input_too_large cannot tell them apart,
+// which is why the skip is keyed on the sentinel.
+func TestShortTermDeltaRefusesEveryBoundBreachExceptTheTranscriptCap(t *testing.T) {
+	oversize := historyTranscriptTooLargeError("sessions/main/huge.jsonl")
+	if shortTermCanonicalInputRefusal(oversize) {
+		t.Fatalf("one oversize transcript still refuses the whole delta: %v", oversize)
+	}
+
+	// The store path raises the same condition through classification, and a
+	// checkpoint-backed brain reads every transcript that way.
+	fromStore := classifyTranscriptReadError(&readBoundExceededError{Source: "transcript sessions/main/huge.jsonl", Max: 1024})
+	if shortTermCanonicalInputRefusal(fromStore) {
+		t.Fatalf("a store size refusal still refuses the whole delta: %v", fromStore)
+	}
+
+	// Any other input-too-large error is NOT a statement about one file.
+	other := fmt.Errorf("%s: bounded abstract input exceeds 16 bytes", memoryErrInputTooLarge)
+	if !shortTermCanonicalInputRefusal(other) {
+		t.Fatalf("a non-transcript bound breach stopped refusing the delta: %v", other)
+	}
+	// And the other refusals are untouched.
+	if !shortTermCanonicalInputRefusal(errHistorySessionInventoryDegraded) {
+		t.Fatal("a degraded inventory stopped refusing the delta")
+	}
+	if !shortTermCanonicalInputRefusal(fmt.Errorf("%s: membership changed", memoryErrSourceStale)) {
+		t.Fatal("a source-stale race stopped refusing the delta")
+	}
+	if shortTermCanonicalInputRefusal(nil) || !shortTermCanonicalInputRefusal(context.Canceled) {
+		t.Fatal("the nil and cancellation classifications changed")
 	}
 }
 

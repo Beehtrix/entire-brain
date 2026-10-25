@@ -450,3 +450,64 @@ func TestPromisorDetectionFindsAURLNamedRemoteWithRealGit(t *testing.T) {
 		})
 	}
 }
+
+// A probe that could not ASK must not be remembered as a no.
+//
+// gitDirHasPromisorRemote's false answer licenses the caller to treat an absent
+// object as destroyed and drop the session, and the answer is cached per git
+// directory for the life of the process. So a single transient fault -- a
+// cancelled context, a deadline, a failed spawn -- previously pinned a real
+// partial clone to "no promisor remote" and every later absent object there
+// read as gone. That is the shrink this file's other tests exist to prevent,
+// reached through the cache instead of through the probe.
+//
+// Real git, because the distinction being asserted is `--get-regexp`'s exit 1
+// for "nothing matched" (a real answer) against a failure to run at all.
+func TestAnIndeterminatePromisorProbeIsNeitherCachedNorReadAsNo(t *testing.T) {
+	dir := t.TempDir()
+	runner := ExecRunner{}
+	if _, _, err := runner.Run(context.Background(), dir, "git", "init", "-q", "."); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	if _, _, err := runner.Run(context.Background(), dir, "git", "config", "remote.origin.promisor", "true"); err != nil {
+		t.Fatalf("seed promisor remote: %v", err)
+	}
+	promisorRemoteAnswers.Delete(dir)
+	t.Cleanup(func() { promisorRemoteAnswers.Delete(dir) })
+
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := gitDirHasPromisorRemote(cancelled, runner, dir); !got {
+		t.Fatalf("an unasked question was reported as proof there is no promisor remote (got %v); absent objects here would read as destroyed", got)
+	}
+	if _, cached := promisorRemoteAnswers.Load(dir); cached {
+		t.Fatalf("an indeterminate probe was cached; every later call for %s would reuse it", dir)
+	}
+	if got := gitDirHasPromisorRemote(context.Background(), runner, dir); !got {
+		t.Fatalf("after the failed probe the real answer was lost: got %v, want true", got)
+	}
+	if answer, cached := promisorRemoteAnswers.Load(dir); !cached || answer != true {
+		t.Fatalf("a definitive answer must be cached: cached=%v answer=%v", cached, answer)
+	}
+}
+
+// The other half of the same contract: exit 1 from `--get-regexp` IS an answer,
+// so a full clone must still be cached as such -- otherwise this fix would turn
+// every export into a refusal and undo #489 by the other side.
+func TestNoPromisorRemoteIsADefinitiveCachedAnswer(t *testing.T) {
+	dir := t.TempDir()
+	runner := ExecRunner{}
+	if _, _, err := runner.Run(context.Background(), dir, "git", "init", "-q", "."); err != nil {
+		t.Skipf("git unavailable: %v", err)
+	}
+	promisorRemoteAnswers.Delete(dir)
+	t.Cleanup(func() { promisorRemoteAnswers.Delete(dir) })
+
+	if got := gitDirHasPromisorRemote(context.Background(), runner, dir); got {
+		t.Fatalf("a full clone must report no promisor remote, got %v", got)
+	}
+	answer, cached := promisorRemoteAnswers.Load(dir)
+	if !cached || answer != false {
+		t.Fatalf("exit 1 is a real answer and must be cached: cached=%v answer=%v", cached, answer)
+	}
+}

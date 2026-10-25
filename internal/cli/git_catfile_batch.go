@@ -60,6 +60,12 @@ var errGitObjectMissing = errors.New("object missing")
 // use 128 instead.
 const gitObjectAbsentExitCode = 1
 
+// gitConfigNoMatchExitCode is the status `git config --get-regexp` exits with
+// when the pattern matches no key. It is a successful question with a negative
+// answer, not a failure to ask, which is the whole distinction
+// probeGitDirPromisorRemote turns on.
+const gitConfigNoMatchExitCode = 1
+
 // exitCoder is the capability an error has when it carries a process exit
 // status. *exec.ExitError satisfies it through its embedded *os.ProcessState,
 // so this classification does not have to assert a concrete os/exec type —
@@ -411,7 +417,11 @@ func localObjectMissingConfirmed(ctx context.Context, runner CommandRunner, gitD
 
 // promisorRemoteAnswers caches, per git directory, whether the repository has a
 // promisor remote. The answer is a local config read and cannot change during
-// an export.
+// an export -- but only a DEFINITIVE answer is stored. A probe that could not
+// ask (cancelled context, deadline, spawn failure) must not be remembered: one
+// transient fault would otherwise pin this git directory to "no promisor
+// remote" for the rest of the process, and every later absent object there
+// would read as destroyed rather than unfetched.
 var promisorRemoteAnswers sync.Map
 
 // gitDirHasPromisorRemote reports whether this repository is a partial clone
@@ -439,12 +449,43 @@ func gitDirHasPromisorRemote(ctx context.Context, runner CommandRunner, gitDir s
 		answer, _ := cached.(bool)
 		return answer
 	}
-	stdout, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "config", "--get-regexp", `\.promisor$`)
-	// `config --get-regexp` exits 1 when nothing matches, so only a match with
-	// a non-empty value counts. A failure to ask is treated as "no promisor
-	// remote", which keeps this helper from turning a config-read fault into a
-	// refusal; the probe's own error handling already covers that class.
-	answer := err == nil && strings.TrimSpace(string(stdout)) != ""
-	promisorRemoteAnswers.Store(gitDir, answer)
+	answer, definitive := probeGitDirPromisorRemote(ctx, runner, gitDir)
+	if definitive {
+		promisorRemoteAnswers.Store(gitDir, answer)
+	}
 	return answer
+}
+
+// probeGitDirPromisorRemote asks the question once and reports, separately,
+// whether the answer is worth remembering.
+//
+// The split exists because this helper's false answer is load-bearing in the
+// unsafe direction: the caller reads "no promisor remote" as licence to treat
+// an absent object as destroyed and drop the session. An unasked question must
+// therefore never be reported as a no.
+//
+//   - config succeeded: a non-empty value is a promisor remote. Definitive.
+//   - config exited 1: `--get-regexp` uses that status for "nothing matched",
+//     which is a real answer about a reachable repository. Definitive.
+//   - anything else -- a cancelled or expired context, a spawn failure, any
+//     other exit status: nothing was learned. Reported as "may be fetchable"
+//     so the caller refuses, and deliberately NOT cached, so the next call
+//     asks again.
+//
+// Refusing on an indeterminate probe is the recoverable direction: an export
+// that stops can be retried after a sync, while a corpus republished without
+// those sessions has already lost them.
+func probeGitDirPromisorRemote(ctx context.Context, runner CommandRunner, gitDir string) (hasPromisor, definitive bool) {
+	if ctx != nil && ctx.Err() != nil {
+		return true, false
+	}
+	stdout, _, err := runCheckpointGitLocal(ctx, runner, gitDir, "config", "--get-regexp", `\.promisor$`)
+	if err == nil {
+		return strings.TrimSpace(string(stdout)) != "", true
+	}
+	var coder exitCoder
+	if errors.As(err, &coder) && coder.ExitCode() == gitConfigNoMatchExitCode {
+		return false, true
+	}
+	return true, false
 }

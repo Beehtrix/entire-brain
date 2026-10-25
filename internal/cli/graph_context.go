@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -141,6 +142,12 @@ func fetchGraphTaskContext(ctx context.Context, runner CommandRunner, repoDir, g
 	runCtx, cancel := context.WithTimeout(ctx, graphTaskContextTimeout)
 	defer cancel()
 	args := []string{"graph", "context", "--repo", repoDir, "--task", task, "--limit", fmt.Sprint(limit), "--tests-limit", fmt.Sprint(testsLimit)}
+	// Asked for only when the provider advertises it. The probe is skipped
+	// entirely when the budget is zero, so a caller that does not want an
+	// ancestor answer pays no subprocess for the question.
+	if graphBriefAncestorBudget > 0 && graphContextAllowsAncestor(ctx, runner, repoDir, binary) {
+		args = append(args, "--allow-ancestor", fmt.Sprint(graphBriefAncestorBudget))
+	}
 	ignores, err := semanticProviderIgnoreFiles(repoDir)
 	if err != nil {
 		return graphTaskContext{}, err
@@ -270,4 +277,68 @@ func semanticStalenessFor(stale *graphContextStale, symbols []graphContextSymbol
 	}
 	sort.Strings(out.Unreliable)
 	return out
+}
+
+// graphBriefAncestorBudget is how many commits back the brief will accept an
+// answer from when the provider has no store for the committed tree.
+//
+// Three, for two independent reasons that happen to agree: the provider's
+// store retention keeps the newest K=3 stores per group, so at most two
+// ancestors exist to be served anyway; and the provider's own measurement puts
+// staleness of relations touching changed files at 0.05% one commit back and
+// 3.5% at five, so three sits well inside the band where positives are sound.
+// The provider independently refuses an ancestor whose changed files exceed 5%
+// of the index, so this is a ceiling, not a promise.
+const graphBriefAncestorBudget = 3
+
+// graphAncestorSupport memoizes the capability probe per graph binary. The
+// probe is a subprocess, the answer cannot change under a running brief, and
+// the brief asks once per run — but refresh and status share this process.
+var graphAncestorSupport sync.Map // binary path -> bool
+
+// graphContextAllowsAncestor reports whether this provider advertises
+// `context --allow-ancestor`.
+//
+// It FAILS CLOSED, and that is the whole design. Passing a flag an older
+// provider does not know makes the subprocess exit non-zero, which
+// fetchGraphTaskContext reads as "delegation unavailable" — so a wrong answer
+// here would turn every brief on an older graph into a silent fallback, which
+// is strictly worse than never asking. Any probe failure, any malformed
+// report, any absent key therefore means "no".
+//
+// The key is a flat boolean in the report's existing feature map
+// (optional_local_only_features.context_allow_ancestor). Absence means
+// unsupported, which is the same rule as the stale block's absence meaning
+// exact: one convention in both directions, and no version arithmetic.
+func graphContextAllowsAncestor(ctx context.Context, runner CommandRunner, repoDir, graphBinary string) bool {
+	binary := strings.TrimSpace(graphBinary)
+	if binary == "" {
+		binary = "entire"
+	}
+	if cached, ok := graphAncestorSupport.Load(binary); ok {
+		supported, _ := cached.(bool)
+		return supported
+	}
+	supported := probeGraphAncestorSupport(ctx, runner, repoDir, binary)
+	graphAncestorSupport.Store(binary, supported)
+	return supported
+}
+
+func probeGraphAncestorSupport(ctx context.Context, runner CommandRunner, repoDir, binary string) bool {
+	if runner == nil {
+		return false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, graphTaskContextTimeout)
+	defer cancel()
+	stdout, _, err := runner.Run(probeCtx, repoDir, binary, "graph", "capabilities", "--json")
+	if err != nil {
+		return false
+	}
+	var report struct {
+		OptionalLocalOnlyFeatures map[string]bool `json:"optional_local_only_features"`
+	}
+	if err := json.Unmarshal(stdout, &report); err != nil {
+		return false
+	}
+	return report.OptionalLocalOnlyFeatures["context_allow_ancestor"]
 }

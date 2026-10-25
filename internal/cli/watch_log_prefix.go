@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 )
 
@@ -38,6 +39,27 @@ type watchLogFields struct {
 // line added later cannot forget it, and per line rather than per write, so a
 // two-line write does not leave its second line unattributed.
 type watchLogPrefixWriter struct {
+	// mu makes this writer safe for concurrent use, which is a contract rather
+	// than a repair.
+	//
+	// No goroutine writes to one of these today, and that was checked rather
+	// than assumed: the module's goroutines return everything over channels,
+	// agent subprocesses get capped buffers instead of this sink, and the only
+	// progress goroutine is gated behind a TTY check that begins by asserting
+	// the writer is an *os.File -- which this never is. So there is no live
+	// race.
+	//
+	// The lock is here because of how the writer is SHARED. watchLoop builds
+	// one instance and hands it to distill, refresh and seed as both stdout and
+	// stderr, and distill owns a --jobs worker pool. Both facts that keep that
+	// safe are implicit, and neither is stated at the places that could break
+	// it, so one `fmt.Fprintf(cmd.ErrOrStderr(), ...)` added inside a worker
+	// would interleave and mis-stamp lines with nothing to catch it. midLine is
+	// read and written on every call, so the corruption would be silent
+	// mis-attribution rather than a crash.
+	//
+	// The cost is one uncontended atomic per line on a logging path.
+	mu     sync.Mutex
 	out    io.Writer
 	fields watchLogFields
 	now    func() time.Time
@@ -87,6 +109,11 @@ func (w *watchLogPrefixWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+	// Held across the sink write as well as the state update: releasing before
+	// w.out.Write would keep midLine consistent while still letting two
+	// writers' bytes interleave inside one line.
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	stamp := w.prefix()
 	var buf bytes.Buffer
 	for _, line := range bytes.SplitAfter(p, []byte("\n")) {

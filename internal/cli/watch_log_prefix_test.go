@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -218,4 +219,83 @@ func TestWatchLoopStampsTickLinesAndStepOutput(t *testing.T) {
 	if !strings.Contains(out, stamp+"refresh: seed baseline failed") {
 		t.Fatalf("the refresh step's own line did not reach the attributed sink:\n%s", out)
 	}
+}
+
+// The writer's concurrency contract, stated as a test because the two things
+// that keep it safe in this build are both implicit.
+//
+// watchLoop builds ONE of these and hands it to distill, refresh and seed as
+// both stdout and stderr, and distill owns a --jobs worker pool. Nothing in
+// this build writes to it from a second goroutine -- the workers return over
+// channels, agent subprocesses get capped buffers, and the only progress
+// goroutine is gated behind a TTY check that requires an *os.File, which this
+// never is -- so this is not a regression test for an observed race. It is the
+// guarantee that makes the sharing above safe to keep: every line comes out
+// whole, stamped exactly once, whoever wrote it.
+//
+// Run under -race this fails without the lock; it also fails without it on
+// content alone, because midLine is read and written on every call, so losing
+// it mis-attributes continuation lines rather than crashing.
+func TestWatchLogPrefixIsSafeForConcurrentWriters(t *testing.T) {
+	var sink lockedBuffer
+	w := newWatchLogPrefixWriter(&sink, testWatchLogFields("repo-a", nil), fixedClock(time.Unix(0, 0).UTC()))
+
+	const writers, perWriter = 8, 40
+	var wg sync.WaitGroup
+	for id := 0; id < writers; id++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for n := 0; n < perWriter; n++ {
+				if _, err := fmt.Fprintf(w, "writer=%d line=%d\n", id, n); err != nil {
+					t.Errorf("write: %v", err)
+					return
+				}
+			}
+		}(id)
+	}
+	wg.Wait()
+
+	const stamp = "1970-01-01T00:00:00Z pid=4242 build=0.2.0 repo=repo-a "
+	lines := strings.Split(strings.TrimSuffix(sink.String(), "\n"), "\n")
+	if len(lines) != writers*perWriter {
+		t.Fatalf("got %d lines, want %d; lines were interleaved or lost", len(lines), writers*perWriter)
+	}
+	seen := map[string]bool{}
+	for _, line := range lines {
+		if !strings.HasPrefix(line, stamp) {
+			t.Fatalf("line lost or doubled its stamp: %q", line)
+		}
+		body := strings.TrimPrefix(line, stamp)
+		if strings.Contains(body, "writer=") != true || strings.Contains(body, stamp) {
+			t.Fatalf("line body is not one whole write: %q", body)
+		}
+		if seen[body] {
+			t.Fatalf("duplicate line %q", body)
+		}
+		seen[body] = true
+	}
+	if len(seen) != writers*perWriter {
+		t.Fatalf("got %d distinct lines, want %d", len(seen), writers*perWriter)
+	}
+}
+
+// lockedBuffer isolates what is under test: without it the SINK would be the
+// race, and the test would pass or fail on bytes.Buffer's thread-safety rather
+// than on the writer's.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }

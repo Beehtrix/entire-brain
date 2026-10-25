@@ -2307,6 +2307,9 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	if err != nil {
 		return staleReport{}, err
 	}
+	if err := checkLegacyBrainLayout(storage.BrainDir, manifest); err != nil {
+		return staleReport{Severity: "unsafe", Axes: map[string]staleAxis{"brain_layout": {State: "unsafe", Detail: err.Error()}}}, nil
+	}
 	d, err := fetchGraphStore(ctx, opts, repoDir, "", graphStoreProfile(manifest))
 	if err != nil {
 		return staleReport{Severity: "degraded", Axes: map[string]staleAxis{"graph": {State: "missing", Detail: err.Error()}}}, nil
@@ -4729,7 +4732,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if err := migrateLegacyGraphTraces(storage.BrainDir); err != nil {
+	if err := checkLegacyBrainLayout(storage.BrainDir, manifest); err != nil {
 		return err
 	}
 	if manifest.Sources == nil {
@@ -5264,6 +5267,9 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
+	if err := requireCurrentBrainLayout(storage.BrainDir); err != nil {
+		return err
+	}
 	if err := ensureSemanticAuditPathSafe(storage.BrainDir); err != nil {
 		return err
 	}
@@ -5329,7 +5335,14 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err != nil {
 		return err
 	}
-	if err := migrateLegacyGraphTraces(tmpDir); err != nil {
+	if err := checkLegacyBrainLayout(tmpDir, importManifest); err != nil {
+		if errors.Is(err, errLegacyBrainLayout) {
+			return fmt.Errorf("%w in this bundle; import it with entire-brain 0.2.0 to preserve runtime traces, then export it again before retrying", errLegacyBrainLayout)
+		}
+		return err
+	}
+	// The destination may have changed before we acquired the writer lock.
+	if err := requireCurrentBrainLayout(storage.BrainDir); err != nil {
 		return err
 	}
 	// Decide the overwrite question BEFORE the first byte is written, so a
@@ -5383,12 +5396,8 @@ func runSemanticBundleImport(ctx context.Context, cmd *cobra.Command, opts Optio
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "imported bundle entries: %d\nsha256: %s\n", imported, sum)
 	fmt.Fprintf(out, "restored layers: %s\n", strings.Join(restored, ", "))
-	// brainBundleLayers carries no semantic layer: a 0.1.0-era bundle's code
-	// index (sources.semantic plus its semantic/snapshots|generations entries)
-	// is validated above but never restored. Without this, the import prints
-	// success and the operator finds out their code index is gone only when a
-	// later query comes back empty. slices.Contains guards against the notice
-	// going stale if a semantic layer is ever added to the table.
+	// Graph-owned source metadata is not restored; Graph resolves its own store
+	// locally. Old bundles with Brain-owned stores were refused above.
 	if importManifest.Sources.Semantic != nil && !slices.Contains(restored, bundleLayerSemantic) {
 		fmt.Fprintln(out, "bundle's code index was not imported: code indexing is Graph-owned since 0.2.0")
 	}
@@ -5530,12 +5539,8 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	if manifest.Sources == nil {
 		return nil, errors.New("bundle manifest missing sources")
 	}
-	// The bundle's code-index layer is ignored entirely: it is never restored
-	// (brainBundleLayers has no semantic entry) and never persisted
-	// (writeBrainBundleLayerSources copies restored layers only), so nothing
-	// about it — schema version included — may reject an otherwise valid
-	// bundle. It stays on the returned manifest only so the import can print
-	// the not-imported notice.
+	// Code-index schemas are not validated here: no code layer is restored.
+	// The caller separately checks for old layouts before restoring any data.
 	return &manifest, nil
 }
 
@@ -5608,33 +5613,6 @@ func semanticSQLiteTableCount(db *sql.DB, table string) (int, error) {
 		return 0, fmt.Errorf("validate semantic sqlite table %s: %w", table, err)
 	}
 	return count, nil
-}
-
-func validateSemanticGenerationPath(generationPath string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(generationPath))
-	cleanSlash := filepath.ToSlash(clean)
-	if cleanSlash != generationPath {
-		return "", fmt.Errorf("semantic generation_path must be canonical: %s", generationPath)
-	}
-	if strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.IsAbs(clean) || !strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir))+"/") {
-		return "", fmt.Errorf("semantic generation_path is unsafe: %s", generationPath)
-	}
-	return clean, nil
-}
-
-func validateSemanticGenerationFilePath(path, generationPath, basename string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(path))
-	cleanSlash := filepath.ToSlash(clean)
-	if cleanSlash != path {
-		return "", fmt.Errorf("semantic generation file path must be canonical: %s", path)
-	}
-	if !strings.HasPrefix(cleanSlash, filepath.ToSlash(generationPath)+"/") {
-		return "", fmt.Errorf("semantic generation file path %s is outside generation %s", path, generationPath)
-	}
-	if basename != "" && filepath.Base(clean) != basename {
-		return "", fmt.Errorf("semantic generation file path must end with %s: %s", basename, path)
-	}
-	return clean, nil
 }
 
 // The integrity checks over a generation — that the snapshot still matches the

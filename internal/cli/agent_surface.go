@@ -1163,6 +1163,11 @@ func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
 }
 
 func brainStatusFreshnessSeverity(report brainStatusReport) string {
+	for _, issue := range report.Issues {
+		if issue.Kind == "brain_layout" {
+			return "unsafe"
+		}
+	}
 	// A release gate cannot pass unless semantic indexing produced a freshness
 	// assessment. Retrieval freshness is additive; it is not a substitute for
 	// the semantic source the gate is intended to protect.
@@ -4559,7 +4564,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		manifestSchema = manifest.SchemaVersion
 	}
-	// Legacy graph artifacts are not consulted by status or brief. Graph is
+	// Old layouts are reported without hiding the other Brain sources. Graph is
 	// optional: retain all non-code Brain sources when it is absent, and "not
 	// installed" / "not indexed yet" stay silent here exactly as before (they
 	// already surface through the missing-semantic-index messaging below). A
@@ -4568,18 +4573,29 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	// outright -- is a different, actionable problem, and used to vanish along
 	// with the ordinary case. That one is recorded as a warning instead.
 	var graphStatusWarning string
+	if layoutErr := checkLegacyBrainLayout(storage.BrainDir, manifest); layoutErr != nil {
+		graphStatusWarning = layoutErr.Error()
+		code := memoryErrorCode(layoutErr)
+		if errors.Is(layoutErr, errLegacyBrainLayout) {
+			code = memoryErrUnsupportedVersion
+		}
+		healthIssues = append(healthIssues, memoryHealthIssue{Kind: "brain_layout", Code: code, Action: layoutErr.Error()})
+	}
 	if manifest != nil {
 		if manifest.Sources == nil {
 			manifest.Sources = &brainSources{}
 		}
 		profile := graphStoreProfile(manifest)
 		manifest.Sources.Semantic = nil
-		if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr != nil {
-			if !errors.Is(graphErr, errGraphStoreUnsupported) && !errors.Is(graphErr, errGraphStoreUnavailable) {
-				graphStatusWarning = "graph store unavailable: " + graphErr.Error()
+		// Do not replace the old source with a healthy Graph descriptor.
+		if graphStatusWarning == "" {
+			if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr != nil {
+				if !errors.Is(graphErr, errGraphStoreUnsupported) && !errors.Is(graphErr, errGraphStoreUnavailable) {
+					graphStatusWarning = "graph store unavailable: " + graphErr.Error()
+				}
+			} else {
+				manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
 			}
-		} else {
-			manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
 		}
 	}
 	report := brainStatusReport{

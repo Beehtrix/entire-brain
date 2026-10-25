@@ -146,6 +146,14 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		refreshOpts.seed.force = true
 	}
 	if outputExplicit {
+		outputDir, err := filepath.Abs(refreshOpts.outputDir)
+		if err != nil {
+			return fmt.Errorf("resolve output directory: %w", err)
+		}
+		manifest, _ := loadBrainManifest(outputDir)
+		if err := checkLegacyBrainLayout(outputDir, manifest); err != nil {
+			return err
+		}
 		if refreshOpts.force {
 			if err := removeForcedOutputDir(refreshOpts.outputDir, repoDir); err != nil {
 				return err
@@ -181,6 +189,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			return fmt.Errorf("resolve output directory: %w", err)
 		}
 		finishOutput(nil)
+	}
+	// Check before --force can discard the manifest. Explicit output was
+	// checked before its early validation and removal above.
+	// An old code store may hold authored traces that cannot be rebuilt.
+	// Manifest parse errors retain their existing handling below (including
+	// --force repair); leftover directories still identify an old layout.
+	if !outputExplicit {
+		manifestBeforeRefresh, _ := loadBrainManifest(brainDir)
+		if err := checkLegacyBrainLayout(brainDir, manifestBeforeRefresh); err != nil {
+			return err
+		}
 	}
 	// Before any stage writes, not after: a manifest carrying another build's
 	// fields is readable but no writer will replace it, and the session export

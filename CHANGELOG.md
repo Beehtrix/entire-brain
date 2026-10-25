@@ -5,6 +5,15 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- The one-time migrations for Brain's old code stores. Refresh, code inspection,
+  and bundle operations now refuse old layouts with recovery instructions;
+  status and doctor report the same problem. Run `entire brain refresh index`
+  with entire-brain 0.2.0 once before upgrading to preserve runtime traces, or
+  back up and remove the brain directory and refresh to rebuild. Legacy vector
+  detection remains in place for health and privacy checks.
+
 ## [0.2.0] - 2026-10-23
 
 ### Removed

@@ -265,6 +265,9 @@ func semanticStalenessFor(stale *graphContextStale, symbols []graphContextSymbol
 		AncestorCommit: strings.TrimSpace(stale.AncestorCommit),
 		CommitsBehind:  stale.CommitsBehind,
 		ChangedFiles:   append([]string(nil), stale.ChangedFiles...),
+		// Carried through deliberately: without it an empty Unreliable is
+		// indistinguishable from a complete answer.
+		ExcludedRecords: stale.ExcludedRecords,
 	}
 	seen := map[string]struct{}{}
 	for _, group := range [][]graphContextSymbol{symbols, tests} {
@@ -324,8 +327,14 @@ func graphContextAllowsAncestor(ctx context.Context, runner CommandRunner, repoD
 		supported, _ := cached.(bool)
 		return supported
 	}
-	supported := probeGraphAncestorSupport(ctx, runner, repoDir, binary)
-	graphAncestorSupport.Store(binary, supported)
+	supported, definitive := probeGraphAncestorSupport(ctx, runner, repoDir, binary)
+	// Only a definitive answer is worth remembering. A timeout, a cancelled
+	// context or a failure to spawn says nothing about the binary, and caching
+	// it would mean a provider that DOES support the feature is never asked
+	// again for the life of the process.
+	if definitive {
+		graphAncestorSupport.Store(binary, supported)
+	}
 	return supported
 }
 
@@ -351,21 +360,29 @@ func graphHostVerbDetail(binary string) string {
 	return fmt.Sprintf("%s does not expose `graph` provider commands; --graph-binary needs an Entire CLI, not a bare provider plugin", binary)
 }
 
-func probeGraphAncestorSupport(ctx context.Context, runner CommandRunner, repoDir, binary string) bool {
+// probeGraphAncestorSupport reports whether the binary supports the feature,
+// and whether the answer is DEFINITIVE -- i.e. whether it learned anything
+// about this binary at all. It always fails closed; the second return exists
+// only so the caller knows what is safe to remember.
+func probeGraphAncestorSupport(ctx context.Context, runner CommandRunner, repoDir, binary string) (supported, definitive bool) {
 	if runner == nil {
-		return false
+		return false, false
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, graphTaskContextTimeout)
 	defer cancel()
 	stdout, _, err := runner.Run(probeCtx, repoDir, binary, "graph", "capabilities", "--json")
 	if err != nil {
-		return false
+		// A binary that rejects the host verb is not a transient failure: it
+		// is the wrong kind of binary and will answer the same way every time.
+		return false, graphBinaryRejectsHostVerb(err)
 	}
 	var report struct {
 		OptionalLocalOnlyFeatures map[string]bool `json:"optional_local_only_features"`
 	}
 	if err := json.Unmarshal(stdout, &report); err != nil {
-		return false
+		// Could be a truncated read as easily as a binary that cannot speak
+		// JSON, so fail closed without concluding anything about the binary.
+		return false, false
 	}
-	return report.OptionalLocalOnlyFeatures["context_allow_ancestor"]
+	return report.OptionalLocalOnlyFeatures["context_allow_ancestor"], true
 }

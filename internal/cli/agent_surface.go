@@ -303,7 +303,16 @@ type semanticContextStaleness struct {
 	ChangedFiles   []string `json:"changed_files"`
 	// Unreliable names the paths this answer must not be read as negative
 	// evidence about: the ancestor store had their records dropped.
-	Unreliable []string `json:"unreliable,omitempty"`
+	//
+	// It can only name paths the answer actually RETURNED records for, and an
+	// ancestor store has already dropped the records for changed files -- so
+	// an empty Unreliable is the common case even when the answer is
+	// incomplete. On its own it would read as "nothing to worry about".
+	// ExcludedRecords is what separates the two: empty Unreliable with a
+	// non-zero count means nothing returned is tainted BUT records are
+	// missing, which is the state a reader must not mistake for completeness.
+	Unreliable      []string `json:"unreliable,omitempty"`
+	ExcludedRecords int      `json:"excluded_records"`
 }
 
 // brainBriefJSONReport is the agent-facing projection of the in-process brief.

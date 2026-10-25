@@ -228,3 +228,31 @@ func TestProducerEmittedStaleBlockParsesAndIsUsable(t *testing.T) {
 		t.Fatalf("staleness lost the ancestor identity: %+v", stale)
 	}
 }
+
+// Unreliable can only name paths the answer RETURNED records for, and an
+// ancestor store has already dropped the records for changed files -- so it is
+// empty in the common case. Without the excluded count beside it, an
+// incomplete answer is indistinguishable from a complete one.
+func TestAnEmptyUnreliableListStillReportsThatRecordsWereDropped(t *testing.T) {
+	t.Parallel()
+	stale := &graphContextStale{
+		AncestorCommit:  "abc1234",
+		CommitsBehind:   3,
+		ChangedFiles:    []string{"internal/billing/invoice.go"},
+		ExcludedRecords: 12,
+	}
+	// The answer returned records, but none from the changed file -- exactly
+	// the shape an ancestor store produces.
+	got := semanticStalenessFor(stale,
+		[]graphContextSymbol{{FilePath: "internal/auth/token.go"}},
+		nil)
+	if got == nil {
+		t.Fatal("a stale block produced no staleness report")
+	}
+	if len(got.Unreliable) != 0 {
+		t.Fatalf("Unreliable = %v, want empty: no returned record is from a changed file", got.Unreliable)
+	}
+	if got.ExcludedRecords != 12 {
+		t.Fatalf("ExcludedRecords = %d, want 12: an empty Unreliable would otherwise read as a complete answer", got.ExcludedRecords)
+	}
+}

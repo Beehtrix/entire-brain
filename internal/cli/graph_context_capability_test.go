@@ -13,12 +13,20 @@ type capabilityRunner struct {
 	capabilitiesJSON string
 	capabilitiesErr  error
 	contextErr       error
-	calls            [][]string
+	// capabilitiesFailFirst makes the first N capability probes fail, so a
+	// transient failure can be told apart from a permanent one.
+	capabilitiesFailFirst int
+	capabilityProbes      int
+	calls                 [][]string
 }
 
 func (r *capabilityRunner) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if len(args) >= 2 && args[0] == "graph" && args[1] == "capabilities" {
+		r.capabilityProbes++
+		if r.capabilityProbes <= r.capabilitiesFailFirst {
+			return nil, nil, context.DeadlineExceeded
+		}
 		if r.capabilitiesErr != nil {
 			return nil, nil, r.capabilitiesErr
 		}
@@ -222,5 +230,48 @@ func TestAPluginBinaryIsNamedAsTheCauseRatherThanDegradingSilently(t *testing.T)
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the error does not tell the reader what is wrong (missing %q): %v", want, err)
 		}
+	}
+}
+
+// A probe that timed out says nothing about the binary. Caching that answer
+// meant a provider which DOES support the feature was never asked again for
+// the life of the process -- the brief silently lost ancestor staleness for
+// every later task because one early probe happened to time out.
+func TestATransientProbeFailureIsNotRememberedAsUnsupported(t *testing.T) {
+	// A binary name unique to this test: the memo is process-wide.
+	binary := "eg-transient-" + t.Name()
+	t.Cleanup(func() { graphAncestorSupport.Delete(binary) })
+
+	runner := &capabilityRunner{
+		capabilitiesFailFirst: 1,
+		capabilitiesJSON:      `{"optional_local_only_features":{"context_allow_ancestor":true}}`,
+	}
+
+	if graphContextAllowsAncestor(context.Background(), runner, "/repo", binary) {
+		t.Fatal("a failed probe must fail closed, not open")
+	}
+	if !graphContextAllowsAncestor(context.Background(), runner, "/repo", binary) {
+		t.Fatal("the retry was never made: a transient failure was cached as unsupported")
+	}
+	if runner.capabilityProbes != 2 {
+		t.Fatalf("probes = %d, want 2 (one failure, one retry)", runner.capabilityProbes)
+	}
+}
+
+// The other half: a definitive answer MUST still be cached, or every brief
+// pays for another subprocess.
+func TestADefinitiveProbeAnswerIsRememberedOnce(t *testing.T) {
+	binary := "eg-definitive-" + t.Name()
+	t.Cleanup(func() { graphAncestorSupport.Delete(binary) })
+
+	runner := &capabilityRunner{capabilitiesJSON: `{"optional_local_only_features":{"context_allow_ancestor":false}}`}
+
+	for range 3 {
+		if graphContextAllowsAncestor(context.Background(), runner, "/repo", binary) {
+			t.Fatal("the feature is absent from the report, so it must read as unsupported")
+		}
+	}
+	if runner.capabilityProbes != 1 {
+		t.Fatalf("probes = %d, want 1: a definitive answer was not cached", runner.capabilityProbes)
 	}
 }

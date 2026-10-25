@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -459,7 +461,105 @@ func everyFaultIsABoundBreach(err error) bool {
 // transcript chunk. Tree entries alone do not establish object availability in
 // partial clones. Object type checks avoid reading transcript bytes or fetching
 // missing promisor blobs; extra local sessions do not expand discovery scope.
+// validateLocalTranscriptSessions keeps the original all-or-nothing contract
+// for callers that want it: the first unavailable session is an error.
+//
+// It returns that diagnostic AS the error rather than re-wording it, so
+// errors.Is still reaches errGitObjectMissing underneath. Formatting it into a
+// fresh errors.New would leave the message intact and the identity gone --
+// which is the same conflation the partition exists to remove, moved one layer
+// up.
 func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sessions []exportSession, mode string) error {
+	_, unavailable, err := partitionLocalTranscriptSessions(ctx, runner, snapshot, sessions, mode)
+	if err != nil {
+		return err
+	}
+	if len(unavailable) > 0 {
+		return unavailable[0]
+	}
+	return nil
+}
+
+// partitionLocalTranscriptSessions splits the selection into sessions whose
+// transcripts this brain can actually serve and those it cannot, instead of
+// failing on the first one it cannot.
+//
+// The guard's purpose is that a brain never RECORDS a session whose bytes it
+// cannot serve, and skipping such a session satisfies that purpose exactly.
+// Refusing the whole export is a separate choice, and on a repository using
+// squash merges it is a permanent one: a manual-commit checkpoint names a
+// commit on a feature branch, and deleting that branch destroys the commit, so
+// the checkpoint references bytes that no longer exist anywhere. Measured on a
+// real repository: 0 of 39 sampled commit-style checkpoint ids still resolved
+// to a local object, out of 252 such checkpoints in its catalog. Fetching
+// cannot recover them. Refusing therefore preserves nothing and additionally
+// discards every session that IS available -- 2,561 found against 2,375
+// published, frozen for ten days behind one unavailable session.
+//
+// Only two outcomes are reported as unavailability, and each of them only
+// where it is definite: this snapshot records no transcript for the session at
+// all, and git's own "object missing" answer for a chunk (errGitObjectMissing,
+// which both probe paths in localObjectType wrap). Everything else is returned
+// as an error and keeps the export fatal.
+//
+// NEITHER of those two is definite on its own, and the first one used to be
+// treated as if it were. "No snapshot entry" is what a destroyed commit looks
+// like AND what an unfetched checkpoint ref looks like; a tree listing that a
+// partial clone could not complete produces the same shape. So both outcomes
+// are gated on the same question -- can the sources this snapshot was built
+// from still fetch what they do not hold? -- and report unavailability only
+// when the answer is a definite no.
+//
+// That line matters more than it looks. The caller is fatal only when NOTHING
+// is servable, so classifying a failure to RUN git -- a cancelled context, an
+// expired deadline, a failed spawn, an unopenable repository -- as "the bytes
+// are gone" would let a transient fault silently republish a shrunken corpus.
+// That is strictly worse than the all-or-nothing refusal this replaced, which
+// at least said so.
+//
+// The skipped sessions come back as errors rather than as formatted strings
+// for the same reason: a diagnostic flattened with %v keeps its message and
+// loses its identity, so a caller -- or the strict wrapper above -- can no
+// longer tell a cancellation from a vanished object either. Every error this
+// returns wraps the cause it had.
+// errTranscriptNotInSnapshot is the cause behind "this snapshot names no
+// transcript for that session", carried by both the per-session diagnostic and
+// the refusal so a caller can tell this absence from a probed object miss
+// without matching on message text.
+var errTranscriptNotInSnapshot = errors.New("transcript not in local checkpoint snapshot")
+
+// snapshotSourcesMayLazyFetch reports whether ANY source this snapshot was
+// built from could still obtain objects it does not currently hold. A
+// snapshot's sources are the local checkpoint refs it scanned, so one
+// fetchable source is enough to make "not in the snapshot" an unproven
+// absence rather than a destroyed one.
+//
+// It reuses gitDirHasPromisorRemote rather than detecting partial clones a
+// second way: that helper already distinguishes git's definitive exit 1 from a
+// probe that could not be answered, caches only the definitive answers, and
+// matches the promisor key by suffix across every remote, including the
+// URL-named remote the cli checkpoint repository actually uses. Keys are
+// visited in sorted order so the git calls a test observes are deterministic.
+func snapshotSourcesMayLazyFetch(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	dirs := make([]string, 0, len(snapshot.Sources))
+	for key := range snapshot.Sources {
+		if dir := snapshot.Sources[key].GitDir; dir != "" {
+			dirs = append(dirs, dir)
+		}
+	}
+	sort.Strings(dirs)
+	for _, dir := range slices.Compact(dirs) {
+		if gitDirHasPromisorRemote(ctx, runner, dir) {
+			return true
+		}
+	}
+	return false
+}
+
+func partitionLocalTranscriptSessions(ctx context.Context, runner CommandRunner, snapshot *checkpointSnapshot, sessions []exportSession, mode string) ([]exportSession, []error, error) {
 	type identity struct {
 		session, checkpoint string
 		index               int
@@ -473,31 +573,106 @@ func validateLocalTranscriptSessions(ctx context.Context, runner CommandRunner, 
 	}
 	type objectKey struct{ gitDir, ref, path string }
 	checked := make(map[objectKey]bool)
+	availableSessions := make([]exportSession, 0, len(sessions))
+	var unavailable []error
+	// Probed at most once, and only if a session actually turns up missing
+	// from the snapshot, so the common path costs no extra git call. The
+	// probe's own answer is asymmetric by design (see gitDirHasPromisorRemote:
+	// an unanswered probe reports "may fetch" and is not cached), which is
+	// exactly the direction this guard needs.
+	lazyFetchKnown, lazyFetch := false, false
+	mayLazyFetch := func() bool {
+		if !lazyFetchKnown {
+			lazyFetchKnown = true
+			lazyFetch = snapshotSourcesMayLazyFetch(ctx, runner, snapshot)
+		}
+		return lazyFetch
+	}
 	for _, session := range sessions {
+		usable := true
 		location, ok := available[identity{session.SessionID, session.LatestCheckpoint, session.SessionIndex}]
 		source := snapshot.Sources[location.sourceKey]
 		chunks := snapshotTranscriptChunks(location.sourcePath, source.TreePaths)
 		if !ok || len(chunks) == 0 {
-			return fmt.Errorf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle", session.SessionID, session.LatestCheckpoint, session.SessionIndex)
+			// "This snapshot names no transcript for the session" is NOT proof
+			// that the bytes were destroyed. It is equally what an unfetched
+			// checkpoint ref looks like, so it needs the same gate the
+			// object-missing answer below gets: when the sources this snapshot
+			// was built from can still fetch what they do not hold, dropping
+			// the session would republish a corpus smaller than the published
+			// one over bytes a sync recovers. Refuse there and skip only where
+			// the absence is definitive, which is #489's case.
+			if mayLazyFetch() {
+				return nil, nil, fmt.Errorf("persistent transcript storage: no local checkpoint snapshot entry for session %s checkpoint %s index %d, and this repository can still fetch objects it does not hold, so an unsynced checkpoint ref cannot be told apart from a destroyed one here; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, errTranscriptNotInSnapshot)
+			}
+			unavailable = append(unavailable, fmt.Errorf("persistent transcript storage requires local checkpoint refs for session %s checkpoint %s index %d; sync checkpoints and retry, or use --output for a standalone bundle: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, errTranscriptNotInSnapshot))
+			continue
 		}
 		for _, chunk := range chunks {
 			actualPath, err := source.actualPath(chunk)
 			if err != nil {
-				return err
+				// A malformed source path is a fault in this brain's own
+				// snapshot, not a statement about one session's availability.
+				return nil, nil, err
 			}
 			key := objectKey{source.GitDir, source.Ref, actualPath}
 			if checked[key] {
 				continue
 			}
 			kind, err := localObjectType(ctx, runner, source.GitDir, source.Ref+":"+actualPath)
-			if err != nil || kind != "blob" {
-				if err == nil {
-					err = fmt.Errorf("expected blob, got %q", kind)
-				}
-				return fmt.Errorf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
+			switch {
+			case errors.Is(err, errGitObjectMissing) && gitDirHasPromisorRemote(ctx, runner, source.GitDir):
+				// git answered "not here", but in a PARTIAL clone that answer
+				// does not distinguish an unfetched blob from a destroyed one:
+				// both exit 1 silently under the local-only policy. Dropping
+				// the session would republish a corpus smaller than the one
+				// already published, over bytes a sync would recover. So this
+				// is an error, like any other thing we could not establish.
+				//
+				// It does not weaken what this partition exists for: a full
+				// clone's confirmed-missing object still costs only its own
+				// session, which is what #489 restored.
+				//
+				// What it does NOT establish is the claim this comment used to
+				// make -- that a destroyed commit "never reaches this probe
+				// because it has no snapshot entry, and is classified from
+				// data above". Having no snapshot entry is not evidence of
+				// destruction: an unsynced checkpoint ref has no entry either.
+				// That reasoning was used to argue this gate cost nothing, and
+				// it is why the no-entry case above went ungated. Both cases
+				// now ask the same question.
+				return nil, nil, fmt.Errorf("persistent transcript storage: transcript bytes for session %s checkpoint %s index %d chunk %s are not in this partial clone, and an unfetched object cannot be told apart from a deleted one here; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
+			case errors.Is(err, errGitObjectMissing):
+				// git ANSWERED, and the answer is that these bytes are not in
+				// this repository. That is the only probe outcome that costs
+				// one session rather than the export.
+				unavailable = append(unavailable, fmt.Errorf("persistent transcript storage: unreadable local transcript for session %s checkpoint %s index %d chunk %s; sync checkpoints and retry: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err))
+				usable = false
+			case err != nil:
+				// Every other failure is a failure to ASK git, not an answer
+				// from it: a cancelled context, an expired deadline, a spawn
+				// that never happened, a repository that could not be opened.
+				// Recording those as unavailability is what review caught --
+				// the export is fatal only when nothing at all is servable, so
+				// a transient git fault would silently republish a shrunken
+				// corpus, which is worse than the refusal this partition
+				// replaced.
+				return nil, nil, fmt.Errorf("persistent transcript storage: cannot establish local availability for session %s checkpoint %s index %d chunk %s: %w", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, err)
+			case kind != "blob":
+				// Also an answer, and a definite one: the path this snapshot
+				// recorded for a transcript is not a blob in the ref it
+				// recorded it under. A fault in this brain's own snapshot, not
+				// a statement about one session's availability.
+				return nil, nil, fmt.Errorf("persistent transcript storage: snapshot path for session %s checkpoint %s index %d chunk %s is not a transcript blob: expected blob, got %q", session.SessionID, session.LatestCheckpoint, session.SessionIndex, chunk, kind)
+			}
+			if !usable {
+				break
 			}
 			checked[key] = true
 		}
+		if usable {
+			availableSessions = append(availableSessions, session)
+		}
 	}
-	return nil
+	return availableSessions, unavailable, nil
 }

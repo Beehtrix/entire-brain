@@ -351,37 +351,106 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			snapshot = local
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
 		}
+		// Cached addresses of the sessions dropped below for want of local
+		// checkpoint bytes. The transcript cache sweep must keep them even
+		// though the manifest no longer lists them.
+		var skippedTranscriptCache map[string]bool
 		if len(sessions) > 0 {
-			// A tombstoned session is exempt from this check, and only from
-			// this check. The guard refuses to record a session whose bytes
-			// this brain cannot serve — but an excluded session is one it has
-			// been told never to serve, so demanding its bytes refuses an
-			// export for a promise nobody is making.
+			// Two filters, and the order carries the meaning.
 			//
-			// It stays in the selection and in the manifest. That is not an
-			// oversight to tidy up: the cache sweep learns which cached
-			// transcripts to RETAIN from the selection, and retention is what
-			// makes `privacy include` able to recover the session later. Drop
-			// it from the selection instead and include can no longer recover
-			// it (TestFilelessMigrationRecoversExcludedSessionAfterInclude
-			// fails exactly that way), so exclusion would stop being
-			// reversible. Only the derived projections exclude it, which is
-			// what the history index already does.
+			// FIRST, a tombstoned session is exempt from this check entirely.
+			// The guard refuses to record a session whose bytes this brain
+			// cannot serve — but an excluded session is one it has been told
+			// never to serve, so demanding its bytes refuses an export for a
+			// promise nobody is making. One mock-agent fixture (session
+			// "test", agent "Mock Lifecycle Agent") blocked all 2,561 real
+			// sessions this way, and `privacy exclude` could not get past it
+			// because this check ran regardless.
 			//
-			// Observed on a real brain: one mock-agent fixture (session
-			// "test", agent "Mock Lifecycle Agent") whose transcript bytes are
-			// not local blocked all 2,561 real sessions, and `privacy exclude`
-			// could not get past it because this check ran regardless.
+			// THEN the remainder is partitioned rather than refused on the
+			// first miss. A manual-commit checkpoint names a commit on a
+			// feature branch, and deleting that branch destroys the commit, so
+			// on a squash-merging repository such a checkpoint names bytes
+			// that exist nowhere: 0 of 39 sampled commit-style ids still
+			// resolved on a real repository, out of 252 in its catalog. No
+			// fetch recovers them, so refusing preserved nothing and
+			// additionally discarded every available session.
+			//
+			// Refusing when NOTHING is servable is kept: that is the
+			// source-went-unreadable case, where republishing would erase an
+			// indexed corpus.
 			validated, exempt, tombErr := partitionTombstonedSessions(ctx, opts, repoDir, outputExplicit, sessions)
 			if tombErr != nil {
 				warnings = append(warnings, "session tombstones unreadable, validating every session: "+tombErr.Error())
 				validated = sessions
+				exempt = 0
 			}
 			if exempt > 0 {
 				warnings = append(warnings, fmt.Sprintf("%d excluded session(s) exempt from local-transcript validation", exempt))
 			}
-			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, validated, manifest.TranscriptMode); err != nil {
-				return err
+			usable, unavailable, validateErr := partitionLocalTranscriptSessions(ctx, opts.Runner, snapshot, validated, manifest.TranscriptMode)
+			if validateErr != nil {
+				return validateErr
+			}
+			if unavailableSessionsAreFatal(len(usable), len(unavailable)) {
+				// Returned as-is, so errors.Is upstream still reaches the cause
+				// underneath instead of a re-worded copy of its message.
+				return unavailable[0]
+			}
+			if len(unavailable) > 0 {
+				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
+				// An exempted session must SURVIVE: the cache sweep learns
+				// from this list which cached transcripts to retain, and that
+				// retention is what lets `privacy include` recover it. So keep
+				// anything that was never validated (exempted) as well as
+				// everything that validated cleanly, and drop only what was
+				// validated and found unavailable.
+				//
+				// A dropped session still has a cached transcript on disk from
+				// the legacy disk-mode exports, and once its checkpoint is
+				// genuinely destroyed that file is the only surviving copy of
+				// the bytes. Dropping it from the manifest alone would hand it
+				// to the sweep as a stale export, so its cached address is
+				// collected for the sweep's retain list below.
+				//
+				// Keyed on the full identity rather than the session id alone,
+				// because one session can be exported on more than one branch.
+				type sessionKey struct {
+					id, branch, checkpoint string
+					index                  int
+				}
+				keyOf := func(session exportSession) sessionKey {
+					return sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}
+				}
+				validatedKeys := make(map[sessionKey]struct{}, len(validated))
+				for _, session := range validated {
+					validatedKeys[keyOf(session)] = struct{}{}
+				}
+				usableKeys := make(map[sessionKey]struct{}, len(usable))
+				for _, session := range usable {
+					usableKeys[keyOf(session)] = struct{}{}
+				}
+				surviving := make([]exportSession, 0, len(sessions))
+				skippedTranscriptCache = make(map[string]bool, len(unavailable))
+				for _, session := range sessions {
+					key := keyOf(session)
+					if _, wasValidated := validatedKeys[key]; !wasValidated {
+						surviving = append(surviving, session)
+						continue
+					}
+					if _, ok := usableKeys[key]; ok {
+						surviving = append(surviving, session)
+						continue
+					}
+					// Addressed exactly as the manifest and the cache
+					// inventory address it -- the same helper the surviving
+					// sessions use below -- because a near-miss key would
+					// retain nothing while looking like a fix.
+					skippedTranscriptCache[sessionTranscriptRel(session, branchDirs)] = true
+				}
+				sessions = surviving
+				manifest.Sessions = sessions
+				branchDirs = buildBranchDirectories(sessions, defaultBranch)
 			}
 		}
 		// Store the shared Git directory while this worktree still exists. It
@@ -402,7 +471,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		}
 		var migration *historySessionInventory
 		if !exportOpts.skipTranscriptSweep {
-			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir, skippedTranscriptCache)
 			if err != nil {
 				return err
 			}
@@ -413,9 +482,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
 			session := &sessions[i]
-			name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
 			// Kept as a virtual evidence address, never a materialized path.
-			session.TranscriptPath = filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
+			session.TranscriptPath = sessionTranscriptRel(*session, branchDirs)
 		}
 		if err := withBrainWriteLock(outputDir, func() error {
 			var err error
@@ -3001,7 +3069,7 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	// bypass their per-call seam.
 	if runnerAllowsCatFileBatch(runner) {
 		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
-		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return data, err
 		}
 	}
@@ -3594,6 +3662,17 @@ func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extens
 	sessionPart := safePathComponent(sessionID, "session", 80)
 	checkpointPart := safePathComponent(checkpointID, "checkpoint", 32)
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
+}
+
+// sessionTranscriptRel is the single definition of a session's cached
+// transcript address: the key the manifest records, the key
+// historySessionByTranscriptPath looks sessions up by, and the Rel the cache
+// inventory walks up from disk. Callers that need that address -- the manifest
+// writer and the sweep's retain list -- must share it, because a key that is
+// merely close retains nothing while looking correct.
+func sessionTranscriptRel(session exportSession, branchDirs map[string]string) string {
+	name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+	return filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
 }
 
 func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[string]string {
@@ -4312,4 +4391,21 @@ func partitionTombstonedSessionsAt(brainDir string, sessions []exportSession) ([
 		validated = append(validated, session)
 	}
 	return validated, exempt, nil
+}
+
+// unavailableSessionsAreFatal is the threshold that decides whether missing
+// transcript bytes stop an export or merely cost their own sessions.
+//
+// It is a named value rather than an inline comparison because the whole
+// defect lived in this one comparison: `> 0` abandons the export over a single
+// vanished checkpoint, `usable == 0` abandons it only when nothing at all can
+// be served. Inline, a later simplification back to the first form reads as
+// tidying and silently restores the bug; a weakening sweep showed exactly that
+// change breaking no test.
+//
+// Fatal means: something was unavailable AND nothing was available. That is
+// the source-went-unreadable case, where republishing would erase an indexed
+// corpus. Anything else proceeds with what it can serve.
+func unavailableSessionsAreFatal(usable, unavailable int) bool {
+	return usable == 0 && unavailable > 0
 }

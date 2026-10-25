@@ -114,12 +114,17 @@ func TestStalenessIsOmittedFromJSONWhenExact(t *testing.T) {
 	if strings.Contains(string(data), "staleness") {
 		t.Fatalf("an exact brief carried a staleness key: %s", data)
 	}
-	stale := brainBriefSemantic{Source: "graph-context", Staleness: &semanticContextStaleness{AncestorCommit: "abc", CommitsBehind: 2}}
+	stale := brainBriefSemantic{Source: "graph-context", Staleness: &semanticContextStaleness{AncestorCommit: "abc", CommitsBehind: 2, ExcludedRecords: 12}}
 	data, err = jsonMarshalForTest(stale)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"staleness"`, `"ancestor_commit":"abc"`, `"commits_behind":2`} {
+	// excluded_records is asserted HERE, at the layer an agent actually reads,
+	// and not only where the struct is built. It is the field that separates an
+	// incomplete answer from a complete one, and this assertion is containment
+	// based -- so without naming it, dropping it from the emitted JSON would
+	// leave every test in this file green.
+	for _, want := range []string{`"staleness"`, `"ancestor_commit":"abc"`, `"commits_behind":2`, `"excluded_records":12`} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("stale brief JSON missing %s: %s", want, data)
 		}

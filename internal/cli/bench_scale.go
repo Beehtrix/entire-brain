@@ -21,7 +21,7 @@ import (
 //
 // Both of Brain's cells in the "scales to large codebases" comparison read
 // Unknown, and they read Unknown because nothing measured them. The existing
-// `bench semantic` times indexing and reports symbol counts, which answers a
+// `bench index` times indexing and reports symbol counts, which answers a
 // different question: the claims competitors publish are about the size of the
 // index on disk and the latency of a query — "100M lines in 250MB", "sub-200ms
 // search", "sub-50ms over ~2GB". We could not answer either at any scale.

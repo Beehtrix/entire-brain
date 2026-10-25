@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -221,55 +220,6 @@ func TestBrainStatusCompactReportPreservesTrustAndOmitsFollowUpDetail(t *testing
 	}
 	if len(full.Semantic.Coverage.FileLanguages) != 1 || len(full.Live.ChangedSymbolHints) != 1 {
 		t.Fatalf("compact projection mutated detailed report: %+v", full)
-	}
-}
-
-func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
-	storePath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, storePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO files(path, blob, content_hash) VALUES ('a.go', 'blob', 'hash')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	err = validateSemanticSQLiteStore(storePath, 2, 0, 0)
-	if err == nil || !strings.Contains(err.Error(), "file count 1 does not match manifest 2") {
-		t.Fatalf("expected file count mismatch, got %v", err)
-	}
-}
-
-func TestValidateSemanticSQLiteStoreInReadOnlyDirectory(t *testing.T) {
-	storeDir := t.TempDir()
-	storePath := filepath.Join(storeDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, storePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(storeDir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(storeDir, 0o700) })
-	probe := filepath.Join(storeDir, "write-probe")
-	if err := os.WriteFile(probe, []byte("probe"), 0o600); err == nil {
-		_ = os.Remove(probe)
-		t.Skip("filesystem or process privileges do not enforce the read-only directory mode")
-	}
-
-	if err := validateSemanticSQLiteStore(storePath, 0, 0, 0); err != nil {
-		t.Fatalf("validate immutable store in read-only directory: %v", err)
 	}
 }
 

@@ -219,9 +219,14 @@ func probeRunner(objectType, exists fakeCommandResponse) *fakeCommandRunner {
 func TestConfirmedMissingObjectCostsOnlyItsOwnSession(t *testing.T) {
 	t.Parallel()
 	snap, sessions := probedFixture()
-	runner := probeRunner(
+	// promisorProbeRunner, not probeRunner: "costs only its own session" is
+	// true of a FULL clone, and the fixture has to say so. probeRunner leaves
+	// the promisor config probe unhandled, which the fake answers with a plain
+	// "unexpected command" error -- an unasked question, not a full clone.
+	runner := promisorProbeRunner(
 		fakeCommandResponse{err: stubExitError{code: 128}, stderr: "fatal: git cat-file: could not get object info\n"},
 		fakeCommandResponse{err: stubExitError{code: 1}},
+		false,
 	)
 	usable, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
 	if err != nil {
@@ -323,10 +328,13 @@ func TestCancelledContextFailsTheExportRatherThanShrinkingIt(t *testing.T) {
 func TestUnavailableDiagnosticsKeepTheirErrorIdentity(t *testing.T) {
 	t.Parallel()
 	snap, sessions := probedFixture()
+	// Full clone, stated in the fixture: see the note in
+	// TestConfirmedMissingObjectCostsOnlyItsOwnSession.
 	missing := func() *fakeCommandRunner {
-		return probeRunner(
+		return promisorProbeRunner(
 			fakeCommandResponse{err: stubExitError{code: 128}},
 			fakeCommandResponse{err: stubExitError{code: 1}},
+			false,
 		)
 	}
 	_, unavailable, err := partitionLocalTranscriptSessions(context.Background(), missing(), snap, sessions, "raw")
@@ -509,5 +517,32 @@ func TestNoPromisorRemoteIsADefinitiveCachedAnswer(t *testing.T) {
 	answer, cached := promisorRemoteAnswers.Load(dir)
 	if !cached || answer != false {
 		t.Fatalf("exit 1 is a real answer and must be cached: cached=%v answer=%v", cached, answer)
+	}
+}
+
+// The difference those two fixtures were silently relying on, pinned.
+//
+// probeRunner leaves the promisor config probe unhandled, and the fake answers
+// an unhandled command with a plain errors.New -- no exit code. That is an
+// unasked question, and an unasked question must not license treating an absent
+// object as destroyed. Two tests above asserted full-clone behaviour on exactly
+// that fixture and passed only because the probe used to read any error as "no
+// promisor remote"; both now state the full clone explicitly.
+func TestAnUnansweredPromisorProbeRefusesRatherThanSkipping(t *testing.T) {
+	t.Parallel()
+	snap, sessions := probedFixture()
+	runner := probeRunner(
+		fakeCommandResponse{err: stubExitError{code: 128}},
+		fakeCommandResponse{err: stubExitError{code: 1}},
+	)
+	promisorRemoteAnswers.Delete("/repo/.git")
+	t.Cleanup(func() { promisorRemoteAnswers.Delete("/repo/.git") })
+
+	_, unavailable, err := partitionLocalTranscriptSessions(context.Background(), runner, snap, sessions, "raw")
+	if err == nil {
+		t.Fatalf("an unanswered promisor probe shrank the corpus instead of refusing: unavailable=%v", unavailable)
+	}
+	if !errors.Is(err, errGitObjectMissing) {
+		t.Fatalf("the cause must survive for errors.Is: %v", err)
 	}
 }

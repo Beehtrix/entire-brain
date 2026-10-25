@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -253,7 +254,7 @@ func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -314,7 +315,7 @@ func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{

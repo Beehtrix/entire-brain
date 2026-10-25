@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // distillConcurrentWriterFixture seeds a brain with one active fact and returns
@@ -51,7 +53,7 @@ func TestDistillFlushKeepsConcurrentWrites(t *testing.T) {
 					fired = true
 					// Exactly what `facts retract` and `remember` do: a whole
 					// transaction under the brain write lock, mid-run.
-					if err := withBrainWriteLock(brainDir, func() error {
+					if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 						facts, err := loadFacts(brainDir, "main")
 						if err != nil {
 							return err

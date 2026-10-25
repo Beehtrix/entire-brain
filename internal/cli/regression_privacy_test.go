@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -70,7 +71,7 @@ func TestRegressionPrivacySurfaces(t *testing.T) {
 				if !strings.Contains(out.String(), "..PRIVATE") {
 					t.Fatalf("positive control missing assertion: %s", out.String())
 				}
-				if err := withBrainWriteLock(f.BrainDir, func() error {
+				if err := brainstore.WithBrainWriteLock(f.BrainDir, func() error {
 					plan, err := buildSessionPurgePlan(f.BrainDir, f.SessionID)
 					if err != nil {
 						return err
@@ -122,7 +123,7 @@ func TestRegressionPrivacyOutputLock(t *testing.T) {
 			writes := 0
 			cmd.SetOut(evidenceInspectWriter(func(b []byte) (int, error) {
 				writes++
-				unlock, err := acquireBrainWriteLockTimeout(f.BrainDir, 10*time.Millisecond)
+				unlock, err := brainstore.AcquireBrainWriteLockTimeout(f.BrainDir, 10*time.Millisecond)
 				if err == nil {
 					unlock()
 					t.Error("output emitted without privacy lock")

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -49,7 +50,7 @@ func docFTSFingerprint(index docIndex) string {
 
 func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
 	var db *sql.DB
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var runErr error
 		db, runErr = openDocFTSLocked(brainDir, index)
 		return runErr

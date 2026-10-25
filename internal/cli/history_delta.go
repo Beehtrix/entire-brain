@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -1013,7 +1014,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		return shortTermStats{}, err
 	}
 	var stats shortTermStats
-	err = withBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr

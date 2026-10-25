@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // firstrun_no_sessions_test.go covers one defect with three faults, observed on
@@ -343,7 +345,7 @@ func captureCheckFor(t *testing.T, sessionsStageRan bool) doctorCheckResult {
 		Sources:       &brainSources{},
 	}
 	if sessionsStageRan {
-		if err := withBrainWriteLock(storage.BrainDir, func() error {
+		if err := brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 			return writeBrainSessionSourceLocked(storage.BrainDir, storage.Key, manifest)
 		}); err != nil {
 			t.Fatalf("write sessions source: %v", err)

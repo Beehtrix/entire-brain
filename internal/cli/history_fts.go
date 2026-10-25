@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -142,7 +143,7 @@ func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
 		return db, nil
 	}
 	var db *sql.DB
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var runErr error
 		db, runErr = openHistoryFTSLockedIdentity(brainDir, index, identity)
 		return runErr
@@ -337,7 +338,7 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 // openHistoryFTS's cheaper double-checked rebuild; this path is only for a v3
 // database whose metadata claimed freshness but whose hydrated rows were invalid.
 func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		path, err := clibase.PrepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 		if err != nil {
 			return err
@@ -487,7 +488,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 	// corruption. Wait once on the writer lock as a publication barrier, then
 	// re-read the manifest. The normal long rebuild path never waits here: while
 	// it runs, the old committed FTS metadata still matches and the read proceeds.
-	unlock, lockErr := acquireBrainWriteLock(brainDir)
+	unlock, lockErr := brainstore.AcquireBrainWriteLock(brainDir)
 	if lockErr != nil {
 		return nil, false, lockErr
 	}
@@ -523,7 +524,7 @@ func sameHistoryDirectSource(a, b *historySourceManifest) bool {
 }
 
 func historyBrainWriteInProgress(brainDir string) (bool, error) {
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 0)
 	if err == nil {
 		unlock()
 		return false, nil

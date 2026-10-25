@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -30,7 +31,7 @@ func TestHelperHoldBrainWriteLock(t *testing.T) {
 	if brainDir == "" {
 		t.Skip("helper process for TestFactsReclassifyWaitsForOtherProcess")
 	}
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, 60*time.Second)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 60*time.Second)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "helper: acquire brain write lock: %v\n", err)
 		os.Exit(1)

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -426,7 +427,7 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- withDistillPassLock(f.storage.BrainDir, func() { t.Error("the test must be the one holding the lock") }, func() error {
+		done <- brainstore.WithDistillPassLock(f.storage.BrainDir, func() { t.Error("the test must be the one holding the lock") }, func() error {
 			close(held)
 			<-done // released below, after watchDistill has tried
 			return nil

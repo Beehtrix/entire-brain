@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -182,7 +183,7 @@ func TestRecallEvidencePrivacyLockCoversOutputAndWriteErrors(t *testing.T) {
 	writes := 0
 	cmd.SetOut(evidenceInspectWriter(func(b []byte) (int, error) {
 		writes++
-		unlock, err := acquireBrainWriteLockTimeout(brain, 10*time.Millisecond)
+		unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 10*time.Millisecond)
 		if err == nil {
 			unlock()
 			t.Fatal("source output emitted without privacy lock")
@@ -192,7 +193,7 @@ func TestRecallEvidencePrivacyLockCoversOutputAndWriteErrors(t *testing.T) {
 	if err := runRecallEvidence(cmd, brain, "main", "target", 10, 8192, true); !errors.Is(err, io.ErrClosedPipe) || writes != 1 {
 		t.Fatalf("lost output error: %v writes=%d", err, writes)
 	}
-	unlock, err := acquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
 	if err != nil {
 		t.Fatalf("privacy lock leaked: %v", err)
 	}

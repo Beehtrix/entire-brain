@@ -16,6 +16,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -638,10 +639,10 @@ func withWatchCursorLock(cursorPath string, fn func() error) error {
 	} else if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	if err := base.RejectExistingSymlinkPathComponents(root, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(root, brainstore.BrainLockDirName); err != nil {
 		return err
 	}
-	lock, err := acquireFileLock(filepath.Join(root, brainLockDirName, watchCursorLockName), "watch_locked", brainWriteLockTimeout)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(root, brainstore.BrainLockDirName, watchCursorLockName), "watch_locked", brainstore.BrainWriteLockTimeout)
 	if err != nil {
 		return err
 	}
@@ -897,5 +898,5 @@ func saveWatchCursor(path string, c watchCursor) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, append(data, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(path, append(data, '\n'), 0o600)
 }

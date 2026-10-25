@@ -1,4 +1,4 @@
-package cli
+package brainstore
 
 import (
 	"fmt"
@@ -30,7 +30,7 @@ func TestDistillPassLockLetsExactlyOneSpend(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := withDistillPassLock(brainDir, func() { skipped.Add(1) }, func() error {
+		err := WithDistillPassLock(brainDir, func() { skipped.Add(1) }, func() error {
 			spent.Add(1)
 			close(inside)
 			<-release
@@ -42,7 +42,7 @@ func TestDistillPassLockLetsExactlyOneSpend(t *testing.T) {
 	}()
 
 	<-inside
-	err := withDistillPassLock(brainDir, func() { skipped.Add(1) }, func() error {
+	err := WithDistillPassLock(brainDir, func() { skipped.Add(1) }, func() error {
 		spent.Add(1)
 		return nil
 	})
@@ -67,7 +67,7 @@ func TestDistillPassLockIsReleasedForTheNextPass(t *testing.T) {
 	brainDir := t.TempDir()
 	runs := 0
 	for i := 0; i < 3; i++ {
-		if err := withDistillPassLock(brainDir, func() { t.Fatal("sequential passes must never skip") }, func() error {
+		if err := WithDistillPassLock(brainDir, func() { t.Fatal("sequential passes must never skip") }, func() error {
 			runs++
 			return nil
 		}); err != nil {
@@ -85,11 +85,11 @@ func TestDistillPassLockSurvivesAFailedPass(t *testing.T) {
 	t.Parallel()
 	brainDir := t.TempDir()
 	want := fmt.Errorf("agent exploded")
-	if err := withDistillPassLock(brainDir, nil, func() error { return want }); err != want {
+	if err := WithDistillPassLock(brainDir, nil, func() error { return want }); err != want {
 		t.Fatalf("the pass error must propagate, got %v", err)
 	}
 	ran := false
-	if err := withDistillPassLock(brainDir, func() { t.Fatal("the lock must be released after a failure") }, func() error {
+	if err := WithDistillPassLock(brainDir, func() { t.Fatal("the lock must be released after a failure") }, func() error {
 		ran = true
 		return nil
 	}); err != nil {

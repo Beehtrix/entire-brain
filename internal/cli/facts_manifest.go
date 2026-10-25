@@ -9,6 +9,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // loadFactStoreFiles scans the facts directory and returns every stored fact
@@ -114,7 +115,7 @@ func countFactProposals(brainDir string, branches []string) int {
 // manifest stay accurate. Chunk counts are preserved from the existing source
 // (they describe the last distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return updateFactSourceManifestLocked(brainDir, now)
 	})
 }
@@ -140,7 +141,7 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 // id, so folding them through Upsert's merge rules loses nothing.
 func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 	changed := 0
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		byFile, err := loadFactStoreFiles(brainDir)
 		if err != nil {
 			return err

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -86,7 +87,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
 	t.Helper()
 	var stats shortTermStats
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
@@ -162,7 +163,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
 	t.Helper()
 	var stats shortTermStats
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		stats, err = buildHistoryShortTermLocked(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC))
 		return err

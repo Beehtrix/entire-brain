@@ -19,6 +19,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
@@ -649,8 +650,8 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 	brainDir := storage.BrainDir
 	var plan sessionPurgePlan
 	matched := false
-	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			// Exclusion is purge minus the transcript: the tombstone guards
 			// reads immediately, then every derived projection the session fed --
 			// index records, facts, episodes, pattern outputs, caches, FTS and
@@ -762,8 +763,8 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-				return withBrainWriteLock(brainDir, func() error {
+			if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+				return brainstore.WithBrainWriteLock(brainDir, func() error {
 					return includeSessionLocked(brainDir, sessionID, opts.Now().UTC())
 				})
 			}); err != nil {
@@ -972,7 +973,7 @@ func restoreIncludePrivacyFile(brainDir, rel, label string, before []byte) error
 	if err == nil {
 		return nil
 	}
-	var durabilityErr *atomicReplaceDurabilityError
+	var durabilityErr *brainstore.AtomicReplaceDurabilityError
 	if !errors.As(err, &durabilityErr) {
 		return err
 	}
@@ -986,7 +987,7 @@ func restoreIncludePrivacyFile(brainDir, rel, label string, before []byte) error
 	if cleanErr != nil {
 		return errors.Join(err, cleanErr)
 	}
-	if syncErr := syncParentDir(filepath.Join(brainDir, clean)); syncErr != nil {
+	if syncErr := brainstore.SyncParentDir(filepath.Join(brainDir, clean)); syncErr != nil {
 		return errors.Join(err, fmt.Errorf("sync restored %s directory: %w", label, syncErr))
 	}
 	if exactErr := requireExactIncludePrivacyFile(brainDir, rel, label, before); exactErr != nil {
@@ -1081,7 +1082,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 	brainDir := storage.BrainDir
 	var plan sessionPurgePlan
 	apply := func() error {
-		return withBrainWriteLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			var planErr error
 			plan, planErr = buildSessionPurgePlan(brainDir, sessionID)
 			if planErr != nil {
@@ -1102,7 +1103,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 	}
 	if !dryRun {
 		operation := apply
-		apply = func() error { return withBrainPrivacySideEffectLock(brainDir, operation) }
+		apply = func() error { return brainstore.WithBrainPrivacySideEffectLock(brainDir, operation) }
 	}
 	if err := apply(); err != nil {
 		return err
@@ -2033,7 +2034,7 @@ func removePrivacyTransactionForInclude(brainDir, sessionID string, present bool
 	if err := beforeIncludePrivacyTransactionDirSync(path); err != nil {
 		return fmt.Errorf("sync removed privacy transaction directory: %w", err)
 	}
-	if err := syncPinnedDirectory(pinnedParent); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinnedParent); err != nil {
 		return fmt.Errorf("sync removed privacy transaction directory: %w", err)
 	}
 	return nil

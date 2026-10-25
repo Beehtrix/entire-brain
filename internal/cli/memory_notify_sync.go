@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -98,7 +99,7 @@ func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, rep
 		return false
 	}
 	claimed := false
-	if err := withBrainWriteLock(storage.BrainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		now := opts.Now().UTC()
 		marker := readMemoryNotifySyncMarker(storage.BrainDir)
 		if now.Sub(marker.LastSyncAt) < memoryNotifyHostedSyncMinInterval {

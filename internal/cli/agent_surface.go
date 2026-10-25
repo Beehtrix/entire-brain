@@ -20,6 +20,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
@@ -5020,13 +5021,13 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 		return true
 	}
 	for _, dir := range []string{
-		historyDirName,   // index, generations, staging, overlay, work records
-		factsDirName,     // distilled facts and the distill cache
-		"patterns",       // corpus, runs, derived pattern outputs
-		seedDirName,      // synthesized seed
-		semanticDirName,  // symbol graph snapshots and stores
-		"export",         // export cursor state
-		brainLockDirName, // lock leaves
+		historyDirName,              // index, generations, staging, overlay, work records
+		factsDirName,                // distilled facts and the distill cache
+		"patterns",                  // corpus, runs, derived pattern outputs
+		seedDirName,                 // synthesized seed
+		semanticDirName,             // symbol graph snapshots and stores
+		"export",                    // export cursor state
+		brainstore.BrainLockDirName, // lock leaves
 	} {
 		if relSlash == dir || strings.HasPrefix(relSlash, dir+"/") {
 			return true

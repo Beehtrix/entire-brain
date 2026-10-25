@@ -18,6 +18,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -414,7 +415,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return nil
 	}
 	if persistentSeed {
-		if err := withBrainWriteLock(outputDir, commitSeed); err != nil {
+		if err := brainstore.WithBrainWriteLock(outputDir, commitSeed); err != nil {
 			return err
 		}
 	} else if err := commitSeed(); err != nil {

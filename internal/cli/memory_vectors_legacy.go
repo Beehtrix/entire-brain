@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Semantic retrieval was removed (trail #278), and with it every vector
@@ -124,7 +125,7 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 // fabricate or repair a legacy progress leaf; no production path writes one
 // anymore.
 func saveMemoryVectorProgress(brainDir string, progress memoryVectorProgress) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		if _, _, err := loadMemoryVectorProgress(brainDir); err != nil {
 			return err
 		}

@@ -1,4 +1,4 @@
-package cli
+package brainstore
 
 import (
 	"errors"
@@ -14,18 +14,18 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
-const fileLockRetryInterval = 10 * time.Millisecond
+const FileLockRetryInterval = 10 * time.Millisecond
 
-var errFileLockTimeout = errors.New("file lock timeout")
+var ErrFileLockTimeout = errors.New("file lock timeout")
 
-type fileLock struct {
+type FileLock struct {
 	path        string
 	file        *os.File
 	processLock *processFileLock
 }
 
 // processFileLocks makes file locks visible to Go goroutines for the full
-// acquireFileLock-to-Close lifetime. The OS lock remains necessary for other
+// AcquireFileLock-to-Close lifetime. The OS lock remains necessary for other
 // processes.
 var processFileLocks processFileLockRegistry
 
@@ -42,7 +42,7 @@ type processFileLock struct {
 	refs     int // holders and waiters; protected by processFileLocks
 }
 
-func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error) {
+func AcquireFileLock(path, code string, timeout time.Duration) (*FileLock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}
@@ -75,8 +75,8 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 		}
 		err = tryLockFile(f)
 		if err == nil {
-			writeLockOwnerMetadata(path)
-			lock := &fileLock{path: path, file: f, processLock: processLock}
+			WriteLockOwnerMetadata(path)
+			lock := &FileLock{path: path, file: f, processLock: processLock}
 			processLock = nil
 			return lock, nil
 		}
@@ -84,10 +84,10 @@ func acquireFileLock(path, code string, timeout time.Duration) (*fileLock, error
 		if !isLockBusy(err) {
 			return nil, fmt.Errorf("lock file: %w", err)
 		}
-		if timeout <= 0 || time.Now().Add(fileLockRetryInterval).After(deadline) {
+		if timeout <= 0 || time.Now().Add(FileLockRetryInterval).After(deadline) {
 			return nil, fileLockTimeoutError(code, path)
 		}
-		time.Sleep(fileLockRetryInterval)
+		time.Sleep(FileLockRetryInterval)
 	}
 }
 
@@ -173,15 +173,15 @@ func fileLockTimeoutError(code, path string) error {
 	// The holder named below is ALIVE: these are flock/LockFileEx locks, which
 	// the kernel releases the moment their process exits, so a timeout can
 	// never be a stale lockfile. That is what licenses naming an action here.
-	return fmt.Errorf("%s: timed out acquiring lock at %s%s: %w — another entire-brain operation is still running; wait for it to finish or stop that process, then retry", code, path, describeFileLockHolder(path), errFileLockTimeout)
+	return fmt.Errorf("%s: timed out acquiring lock at %s%s: %w — another entire-brain operation is still running; wait for it to finish or stop that process, then retry", code, path, describeFileLockHolder(path), ErrFileLockTimeout)
 }
 
 // fileLockMetadataMaxBytes bounds the read of an owner file.
-// writeLockOwnerMetadata writes two short lines; anything larger is not ours
+// WriteLockOwnerMetadata writes two short lines; anything larger is not ours
 // and is ignored.
 const fileLockMetadataMaxBytes = 512
 
-// fileLockOwnerSuffix names the sidecar carrying a lock's owner metadata.
+// FileLockOwnerSuffix names the sidecar carrying a lock's owner metadata.
 //
 // The metadata lives BESIDE the lock rather than inside it because Windows
 // byte-range locks are MANDATORY. tryLockFile takes an exclusive LockFileEx
@@ -196,9 +196,9 @@ const fileLockMetadataMaxBytes = 512
 // but that ties this diagnostic to the exact byte range tryLockFile happens to
 // lock, so a later change there would silently break the message on Windows
 // alone. A separate file nothing ever locks is the version that cannot rot.
-const fileLockOwnerSuffix = ".owner"
+const FileLockOwnerSuffix = ".owner"
 
-// describeFileLockHolder turns the metadata writeLockOwnerMetadata stores
+// describeFileLockHolder turns the metadata WriteLockOwnerMetadata stores
 // beside every lock into the one fact a blocked caller actually needs: WHICH
 // process is holding this lock, and for how long.
 //
@@ -225,7 +225,7 @@ const fileLockOwnerSuffix = ".owner"
 // message claims. It is never treated as proof a holder is alive: the lock
 // remains the only authority on that.
 func describeFileLockHolder(lockPath string) string {
-	path := lockPath + fileLockOwnerSuffix
+	path := lockPath + FileLockOwnerSuffix
 	// Lstat first, and demand a plain file. O_NOFOLLOW rejects a symlink but
 	// NOT a fifo, and opening a fifo for reading blocks until someone opens the
 	// write end -- which would hang the very error path whose whole job is to
@@ -268,7 +268,7 @@ func describeFileLockHolder(lockPath string) string {
 			}
 		}
 	}
-	if pid <= 0 || !processAlive(pid) {
+	if pid <= 0 || !ProcessAlive(pid) {
 		return ""
 	}
 	// A holder that is US is the most valuable answer of all: it means this
@@ -289,7 +289,7 @@ func describeFileLockHolder(lockPath string) string {
 	return fmt.Sprintf(" (held by %s for %s)", who, held.Round(time.Second))
 }
 
-// writeLockOwnerMetadata records who holds lockPath, in the sidecar beside it.
+// WriteLockOwnerMetadata records who holds lockPath, in the sidecar beside it.
 // Called by the winner immediately after the lock is taken, so the lock itself
 // guarantees a single writer.
 //
@@ -298,8 +298,8 @@ func describeFileLockHolder(lockPath string) string {
 // is for another PROCESS to read this within seconds, which the page cache
 // already provides, and crash durability is worthless for a file whose whole
 // subject is a process that no longer exists.
-func writeLockOwnerMetadata(lockPath string) {
-	path := lockPath + fileLockOwnerSuffix
+func WriteLockOwnerMetadata(lockPath string) {
+	path := lockPath + FileLockOwnerSuffix
 	if err := base.RejectUnsafeExistingRegularFile(path, "lock owner file"); err != nil {
 		return
 	}
@@ -311,7 +311,7 @@ func writeLockOwnerMetadata(lockPath string) {
 	_, _ = fmt.Fprintf(f, "pid=%d\ncreated_at=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
 }
 
-func (l *fileLock) Close() error {
+func (l *FileLock) Close() error {
 	if l == nil || l.file == nil {
 		return nil
 	}

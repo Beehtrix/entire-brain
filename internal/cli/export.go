@@ -21,6 +21,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -199,7 +200,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
 			if metadataCachePath != "" && metadataCacheBrainDir != "" {
-				_ = withBrainWriteLock(metadataCacheBrainDir, func() error {
+				_ = brainstore.WithBrainWriteLock(metadataCacheBrainDir, func() error {
 					saveCheckpointMetadataCache(metadataCachePath, metadataCache)
 					return nil
 				})
@@ -353,7 +354,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			// Kept as a virtual evidence address, never a materialized path.
 			session.TranscriptPath = filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
 		}
-		if err := withBrainWriteLock(outputDir, func() error {
+		if err := brainstore.WithBrainWriteLock(outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
 			if err != nil {
@@ -2833,7 +2834,7 @@ func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	_ = writeFileAtomic(path, buf.Bytes(), 0o600)
+	_ = brainstore.WriteFileAtomic(path, buf.Bytes(), 0o600)
 }
 
 // checkpointBlobReader reads checkpoint metadata blobs, consulting an optional
@@ -3184,7 +3185,7 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
 		return fmt.Errorf("validate transcript path %s: %w", clean, err)
 	}
-	if err := writeFileAtomic(abs, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(abs, data, 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -3406,7 +3407,7 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil

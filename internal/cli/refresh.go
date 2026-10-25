@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -1003,7 +1004,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	if err := base.RejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(storage.BrainDir, rel), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(storage.BrainDir, rel), data, 0o600); err != nil {
 		return err
 	}
 	return nil

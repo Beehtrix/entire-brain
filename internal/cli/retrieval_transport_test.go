@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -445,7 +446,7 @@ func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPri
 		called = true
 		go func() {
 			defer close(result)
-			result <- withBrainWriteLock(fixture.BrainDir, func() error {
+			result <- brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
 				stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
 				if err != nil {
 					return err
@@ -679,7 +680,7 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(fixture.BrainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
 		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err
@@ -704,7 +705,7 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 
 func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	if err := withBrainWriteLock(fixture.BrainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
 		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err

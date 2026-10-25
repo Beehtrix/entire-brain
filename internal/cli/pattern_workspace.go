@@ -11,6 +11,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
@@ -74,7 +75,7 @@ func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspace.
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(wsBrainDir, func() error {
+	return brainstore.WithBrainWriteLock(wsBrainDir, func() error {
 		return recoverPatternCorpusPublicationLocked(wsBrainDir)
 	})
 }

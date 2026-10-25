@@ -29,6 +29,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -886,7 +887,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	var source *factSourceManifest
 	skipped := false
 	// Contention is decided before the agent is: see above.
-	err = withDistillPassLock(storage.BrainDir, func() {
+	err = brainstore.WithDistillPassLock(storage.BrainDir, func() {
 		skipped = true
 		// Tell the CALLER, not just the terminal. A skipped pass spends
 		// nothing, and a supervised watcher that cannot tell "done" from
@@ -899,7 +900,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
-			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
+			filepath.Join(storage.BrainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName))
 	}, func() error {
 		// We hold the lock, so this pass will really run: NOW the agent has to
 		// exist. ollama is named because it is auto-selected ahead of the
@@ -1253,7 +1254,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return saveDistillCache(brainDir, cache)
 	}
 	flushFactStores := func(final bool) error {
-		return withBrainWriteLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			return flushFactStoresLocked(final)
 		})
 	}
@@ -1532,7 +1533,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	writeStarted := time.Now()
 	var source *factSourceManifest
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return err

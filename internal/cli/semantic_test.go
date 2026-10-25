@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
@@ -659,10 +660,10 @@ func TestSemanticResetForceLeavesEmptyBrainDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read brain dir: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != brainLockDirName {
-		t.Fatalf("brain dir entries after reset = %+v, want only %s", entries, brainLockDirName)
+	if len(entries) != 1 || entries[0].Name() != brainstore.BrainLockDirName {
+		t.Fatalf("brain dir entries after reset = %+v, want only %s", entries, brainstore.BrainLockDirName)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, brainLockDirName, brainWriteLockName)); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, brainstore.BrainLockDirName, brainstore.BrainWriteLockName)); err != nil {
 		t.Fatalf("write lock metadata should remain after reset: %v", err)
 	}
 }
@@ -2757,11 +2758,11 @@ func writeSemanticTestLock(t *testing.T, brainDir string) {
 
 // shortSemanticLockTimeout makes lock contention fail in milliseconds instead
 // of the production window. The retry loop still runs: the override stays a
-// multiple of fileLockRetryInterval. Not safe in parallel tests.
+// multiple of FileLockRetryInterval. Not safe in parallel tests.
 func shortSemanticLockTimeout(t *testing.T) {
 	t.Helper()
 	prev := semanticIndexLockTimeout
-	semanticIndexLockTimeout = 5 * fileLockRetryInterval
+	semanticIndexLockTimeout = 5 * brainstore.FileLockRetryInterval
 	t.Cleanup(func() { semanticIndexLockTimeout = prev })
 }
 

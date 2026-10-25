@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -56,7 +57,7 @@ func writeGraphTraces(brainDir string, rows []graphTraceObservation) error {
 	if len(data)+1 > graphTraceMaxBytes {
 		return errors.New("runtime trace observations exceed 64 MiB; existing observations retained")
 	}
-	return writeFileAtomic(filepath.Join(brainDir, graphTraceFile), append(data, '\n'), 0600)
+	return brainstore.WriteFileAtomic(filepath.Join(brainDir, graphTraceFile), append(data, '\n'), 0600)
 }
 
 func loadGraphTraceTable(db *sql.DB, brainDir string) error {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // memory_state.go is the durable work record: content-free lifecycle hint
@@ -152,7 +153,7 @@ func memoryErrorCode(err error) string {
 		memoryErrInputTooLarge,
 		memoryErrPrivacyExcluded,
 		memoryErrPrivacyDirty,
-		memoryErrPrivacyBusy,
+		brainstore.PrivacyBusyCode,
 		memoryErrIdentityAmbiguous,
 		memoryErrProviderUnavail,
 		memoryErrStateCorrupt,
@@ -945,7 +946,7 @@ func memoryOperationalError(err error) string {
 		"memory_source_stale",
 		"memory_privacy_blocked",
 		"memory_privacy_excluded",
-		memoryErrPrivacyBusy,
+		brainstore.PrivacyBusyCode,
 		"memory_cancelled",
 		"memory_state_corrupt",
 		"memory_state_unsafe",

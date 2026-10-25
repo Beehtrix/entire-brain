@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
@@ -75,7 +77,7 @@ func TestHistoryProjectionPublishFailurePreservesPreviousGeneration(t *testing.T
 		return originalWrite(brainDir, rel, data, perm)
 	}
 	t.Cleanup(func() { historyProjectionWriteFile = originalWrite })
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -115,7 +117,7 @@ func TestHistoryProjectionSourceChangeBeforeCommitPublishesNothing(t *testing.T)
 	if err := os.Chtimes(full, changed, changed); err != nil {
 		t.Fatal(err)
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -139,7 +141,7 @@ func TestHistoryProjectionSameMetadataReplacementBeforeCommitPublishesNothing(t 
 	target := filepath.Join(brainDir, filepath.FromSlash(rel))
 	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -175,7 +177,7 @@ func TestHistoryProjectionCancellationAtCommitPublishesNothing(t *testing.T) {
 		}
 		return nil
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, guard)
 		return publishErr
 	})
@@ -220,7 +222,7 @@ func TestHistoryProjectionPrivacyOrOverlayChangeBeforeCommitPublishesNothing(t *
 				t.Fatal(err)
 			}
 			test.mutate(t, brainDir, now.Add(2*time.Minute))
-			err = withBrainWriteLock(brainDir, func() error {
+			err = brainstore.WithBrainWriteLock(brainDir, func() error {
 				_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 				return publishErr
 			})
@@ -306,7 +308,7 @@ func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
 
 func TestHistoryProjectionPrepareDoesNotAcquireBrainWriteLock(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	unlock, err := acquireBrainWriteLock(brainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +330,7 @@ func TestHistoryProjectionCommitRevalidationIsMetadataOnly(t *testing.T) {
 	originalHook := beforeHistoryProjectionContentDigest
 	beforeHistoryProjectionContentDigest = func(string) { digestCalls++ }
 	t.Cleanup(func() { beforeHistoryProjectionContentDigest = originalHook })
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})

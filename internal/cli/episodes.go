@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Episode layer (Pattern Consolidation, Phase 1).
@@ -256,7 +257,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 // source in the manifest, under the brain write lock.
 func writeBrainEpisodesAndSource(outputDir string, now time.Time) (*patternSourceManifest, error) {
 	var source *patternSourceManifest
-	err := withBrainWriteLock(outputDir, func() error {
+	err := brainstore.WithBrainWriteLock(outputDir, func() error {
 		var runErr error
 		source, runErr = writeBrainEpisodesAndSourceLocked(outputDir, now)
 		return runErr

@@ -1,4 +1,4 @@
-package cli
+package brainstore
 
 import (
 	"errors"
@@ -13,18 +13,18 @@ import (
 
 func TestFileLockContentionAndReacquire(t *testing.T) {
 	lockPath := filepath.Join(t.TempDir(), "locks", "write.lock")
-	lock, err := acquireFileLock(lockPath, "brain_locked", 0)
+	lock, err := AcquireFileLock(lockPath, "brain_locked", 0)
 	if err != nil {
 		t.Fatalf("acquire lock: %v", err)
 	}
-	if _, err := acquireFileLock(lockPath, "brain_locked", 25*time.Millisecond); err == nil ||
-		!strings.Contains(err.Error(), "brain_locked") || !errors.Is(err, errFileLockTimeout) {
+	if _, err := AcquireFileLock(lockPath, "brain_locked", 25*time.Millisecond); err == nil ||
+		!strings.Contains(err.Error(), "brain_locked") || !errors.Is(err, ErrFileLockTimeout) {
 		t.Fatalf("typed contention err = %v", err)
 	}
 	if err := lock.Close(); err != nil {
 		t.Fatalf("unlock: %v", err)
 	}
-	reacquired, err := acquireFileLock(lockPath, "brain_locked", time.Second)
+	reacquired, err := AcquireFileLock(lockPath, "brain_locked", time.Second)
 	if err != nil {
 		t.Fatalf("reacquire after unlock with lock file still present: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 	go func() {
 		defer wait.Done()
 		defer close(firstDone)
-		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
+		lock, err := AcquireFileLock(lockPath, "brain_locked", time.Second)
 		if err != nil {
 			t.Errorf("first acquire: %v", err)
 			return
@@ -79,7 +79,7 @@ func TestFileLockSerializesSameProcessSharedMemory(t *testing.T) {
 		case <-firstDone:
 			return
 		}
-		lock, err := acquireFileLock(lockPath, "brain_locked", time.Second)
+		lock, err := AcquireFileLock(lockPath, "brain_locked", time.Second)
 		if err != nil {
 			t.Errorf("second acquire: %v", err)
 			return
@@ -136,7 +136,7 @@ func TestFileLockSerializesParentDirectoryAliases(t *testing.T) {
 	if realBasename != aliasBasename || !os.SameFile(realParent, aliasParent) {
 		t.Fatal("lock path aliases must have the same parent identity and basename")
 	}
-	lock, err := acquireFileLock(realPath, "brain_locked", time.Second)
+	lock, err := AcquireFileLock(realPath, "brain_locked", time.Second)
 	if err != nil {
 		t.Fatalf("acquire through real path: %v", err)
 	}
@@ -145,8 +145,8 @@ func TestFileLockSerializesParentDirectoryAliases(t *testing.T) {
 			t.Errorf("release real path lock: %v", err)
 		}
 	}()
-	if _, err := acquireFileLock(aliasPath, "brain_locked", 25*time.Millisecond); err == nil ||
-		!errors.Is(err, errFileLockTimeout) {
+	if _, err := AcquireFileLock(aliasPath, "brain_locked", 25*time.Millisecond); err == nil ||
+		!errors.Is(err, ErrFileLockTimeout) {
 		t.Fatalf("alias contention err = %v", err)
 	}
 }
@@ -164,7 +164,7 @@ func TestFileLockRejectsSymlinkTarget(t *testing.T) {
 	if err := os.Symlink(target, lockPath); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	if _, err := acquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "symlink") {
+	if _, err := AcquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("symlink lock err = %v", err)
 	}
 	data, err := os.ReadFile(target)
@@ -189,7 +189,7 @@ func TestFileLockRejectsHardlinkTarget(t *testing.T) {
 	if err := os.Link(shared, lockPath); err != nil {
 		t.Skipf("hardlink unsupported: %v", err)
 	}
-	if _, err := acquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "hardlink") {
+	if _, err := AcquireFileLock(lockPath, "brain_locked", 0); err == nil || !strings.Contains(err.Error(), "hardlink") {
 		t.Fatalf("hardlink lock err = %v", err)
 	}
 	data, err := os.ReadFile(shared)
@@ -227,7 +227,7 @@ func TestFileLockContentionAcrossProcesses(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, err := acquireFileLock(lockPath, "brain_locked", 50*time.Millisecond); err == nil || !strings.Contains(err.Error(), "brain_locked") {
+	if _, err := AcquireFileLock(lockPath, "brain_locked", 50*time.Millisecond); err == nil || !strings.Contains(err.Error(), "brain_locked") {
 		t.Fatalf("cross-process contention err = %v", err)
 	}
 }
@@ -236,11 +236,11 @@ func TestFileLockSubprocessHelper(t *testing.T) {
 	if os.Getenv("ENTIRE_BRAIN_LOCK_HELPER") != "1" {
 		return
 	}
-	lock, err := acquireFileLock(os.Getenv("ENTIRE_BRAIN_LOCK_PATH"), "brain_locked", time.Second)
+	lock, err := AcquireFileLock(os.Getenv("ENTIRE_BRAIN_LOCK_PATH"), "brain_locked", time.Second)
 	if err != nil {
 		t.Fatalf("helper acquire lock: %v", err)
 	}
-	if err := writeFileAtomic(os.Getenv("ENTIRE_BRAIN_LOCK_READY"), []byte("ready\n"), 0o600); err != nil {
+	if err := WriteFileAtomic(os.Getenv("ENTIRE_BRAIN_LOCK_READY"), []byte("ready\n"), 0o600); err != nil {
 		t.Fatalf("helper ready: %v", err)
 	}
 	time.Sleep(5 * time.Second)

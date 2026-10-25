@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -553,7 +554,7 @@ func (c *judgeCache) save() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(c.path, append(data, '\n'), 0o600)
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {

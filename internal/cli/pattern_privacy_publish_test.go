@@ -12,6 +12,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -99,7 +100,7 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 	tombstoneDone := make(chan error, 1)
 	go func() {
 		close(tombstoneAttempted)
-		tombstoneDone <- withBrainWriteLock(brainDir, func() error {
+		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			stones, _, err := loadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
@@ -140,7 +141,7 @@ func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		stones, _, err := loadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return err
@@ -642,7 +643,7 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 
 	tombstoneDone := make(chan error, 1)
 	go func() {
-		tombstoneDone <- withBrainWriteLock(brainDir, func() error {
+		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			stones, _, err := loadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err

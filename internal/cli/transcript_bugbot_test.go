@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -150,7 +151,7 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 			historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
 				if !checked && strings.HasPrefix(rel, historyStagingDir+"/") {
 					checked = true
-					unlock, err := acquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
+					unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
 					if err != nil {
 						t.Fatalf("history preparation holds the brain write lock: %v", err)
 					}
@@ -211,7 +212,7 @@ func TestFilelessMigrationRecoversExcludedSessionAfterInclude(t *testing.T) {
 	if _, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath); err == nil {
 		t.Fatal("migration bypassed exclusion")
 	}
-	if err := withBrainWriteLock(brain, func() error { return includeSessionLocked(brain, session.SessionID, opts.Now()) }); err != nil {
+	if err := brainstore.WithBrainWriteLock(brain, func() error { return includeSessionLocked(brain, session.SessionID, opts.Now()) }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath)

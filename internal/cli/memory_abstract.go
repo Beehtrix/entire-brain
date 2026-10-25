@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -1679,7 +1680,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 	// ordinary Brain lock. Brief Brain-locked sections perform final checks and
 	// persistence, while projections, retrievals, heartbeats, and cancellation
 	// requests remain available during the bounded provider call.
-	privacyUnlock, err := acquireBrainPrivacySideEffectLock(brainDir)
+	privacyUnlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
 	if err != nil {
 		return sessionAbstract{}, err
 	}
@@ -2016,7 +2017,7 @@ func enqueueAutomaticAbstractReconciliation(brainDir, trigger string, now time.T
 	if !config.Abstracts.Enabled || !config.Abstracts.Automatic {
 		return nil
 	}
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileAbstractJobsLocked(brainDir, trigger, now)
 		return err
 	})
@@ -2300,7 +2301,7 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 		if dryRun {
 			err = configure()
 		} else {
-			err = withBrainWriteLock(storage.BrainDir, configure)
+			err = brainstore.WithBrainWriteLock(storage.BrainDir, configure)
 		}
 		if err != nil {
 			return fail(err)
@@ -2489,7 +2490,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 	if dryRun {
 		err = enqueue()
 	} else {
-		err = withBrainWriteLock(brainDir, enqueue)
+		err = brainstore.WithBrainWriteLock(brainDir, enqueue)
 	}
 	return accepted, created, err
 }

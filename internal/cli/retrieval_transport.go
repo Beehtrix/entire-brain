@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -145,7 +146,7 @@ func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(),
 	sort.Strings(brainDirs)
 	unlocks := make([]func(), 0, len(brainDirs))
 	for _, brainDir := range brainDirs {
-		unlock, err := acquireBrainWriteLock(brainDir)
+		unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 		if err != nil {
 			for i := len(unlocks) - 1; i >= 0; i-- {
 				unlocks[i]()

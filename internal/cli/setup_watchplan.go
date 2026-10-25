@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // setup_watchplan.go holds the machine-level watch plan: the ONE file the ONE
@@ -127,10 +129,10 @@ func updateSetupWatchPlan(env EntireEnv, mutate func(*setupWatchPlan)) (setupWat
 		return setupWatchPlan{}, err
 	}
 	stateDir := filepath.Dir(path)
-	if err := os.MkdirAll(filepath.Join(stateDir, brainLockDirName), 0o700); err != nil {
-		return setupWatchPlan{}, fmt.Errorf("create %s: %w", filepath.Join(stateDir, brainLockDirName), err)
+	if err := os.MkdirAll(filepath.Join(stateDir, brainstore.BrainLockDirName), 0o700); err != nil {
+		return setupWatchPlan{}, fmt.Errorf("create %s: %w", filepath.Join(stateDir, brainstore.BrainLockDirName), err)
 	}
-	lock, err := acquireFileLock(filepath.Join(stateDir, brainLockDirName, setupWatchPlanLockName), "watch_plan_locked", brainWriteLockTimeout)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(stateDir, brainstore.BrainLockDirName, setupWatchPlanLockName), "watch_plan_locked", brainstore.BrainWriteLockTimeout)
 	if err != nil {
 		return setupWatchPlan{}, err
 	}

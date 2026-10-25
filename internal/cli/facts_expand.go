@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // queryExpansionPrompt instructs the agent to rewrite a task into retrieval
@@ -107,5 +108,5 @@ func (c *expansionCache) save() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(c.path, append(data, '\n'), 0o600)
 }

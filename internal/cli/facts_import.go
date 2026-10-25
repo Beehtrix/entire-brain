@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -841,7 +842,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			// reported alongside a successful import rather than replacing it.
 			var manifestErr error
 			if !dryRun {
-				if err := withBrainWriteLock(brainDir, func() error {
+				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 					existing, loadErr := loadFacts(brainDir, resolvedBranch)
 					if loadErr != nil {
 						return loadErr

@@ -1,6 +1,6 @@
 //go:build !windows
 
-package cli
+package brainstore
 
 import (
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 func TestLockHolderDescriptionNeverBlocksOnAFifo(t *testing.T) {
 	t.Parallel()
 	path := filepath.Join(t.TempDir(), "write.lock")
-	if err := syscall.Mkfifo(path+fileLockOwnerSuffix, 0o600); err != nil {
+	if err := syscall.Mkfifo(path+FileLockOwnerSuffix, 0o600); err != nil {
 		t.Skipf("mkfifo unavailable: %v", err)
 	}
 	done := make(chan string, 1)

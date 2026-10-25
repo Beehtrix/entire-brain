@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -979,7 +980,7 @@ func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (s
 		return "", err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(dir, workspaceGraphName), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(dir, workspaceGraphName), data, 0o600); err != nil {
 		return "", err
 	}
 	return rel, nil

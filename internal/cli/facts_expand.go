@@ -41,7 +41,7 @@ func parseExpansion(output string) string {
 
 // expandQuery returns extra retrieval terms for a query, consulting the cache
 // first so repeated evals are deterministic and cheap.
-func expandQuery(ctx context.Context, run distillAgentRunner, args []string, repoDir, query string, cache *expansionCache) (string, error) {
+func expandQuery(ctx context.Context, run base.DistillAgentRunner, args []string, repoDir, query string, cache *expansionCache) (string, error) {
 	if v, ok := cache.get(query); ok {
 		return v, nil
 	}

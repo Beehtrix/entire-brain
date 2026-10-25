@@ -141,12 +141,6 @@ func capWarnings(warnings []string, max int) []string {
 	return out
 }
 
-// distillAgentRunner executes the seed agent with the distillation prompt for
-// one transcript chunk and returns the agent's raw stdout. It is injected so
-// the orchestration can be tested with a fake agent (the real implementation,
-// execDistillAgent, shells out).
-type distillAgentRunner func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error)
-
 // agentCallResult carries one prefetched distill-agent call result. holdsSlot
 // marks results produced by a launched worker, whose pool slot result() must
 // release on consumption (cancellation fills abandoned chunks without a slot).
@@ -549,7 +543,7 @@ type distillCommandOptions struct {
 	// flushEvery overrides distillFlushCallInterval when >0 (tests use 1 to
 	// observe mid-run persistence).
 	flushEvery int
-	run        distillAgentRunner
+	run        base.DistillAgentRunner
 	// callTracePath/trace stream one JSON line per extraction agent call for
 	// latency profiling (COR-2214); a nil trace adds no work.
 	callTracePath string
@@ -820,7 +814,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// keep this pre-resolution gate, and distillAgentCommandArgs rejects
 	// non-loopback agents again at invocation as defense in depth.
 	if !distillOpts.dryRun {
-		if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
+		if err := base.RejectAgentForNoEgress(distillOpts.agent); err != nil {
 			return err
 		}
 	}
@@ -989,7 +983,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return nil, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	if distillOpts.run == nil {
 		return nil, errors.New("distill: no agent runner configured")
@@ -1009,19 +1003,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if err != nil {
 		return nil, err
 	}
-	args, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
+	args, err := base.DistillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
 	if err != nil {
 		return nil, err
 	}
 	reconcilePromptText := reconcilePrompt()
-	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
+	reconcileArgs, err := base.DistillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
 	if err != nil {
 		return nil, err
 	}
 	// Pin the agent model + effort when set, so distill AND reconcile run on the same
 	// (cheap) model. Both are no-ops when empty.
-	args = injectAgentEffort(injectAgentModel(args, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
-	reconcileArgs = injectAgentEffort(injectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
+	args = base.InjectAgentEffort(base.InjectAgentModel(args, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
+	reconcileArgs = base.InjectAgentEffort(base.InjectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
 	threshold := distillOpts.confidenceThreshold
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
@@ -1613,7 +1607,7 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return distillDryRunReport{}, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return distillDryRunReport{}, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	distillOpts.dryRun = true
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
@@ -2576,7 +2570,7 @@ func saveDistillCache(brainDir string, cache distillCache) error {
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the
 // transcript chunk on stdin and returns stdout, bounded by a timeout and an
 // output-size cap.
-func defaultDistillAgentRunner(agent string) distillAgentRunner {
+func defaultDistillAgentRunner(agent string) base.DistillAgentRunner {
 	if agent == "ollama" {
 		return execOllamaDistillAgent
 	}
@@ -2602,7 +2596,7 @@ func defaultDistillAgentRunner(agent string) distillAgentRunner {
 // and the handcrafted argv used by tests) pass through untouched.
 func prepareAgentExec(args []string, input []byte) (argv []string, stdin []byte, cleanup func(), err error) {
 	noop := func() {}
-	argv, prompt, ok := splitAgentPromptArg(args)
+	argv, prompt, ok := base.SplitAgentPromptArg(args)
 	if !ok {
 		return args, input, noop, nil
 	}

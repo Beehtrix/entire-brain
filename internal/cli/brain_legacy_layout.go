@@ -26,7 +26,7 @@ func checkLegacyBrainLayout(brainDir string, manifest *exportManifest) error {
 		}
 	}
 	if legacy {
-		return fmt.Errorf("%w; run `%s` with entire-brain 0.2.0 once to preserve runtime traces, then upgrade. Or back up and remove the brain directory, then run `%s` to rebuild. Brain directory: %s", errLegacyBrainLayout, brainInvocation(os.LookupEnv, "refresh index"), brainInvocation(os.LookupEnv, "refresh"), brainDir)
+		return fmt.Errorf("%w; run `%s` with entire-brain 0.2.0 once to preserve runtime traces, then upgrade. Or back up and remove the brain directory, then run `%s` to rebuild. Brain directory: %s", errLegacyBrainLayout, base.BrainInvocation(os.LookupEnv, "refresh index"), base.BrainInvocation(os.LookupEnv, "refresh"), brainDir)
 	}
 	return nil
 }

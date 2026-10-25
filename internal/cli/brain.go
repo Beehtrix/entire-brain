@@ -107,7 +107,7 @@ func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 // A func, not a const: the spelling depends on how the reader reached this
 // binary, which is only knowable at call time.
 func retiredManifestRemedy() string {
-	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + brainInvocation(os.LookupEnv, "refresh") + " --force`"
+	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force`"
 }
 
 // retiredManifestFieldMessage states the failure AND what to do about it.
@@ -200,7 +200,7 @@ func durablePrepassText(err error) string {
 		return retiredManifestFieldMessage(err)
 	}
 	if errRepositoryGone(err) {
-		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + brainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + base.BrainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
 	}
 	return err.Error()
 }

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
@@ -110,10 +111,10 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 // snapshot file the brain actually refuses).
 func TestInstantPhaseComponentsSeparateFailedFromMissing(t *testing.T) {
 	t.Parallel()
-	failure := newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName)
+	failure := newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), base.SetupBrainBinaryName)
 	record := setupInstantRecord{
 		UpdatedAt:  setupTestNow,
-		Components: []setupComponent{newSetupComponent(brainComponentSessions, nil, setupBrainBinaryName), failure},
+		Components: []setupComponent{newSetupComponent(brainComponentSessions, nil, base.SetupBrainBinaryName), failure},
 	}
 	manifest := &exportManifest{Sources: &brainSources{
 		Sessions: &sessionSourceManifest{GeneratedAt: setupTestNow},
@@ -169,7 +170,7 @@ func TestRenderBrainOnboardingStatusLines(t *testing.T) {
 		Daemon:     daemonState{Manager: daemonManagerLaunchd, Label: "io.entire.brain-watch", Installed: true, Current: true, Running: true},
 		LastTickAt: setupTestNow.Add(-2 * time.Minute),
 		Components: []brainStatusComponent{{Name: "sessions", State: "built"}, {Name: "semantic", State: "missing"}},
-	}, setupTestNow, setupBrainBinaryName)
+	}, setupTestNow, base.SetupBrainBinaryName)
 
 	rendered := out.String()
 	for _, want := range []string{
@@ -188,7 +189,7 @@ func TestRenderBrainOnboardingStatusWithoutADaemon(t *testing.T) {
 	out := &bytes.Buffer{}
 	renderBrainOnboardingStatus(out, &brainStatusOnboarding{
 		Facts: factsBackfillStatus{Sessions: 0},
-	}, setupTestNow, setupBrainBinaryName)
+	}, setupTestNow, base.SetupBrainBinaryName)
 	rendered := out.String()
 	if !strings.Contains(rendered, "facts: 0/0 sessions distilled (no captured sessions yet)") {
 		t.Fatalf("unexpected facts line:\n%s", rendered)
@@ -336,7 +337,7 @@ func TestRenderBrainOnboardingStatusDistinguishesHistoryFromHealth(t *testing.T)
 	out := &bytes.Buffer{}
 	renderBrainOnboardingStatus(out, &brainStatusOnboarding{
 		LastTickAt: setupTestNow.Add(-4 * time.Minute),
-	}, setupTestNow, setupBrainBinaryName)
+	}, setupTestNow, base.SetupBrainBinaryName)
 	if !strings.Contains(out.String(), "daemon: not installed (last watcher tick 4m0s ago)") {
 		t.Fatalf("a stale tick must read as history, not health:\n%s", out.String())
 	}

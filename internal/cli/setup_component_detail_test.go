@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/entityindex"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 )
@@ -50,13 +51,13 @@ func TestSetupComponentFailureDetailIsAlwaysOneLine(t *testing.T) {
 	}
 
 	for _, name := range names {
-		component := newSetupComponent(name, errors.New(dump), setupBrainBinaryName)
+		component := newSetupComponent(name, errors.New(dump), base.SetupBrainBinaryName)
 		if !component.failed() {
 			t.Fatalf("%s: a non-nil error produced state %q", name, component.State)
 		}
 		checks := map[string]string{
 			"Detail":       component.Detail,
-			"failure line": setupComponentFailureLine(component, "--", setupBrainBinaryName),
+			"failure line": setupComponentFailureLine(component, "--", base.SetupBrainBinaryName),
 			"exit reason":  setupInstantFailureReasons(nil, []setupComponent{component}),
 			"summary row":  setupComponentLabel(component.Name) + ": " + component.Detail,
 		}
@@ -86,7 +87,7 @@ func TestSetupComponentFlattenKeepsASummarisedDetailWhole(t *testing.T) {
 	if len([]rune(detail)) <= providerdetail.MaxSummary {
 		t.Fatalf("fixture is vacuous: the detail is only %d runes", len([]rune(detail)))
 	}
-	component := newSetupComponent(brainComponentSemantic, errors.New(detail), setupBrainBinaryName)
+	component := newSetupComponent(brainComponentSemantic, errors.New(detail), base.SetupBrainBinaryName)
 	if component.Detail != detail {
 		t.Fatalf("an already-summarised detail was altered:\n got %q\nwant %q", component.Detail, detail)
 	}

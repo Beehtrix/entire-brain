@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -39,11 +38,6 @@ import (
 // (files, meta-hits, fact/symbol/commit links, synapses) and the candidate/
 // dossier layers are populated by later slices against this same schema.
 
-// beforePatternCorpusPublish is a deterministic failure/race seam. Production
-// leaves it as a no-op; tests use it after the complete staging database has
-// passed integrity checks but before the live corpus transaction begins.
-var beforePatternCorpusPublish = func() error { return nil }
-
 // onPatternCorpusSessionIndexed names each session a build actually re-indexed.
 //
 // It is a test seam because there is no other way to tell a SKIP from a
@@ -63,141 +57,8 @@ const (
 	patternIndexerVersion = 9
 )
 
-// patternCorpusReadDB owns both an immutable SQLite connection and the private
-// snapshot backing it. Close always removes the snapshot, including when the
-// SQLite close itself reports an error.
-type patternCorpusReadDB struct {
-	*sql.DB
-	cleanup  func()
-	closeErr error
-	closeOne sync.Once
-}
-
-func (db *patternCorpusReadDB) Close() error {
-	db.closeOne.Do(func() {
-		db.closeErr = db.DB.Close()
-		db.cleanup()
-	})
-	return db.closeErr
-}
-
-// rejectInterruptedPatternCorpusPublication makes the marker the publication
-// fail-closed bit. It is checked on both sides of every snapshot so a reader can
-// never accept a main/WAL combination observed inside the multi-file commit
-// window.
-func rejectInterruptedPatternCorpusPublication(brainDir string) error {
-	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPublicationMarkerPath, "pattern corpus publication marker")
-	if err != nil {
-		return err
-	}
-	if present {
-		return fmt.Errorf("%s: pattern corpus publication was interrupted; run a locked pattern refresh to recover", brainstore.StateUnsafeCode)
-	}
-	return nil
-}
-
-// openPatternCorpusReadDB opens a bounded, descriptor-pinned private snapshot
-// of the corpus. SQLite never sees the Brain-controlled pathname, and immutable
-// mode prevents even the private reader from creating journals or shared-memory
-// files. Reads never create or migrate schema.
-func openPatternCorpusReadDB(brainDir string) (*patternCorpusReadDB, error) {
-	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
-		return nil, err
-	}
-	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		if markerErr := rejectInterruptedPatternCorpusPublication(brainDir); markerErr != nil {
-			return nil, markerErr
-		}
-		return nil, fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
-	}
-	snapshotPath, cleanup, err := brainstore.SnapshotPrivacySQLiteStore(brainDir, patterncore.CorpusPath)
-	if err != nil {
-		return nil, err
-	}
-	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
-		cleanup()
-		return nil, err
-	}
-	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(snapshotPath))
-	if err != nil {
-		cleanup()
-		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", brainstore.StateCorruptCode, err)
-	}
-	if err := db.Ping(); err != nil {
-		_ = db.Close()
-		cleanup()
-		return nil, fmt.Errorf("%s: open private pattern corpus snapshot: %w", brainstore.StateCorruptCode, err)
-	}
-	return &patternCorpusReadDB{DB: db, cleanup: cleanup}, nil
-}
-
-// patternCorpusHasTable reports whether a table exists in this snapshot.
-//
-// Reads open an immutable snapshot and deliberately never apply schema, so an
-// on-disk corpus written before an ADDITIVE table (themes, deep_dossiers) still
-// has to answer queries against it. The read path previously opened read-write
-// and ran the CREATE TABLE IF NOT EXISTS schema for exactly this reason; with
-// that gone, a legacy corpus made `patterns list` and `patterns skills` fail
-// with "no such table" where they used to return an empty set. There is no
-// read-time version gate to lean on (schema_version is written but never
-// compared), so the readers check for the table and treat absent as empty. The
-// next `patterns refresh` creates it.
-func patternCorpusHasTable(db *sql.DB, table string) (bool, error) {
-	var name string
-	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("%s: inspect pattern corpus schema: %w", brainstore.StateCorruptCode, err)
-	}
-	return true, nil
-}
-
-// openPatternCorpusReadDBIfPresent preserves the only graceful fallback: a
-// genuinely absent rebuildable corpus. Unsafe aliases, inconsistent snapshots,
-// corruption, and permission failures remain errors and must reach the command
-// boundary rather than masquerading as "not built".
-func openPatternCorpusReadDBIfPresent(brainDir string) (*patternCorpusReadDB, bool, error) {
-	db, err := openPatternCorpusReadDB(brainDir)
-	if err == nil {
-		return db, true, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
-	}
-	return nil, false, err
-}
-
-// validatePatternCorpusReadSafety is the cheap command-boundary check used by
-// best-effort surfaces whose legacy loader signatures cannot return errors. The
-// snapshot opener repeats these checks and pins descriptors, so a path race can
-// only make the optional read disappear; it can never redirect SQLite outside
-// the Brain. Missing corpora remain a supported legacy/fresh-install state.
-func validatePatternCorpusReadSafety(brainDir string) error {
-	if err := rejectInterruptedPatternCorpusPublication(brainDir); err != nil {
-		return err
-	}
-	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
-	if err != nil {
-		return err
-	}
-	if !present {
-		return rejectInterruptedPatternCorpusPublication(brainDir)
-	}
-	_, _, err = brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath+"-wal", "pattern corpus WAL")
-	if err != nil {
-		return err
-	}
-	return rejectInterruptedPatternCorpusPublication(brainDir)
-}
-
 func requirePatternCorpusAvailable(brainDir string) error {
-	if err := validatePatternCorpusReadSafety(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return err
 	}
 	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
@@ -205,7 +66,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
+		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
 	}
 	return nil
 }
@@ -480,7 +341,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err != nil {
 		return err
 	}
-	if err := finalizePatternCorpusStagingLocked(brainDir, path, db); err != nil {
+	if err := patterncore.FinalizeCorpusStagingLocked(brainDir, path, db, decodePatternCorpusPublication); err != nil {
 		return err
 	}
 	closed = true
@@ -489,85 +350,6 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	// last-run report intact.
 	_ = appendPatternRun(brainDir, run)
 	return nil
-}
-
-// withPatternCorpusMutationLocked clones the live corpus into a private
-// staging database, applies one complete mutation there, and publishes only a
-// normalized, integrity-checked result. The caller must hold the Brain lock.
-func withPatternCorpusMutationLocked(brainDir string, mutate func(*sql.DB) error) error {
-	if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
-		return err
-	}
-	_, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPath, "pattern corpus")
-	if err != nil {
-		return err
-	}
-	if !present {
-		return fmt.Errorf("pattern corpus not found (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"` first): %w", os.ErrNotExist)
-	}
-	path, cleanup, err := patterncore.PrepareCorpusStaging(brainDir)
-	if err != nil {
-		return err
-	}
-	defer cleanup()
-	db, err := sql.Open(sqlitedriver.Name, path)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	for _, pragma := range []string{"PRAGMA busy_timeout=5000", "PRAGMA foreign_keys=ON"} {
-		if _, err := db.Exec(pragma); err != nil {
-			return err
-		}
-	}
-	for _, stmt := range patterncore.CorpusSchema {
-		if _, err := db.Exec(stmt); err != nil {
-			return err
-		}
-	}
-	if err := mutate(db); err != nil {
-		return err
-	}
-	return finalizePatternCorpusStagingLocked(brainDir, path, db)
-}
-
-func finalizePatternCorpusStagingLocked(brainDir, path string, db *sql.DB) error {
-	// No committed rows may remain only in a staging WAL.
-	var busy, logFrames, checkpointedFrames int
-	if err := db.QueryRow(`PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &checkpointedFrames); err != nil || busy != 0 || (logFrames > 0 && checkpointedFrames != logFrames) {
-		return fmt.Errorf("checkpoint staged pattern corpus before publication")
-	}
-	// Candidate construction legitimately uses more than one database/sql
-	// connection. Close the pool before changing journal mode, which requires
-	// the normalizer to be the sole live connection.
-	if err := db.Close(); err != nil {
-		return err
-	}
-	normalizer, err := sql.Open(sqlitedriver.Name, path)
-	if err != nil {
-		return err
-	}
-	normalizer.SetMaxOpenConns(1)
-	if _, err := normalizer.Exec(`PRAGMA busy_timeout=5000`); err != nil {
-		_ = normalizer.Close()
-		return err
-	}
-	if _, err := normalizer.Exec(`PRAGMA journal_mode=DELETE`); err != nil {
-		_ = normalizer.Close()
-		return fmt.Errorf("normalize staged pattern corpus journal: %w", err)
-	}
-	var integrity string
-	if err := normalizer.QueryRow(`PRAGMA quick_check`).Scan(&integrity); err != nil || integrity != "ok" {
-		_ = normalizer.Close()
-		return fmt.Errorf("%s: staged pattern corpus failed integrity check", brainstore.StateCorruptCode)
-	}
-	if err := normalizer.Close(); err != nil {
-		return err
-	}
-	if err := beforePatternCorpusPublish(); err != nil {
-		return err
-	}
-	return patterncore.PublishCorpusLocked(brainDir, path, decodePatternCorpusPublication)
 }
 
 func loadPatternCorpusManifest(brainDir string) (*exportManifest, error) {

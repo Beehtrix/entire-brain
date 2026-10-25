@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
-
-	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // dashDefaultLimit caps how many entries per tab the dashboard loads. Large
@@ -305,7 +305,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	if manifest != nil && manifest.GeneratedAt.IsZero() && !anySource(present) {
-		home.Warnings = append(home.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		home.Warnings = append(home.Warnings, "brain not built yet — run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	return home
 }

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
@@ -60,7 +61,7 @@ func themeProposalBrain(t *testing.T, now time.Time) string {
 // A stub agent that groups by MEANING from the evidence: any sampled episode
 // whose excerpt/intent mentions "worktree" forms one accepted theme; unrelated
 // episodes are left ungrouped.
-func worktreeGroupingAgent(t *testing.T) distillAgentRunner {
+func worktreeGroupingAgent(t *testing.T) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Episodes []map[string]string `json:"episodes"`
@@ -182,7 +183,7 @@ func TestThemeProposalCachedBySample(t *testing.T) {
 }
 
 // verdictThemeAgent groups worktree episodes and returns the given verdict.
-func verdictThemeAgent(t *testing.T, verdict string) distillAgentRunner {
+func verdictThemeAgent(t *testing.T, verdict string) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Episodes []map[string]string `json:"episodes"`

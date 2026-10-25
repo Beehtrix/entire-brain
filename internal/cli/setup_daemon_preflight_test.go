@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // TestSetupAnnouncesTheWatcherBeforeInstallingIt: one `entire brain setup` on a
@@ -76,7 +78,7 @@ func TestSetupSaysNothingAboutAWatcherItWillNotInstall(t *testing.T) {
 func TestDaemonPreflightIsSilentWhereThereIsNoWatcher(t *testing.T) {
 	t.Parallel()
 	unsupported := daemonPlan{OS: "plan9", Manager: daemonManagerUnsupported}
-	if line := setupDaemonPreflightLine(unsupported, daemonState{}, setupBrainBinaryName); line != "" {
+	if line := setupDaemonPreflightLine(unsupported, daemonState{}, base.SetupBrainBinaryName); line != "" {
 		t.Fatalf("nothing is installed on an unsupported platform, so nothing is announced: %q", line)
 	}
 }
@@ -91,8 +93,8 @@ func TestDaemonPreflightFollowsTheReadersSpelling(t *testing.T) {
 		Label:    "io.entire.brain-watch.1a2b3c4d",
 		UnitPath: "/Users/u/Library/LaunchAgents/io.entire.brain-watch.1a2b3c4d.plist",
 	}
-	line := setupDaemonPreflightLine(plan, daemonState{}, setupPluginCommand)
-	if !strings.Contains(line, setupPluginCommand+" setup --uninstall-daemon") {
+	line := setupDaemonPreflightLine(plan, daemonState{}, base.SetupPluginCommand)
+	if !strings.Contains(line, base.SetupPluginCommand+" setup --uninstall-daemon") {
 		t.Fatalf("the removal command must be spelled the way the reader reached this binary: %s", line)
 	}
 	if !strings.Contains(line, plan.UnitPath) || !strings.Contains(line, "--no-daemon") {

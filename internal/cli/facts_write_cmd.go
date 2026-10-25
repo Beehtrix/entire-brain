@@ -21,7 +21,7 @@ type rememberCommandOptions struct {
 	agentCommand []string
 	json         bool
 	global       bool
-	run          distillAgentRunner
+	run          base.DistillAgentRunner
 }
 
 func newRememberCommand(opts Options) *cobra.Command {
@@ -279,11 +279,11 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 	if agent == "none" || agent == "" {
 		return nil, fmt.Errorf("no agent available to classify; pass --path <category.subcategory.type>")
 	}
-	args, err := distillAgentCommandArgs(agent, rememberOpts.agentCommand, classifyPrompt(taxonomy))
+	args, err := base.DistillAgentCommandArgs(agent, rememberOpts.agentCommand, classifyPrompt(taxonomy))
 	if err != nil {
 		return nil, err
 	}
-	args = injectAgentModel(args, agent, rememberOpts.model)
+	args = base.InjectAgentModel(args, agent, rememberOpts.model)
 	run := rememberOpts.run
 	if run == nil {
 		run = defaultDistillAgentRunner(agent)

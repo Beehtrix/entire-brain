@@ -1681,7 +1681,7 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 	}
 	// Pin a fast/cheap model + effort for seed synthesis when requested (no-ops when empty),
 	// reusing the same injectors as distill so a full refresh can run cheaply end to end.
-	args = injectAgentEffort(injectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
+	args = clibase.InjectAgentEffort(clibase.InjectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)
@@ -1824,7 +1824,7 @@ func stdinIsTerminal() bool {
 
 func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]string, error) {
 	_ = repoDir
-	if err := rejectAgentForNoEgress(opts.agent); err != nil {
+	if err := clibase.RejectAgentForNoEgress(opts.agent); err != nil {
 		return nil, err
 	}
 	switch opts.agent {

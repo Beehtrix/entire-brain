@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/repoid"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -55,11 +56,11 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 	// refusal is guaranteed egress-free.
 	explicitFlag := strings.TrimSpace(flagRepoID) != "" || strings.TrimSpace(flagAPIURL) != "" || strings.TrimSpace(flagToken) != ""
 	if !connected && !explicitFlag {
-		if !envBool(envBrainAllowHosted) {
-			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run '%s', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, brainInvocation(os.LookupEnv, "connect"), envBrainAllowHosted)
+		if !base.EnvBool(envBrainAllowHosted) {
+			return t, fmt.Errorf("%s: hosted egress is opt-in and this repo is not connected; run '%s', pass --repo-id/--api-url/--token explicitly, or set %s=1 (deprecated) to use the ENTIRE_* environment variables", command, base.BrainInvocation(os.LookupEnv, "connect"), envBrainAllowHosted)
 		}
-		if _, seen := securityToggleWarned.LoadOrStore(envBrainAllowHosted+":deprecated", struct{}{}); !seen {
-			tui.Warnf(os.Stderr, "%s is deprecated; run '%s' or pass explicit target flags", envBrainAllowHosted, brainInvocation(os.LookupEnv, "connect"))
+		if _, seen := base.SecurityToggleWarned.LoadOrStore(envBrainAllowHosted+":deprecated", struct{}{}); !seen {
+			tui.Warnf(os.Stderr, "%s is deprecated; run '%s' or pass explicit target flags", envBrainAllowHosted, base.BrainInvocation(os.LookupEnv, "connect"))
 		}
 	}
 
@@ -68,7 +69,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		t.repoID = binding.RepoID
 	}
 	if t.repoID == "" {
-		return t, fmt.Errorf("%s: target repo id is required; run '%s', or set --repo-id or %s", command, brainInvocation(os.LookupEnv, "connect"), envRepoID)
+		return t, fmt.Errorf("%s: target repo id is required; run '%s', or set --repo-id or %s", command, base.BrainInvocation(os.LookupEnv, "connect"), envRepoID)
 	}
 	if err := repoid.Validate(t.repoID); err != nil {
 		return t, fmt.Errorf("%s: %w", command, err)
@@ -79,7 +80,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		t.baseURL = binding.BaseURL
 	}
 	if t.baseURL == "" {
-		return t, fmt.Errorf("%s: API base URL is required; run '%s', or set --api-url or %s", command, brainInvocation(os.LookupEnv, "connect"), envAPIBaseURL)
+		return t, fmt.Errorf("%s: API base URL is required; run '%s', or set --api-url or %s", command, base.BrainInvocation(os.LookupEnv, "connect"), envAPIBaseURL)
 	}
 	baseURL, err := apiurl.Validate(t.baseURL)
 	if err != nil {

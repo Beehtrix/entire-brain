@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // hostedStatusFixture builds the smallest brain whose status report can carry
@@ -226,7 +228,7 @@ func TestStatusHostedDisconnectedByOptOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status --verbose: %v\n%s", err, verbose)
 	}
-	if !strings.Contains(verbose, "run '"+brainInvocation(os.LookupEnv, "connect")+"' to join") {
+	if !strings.Contains(verbose, "run '"+base.BrainInvocation(os.LookupEnv, "connect")+"' to join") {
 		t.Fatalf("verbose status must name the rejoin remedy:\n%s", verbose)
 	}
 	if strings.Contains(verbose, "ENTIRE_BRAIN_NO_EGRESS") {

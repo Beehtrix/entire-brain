@@ -160,7 +160,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	} else {
 		p.SessionsSinceDistill = len(sessions)
-		p.Warnings = append(p.Warnings, "no distilled facts yet; run `"+brainInvocation(os.LookupEnv, "distill")+"`")
+		p.Warnings = append(p.Warnings, "no distilled facts yet; run `"+base.BrainInvocation(os.LookupEnv, "distill")+"`")
 	}
 	return p
 }
@@ -198,7 +198,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {

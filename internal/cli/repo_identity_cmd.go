@@ -115,7 +115,7 @@ func reportRepoIdentity(cmd *cobra.Command, set repoStorageSet) error {
 		for _, storage := range set.Populated {
 			fmt.Fprintf(out, "  %s\n    brain: %s\n    head:  %s\n", storage.Key, storage.BrainDir, storage.HeadPath)
 		}
-		fmt.Fprintf(out, "keep one with: %s repo-identity --keep <repo-key>\n", setupCommandPrefix(os.LookupEnv))
+		fmt.Fprintf(out, "keep one with: %s repo-identity --keep <repo-key>\n", base.SetupCommandPrefix(os.LookupEnv))
 	}
 	return nil
 }

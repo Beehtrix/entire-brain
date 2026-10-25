@@ -19,7 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
@@ -559,7 +559,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	// brain over an empty repository. `dash` already draws the distinction;
 	// `overview`, the command the guide tells an agent to run FIRST, did not.
 	if !anySource(status.Sources) && (status.Manifest == nil || status.Manifest.GeneratedAt.IsZero()) {
-		report.Warnings = append(report.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
+		report.Warnings = append(report.Warnings, "brain not built yet — run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
 	}
 	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
@@ -660,7 +660,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 		}
 		seen[key] = struct{}{}
 		match := historyRecordTextMatch(record)
-		match.Excerpt = strings.TrimSpace(base.TruncateString(match.Excerpt, 280))
+		match.Excerpt = strings.TrimSpace(clibase.TruncateString(match.Excerpt, 280))
 		matches = append(matches, match)
 		if len(matches) >= limit {
 			break
@@ -1052,7 +1052,7 @@ func hintPositionalSymbol(cmd *cobra.Command) {
 			return err
 		}
 		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
-			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+			err, clibase.SetupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
 	})
 }
 
@@ -1232,7 +1232,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	// Every command this report names is spelled the way the reader reached this
 	// binary, resolved once here so the short report and the verbose one cannot
 	// disagree. See setupCommandPrefix.
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := clibase.SetupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
 	if report.Integrity == "not_checked" {
@@ -1433,7 +1433,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 // sent none. The brain-side snapshot copy retired with COR-2217 is never the
 // remedy.
 func brainBriefCodeContextWarning(storeMissing bool, storeDetail string, providerAbsent bool) string {
-	indexCmd := brainInvocation(os.LookupEnv, semanticIndexVerb)
+	indexCmd := clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb)
 	switch {
 	case storeMissing:
 		if storeDetail == "" {
@@ -1740,7 +1740,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
-		report.Warnings = append(report.Warnings, "history index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		report.Warnings = append(report.Warnings, "history index missing; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	// Facts recorded outside any repository reach the brief — the surface the
 	// agent guide mandates as the first call of every task. Loaded before the
@@ -1906,7 +1906,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// default compact packet is unchanged until qualification (plan Phase 2
 	// deliverable 5). Failure to retrieve is silent; the flag adds context,
 	// never breaks a brief.
-	if envBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
+	if clibase.EnvBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
 		report.Conversation = brainBriefConversationHits(status.Brain.Path, task, briefOpts.limit)
 		if len(report.Conversation) > 0 {
 			report.Guidance = append(report.Guidance,
@@ -4302,7 +4302,7 @@ func brainBriefLimitNormalizationActionsForFile(rel, source string) []brainBrief
 			File:     rel,
 			Symbol:   currentSymbol,
 			Action:   action,
-			Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+			Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 		})
 	}
 	return actions
@@ -4479,7 +4479,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete the loop-scoped browser response-id accumulator line; do not replace it with another accumulator. Each agentic perception turn must be built from fresh observed page state and recent local history.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && (strings.Contains(trimmed, "previousResponseId:") || trimmed == "previousResponseId") {
@@ -4489,7 +4489,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && trimmed == "};" {
@@ -4499,7 +4499,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete this browser-loop response-id carry-forward assignment entirely; browser decider turns should not chain `decision.previousResponseId` into later perception turns.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4530,7 +4530,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Preserve string conversion for Responses API metadata values.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 			continue
 		}
@@ -4541,7 +4541,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, base.TruncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4562,7 +4562,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("code index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
+		return errors.New("code index missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh index") + "`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -4594,7 +4594,7 @@ func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target s
 }
 
 func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, lightweight bool) (brainStatusReport, error) {
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
 	}
@@ -4707,7 +4707,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 						continue
 					}
 					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, brainInvocation(os.LookupEnv, "refresh")))
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, clibase.BrainInvocation(os.LookupEnv, "refresh")))
 					}
 				}
 			} else {
@@ -4780,13 +4780,13 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			onboarding.AgentsMissing = missing
 			// Keep the published JSON shape while exposing the same repair
 			// diagnostic to CLI JSON and MCP consumers through warnings.
-			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" setup so your agent uses this brain")
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+clibase.SetupCommandPrefix(os.LookupEnv)+" setup so your agent uses this brain")
 		}
 	}
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
 	if backgroundPaused(opts.Env) {
-		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+setupCommandPrefix(os.LookupEnv)+" start` resumes it")
+		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+clibase.SetupCommandPrefix(os.LookupEnv)+" start` resumes it")
 	}
 	return report, nil
 }
@@ -4795,7 +4795,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
+		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		seed := manifest.Sources.Seed
 		report.SeedCommit = seed.Commit
@@ -4804,7 +4804,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		case live.Head == "":
 			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so seed freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			// CAUSE only, no remedy. This axis is rendered as the `Cause`
 			// line directly under the status verdict, which prints the one
@@ -4816,33 +4816,33 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			axes["seed"] = staleAxis{
 				State:   dirtyUnindexedAxisState,
 				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
-				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Remedy:  setupDirtyWorktreeHint(clibase.SetupCommandPrefix(os.LookupEnv)),
 				Current: live.Head,
 				Indexed: seed.Commit,
 			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
-			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case !audit:
 			// `status` is the lightweight surface that produces this axis, so it
 			// must not be the remedy; `overview` runs the audited comparison.
-			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Remedy: "run `" + brainInvocation(os.LookupEnv, "overview") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "overview") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {
-				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild the snapshot", Current: live.Head, Indexed: seed.Commit}
+				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild the snapshot", Current: live.Head, Indexed: seed.Commit}
 			} else if currentHash != seed.WorktreeHash {
-				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
 			} else {
 				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "seed and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
 			}
 		}
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil {
-		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
+		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		docs := manifest.Sources.Docs
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
@@ -4854,19 +4854,19 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			// must not claim "ok" for a docs layer that will contribute nothing.
 			state := "unsafe"
 			detail := "docs index declared in the manifest but unreadable: " + err.Error()
-			remedy := "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"
+			remedy := "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"
 			if os.IsNotExist(err) {
 				state = "missing"
-				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
 				remedy = ""
 			}
 			axes["docs"] = staleAxis{State: state, Detail: detail, Remedy: remedy}
 		} else if docs.GeneratedAt.IsZero() {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"}
 		} else if manifest.Sources.Seed == nil {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source", Remedy: "run `" + brainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
-			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {
 			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
 		}
@@ -4924,12 +4924,12 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 
 func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest) (brainLiveState, error) {
 	var live brainLiveState
-	if head, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
+	if head, err := clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
 		live.Head = head
 	} else {
 		live.Warnings = append(live.Warnings, "HEAD unavailable: "+err.Error())
 	}
-	if branch, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if branch, err := clibase.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		live.Branch = branch
 	} else {
 		live.Warnings = append(live.Warnings, "branch unavailable: "+err.Error())
@@ -4973,7 +4973,7 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	// --shortstat path reads content, so such a file is dropped from both.
 	// (The raw `diff-index --name-status` path does NOT read content and would
 	// report it, which is why this swap is safe only for stat output.)
-	if stat, err := base.GitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
+	if stat, err := clibase.GitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())
@@ -5625,7 +5625,7 @@ func historyRawLineExcerpt(line, query string) string {
 		}
 	}
 	if idx == -1 {
-		return strings.TrimSpace(base.TruncateString(text, 700))
+		return strings.TrimSpace(clibase.TruncateString(text, 700))
 	}
 	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
 	// through rune positions before taking a byte-bounded original window.
@@ -5650,7 +5650,7 @@ func historyRawLineExcerpt(line, query string) string {
 	for end < len(text) && !utf8.RuneStart(text[end]) {
 		end++
 	}
-	return strings.TrimSpace(base.TruncateString(text[start:end], 900))
+	return strings.TrimSpace(clibase.TruncateString(text[start:end], 900))
 }
 
 func normalizeHistoryTextForExcerpt(text string) string {

@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // agent_wiring.go closes the first-run gap that made a successful `setup`
@@ -162,12 +163,12 @@ func preEditHookCommandFor(goos string) string {
 		// `exit /b 0` is the counterpart of the POSIX `exit 0`: a reader with
 		// neither binary gets a hook that does nothing, not one that errors on
 		// every edit.
-		return `cmd /c "` + setupBrainBinaryName + " hook pre-edit --claude-hook || " +
-			setupEntireBinaryName + " " + setupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
+		return `cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
+			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
 	}
-	plugin := setupEntireBinaryName + " " + setupBrainPluginVerb
-	return "sh -c 'if command -v " + setupBrainBinaryName + " >/dev/null 2>&1; then exec " + setupBrainBinaryName +
-		" hook pre-edit --claude-hook; fi; if command -v " + setupEntireBinaryName + " >/dev/null 2>&1; then exec " +
+	plugin := base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb
+	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1; then exec " + base.SetupBrainBinaryName +
+		" hook pre-edit --claude-hook; fi; if command -v " + base.SetupEntireBinaryName + " >/dev/null 2>&1; then exec " +
 		plugin + " hook pre-edit --claude-hook; fi; exit 0'"
 }
 

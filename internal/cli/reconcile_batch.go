@@ -5,6 +5,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Extraction durably stages candidates; this pass batches related candidates
@@ -31,7 +33,7 @@ type reconcileBatchStats struct {
 // reconcileStagedCandidates adjudicates the branch's candidate-status facts
 // and returns the updated fact set, queued proposals, stats, and warnings.
 // A branch with no candidates is returned unchanged at zero cost.
-func reconcileStagedCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, facts []factRecord, queued []factProposal, repoDir string, timeout time.Duration, concurrency int, now time.Time) ([]factRecord, []factProposal, reconcileBatchStats, []string) {
+func reconcileStagedCandidates(ctx context.Context, run base.DistillAgentRunner, agentArgs []string, facts []factRecord, queued []factProposal, repoDir string, timeout time.Duration, concurrency int, now time.Time) ([]factRecord, []factProposal, reconcileBatchStats, []string) {
 	var stats reconcileBatchStats
 	rest := make([]factRecord, 0, len(facts))
 	var candidates []factRecord

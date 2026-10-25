@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // entireBinaryName is the Entire CLI that owns the session lifecycle hooks. The
@@ -381,7 +383,7 @@ func markMissingDeclaredIndexes(onboarding *brainStatusOnboarding, brainDir stri
 // renderBrainOnboardingStatus prints the section `entire-brain status` gained:
 // backfill progress, daemon health, and instant-phase component freshness.
 func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboarding, now time.Time, brainCmd string) {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = clibase.SetupBrainCommand(brainCmd)
 	if onboarding == nil {
 		return
 	}

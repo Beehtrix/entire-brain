@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 // statusFixtureReport is the report the screenshot that started this work came
@@ -272,7 +272,7 @@ func TestStatusHealthCounts(t *testing.T) {
 		t.Errorf("failed components = %+v", health.Failed)
 	}
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
-	line := health.Line(render, setupBrainBinaryName)
+	line := health.Line(render, base.SetupBrainBinaryName)
 	for _, want := range []string{"history failed", "1 issue", "run `entire-brain doctor`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("verdict %q missing %q", line, want)
@@ -283,7 +283,7 @@ func TestStatusHealthCounts(t *testing.T) {
 func TestStatusHealthWarningUsesSkippedMark(t *testing.T) {
 	t.Parallel()
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
-	line := (statusHealth{Warnings: 1}).Line(render, setupBrainBinaryName)
+	line := (statusHealth{Warnings: 1}).Line(render, base.SetupBrainBinaryName)
 	if !strings.HasPrefix(line, "- 1 warning") {
 		t.Fatalf("warning-only health rendered as a hard failure: %q", line)
 	}
@@ -319,13 +319,13 @@ func TestStatusSaysWhenTheInstalledDaemonIsNotCurrent(t *testing.T) {
 func TestStatusNextStepNamesGraphInstallWhenProviderAbsent(t *testing.T) {
 	t.Parallel()
 	h := statusHealth{SemanticMissing: true, SemanticProviderAbsent: true}
-	got := h.nextStepMessage(setupBrainBinaryName)
-	for _, want := range []string{"entire plugin install graph", semanticIndexVerb} {
+	got := h.nextStepMessage(base.SetupBrainBinaryName)
+	for _, want := range []string{"entire plugin install graph", base.SemanticIndexVerb} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("next step %q does not name %q", got, want)
 		}
 	}
-	if withProvider := (statusHealth{SemanticMissing: true}).nextStepMessage(setupBrainBinaryName); strings.Contains(withProvider, "plugin install") {
+	if withProvider := (statusHealth{SemanticMissing: true}).nextStepMessage(base.SetupBrainBinaryName); strings.Contains(withProvider, "plugin install") {
 		t.Fatalf("provider-present next step must stay the refresh remedy: %q", withProvider)
 	}
 }

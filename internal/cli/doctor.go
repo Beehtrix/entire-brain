@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -445,7 +446,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 // does not see is always one documented command away.
 // A func, not a const: the spelling is only knowable at call time.
 func doctorVerboseInvocation() string {
-	return brainInvocation(os.LookupEnv, "doctor --verbose")
+	return base.BrainInvocation(os.LookupEnv, "doctor --verbose")
 }
 
 // doctorActionableDetailBudget caps one short line's detail. The blind-spot
@@ -732,13 +733,13 @@ func doctorRemedy(check doctorCheckResult) string {
 	// on the truncated text, which only doctorActionableLine.detail sees.
 	// `setup <component>` findings are one per failed setup component.
 	if strings.HasPrefix(check.Name, "setup ") {
-		return brainInvocation(os.LookupEnv, "setup")
+		return base.BrainInvocation(os.LookupEnv, "setup")
 	}
 	if check.Name == doctorSemanticProviderFinding {
 		return doctorSemanticProviderRemedy(check.Detail)
 	}
 	if verb, ok := doctorRemedies[check.Name]; ok {
-		return brainInvocation(os.LookupEnv, verb)
+		return base.BrainInvocation(os.LookupEnv, verb)
 	}
 	// A check added later without a table entry still gets a command, because
 	// "no remedy" is the one answer a diagnostic must never give.

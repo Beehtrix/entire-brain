@@ -485,7 +485,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(verifyErr)
 				}
 				if !postVerify.Clean {
-					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", memoryErrPrivacyDirty, len(postVerify.Findings)))
+					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", memoryErrPrivacyDirty, len(postVerify.Findings)))
 				}
 				verify = postVerify
 				postManifest, manifestErr := loadBrainManifest(brainDir)
@@ -1290,8 +1290,8 @@ func memoryInstallHealth(brainDir string) map[string]any {
 }
 
 func memoryProviderEgressHealth(brainDir string) map[string]any {
-	noEgress := securityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS")
-	localOnly := securityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY")
+	noEgress := base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_EGRESS")
+	localOnly := base.SecurityToggleEnabled("ENTIRE_BRAIN_LOCAL_ONLY")
 	globalLocalOnly := noEgress || localOnly
 	globalMode := "default"
 	if globalLocalOnly {
@@ -1573,7 +1573,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		Path:                   exportManifestFileName,
 		State:                  "absent",
 		SupportedSchemaVersion: brainManifestSchemaVersion,
-		RecommendedAction:      "run `" + brainInvocation(os.LookupEnv, "refresh") + "` to create the canonical manifest",
+		RecommendedAction:      "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to create the canonical manifest",
 	}
 	manifest, version, droppedUnknownFields, present, err := readBrainManifestFile(brainDir, true)
 	if !present && err == nil {
@@ -1600,7 +1600,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 			// and there is nothing to upgrade INTO -- the way out is to rebuild
 			// it from the canonical sources it was derived from.
 			if version < brainManifestMinSchemaVersion {
-				health.RecommendedAction = "run `" + brainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild the manifest from canonical sources"
+				health.RecommendedAction = "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild the manifest from canonical sources"
 			} else {
 				health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
 			}
@@ -1619,7 +1619,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 		// refresh rebuild it from canonical sources.
 		// State stays "current" on purpose: the manifest is present, usable and
 		// this build's supported schema, and callers switch on that string.
-		health.RecommendedAction = "written by a different build and read-only; run `" + brainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild it from canonical sources"
+		health.RecommendedAction = "written by a different build and read-only; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild it from canonical sources"
 	}
 	return manifest, health, nil
 }
@@ -1836,7 +1836,7 @@ func memoryHealthIssues(issues []memoryStateIssue) []memoryHealthIssue {
 		case memoryErrUnsupportedVersion:
 			action = "upgrade entire-brain; this newer file is left untouched"
 		case memoryErrMigrationRequired:
-			action = "run `" + setupCommandPrefix(os.LookupEnv) + " memory migrate`"
+			action = "run `" + base.SetupCommandPrefix(os.LookupEnv) + " memory migrate`"
 		case memoryErrQueryTooBroad:
 			action = fmt.Sprintf("reduce the directory below the %d-file scan ceiling", abstractInventoryMaxFiles)
 		case brainstore.StateUnsafeCode:
@@ -2038,7 +2038,7 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 	}
 	if manifestHealth.State == "absent" {
 		canonical["state"] = "manifest_absent"
-		canonical["action"] = "run `" + brainInvocation(os.LookupEnv, "refresh") + "` to capture canonical sessions"
+		canonical["action"] = "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to capture canonical sessions"
 	} else if manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		sessions := manifest.Sources.Sessions
 		canonical["state"] = "available"
@@ -2047,7 +2047,7 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 		canonical["latest_checkpoint_id"] = sessions.LatestCheckpointID
 	} else if manifest != nil {
 		canonical["state"] = "absent"
-		canonical["action"] = "run `" + brainInvocation(os.LookupEnv, "refresh") + "` (sessions stage)"
+		canonical["action"] = "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` (sessions stage)"
 	} else {
 		canonical["error_code"] = manifestHealth.ErrorCode
 		canonical["action"] = manifestHealth.RecommendedAction

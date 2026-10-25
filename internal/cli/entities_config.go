@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // entityConfig binds the existing storage/privacy policies at the assembly
@@ -15,6 +16,6 @@ func entityConfig(opts Options) entities.Config {
 		SessionIDsByCheckpoint: sessionIDsByCheckpoint,
 		SessionBranchByID:      sessionBranchByID,
 		SaveIndexCache:         saveEntityIndexCache,
-		BrainInvocation:        func(verb string) string { return brainInvocation(os.LookupEnv, verb) },
+		BrainInvocation:        func(verb string) string { return base.BrainInvocation(os.LookupEnv, verb) },
 	}}
 }

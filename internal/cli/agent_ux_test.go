@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
+	"github.com/spf13/cobra"
 )
 
 // indexFixtureBrain indexes a snapshot into a fresh brain and returns the brain
@@ -480,7 +480,7 @@ func TestOverviewTextDisambiguatesSameNameCommands(t *testing.T) {
 // degradation: install the plugin when it is absent, carry graph's own remedy
 // when its store cannot serve, and point at the index verb otherwise.
 func TestBriefCodeContextWarningNamesTheRunnableFix(t *testing.T) {
-	indexCmd := brainInvocation(os.LookupEnv, semanticIndexVerb)
+	indexCmd := base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)
 	cases := map[string]struct {
 		storeMissing   bool
 		storeDetail    string

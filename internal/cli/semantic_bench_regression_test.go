@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	clitest "github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +49,7 @@ func TestSemanticBenchRootRoutesJSONTextProgressAndCleanup(t *testing.T) {
 	opts, repoDir, marker := semanticBenchFixture(t)
 	var out string
 	var err error
-	progress := captureStderr(t, func() {
+	progress := clitest.CaptureStderr(t, func() {
 		out, err = execute(t, NewRootCommand(opts), "bench", "index", repoDir, "--json", "--profile", "full", "--progress")
 	})
 	if err != nil {

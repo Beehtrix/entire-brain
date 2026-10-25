@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +64,7 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-				return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+				return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 			if err != nil {
@@ -294,7 +295,7 @@ Arms:
 				return err
 			}
 			if manifest.Sources == nil {
-				return errors.New("brain has no sources; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+				return errors.New("brain has no sources; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 			if err != nil {

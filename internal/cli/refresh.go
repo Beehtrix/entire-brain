@@ -86,7 +86,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	// it has to name a command that runs. It named "entire brain index", which
 	// never existed in either spelling.
 	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
-		fmt.Sprintf("use `%s --worktree` for an explicit worktree code index", brainInvocation(os.LookupEnv, semanticIndexVerb)))
+		fmt.Sprintf("use `%s --worktree` for an explicit worktree code index", base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -522,7 +522,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	// Include the intentional semantic skip beside the success line.
 	if refreshOpts.semanticWorktreeSkip {
-		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(setupCommandPrefix(os.LookupEnv)))
+		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
 	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
@@ -804,7 +804,7 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 // one would repeat a mistake this codebase has already paid for: a guard
 // written against a key the real CLI never emits.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		return "none"
 	}
 	// Prefer the detected harness ONLY IF its binary is runnable. Detection
@@ -835,7 +835,7 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 // it is tested for presence; CLAUDECODE is a flag and goes through envBool, so
 // an explicit CLAUDECODE=0 is honoured as "no".
 func detectedAgentHarness() string {
-	if envBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
+	if base.EnvBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
 		return "claude-code"
 	}
 	return ""
@@ -937,7 +937,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
-		return errors.New("code index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
+		return errors.New("code index missing; run `" + base.BrainInvocation(os.LookupEnv, "refresh index") + " --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""

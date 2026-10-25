@@ -1045,7 +1045,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
 			// prepare path, so without the same empty-Brain branch it would
 			// swallow that function's actionable guidance.
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1193,7 +1193,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
-			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return index, nil, historyScanCache{}, err
 	}
@@ -3172,11 +3172,11 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 // generations.
 func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) ([]byte, string, bool, error) {
 	if source == nil || source.IndexPath == "" {
-		return nil, "", false, errors.New("history index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`")
+		return nil, "", false, errors.New("history index missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "`")
 	}
 	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
 	if generationAddressed && source.IndexDigest == "" {
-		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+brainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
+		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
@@ -3246,7 +3246,7 @@ func historyHardlinkRepairHint(err error) error {
 	if err == nil || !errors.Is(err, clibase.ErrFileHardlinked) {
 		return err
 	}
-	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, brainInvocation(os.LookupEnv, "memory repair"))
+	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, clibase.BrainInvocation(os.LookupEnv, "memory repair"))
 }
 
 func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
@@ -3296,7 +3296,7 @@ func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySou
 
 func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
-		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+brainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
 	}
 	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
 		return historyIndex{}, errors.New("history index checksum does not match manifest")

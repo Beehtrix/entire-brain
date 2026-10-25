@@ -71,7 +71,7 @@ func fetchGraphStore(ctx context.Context, opts Options, repoDir, binary, profile
 		return d, fmt.Errorf("decode Graph store descriptor: %w", err)
 	}
 	if d.StoreUnavailable {
-		return d, fmt.Errorf("%w: %s; run %s", errGraphStoreUnavailable, d.Detail, brainInvocation(os.LookupEnv, "refresh index"))
+		return d, fmt.Errorf("%w: %s; run %s", errGraphStoreUnavailable, d.Detail, base.BrainInvocation(os.LookupEnv, "refresh index"))
 	}
 	// A contract mismatch names the binary that is behind: a NEWER contract than
 	// this build supports means Graph has moved on and entire-brain must catch

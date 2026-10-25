@@ -73,7 +73,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		health["state"] = memoryErrMigrationRequired
 		health["schema_state"] = memoryErrMigrationRequired
 		health["error_code"] = memoryErrMigrationRequired
-		health["action"] = "rebuild the disposable overlay with `" + brainInvocation(os.LookupEnv, "refresh delta") + "`"
+		health["action"] = "rebuild the disposable overlay with `" + base.BrainInvocation(os.LookupEnv, "refresh delta") + "`"
 		return health
 	}
 
@@ -348,7 +348,7 @@ func memoryJobInventoryHealth(inventory memoryJobInventory) map[string]any {
 	case "corrupt":
 		health["action"] = "repair the named content-free job records before queue mutation"
 	case memoryErrMigrationRequired:
-		health["action"] = "run `" + setupCommandPrefix(os.LookupEnv) + " memory migrate` to rewrite previous job schemas"
+		health["action"] = "run `" + base.SetupCommandPrefix(os.LookupEnv) + " memory migrate` to rewrite previous job schemas"
 	}
 	return health
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -618,7 +619,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	// way a subdirectory is resolved); what it resolves to now has to be a
 	// repository, which is the same gate `setup` and `path` already apply.
 	if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
-		brainCmd := setupCommandPrefix(os.LookupEnv)
+		brainCmd := base.SetupCommandPrefix(os.LookupEnv)
 		return notARepositoryError(ctx, opts.Runner, repoDir,
 			brainCmd+" workspace add registers a repository whose brain -- like every source it is built from -- comes from git.",
 			brainCmd+" workspace add "+workspaceName+" "+repoPath,
@@ -1269,7 +1270,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		if dirErr != nil {
 			return dirErr
 		}
-		if safetyErr := validatePatternCorpusReadSafety(wsDir); safetyErr != nil {
+		if safetyErr := patterncore.ValidateCorpusReadSafety(wsDir); safetyErr != nil {
 			return safetyErr
 		}
 	}
@@ -1952,7 +1953,7 @@ func workspaceFreshnessWarning(f workspace.RepoFreshness) string {
 	case "missing-brain":
 		// No export manifest at the brain root. The detector still scans raw sessions (the real
 		// mirrored-sessions brains are exactly this shape), so this qualifies rather than blocks.
-		return "no export manifest — scanned raw sessions only (run `" + brainInvocation(os.LookupEnv, "refresh") + "` for a full brain)"
+		return "no export manifest — scanned raw sessions only (run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` for a full brain)"
 	case "missing-semantic":
 		return "code index missing — scanned raw sessions only"
 	case "unknown":

@@ -139,11 +139,11 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 			counts.Warnings = append(counts.Warnings, repo.RepoKey+": "+err.Error())
 			continue
 		}
-		mdb, err := openPatternCorpusReadDB(memberBrainDir)
+		mdb, err := patterncore.OpenCorpusReadDB(memberBrainDir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// A genuinely absent member corpus degrades gracefully (refresh that repo).
-				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `"+brainInvocation(os.LookupEnv, "refresh")+"` there)")
+				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"` there)")
 				continue
 			}
 			return counts, err
@@ -215,7 +215,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 	if err != nil {
 		return counts, err
 	}
-	if err := finalizePatternCorpusStagingLocked(wsBrainDir, path, db); err != nil {
+	if err := patterncore.FinalizeCorpusStagingLocked(wsBrainDir, path, db, decodePatternCorpusPublication); err != nil {
 		return counts, err
 	}
 	_ = appendPatternRun(wsBrainDir, run)
@@ -403,7 +403,7 @@ func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
 }
 
 func getWorkspacePatternChecked(wsBrainDir, patternID string) (unifiedResult, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}

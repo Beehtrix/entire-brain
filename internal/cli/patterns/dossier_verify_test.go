@@ -1,4 +1,4 @@
-package cli
+package patterns_test
 
 import (
 	"context"
@@ -12,23 +12,23 @@ import (
 
 func TestParseDossierVerdict(t *testing.T) {
 	out := "noise before {\n  \"verdict\": \"NEEDS_SPLIT\", \"reason\": \"two patterns\", \"conflated_subpatterns\": [\"a\",\"b\"]\n} trailing"
-	v, raw, err := parseDossierVerdict(out)
+	v, raw, err := patterncore.ParseDossierVerdict(out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if v.Verdict != "needs_split" {
 		t.Errorf("verdict = %q, want needs_split (lowercased)", v.Verdict)
 	}
-	if v.SchemaVersion != dossierVerifySchemaVersion {
+	if v.SchemaVersion != patterncore.DossierVerifySchemaVersion {
 		t.Errorf("schema_version defaulted wrong: %d", v.SchemaVersion)
 	}
 	if strings.Contains(raw, "noise") || strings.Contains(raw, "trailing") {
 		t.Errorf("raw should be the trimmed JSON object, got %q", raw)
 	}
-	if _, _, err := parseDossierVerdict(`{"verdict":"banana"}`); err == nil {
+	if _, _, err := patterncore.ParseDossierVerdict(`{"verdict":"banana"}`); err == nil {
 		t.Error("expected error for invalid verdict")
 	}
-	if _, _, err := parseDossierVerdict(`not json`); err == nil {
+	if _, _, err := patterncore.ParseDossierVerdict(`not json`); err == nil {
 		t.Error("expected error for non-JSON output")
 	}
 }
@@ -45,7 +45,7 @@ func TestVerifyDossiersNoEgressRejected(t *testing.T) {
 		called = true
 		return "", nil
 	}
-	_, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	_, err := patterncore.VerifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err == nil {
 		t.Fatal("expected no_egress rejection for --agent codex")
 	}
@@ -72,7 +72,7 @@ func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
 		}
 		return `{"schema_version":1,"verdict":"accepted","reason":"sound","evidence_fingerprint":"ignored"}`, nil
 	}
-	stats, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	stats, err := patterncore.VerifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestVerifyDossiersWritesAndCachesVerdict(t *testing.T) {
 	}
 
 	// Second run: fingerprint unchanged → cached, agent NOT called again.
-	stats2, err := verifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
+	stats2, err := patterncore.VerifyDossiers(context.Background(), db, t.TempDir(), t.TempDir(), "codex", "", "", run, now)
 	if err != nil {
 		t.Fatal(err)
 	}

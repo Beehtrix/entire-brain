@@ -269,7 +269,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		// whole command exists to avoid.
 		return fmt.Errorf(
 			"--skip-index found no code index for %s; run `%s` first, or drop --skip-index to build one",
-			repoDir, brainInvocation(os.LookupEnv, semanticIndexVerb))
+			repoDir, base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb))
 	}
 
 	// Size on disk, which is the figure the comparison is actually about.

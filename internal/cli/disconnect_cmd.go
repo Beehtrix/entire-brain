@@ -57,12 +57,12 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 		renderHostedBanner(cmd.OutOrStdout(),
 			"Disconnected: "+storage.Key+" no longer syncs memories",
 			"Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.",
-			"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
+			"Run `"+base.BrainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
 		return nil
 	}
 	renderHostedBanner(cmd.OutOrStdout(),
 		"Disconnected: this repository does not sync with a hosted brain",
 		"Your local brain keeps working exactly as before.",
-		"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to join.")
+		"Run `"+base.BrainInvocation(os.LookupEnv, "connect")+"` to join.")
 	return nil
 }

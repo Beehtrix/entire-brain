@@ -341,3 +341,123 @@ func TestStoreSizeRefusalClassifiesAsTheSkippableOversizeError(t *testing.T) {
 		t.Fatal("a non-size read error classified as skippable oversize")
 	}
 }
+
+// A transcript that outgrew its recorded size must read as a source race, not
+// as a skippable oversize transcript -- even though it is now also over the cap.
+//
+// Measured, not assumed: the failure here is raised BEFORE the read, by the
+// inventory's own pre-read metadata check (memory_source_stale, "transcript
+// changed after inventory"), so SafeReadAll's bound is never reached and this
+// test does not exercise the joined readErr+finishErr path. That path needs a
+// writer appending DURING the read and is covered as a truth table by
+// TestOversizeIsTheSoleFaultOnlyWhenItReallyIs. What this test pins is that the
+// sequential case -- the one a test can make deterministic -- lands on the
+// refusing side and reaches the delta's classifier as a refusal.
+func TestAGrownTranscriptIsASourceRaceNotASkippableOversize(t *testing.T) {
+	ctx := context.Background()
+	brainDir := t.TempDir()
+	rel := "sessions/main/grows.jsonl"
+	writeHistoryFixtureFile(t, brainDir, rel, strings.Repeat("a", 32))
+
+	inventory, err := collectHistorySessionInventory(ctx, brainDir)
+	if err != nil {
+		t.Fatalf("collect inventory: %v", err)
+	}
+	defer inventory.Close()
+
+	var target historySessionFile
+	for _, file := range inventory.files {
+		if file.Rel == rel {
+			target = file
+		}
+	}
+	if target.Rel == "" {
+		t.Fatalf("fixture %s is not in the inventory: %+v", rel, inventory.files)
+	}
+
+	// The stat is already taken. Now the writer appends, exactly as a live
+	// agent session does to its own transcript.
+	writeHistoryFixtureFile(t, brainDir, rel, strings.Repeat("a", 4096))
+
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 64
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
+
+	_, _, readErr := readHistorySessionInventoryFile(ctx, inventory, target)
+	if readErr == nil {
+		t.Fatal("a transcript that outgrew the cap mid-read reported no error at all")
+	}
+	if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+		t.Fatalf("a source race was classified as a skippable oversize transcript, so every inventory reader would skip it and publish: %v", readErr)
+	}
+	if !strings.Contains(readErr.Error(), memoryErrSourceStale) {
+		t.Fatalf("the race must survive in the error the readers see: %v", readErr)
+	}
+	// And the delta's classifier must refuse on it.
+	if !shortTermCanonicalInputRefusal(readErr) {
+		t.Fatalf("the delta published over a source race: %v", readErr)
+	}
+}
+
+// The classifier half: the sentinel excuses only itself, even when it arrives
+// joined with -- or wrapped around -- a refusal condition.
+func TestTheOversizeSentinelExcusesOnlyItself(t *testing.T) {
+	oversize := historyTranscriptTooLargeError("sessions/main/huge.jsonl")
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+
+	for _, probe := range []struct {
+		name string
+		err  error
+	}{
+		{"joined with a source race", errors.Join(oversize, stale)},
+		{"joined with a degraded inventory", errors.Join(oversize, errHistorySessionInventoryDegraded)},
+		{"joined with cancellation", errors.Join(oversize, context.Canceled)},
+		{"wrapped around a source race, as the reader used to build it", fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, errors.Join(nil, stale, nil))},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			if !shortTermCanonicalInputRefusal(probe.err) {
+				t.Fatalf("the sentinel excused another refusal and the delta published: %v", probe.err)
+			}
+		})
+	}
+
+	// Alone, it still costs only its own session -- the point of #483.
+	if shortTermCanonicalInputRefusal(oversize) {
+		t.Fatalf("one oversize transcript went back to refusing the whole delta: %v", oversize)
+	}
+}
+
+// The joined path's truth table, which no filesystem fixture can reach
+// deterministically: both readErr and finishErr set needs a writer appending
+// during the read.
+//
+// A true from this function wraps errHistoryTranscriptTooLarge around
+// errors.Join(readErr, finishErr, closeErr), and all three inventory readers
+// skip a file on errors.Is of that sentinel -- so a wrong true discards
+// whatever else is in the join and publishes the generation.
+func TestOversizeIsTheSoleFaultOnlyWhenItReallyIs(t *testing.T) {
+	bound := fmt.Errorf("canonical transcript sessions/main/huge.jsonl exceeds maximum size of 64 bytes")
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+	containment := &historySessionInventoryError{Path: "sessions/main/huge.jsonl", Reason: "transcript path changed while reading"}
+	closeFail := errors.New("close: input/output error")
+
+	for _, probe := range []struct {
+		name                     string
+		readErr, finishErr, done error
+		want                     bool
+	}{
+		{"the size breach alone is a statement about one file", bound, nil, nil, true},
+		{"a source race during the read must refuse", bound, stale, nil, false},
+		{"a containment breach during the read must refuse", bound, containment, nil, false},
+		{"a failed close must refuse", bound, nil, closeFail, false},
+		{"both must refuse", bound, stale, closeFail, false},
+		{"some other read failure is not an oversize at all", errors.New("permission denied"), nil, nil, false},
+		{"no read failure is not an oversize", nil, stale, nil, false},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			if got := oversizeIsTheSoleFault(probe.readErr, probe.finishErr, probe.done); got != probe.want {
+				t.Fatalf("oversizeIsTheSoleFault(%v, %v, %v) = %v, want %v", probe.readErr, probe.finishErr, probe.done, got, probe.want)
+			}
+		})
+	}
+}

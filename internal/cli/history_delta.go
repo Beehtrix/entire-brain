@@ -247,16 +247,24 @@ func shortTermCanonicalInputRefusal(err error) bool {
 	// partial-success channel carries it: the file joins FailedFiles, so the
 	// gap stays durably visible and no surface claims complete coverage.
 	//
+	// Every OTHER refusal reason is tested FIRST, because one error value can
+	// carry several: readers return errors.Join(readErr, finishErr, closeErr),
+	// and a degraded inventory or a cancelled context can arrive joined with an
+	// oversize transcript. Asking about the sentinel first answered "skip" for
+	// the whole join and published the delta, dropping the refusal. The
+	// sentinel excuses only itself.
+	if errors.Is(err, errHistorySessionInventoryDegraded) ||
+		errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(err.Error(), memoryErrSourceStale) {
+		return true
+	}
 	// The substring check below still refuses every OTHER bound breach,
 	// which is why this is errors.Is on the sentinel and not a code match.
 	if errors.Is(err, errHistoryTranscriptTooLarge) {
 		return false
 	}
-	return errors.Is(err, errHistorySessionInventoryDegraded) ||
-		errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) ||
-		strings.Contains(err.Error(), memoryErrSourceStale) ||
-		strings.Contains(err.Error(), memoryErrInputTooLarge)
+	return strings.Contains(err.Error(), memoryErrInputTooLarge)
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript

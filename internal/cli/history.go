@@ -1486,6 +1486,36 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 	return out, nil
 }
 
+// oversizeIsTheSoleFault decides whether a read's failures amount to "this one
+// transcript is too large" and nothing more.
+//
+// It is a named function rather than a condition inline in the reader because
+// the answer is the whole contract: a true here produces an error wrapping
+// errHistoryTranscriptTooLarge, and all three inventory readers SKIP a file on
+// errors.Is of that sentinel. A wrong true is therefore not a cosmetic
+// misclassification -- it silently discards whatever else was in the join and
+// publishes the generation.
+//
+// finishErr is validateAfterRead: a transcript swapped mid-read, a path that
+// became a symlink out of the brain root, metadata that moved. closeErr is its
+// own bound breach. Both must refuse the whole generation, and neither is a
+// statement about one file. Only readErr alone, and only when it is the size
+// breach, is.
+//
+// Reaching it with both readErr and finishErr set needs a writer appending
+// DURING the read: the inventory's own pre-read check rejects a file that grew
+// before it was opened (memory_source_stale, "transcript changed after
+// inventory"), so the sequential case never gets this far. A live agent
+// appending to its own transcript is exactly that writer, which is why this is
+// a truth table with its own test rather than a condition read once and
+// trusted.
+func oversizeIsTheSoleFault(readErr, finishErr, closeErr error) bool {
+	if readErr == nil || finishErr != nil || closeErr != nil {
+		return false
+	}
+	return strings.Contains(readErr.Error(), "exceeds maximum size")
+}
+
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
 	if inventory.store != nil {
 		data, err := inventory.store.Read(ctx, file.Rel)
@@ -1510,7 +1540,22 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 	closeErr := f.Close()
 	if readErr != nil || finishErr != nil || closeErr != nil {
 		combined := errors.Join(readErr, finishErr, closeErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
+		// The sentinel may excuse ONLY itself.
+		//
+		// All three readers of this error skip the file on
+		// errors.Is(errHistoryTranscriptTooLarge) -- that is the whole point of
+		// the sentinel. So wrapping it around a joined error that ALSO carries
+		// finishErr or closeErr would discard those silently and publish:
+		// validateAfterRead is the containment and source-race check (a
+		// transcript swapped mid-read, a path that became a symlink out of the
+		// root), and a failed Close is its own bound breach. Each of those must
+		// refuse the whole generation, and none of them is a statement about
+		// one file the way an oversize transcript is.
+		//
+		// Hence the size breach is classified as oversize only when it is the
+		// sole fault. Otherwise the joined error is returned unwrapped and the
+		// readers' refusal paths see it.
+		if oversizeIsTheSoleFault(readErr, finishErr, closeErr) {
 			return nil, "", fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, combined)
 		}
 		return nil, "", combined

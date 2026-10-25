@@ -63,8 +63,8 @@ type proposedLesson struct {
 // agent to group recurring failure→recovery lessons by meaning, and stores
 // accepted lessons as deep dossiers (archetype "procedure") under `lesson:` ids.
 // Egress-gated; cached by the sample fingerprint; never from refresh.
-func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
+func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
@@ -81,7 +81,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 	countLessons := func() int {
 		return patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
 	}
-	if corpusMeta(db, "lessons_sample_fingerprint") == sampleFP && countLessons() > 0 {
+	if patterncore.CorpusMeta(db, "lessons_sample_fingerprint") == sampleFP && countLessons() > 0 {
 		stats.Cached = countLessons()
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
@@ -103,7 +103,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`); err != nil {
 		return stats, err
@@ -116,7 +116,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		stats.Considered++
 		members := uniqueStrings(filterValidKeys(pl.MemberKeys, valid))
 		verdict := strings.ToLower(strings.TrimSpace(pl.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			verdict = "low_confidence"
 		}
 		if len(members) < lessonMinMembers || verdict == "rejected" {

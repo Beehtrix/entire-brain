@@ -55,7 +55,7 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 
 	if binding.RepoID != "" {
 		renderHostedBanner(cmd.OutOrStdout(),
-			"Disconnected: repo "+binding.RepoID+" no longer syncs memories",
+			"Disconnected: "+storage.Key+" no longer syncs memories",
 			"Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.",
 			"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
 		return nil

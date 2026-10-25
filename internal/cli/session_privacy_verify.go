@@ -352,7 +352,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		artifact   string
 	}
 	var findings []privacyVerifyFinding
-	if got := corpusMeta(db, "privacy_policy_identity"); got != expectedPolicyIdentity {
+	if got := patterncore.CorpusMeta(db, "privacy_policy_identity"); got != expectedPolicyIdentity {
 		findings = append(findings, privacyVerifyFinding{
 			SessionID: findingSessionID,
 			Artifact:  "pattern_corpus_policy",

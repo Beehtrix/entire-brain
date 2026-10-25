@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -260,7 +261,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
 // Exactly one synthesis source is used: an accepted workspace family (fam), then
 // an accepted deep dossier (deep), else the legacy shallow path.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *workspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *patterncore.WorkspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
 	var (
 		res skillSynthesisResult
 		err error

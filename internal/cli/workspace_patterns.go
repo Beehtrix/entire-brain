@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -25,8 +26,6 @@ import (
 // Strength rewards breadth (fraction of members sharing the pattern) on top of
 // total support and reinforcement; practices also keep the kind weighting.
 // Workspace pattern files live under the workspace dir, a sibling of repos/.
-
-const workspaceMinRepos = 2 // a workspace pattern must be shared across ≥2 repos
 
 func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 	var list patternsListOptions
@@ -246,7 +245,7 @@ func buildWorkspaceProcedures(byRepo map[string][]procedureRecord, repoOrder []s
 	var out []procedureRecord
 	for _, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspaceProcedureStrength(repos, memberCount, a.support, a.reinf)
@@ -302,7 +301,7 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 	var out []practiceRecord
 	for _, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspacePracticeStrength(a.base.Kind, repos, memberCount, a.support)
@@ -644,7 +643,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 	var out []taskCandidate
 	for sig, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspacePracticeStrength("", repos, memberCount, a.support) // breadth+support blend
@@ -717,7 +716,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			for _, v := range f.PerRepo {
 				repos = append(repos, v.RepoKey)
 			}
-			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", clibase.RedactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
+			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", clibase.RedactText(f.Title), f.RepoCount(), strings.Join(repos, ", "))
 			fmt.Fprintf(out, "    trigger: %s\n", clibase.RedactText(f.Trigger))
 			fmt.Fprintf(out, "    id %s\n", f.ID)
 		}
@@ -766,8 +765,8 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 			breakdown = append(breakdown, patternRepoStat{RepoKey: v.RepoKey, Support: 1})
 		}
 		cand := taskCandidate{
-			ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.repoCount(),
-			RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.repoCount(),
+			ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.RepoCount(),
+			RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.RepoCount(),
 			Strength: 0.7, StrengthLabel: "high",
 		}
 		return synthesizeAndForm(ctx, cmd, cand, nil, &fam, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())

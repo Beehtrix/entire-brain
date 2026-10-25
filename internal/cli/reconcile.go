@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const factsProposalsFileName = "proposals.ndjson"
@@ -24,7 +26,7 @@ func factsProposalsRelPath(branch string) string {
 // loadFactProposals reads a branch's pending proposals; a missing file yields
 // none. A malformed line is a hard error so a corrupt queue is surfaced.
 func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", base.DefaultMaxReadBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +190,12 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 		// ("3 new 1.0") or omit a trailing confidence; handle those per kind below
 		// instead of rejecting the whole line.
 		if len(fields) < 2 {
-			warnings = append(warnings, "reconcile: malformed line: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: malformed line: "+base.TruncateString(line, 80))
 			continue
 		}
 		ci, err := strconv.Atoi(fields[0])
 		if err != nil || ci < 1 || ci > len(candidates) {
-			warnings = append(warnings, "reconcile: bad candidate number: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: bad candidate number: "+base.TruncateString(line, 80))
 			continue
 		}
 		candidate := candidates[ci-1]
@@ -244,7 +246,7 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			}
 			decided[ci] = factAction{Kind: kind, TargetID: existing[ei-1].ID, Confidence: confidence, Candidate: candidate}
 		default:
-			warnings = append(warnings, "reconcile: unknown decision: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: unknown decision: "+base.TruncateString(line, 80))
 		}
 	}
 

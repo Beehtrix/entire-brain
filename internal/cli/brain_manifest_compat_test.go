@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -183,12 +184,12 @@ func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
 		t.Fatalf("watch once: %v\n%s", err, out)
 	}
 
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "sweep-fixture",
-		Repos:         []workspaceRepo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 

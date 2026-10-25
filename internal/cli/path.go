@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -76,7 +77,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		return err
 	}
 
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		if looksLikeWindowsDriveTargetPath(target) {
 			return err
@@ -201,62 +202,6 @@ func looksLikeWindowsDriveTargetPath(target string) bool {
 	return true
 }
 
-func resolveLocalTargetRepoDir(ctx context.Context, runner CommandRunner, target string) (string, bool, error) {
-	info, err := os.Stat(target)
-	switch {
-	case err == nil:
-	case os.IsNotExist(err):
-		return "", false, nil
-	default:
-		return "", false, fmt.Errorf("stat target path: %w", err)
-	}
-
-	dir := target
-	if !info.IsDir() {
-		dir = filepath.Dir(target)
-	}
-	abs, err := filepath.Abs(dir)
-	if err != nil {
-		return "", true, fmt.Errorf("resolve target path: %w", err)
-	}
-
-	if runner != nil {
-		stdout, _, err := runner.Run(ctx, abs, "git", "rev-parse", "--show-toplevel")
-		if err == nil {
-			root := filepath.Clean(strings.TrimSpace(string(stdout)))
-			if root != "" {
-				if !filepath.IsAbs(root) {
-					root = filepath.Join(abs, root)
-				}
-				rootAbs, absErr := filepath.Abs(root)
-				if absErr != nil {
-					return "", true, fmt.Errorf("resolve git root: %w", absErr)
-				}
-				// Git may report an ancestor's physical spelling even though the
-				// requested path used an established logical spelling (notably
-				// macOS /var versus /private/var). Prefer the matching lexical
-				// ancestor so path-hashed local identities remain stable.
-				// A relative target carries no lexical root spelling of its own.
-				// On macOS, filepath.Abs after Chdir may expand /var to
-				// /private/var; in that case Git's absolute root is the only
-				// caller-provided spelling and must win. Preserve a matching
-				// lexical ancestor only for an explicitly absolute target.
-				if filepath.IsAbs(target) {
-					if lexicalRoot, ok := matchingLexicalAncestor(abs, rootAbs); ok {
-						abs = lexicalRoot
-					} else {
-						abs = rootAbs
-					}
-				} else {
-					abs = rootAbs
-				}
-			}
-		}
-	}
-
-	return abs, true, nil
-}
-
 // gitWorkTreeRoot reports the work-tree root git resolves for dir, and whether
 // dir is inside a git work tree at all.
 //
@@ -355,13 +300,13 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	}
 	brainCmd := setupCommandPrefix(os.LookupEnv)
 	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
-		if bare, bareErr := gitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
+		if bare, bareErr := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
 			return fmt.Errorf("bare repository has no working tree: %s\n"+
-				"%[2]s reads seed, docs and the semantic index out of a working tree, and a bare repository has none.\n"+
+				"%[2]s reads seed, docs and the code index out of a working tree, and a bare repository has none.\n"+
 				"point it at a clone with a checkout: %[2]s refresh <path>", repoDir, brainCmd)
 		}
 		return notARepositoryError(ctx, runner, repoDir,
-			brainCmd+" builds every source it has -- sessions, seed, docs, semantic index -- from git history, so it needs git and a repository.",
+			brainCmd+" builds every source it has -- sessions, seed, docs, code index -- from git history, so it needs git and a repository.",
 			brainCmd+" refresh",
 			brainCmd+" refresh <path>")
 	}
@@ -375,33 +320,16 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	// thing left is that nothing has been committed to it. A detached HEAD has
 	// no symbolic ref and falls through here untouched, which is correct: it is
 	// not a condition this names.
-	ref, refErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	ref, refErr := base.GitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
 	if refErr != nil || strings.TrimSpace(ref) == "" {
 		return err
 	}
-	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", strings.TrimSpace(ref)); resolved == nil {
+	if _, resolved := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", strings.TrimSpace(ref)); resolved == nil {
 		return err
 	}
 	return fmt.Errorf("this repository has no commits yet: %s\n"+
 		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
 		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
-}
-
-func matchingLexicalAncestor(path, target string) (string, bool) {
-	targetInfo, err := os.Stat(target)
-	if err != nil {
-		return "", false
-	}
-	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-		info, err := os.Stat(current)
-		if err == nil && os.SameFile(info, targetInfo) {
-			return current, true
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return "", false
-		}
-	}
 }
 
 func brainExportExists(brainDir string) bool {

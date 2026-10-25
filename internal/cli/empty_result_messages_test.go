@@ -15,7 +15,7 @@ import (
 //
 // Seven commands did exactly that on a no-match query while their --json
 // siblings correctly emitted an empty result set, and while `inspect
-// boundaries` ("no routes found in the semantic index"), `inspect changes`
+// boundaries` ("no routes found in the code index"), `inspect changes`
 // ("no changes since the indexed HEAD") and `inspect snippet` already said so
 // in prose. This pins the human path for all seven: an empty result must be
 // stated, exit 0 must stay exit 0, and --json must not move.
@@ -31,7 +31,7 @@ func TestEmptySemanticResultsAreStatedNotSilent(t *testing.T) {
 	}
 
 	// The idiom every one of these must speak, copied from `inspect boundaries`.
-	const idiom = "found in the semantic index"
+	const idiom = "found in the code index"
 
 	for _, tc := range []struct {
 		name string

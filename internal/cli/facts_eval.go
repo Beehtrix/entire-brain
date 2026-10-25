@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +95,6 @@ type evalRunConfig struct {
 	Judge                 bool   `json:"judge"`
 	JudgeSourceMatches    bool   `json:"judge_source_matches,omitempty"`
 	Expand                bool   `json:"expand"`
-	Semantic              bool   `json:"semantic"`
 	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
 	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
 	LabelPolicy           string `json:"label_policy"`
@@ -451,7 +451,6 @@ The tasks file is a JSON array:
 				Judge:                 judge,
 				JudgeSourceMatches:    judgeSource,
 				Expand:                expand,
-				Semantic:              semantic,
 				JudgeCachePath:        judgeCache,
 				ExpansionCachePath:    expandCache,
 				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",
@@ -558,7 +557,7 @@ func (c *judgeCache) save() error {
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -1205,12 +1204,12 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
-		relevance := truncateString(valueOrUnset(r.RelevanceSource), 24)
-		label := truncateString(valueOrUnset(r.LabelSource), 13)
+		relevance := base.TruncateString(valueOrUnset(r.RelevanceSource), 24)
+		label := base.TruncateString(valueOrUnset(r.LabelSource), 13)
 		if showLatencyBreakdown {
-			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", base.TruncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
 		} else {
-			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %7.2f %7s %9.2f\n", base.TruncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
 		}
 	}
 	if showLatencyBreakdown {

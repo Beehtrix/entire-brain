@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // conversation.go is Phase 1 of the conversational-memory plan: a deterministic,
@@ -142,7 +144,7 @@ func scanConversationTranscriptContext(ctx context.Context, path string) (conver
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return conversationScanResult{}, fmt.Errorf("transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return conversationScanResult{}, err
 	}
@@ -174,7 +176,7 @@ func scanConversationTranscriptFileContext(ctx context.Context, f io.ReadSeeker,
 	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
 	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
 		// Document-form candidate: one pretty-printed JSON document.
-		data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+path)
+		data, err := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, base.MaxDocumentTranscriptBytes, "document transcript "+path)
 		if err != nil {
 			return conversationScanResult{}, err
 		}
@@ -683,7 +685,7 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 		// Document form cannot be range-decoded line by line; use the existing
 		// bounded document reader so input stays capped (same ceiling as the
 		// index-time scan) instead of an unbounded slurp.
-		data, readErr := safeReadAll(br, maxDocumentTranscriptBytes, "document transcript "+record.Path)
+		data, readErr := base.SafeReadAll(br, base.MaxDocumentTranscriptBytes, "document transcript "+record.Path)
 		if readErr != nil {
 			// Only a genuine bound violation is reported as one. An I/O failure
 			// or a cancelled context reaches here through the same return, and

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // Workspace V2 corpus (Pattern Consolidation v2, Priority 2).
@@ -64,8 +66,8 @@ type wsAgg struct {
 // first, under the brain write lock, with no gate ahead of it. Read-only
 // workspace commands deliberately keep failing closed; only the repair path is
 // allowed through.
-func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspaceManifest) error {
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspace.Manifest) error {
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return err
 	}
@@ -75,7 +77,7 @@ func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspaceM
 }
 
 // buildWorkspacePatternCorpus rebuilds the workspace corpus from member corpora.
-func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+func buildWorkspacePatternCorpus(env EntireEnv, manifest workspace.Manifest, now time.Time) (workspaceCorpusCounts, error) {
 	if err := recoverWorkspacePatternCorpusPublication(env, manifest); err != nil {
 		return workspaceCorpusCounts{}, err
 	}
@@ -92,9 +94,9 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	return counts, err
 }
 
-func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifest, now time.Time) (workspaceCorpusCounts, error) {
 	var counts workspaceCorpusCounts
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return counts, err
 	}
@@ -122,7 +124,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 		}
 	}
 
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
+	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	counts.Members = len(repos)
 
@@ -375,7 +377,7 @@ func getWorkspaceCorpusRecord(env EntireEnv, workspaceName, id string) (unifiedR
 }
 
 func getWorkspaceCorpusRecordChecked(env EntireEnv, workspaceName, id string) (unifiedResult, bool, error) {
-	wsBrainDir, err := workspaceDir(env, workspaceName)
+	wsBrainDir, err := workspaceStore(env).Dir(workspaceName)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}

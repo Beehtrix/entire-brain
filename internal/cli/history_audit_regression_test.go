@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
@@ -80,9 +82,9 @@ func TestHistoryAuditLongFirstLineStreams(t *testing.T) {
 	if err := os.WriteFile(p, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	old := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8192
-	t.Cleanup(func() { maxDocumentTranscriptBytes = old })
+	old := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8192
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = old })
 	got, err := expandConversationExchange(d, historyRecord{Path: rel, Line: 1, EndLine: 2, SourceDigest: conversationDigest(data)})
 	if err != nil || got.Response != "response" {
 		t.Fatalf("long JSONL first line: %+v %v", got, err)

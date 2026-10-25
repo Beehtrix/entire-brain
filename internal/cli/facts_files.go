@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"github.com/spf13/cobra"
-
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -10,6 +8,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/spf13/cobra"
 )
 
 // Facts as plain files.
@@ -473,7 +474,7 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeIndentedJSON(cmd.OutOrStdout(), result)
+				return base.WriteIndentedJSON(cmd.OutOrStdout(), result)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "wrote %d memories to %s\n", result.Written, result.Dir)
 			for _, file := range result.Files {

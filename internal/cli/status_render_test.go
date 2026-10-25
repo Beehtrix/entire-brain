@@ -95,7 +95,7 @@ func TestShortStatusGolden(t *testing.T) {
 	const want = "\n" +
 		"Brain  gh/entireio/entire-brain\n" +
 		"  manifest: current\n" +
-		"  semantic: 1179 files, 40781 symbols\n" +
+		"  code index: 1179 files, 40781 symbols\n" +
 		"  memories: 375\n" +
 		"\n" +
 		"Onboarding\n" +
@@ -172,7 +172,7 @@ func TestVerboseStatusCollapsesRepeatedWarnings(t *testing.T) {
 	if n := strings.Count(got, "44 data files skipped"); n != 1 {
 		t.Errorf("the collapsed line itself is printed %d times, want 1:\n%s", n, got)
 	}
-	if !strings.Contains(got, "all of them are the semantic warnings listed above") {
+	if !strings.Contains(got, "all of them are the code-context warnings listed above") {
 		t.Errorf("the blind-spot section must defer to the section that already listed them:\n%s", got)
 	}
 	// The full report still has to BE the full report.

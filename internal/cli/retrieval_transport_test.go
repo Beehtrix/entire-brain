@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -397,7 +398,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := writeRetrievalEmissionPrivacyFixture(t)
 			workspaceName := "privacy-race"
-			if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}}}); err != nil {
+			if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}}}); err != nil {
 				t.Fatal(err)
 			}
 			called := installLateRetrievalTombstone(t, fixture)
@@ -618,8 +619,8 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-race"
-		if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-			Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -655,8 +656,8 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-late"
-		if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-			Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -673,8 +674,8 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	const workspaceName = "privacy-dirty-member"
-	if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-		Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+	if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+		Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 	}); err != nil {
 		t.Fatal(err)
 	}

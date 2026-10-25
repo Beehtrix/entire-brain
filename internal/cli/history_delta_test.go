@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -251,9 +252,9 @@ func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 	if _, err := buildShortTermResult(t, brainDir); err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
 		t.Fatalf("bounded delta error = %v", err)
 	}

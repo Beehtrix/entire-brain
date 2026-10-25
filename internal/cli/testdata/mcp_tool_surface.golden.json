@@ -1,6 +1,6 @@
 [
   {
-    "description": "Lightweight local brain overview: recorded sources, semantic and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
+    "description": "Lightweight local brain overview: recorded sources, code-index and retrieval freshness, coverage totals/blind spots, background activity, and live workspace state. Does not audit artifact contents; use entire brain doctor for deep checks. Set details=true to include file classifications.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -15,7 +15,7 @@
     "name": "brain_status"
   },
   {
-    "description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the semantic index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
+    "description": "Refresh bounded code-derived Brain sources and return status JSON. Seed and docs include current worktree content by default; the code index is always built from committed HEAD, use Graph queries without --head when you need uncommitted code. Never exports checkpoint sessions. Set semantic=true only for small repositories; for large repositories use brain_index_repository as a separate long-running step. Calls are capped at 60 seconds.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -25,12 +25,12 @@
           "type": "boolean"
         },
         "semantic": {
-          "description": "Also rebuild the semantic index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)",
+          "description": "Also rebuild the code index in this call, from committed HEAD (prefer brain_index_repository for large repositories, and for a worktree snapshot)",
           "title": "semantic",
           "type": "boolean"
         },
         "worktree": {
-          "description": "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the semantic index, which always builds from committed HEAD.",
+          "description": "Include current uncommitted content in seed and docs (default true; set false for committed HEAD only). Does not reach the code index, which always builds from committed HEAD.",
           "title": "worktree",
           "type": "boolean"
         }
@@ -288,12 +288,12 @@
     "name": "brain_multi_get"
   },
   {
-    "description": "Relation-aware local semantic context for a symbol or topic: the definition plus what it touches, compact by default (details=true for full provider records). Use instead of a grep-then-read-several-files sweep when orienting in unfamiliar code. Not for exact strings or unindexed/uncommitted files — grep those.",
+    "description": "Relation-aware local code context for a symbol or topic: the definition plus what it touches, compact by default (details=true for full provider records). Use instead of a grep-then-read-several-files sweep when orienting in unfamiliar code. Not for exact strings or unindexed/uncommitted files — grep those.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "details": {
-          "description": "Include full semantic records with provider metadata",
+          "description": "Include full code-index records with provider metadata",
           "title": "details",
           "type": "boolean"
         },
@@ -331,7 +331,7 @@
           "type": "integer"
         },
         "details": {
-          "description": "Include full semantic records with provider metadata",
+          "description": "Include full code-index records with provider metadata",
           "title": "details",
           "type": "boolean"
         },
@@ -379,7 +379,7 @@
       "additionalProperties": false,
       "properties": {
         "details": {
-          "description": "Include full semantic records with provider metadata",
+          "description": "Include full code-index records with provider metadata",
           "title": "details",
           "type": "boolean"
         },
@@ -437,7 +437,7 @@
     "name": "brain_index_repository"
   },
   {
-    "description": "List locally indexed brain projects and semantic index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
+    "description": "List locally indexed brain projects and code index counts. Scoped to the bound repository unless ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO is set.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -558,7 +558,7 @@
     "name": "brain_recall"
   },
   {
-    "description": "Search the semantic graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
+    "description": "Search the code graph for matching symbols, with stable pagination over large result sets. Use instead of a broad grep that would return hundreds of lines to page through. Not for text that is not a symbol — grep that.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -591,7 +591,7 @@
     "name": "brain_search_graph"
   },
   {
-    "description": "Read-only semantic graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
+    "description": "Read-only code graph relation query using type:/from:/to: filters, e.g. type:CALLS from:Foo. Use instead of grepping for call sites when you want edges rather than lines. Not for relations the indexer cannot see (reflection, dynamic dispatch) — confirm with grep.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -617,7 +617,7 @@
     "name": "brain_query_graph"
   },
   {
-    "description": "Return semantic graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
+    "description": "Return code graph schema metadata, counts, symbol kinds, and relation vocabulary, plus structural metrics (hotspots, entry points, packages, layers, and clusters).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -702,7 +702,7 @@
     "name": "brain_dead_code"
   },
   {
-    "description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static semantic graph.",
+    "description": "Import runtime trace JSON/NDJSON and validate dynamic edges against the static code graph.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -726,7 +726,7 @@
       "additionalProperties": false,
       "properties": {
         "details": {
-          "description": "Include full semantic records with provider metadata",
+          "description": "Include full code-index records with provider metadata",
           "title": "details",
           "type": "boolean"
         },

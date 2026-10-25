@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -264,7 +265,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return errors.New("--agent-timeout-action must be keep-quick, continue, or fail")
 	}
 
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -621,7 +622,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		// the digest and discard the binary verdict rather than skipping both.
 		// Without it, editing a PDF under docs/ leaves the fingerprint
 		// identical and the packet looks fresh when it is not.
-		if sum, _, hashErr := hashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
+		if sum, _, hashErr := base.HashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
 			entry.Hash = sum
 		}
 		entry.Reason = "included as an extracted document"
@@ -638,7 +639,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 	// an ordinary refresh allocate the full size of the largest doc in the repo —
 	// unbounded, and attacker- or accident-controlled. Hashing incrementally keeps
 	// the recorded digest byte-identical while holding only one buffer.
-	if sum, binary, err := hashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
+	if sum, binary, err := base.HashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
 		if binary {
 			entry.Included = false
 			entry.Reason = "binary content"
@@ -769,7 +770,7 @@ func isTestPath(path string) bool {
 func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -790,7 +791,7 @@ func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 func miseCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -987,7 +988,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// zip's central directory both live at the end, so the prefix read
 			// below would hand the extractor a file it cannot parse. The output
 			// is bounded instead, by extractDocumentText.
-			data, err := safeReadFile(src, maxExtractDocumentBytes)
+			data, err := base.SafeReadFile(src, maxExtractDocumentBytes)
 			if err != nil {
 				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
@@ -1012,7 +1013,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// detect that truncation is needed. Slurping the whole file first made
 		// the peak allocation the SOURCE file's size, which for a doc that is
 		// kept precisely because it is oversized is pure waste.
-		data, truncated, err := readFilePrefix(src, limit)
+		data, truncated, err := base.ReadFilePrefix(src, limit)
 		if err != nil {
 			continue
 		}
@@ -1396,7 +1397,7 @@ func splitCommitParents(value string) []string {
 
 func checkpointTrailers(body string) []string {
 	var checkpoints []string
-	for _, match := range checkpointTrailerRegex.FindAllStringSubmatch(body, -1) {
+	for _, match := range base.CheckpointTrailerRegex.FindAllStringSubmatch(body, -1) {
 		if len(match) > 1 {
 			checkpoints = append(checkpoints, match[1])
 		}
@@ -1418,7 +1419,7 @@ func commitBodyExcerpt(body string) string {
 	var lines []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, checkpointTrailerKey+":") {
+		if line == "" || strings.HasPrefix(line, base.CheckpointTrailerKey+":") {
 			continue
 		}
 		lines = append(lines, line)
@@ -1517,7 +1518,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		semantic := manifest.Sources.Semantic
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "## Semantic Index")
+		fmt.Fprintln(&b, "## Code Index (Graph-owned)")
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Generated at: `%s`\n", semantic.GeneratedAt.Format(time.RFC3339))
 		fmt.Fprintf(&b, "- Provider: `%s`", semantic.Provider)
@@ -1526,7 +1527,6 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		}
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Schema: `%s`\n", semantic.SchemaVersion)
-		fmt.Fprintf(&b, "- Snapshot: `%s`\n", semantic.SnapshotPath)
 		fmt.Fprintf(&b, "- Symbols: %d\n", semantic.Symbols)
 		fmt.Fprintf(&b, "- Relations: %d\n", semantic.Relations)
 		if semantic.Commit != "" {
@@ -1535,7 +1535,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		if semantic.Branch != "" {
 			fmt.Fprintf(&b, "- Branch: `%s`\n", semantic.Branch)
 		}
-		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific semantic context.")
+		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific code context.")
 	}
 	var warnings []string
 	warnings = append(warnings, manifest.Warnings...)

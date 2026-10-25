@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
-
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 )
@@ -61,7 +61,7 @@ disconnect'.`,
 
 func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) error {
 	ctx := cmd.Context()
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}

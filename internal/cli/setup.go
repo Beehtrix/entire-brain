@@ -15,11 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
+	"github.com/spf13/cobra"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -99,7 +100,7 @@ var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
 	brainComponentSeed:           "seed baseline",
 	brainComponentDocs:           "doc index",
-	brainComponentSemantic:       "semantic index",
+	brainComponentSemantic:       "code index",
 	brainComponentHistory:        "history index",
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",
@@ -644,7 +645,7 @@ func newSetupCommand(opts Options) *cobra.Command {
 		Long: fmt.Sprintf(`setup is the one command that makes a repository's brain useful and keeps it
 that way. It runs three phases:
 
-  1. instant   build the deterministic core (semantic index, sessions, seed,
+  1. instant   build the deterministic core (code index, sessions, seed,
                docs, history). Blocking, seconds, spends NO agent tokens. The
                brain is queryable the moment this returns.
   2. backfill  distill past sessions into durable facts, NEWEST FIRST, detached
@@ -673,11 +674,11 @@ and "%[1]s status" reports what the backfill has done so far and whether the
 watcher is alive.
 
 EXIT CODE: setup exits 0 whenever the brain is QUERYABLE, and queryable means
-it can answer: at least one of the semantic index, the seed baseline or the
+it can answer: at least one of the code index, the seed baseline or the
 history index built. Those are the sources "%[1]s query", "%[1]s brief" and
 "%[1]s overview" read, so "%[1]s setup && %[1]s query ..." cannot proceed on a
 brain that has nothing to answer from. A component that fails without costing
-that (a doc index, an entity index, a stale semantic snapshot beside a seed
+that (a doc index, an entity index, a stale code index beside a seed
 that built) is reported as one line, skipped, and the remaining components, the
 backfill, the workspace registration and the daemon install all still run;
 "%[1]s status" then shows that component as failed and "%[1]s doctor" prints
@@ -725,7 +726,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// skip and failure line, the hints, and the summary's Next block all move
 	// together and cannot drift apart. See setupCommandPrefix.
 	brainCmd := setupCommandPrefix(os.LookupEnv)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -760,7 +761,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !setupOpts.uninstallDaemon {
 		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 			return notARepositoryError(ctx, opts.Runner, repoDir,
-				setupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, semantic index, entities -- from git history, so it needs git and a repository.",
+				setupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, code index, entities -- from git history, so it needs git and a repository.",
 				setupBrainCommand(brainCmd)+" setup",
 				setupBrainCommand(brainCmd)+" setup <path>")
 		}
@@ -842,7 +843,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// service manager restarts it every 60s forever, and setup exits 0. Reject
 	// the name here, before anything is planned or installed, where the only
 	// thing it can cost is this command.
-	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
+	if err := workspace.ValidateName(setupOpts.workspace); err != nil {
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
 	}
 	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
@@ -1304,7 +1305,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	// Remove our pre-push hook (restoring any hook we had chained to).
 	// Best-effort: a hook problem must not block the daemon uninstall report.
-	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+	if repoDir, local, repoErr := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
 		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
 		}
@@ -1851,7 +1852,7 @@ func daemonEnv(env EntireEnv) map[string]string {
 // of the two registrations.
 func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	result, err := addWorkspaceRepoLocked(opts.Env, name, workspaceRepo{RepoKey: repoKey, LocalPathHint: repoDir})
+	result, err := workspaceStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
 		return state, err
 	}

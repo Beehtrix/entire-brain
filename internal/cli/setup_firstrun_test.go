@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
@@ -349,7 +350,7 @@ func TestSetupRefusesANonGitDirectory(t *testing.T) {
 	if rec.installCalls != 0 {
 		t.Fatalf("a non-repository must never get a background watcher, installs=%d", rec.installCalls)
 	}
-	if _, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace); err == nil {
+	if _, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace); err == nil {
 		t.Fatal("a non-repository must never be registered into a workspace")
 	}
 }
@@ -523,8 +524,8 @@ func TestRegistrationStillHappensWithoutTheNoRegisterKnob(t *testing.T) {
 func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
-	if err := writeWorkspaceManifest(env, workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "ws",
 	}); err != nil {
 		t.Fatalf("write workspace: %v", err)

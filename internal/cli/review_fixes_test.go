@@ -318,7 +318,7 @@ func TestCandidateEval(t *testing.T) {
 
 func TestWorkspaceSkillsListJSONRedacts(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	wsDir, err := workspaceDir(env, "platform")
+	wsDir, err := workspaceStore(env).Dir("platform")
 	if err != nil {
 		t.Fatal(err)
 	}

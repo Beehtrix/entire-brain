@@ -11,10 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
 func TestCappedHistoryReviewSurfacesDoNotClaimCleanResults(t *testing.T) {
+	t.Parallel()
 	for _, regressed := range []bool{false, true} {
 		t.Run(fmt.Sprint(regressed), func(t *testing.T) { testCappedHistoryReviewSurfaces(t, regressed) })
 	}
@@ -77,7 +79,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	if !strings.Contains(report.Summary, "PARTIAL") {
 		t.Errorf("brain review claims a complete result: %s", report.Summary)
 	}
-	manifest := workspaceManifest{Name: "capped", Repos: []workspaceRepo{{RepoKey: key, LocalPathHint: repo}}}
+	manifest := workspace.Manifest{Name: "capped", Repos: []workspace.Repo{{RepoKey: key, LocalPathHint: repo}}}
 	opts.Runner = &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	for _, review := range []bool{false, true} {
 		if regressed && !review {

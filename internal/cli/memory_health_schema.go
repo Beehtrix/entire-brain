@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // memoryOverlayHealth inspects the disposable short-term projection without
@@ -27,7 +29,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		"supported_reconciler_version": historyShortTermReconcilerVersion,
 		"action":                       "none",
 	}
-	data, present, err := readMemoryStateFile(brainDir, historyShortTermPath, "short-term history", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
 	health["present"] = present
 	if err != nil {
 		code := memoryErrorCode(err)
@@ -160,7 +162,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		health["action"] = "replace the unsafe FTS leaf with a regular derived store"
 		return health
 	}
-	guard, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	guard, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"

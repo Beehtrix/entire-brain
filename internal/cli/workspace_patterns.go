@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 		Use:   "verify <workspace>",
 		Short: "Agent-judge cross-repo families: merge equivalent workflows across repos by meaning (explicit, egress-gated, cached)",
 		Long: "Add the workspace judgment layer on top of exact aggregation: group member-repo task " +
-			"candidates into cross-repo families by semantic trigger + procedure purpose (equivalent workflows " +
+			"candidates into cross-repo families by trigger meaning + procedure purpose (equivalent workflows " +
 			"with different command names/order merge; generic git workflows are rejected). An accepted family " +
 			"dossier is required before `workspace patterns skills form`. The only agent path for workspaces; " +
 			"egress-gated and cached by the member-candidate fingerprint.",
@@ -90,7 +91,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, name, agent, model, effort string, asJSON bool) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -174,9 +175,9 @@ type memberPatterns struct {
 	warnings    []string
 }
 
-func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPatterns, error) {
+func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatterns, error) {
 	m := memberPatterns{procsByRepo: map[string][]procedureRecord{}, pracsByRepo: map[string][]practiceRecord{}, tasksByRepo: map[string][]taskCandidate{}}
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
+	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
@@ -409,7 +410,7 @@ func sortPatternsByStrength[T any](items []T, key func(i int) (float64, int, str
 }
 
 func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -423,7 +424,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -475,7 +476,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 }
 
 func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -483,7 +484,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -531,7 +532,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 }
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -539,7 +540,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -683,7 +684,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -694,7 +695,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -731,7 +732,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -739,7 +740,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}

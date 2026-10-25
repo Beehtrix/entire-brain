@@ -6,63 +6,11 @@ package cli
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
-
-// semanticRecordedArtifactsReadable re-reads the two files the recorded
-// semantic source points at -- the provider snapshot and the derived SQLite
-// store -- and reports the first that will not load. It answers "is what the
-// manifest claims actually still there and openable", which is the half of
-// freshness that a commit comparison cannot see.
-func semanticRecordedArtifactsReadable(brainDir string, source *semanticSourceManifest) error {
-	if source.SnapshotPath == "" {
-		return errors.New("semantic snapshot_path is missing")
-	}
-	snapshot, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshot); err != nil {
-		return err
-	}
-	info, err := os.Lstat(filepath.Join(brainDir, snapshot))
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() {
-		return fmt.Errorf("semantic snapshot must be a regular file: %s", source.SnapshotPath)
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		return err
-	}
-	header, counts, err := readSemanticSnapshotSummary(filepath.Join(brainDir, snapshot), manifest.RepoKey)
-	if err != nil {
-		return err
-	}
-	if err := validateSemanticSourceMatchesSnapshot(source, header, counts); err != nil {
-		return err
-	}
-	if source.StorePath == "" {
-		return nil
-	}
-	generation, err := validateSemanticGenerationPath(source.GenerationPath)
-	if err != nil {
-		return err
-	}
-	store, err := validateSemanticGenerationFilePath(source.StorePath, generation, semanticSQLiteName)
-	if err != nil {
-		return err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, store); err != nil {
-		return err
-	}
-	return validateSemanticSQLiteStore(filepath.Join(brainDir, store), source.Symbols, source.Relations)
-}
 
 // semanticProviderRefusalContext renders the provider's own explanation for an
 // identity-less snapshot, for appending to an otherwise bare refusal.

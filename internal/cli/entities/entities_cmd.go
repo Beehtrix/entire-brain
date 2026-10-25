@@ -1,20 +1,17 @@
-package cli
+package entities
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/entityindex"
 	"github.com/entireio/entire-brain/internal/factgitmeta"
-
 	"github.com/spf13/cobra"
 )
 
@@ -36,10 +33,10 @@ import (
 //     write to the index invalidates it and the next query rebuilds.
 
 const (
-	entitiesDirName          = "entities"
+	DirName                  = "entities"
 	entitiesCacheFileName    = "index.json"
-	entitiesCachePath        = entitiesDirName + "/" + entitiesCacheFileName
-	entityIndexCacheVersion  = 2
+	CachePath                = DirName + "/" + entitiesCacheFileName
+	CacheVersion             = 2
 	entityIndexCacheMaxKeys  = 50_000
 	entityIndexLogChunkSize  = 128
 	defaultEntitiesLimit     = 20
@@ -47,23 +44,23 @@ const (
 	entitiesFreshnessCommits = 10
 	// entitiesFreshnessTimeout caps one deterministic freshness pass.
 	entitiesFreshnessTimeout = 90 * time.Second
-	// entityBranchRevWalkMax bounds the branch-reachability walk behind the
+	// BranchRevWalkMax bounds the branch-reachability walk behind the
 	// optional --branch/branch filter.
-	entityBranchRevWalkMax = 20_000
+	BranchRevWalkMax = 20_000
 )
 
-// entityIndexCache is the derived, rebuildable checkpoint/session join over the
+// IndexCache is the derived, rebuildable checkpoint/session join over the
 // git-meta reverse index. MetaTip pins it to the exact git-meta commit it was
 // built from: any index write moves the tip and the cache is rebuilt.
-type entityIndexCache struct {
-	NeedsMigration   bool                               `json:"needs_migration,omitempty"`
-	IdentityRevision string                             `json:"identity_revision,omitempty"`
-	SchemaVersion    int                                `json:"schema_version"`
-	GeneratedAt      time.Time                          `json:"generated_at"`
-	MetaTip          string                             `json:"meta_tip"`
-	Truncated        bool                               `json:"truncated,omitempty"`
-	Entries          map[string][]entityIndexOccurrence `json:"entries"`
-	Aliases          map[string]string                  `json:"aliases,omitempty"`
+type IndexCache struct {
+	NeedsMigration   bool                         `json:"needs_migration,omitempty"`
+	IdentityRevision string                       `json:"identity_revision,omitempty"`
+	SchemaVersion    int                          `json:"schema_version"`
+	GeneratedAt      time.Time                    `json:"generated_at"`
+	MetaTip          string                       `json:"meta_tip"`
+	Truncated        bool                         `json:"truncated,omitempty"`
+	Entries          map[string][]IndexOccurrence `json:"entries"`
+	Aliases          map[string]string            `json:"aliases,omitempty"`
 	// LastTouch is the recency signal SearchKeys needs to resolve a
 	// rename-back alias cycle (A -> B -> A) to the spelling actually live in
 	// the tree rather than a dead intermediate name — see
@@ -73,11 +70,11 @@ type entityIndexCache struct {
 	LastTouch map[string]int64 `json:"last_touch,omitempty"`
 }
 
-// entityIndexOccurrence is one commit that changed an entity, joined to the
+// IndexOccurrence is one commit that changed an entity, joined to the
 // checkpoint(s) that captured it and the session(s) those checkpoints belong
 // to. CheckpointIDs/SessionIDs are empty for ordinary commits made outside a
 // captured agent session — the commit is still the honest answer.
-type entityIndexOccurrence struct {
+type IndexOccurrence struct {
 	Commit        string     `json:"commit"`
 	CheckpointIDs []string   `json:"checkpoint_ids,omitempty"`
 	SessionIDs    []string   `json:"session_ids,omitempty"`
@@ -90,14 +87,14 @@ type entityIndexOccurrence struct {
 // NOT live here — `show` reads them straight from git-meta so the derived cache
 // never has to carry every commit's document.
 type entityIndexView struct {
-	cache   entityIndexCache
+	cache   IndexCache
 	rebuilt bool
 	// warning is set when the join could not be rebuilt and a previously
 	// persisted (stale) cache is being served instead.
 	warning string
 }
 
-func newEntitiesCommand(opts Options) *cobra.Command {
+func NewCommand(opts Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "entities",
 		Short: "Find checkpoints and sessions that changed a symbol",
@@ -127,7 +124,7 @@ type entitiesBackfillOptions struct {
 	jsonOut         bool
 }
 
-func newEntitiesBackfillCommand(opts Options) *cobra.Command {
+func newEntitiesBackfillCommand(opts Config) *cobra.Command {
 	backfillOpts := entitiesBackfillOptions{limit: defaultEntitiesBackfill, graphBinary: "entire"}
 	cmd := &cobra.Command{
 		Use:   "backfill [path]",
@@ -146,7 +143,7 @@ func newEntitiesBackfillCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newEntitiesHistoryCommand(opts Options) *cobra.Command {
+func newEntitiesHistoryCommand(opts Config) *cobra.Command {
 	var (
 		limit   int
 		branch  string
@@ -157,7 +154,7 @@ func newEntitiesHistoryCommand(opts Options) *cobra.Command {
 		Short: "List the checkpoints and sessions that changed a code entity",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEntitiesHistory(cmd.Context(), cmd, opts, strings.Join(args, " "), branch, limit, jsonOut, entitiesTarget(opts, nil))
+			return RunHistory(cmd.Context(), cmd, opts, strings.Join(args, " "), branch, limit, jsonOut, entitiesTarget(opts, nil))
 		},
 	}
 	cmd.Flags().IntVar(&limit, "limit", defaultEntitiesLimit, "Maximum matching entities")
@@ -166,7 +163,7 @@ func newEntitiesHistoryCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newEntitiesShowCommand(opts Options) *cobra.Command {
+func newEntitiesShowCommand(opts Config) *cobra.Command {
 	var summary bool
 	cmd := &cobra.Command{
 		Use:   "show <commit|checkpoint-id>",
@@ -181,7 +178,7 @@ func newEntitiesShowCommand(opts Options) *cobra.Command {
 }
 
 // entitiesTarget resolves the repository path a subcommand operates on.
-func entitiesTarget(opts Options, args []string) string {
+func entitiesTarget(opts Config, args []string) string {
 	if len(args) == 1 && strings.TrimSpace(args[0]) != "" {
 		return args[0]
 	}
@@ -191,7 +188,7 @@ func entitiesTarget(opts Options, args []string) string {
 	return "."
 }
 
-func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, backfillOpts entitiesBackfillOptions, target string) error {
+func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Config, backfillOpts entitiesBackfillOptions, target string) error {
 	repoDir, storage, store, err := openEntityIndexStore(ctx, opts, target)
 	if err != nil {
 		return err
@@ -227,12 +224,12 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, 
 		}
 	}
 	if backfillOpts.jsonOut {
-		return writeIndentedJSON(out, result)
+		return base.WriteIndentedJSON(out, result)
 	}
 	fmt.Fprintf(out, "entity index: %d commit(s) indexed, %d skipped, %d failed, %d entity change(s) on %s\n",
 		result.Indexed, result.Skipped, result.Failed, result.Entities, result.Branch)
 	if !result.Window.Empty() {
-		fmt.Fprintf(out, "  indexed window: %s..%s (brain: %s)\n", shortSHA(result.Window.Floor), shortSHA(result.Window.Tip), storage.Key)
+		fmt.Fprintf(out, "  indexed window: %s..%s (brain: %s)\n", base.ShortSHA(result.Window.Floor), base.ShortSHA(result.Window.Tip), storage.Key)
 	}
 	if backfillOpts.checkpointsOnly {
 		fmt.Fprintln(out, "  --checkpoints-only is a filtered pass: it indexes checkpoint commits without claiming coverage, so the indexed window is unchanged")
@@ -243,9 +240,9 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Options, 
 	return nil
 }
 
-// entityHistoryResult is the JSON contract of `entities history` and of the
+// HistoryResult is the JSON contract of `entities history` and of the
 // brain_entity_history MCP tool.
-type entityHistoryResult struct {
+type HistoryResult struct {
 	Query     string                `json:"query"`
 	Branch    string                `json:"branch,omitempty"`
 	Matches   []entityHistoryMatch  `json:"matches"`
@@ -262,20 +259,20 @@ type entityHistoryIndexRef struct {
 }
 
 type entityHistoryMatch struct {
-	EntityKey   string                  `json:"entity_key"`
-	Path        string                  `json:"path"`
-	Kind        string                  `json:"kind,omitempty"`
-	Name        string                  `json:"name"`
-	AliasOf     string                  `json:"alias_of,omitempty"`
-	Occurrences []entityIndexOccurrence `json:"occurrences"`
+	EntityKey   string            `json:"entity_key"`
+	Path        string            `json:"path"`
+	Kind        string            `json:"kind,omitempty"`
+	Name        string            `json:"name"`
+	AliasOf     string            `json:"alias_of,omitempty"`
+	Occurrences []IndexOccurrence `json:"occurrences"`
 }
 
-func runEntitiesHistory(ctx context.Context, cmd *cobra.Command, opts Options, query, branch string, limit int, jsonOut bool, target string) error {
+func RunHistory(ctx context.Context, cmd *cobra.Command, opts Config, query, branch string, limit int, jsonOut bool, target string) error {
 	repoDir, _, _, err := openEntityIndexStore(ctx, opts, target)
 	if err != nil {
 		return err
 	}
-	result, err := entityHistory(ctx, opts, repoDir, query, branch, limit)
+	result, err := History(ctx, opts, repoDir, query, branch, limit)
 	if err != nil {
 		return err
 	}
@@ -284,7 +281,7 @@ func runEntitiesHistory(ctx context.Context, cmd *cobra.Command, opts Options, q
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
 	}
 	if jsonOut {
-		return writeIndentedJSON(out, result)
+		return base.WriteIndentedJSON(out, result)
 	}
 	if len(result.Matches) == 0 {
 		fmt.Fprintf(out, "no indexed entity matches %q\n", query)
@@ -300,7 +297,7 @@ func runEntitiesHistory(ctx context.Context, cmd *cobra.Command, opts Options, q
 		}
 		fmt.Fprintln(out, header)
 		for _, occ := range match.Occurrences {
-			line := "  " + shortSHA(occ.Commit)
+			line := "  " + base.ShortSHA(occ.Commit)
 			if len(occ.CheckpointIDs) > 0 {
 				line += "  checkpoint=" + strings.Join(occ.CheckpointIDs, ",")
 			}
@@ -308,7 +305,7 @@ func runEntitiesHistory(ctx context.Context, cmd *cobra.Command, opts Options, q
 				line += "  session=" + strings.Join(occ.SessionIDs, ",")
 			}
 			if occ.Subject != "" {
-				line += "  " + truncateString(occ.Subject, 72)
+				line += "  " + base.TruncateString(occ.Subject, 72)
 			}
 			fmt.Fprintln(out, line)
 		}
@@ -316,18 +313,18 @@ func runEntitiesHistory(ctx context.Context, cmd *cobra.Command, opts Options, q
 	return nil
 }
 
-// entityHistory is the single query path behind `entities history` and the
+// History is the single query path behind `entities history` and the
 // brain_entity_history MCP tool, so the CLI and the agent surface can never
 // answer the same question differently.
-func entityHistory(ctx context.Context, opts Options, repoDir, query, branch string, limit int) (entityHistoryResult, error) {
+func History(ctx context.Context, opts Config, repoDir, query, branch string, limit int) (HistoryResult, error) {
 	if limit <= 0 {
 		limit = defaultEntitiesLimit
 	}
 	view, err := loadEntityIndexView(ctx, opts, repoDir)
 	if err != nil {
-		return entityHistoryResult{}, err
+		return HistoryResult{}, err
 	}
-	result := entityHistoryResult{
+	result := HistoryResult{
 		Query:   query,
 		Branch:  strings.TrimSpace(branch),
 		Matches: []entityHistoryMatch{},
@@ -344,7 +341,7 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 	if result.Truncated {
 		// Route through Warnings rather than a bespoke print: the caller
 		// already prints every entry in Warnings to stderr BEFORE branching on
-		// --json (see runEntitiesHistory), so this reaches a human reader the
+		// --json (see RunHistory), so this reaches a human reader the
 		// same way a JSON consumer already saw it in the "truncated" field.
 		// Before this, a human running the plain-text path had no way to know
 		// the answer was a clipped subset of the index — a silent partial
@@ -354,7 +351,7 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 			entityIndexCacheMaxKeys))
 	}
 	if len(view.cache.Entries) == 0 {
-		result.Note = "the entity index is empty; run `" + brainInvocation(os.LookupEnv, "entities backfill") + "`"
+		result.Note = "the entity index is empty; run `" + opts.Deps.BrainInvocation("entities backfill") + "`"
 		return result, nil
 	}
 	reachable, err := checkedBranchReachableCommits(ctx, opts.Runner, repoDir, result.Branch)
@@ -380,7 +377,7 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 		// into this key as well as the chain forward from it — so a symbol's
 		// history survives the names it has been through no matter which of
 		// them the query happened to match.
-		var occurrences []entityIndexOccurrence
+		var occurrences []IndexOccurrence
 		for _, key := range entityindex.AliasFamily(view.cache.Aliases, lookup) {
 			occurrences = mergeEntityOccurrences(occurrences, view.cache.Entries[key])
 		}
@@ -405,19 +402,19 @@ func entityHistory(ctx context.Context, opts Options, repoDir, query, branch str
 
 // branchReachableCommits preserves the provenance resolver's unknown-reachability
 // contract. Entity history uses the checked variant so a failed filter is explicit.
-func branchReachableCommits(ctx context.Context, runner CommandRunner, repoDir, branch string) map[string]struct{} {
+func branchReachableCommits(ctx context.Context, runner base.CommandRunner, repoDir, branch string) map[string]struct{} {
 	reachable, _ := checkedBranchReachableCommits(ctx, runner, repoDir, branch)
 	return reachable
 }
 
-func checkedBranchReachableCommits(ctx context.Context, runner CommandRunner, repoDir, branch string) (map[string]struct{}, error) {
+func checkedBranchReachableCommits(ctx context.Context, runner base.CommandRunner, repoDir, branch string) (map[string]struct{}, error) {
 	if strings.TrimSpace(branch) == "" {
 		return nil, nil
 	}
 	if runner == nil {
 		return nil, fmt.Errorf("cannot resolve entity-history branch %q without a Git runner", branch)
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, "git", "rev-list", fmt.Sprintf("--max-count=%d", entityBranchRevWalkMax), branch)
+	stdout, _, err := runner.Run(ctx, repoDir, "git", "rev-list", fmt.Sprintf("--max-count=%d", BranchRevWalkMax), branch)
 	if err != nil {
 		return nil, fmt.Errorf("resolve entity-history branch %q: %w", branch, err)
 	}
@@ -431,11 +428,11 @@ func checkedBranchReachableCommits(ctx context.Context, runner CommandRunner, re
 	return out, nil
 }
 
-func filterOccurrencesToBranch(occurrences []entityIndexOccurrence, reachable map[string]struct{}) []entityIndexOccurrence {
+func filterOccurrencesToBranch(occurrences []IndexOccurrence, reachable map[string]struct{}) []IndexOccurrence {
 	if reachable == nil {
 		return occurrences
 	}
-	out := make([]entityIndexOccurrence, 0, len(occurrences))
+	out := make([]IndexOccurrence, 0, len(occurrences))
 	for _, occ := range occurrences {
 		if _, ok := reachable[occ.Commit]; ok {
 			out = append(out, occ)
@@ -446,10 +443,10 @@ func filterOccurrencesToBranch(occurrences []entityIndexOccurrence, reachable ma
 
 // mergeEntityOccurrences concatenates a pre-rename entity's occurrences with
 // its post-rename ones, deduplicating by commit and preserving order.
-func mergeEntityOccurrences(older, newer []entityIndexOccurrence) []entityIndexOccurrence {
-	out := make([]entityIndexOccurrence, 0, len(older)+len(newer))
+func mergeEntityOccurrences(older, newer []IndexOccurrence) []IndexOccurrence {
+	out := make([]IndexOccurrence, 0, len(older)+len(newer))
 	seen := map[string]struct{}{}
-	for _, group := range [][]entityIndexOccurrence{older, newer} {
+	for _, group := range [][]IndexOccurrence{older, newer} {
 		for _, occ := range group {
 			if _, dup := seen[occ.Commit]; dup {
 				continue
@@ -461,7 +458,7 @@ func mergeEntityOccurrences(older, newer []entityIndexOccurrence) []entityIndexO
 	return out
 }
 
-func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref string, summary bool, target string) error {
+func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Config, ref string, summary bool, target string) error {
 	repoDir, storage, store, err := openEntityIndexStore(ctx, opts, target)
 	if err != nil {
 		return err
@@ -472,7 +469,7 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 	}
 	revision, err := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, "entire")
 	if err != nil {
-		cached, ok := loadEntityIndexCache(storage.BrainDir)
+		cached, ok := LoadIndexCache(storage.BrainDir)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -484,7 +481,7 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 	}
 	snapshot := entityindex.LoadRevision(state, revision)
 	commit := strings.TrimSpace(ref)
-	if isCheckpointID(commit) {
+	if base.IsCheckpointID(commit) {
 		view, viewErr := loadEntityIndexView(ctx, opts, repoDir)
 		if viewErr != nil {
 			return viewErr
@@ -494,12 +491,12 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 			return fmt.Errorf("no indexed commit carries checkpoint %s", commit)
 		}
 		commit = resolved
-	} else if resolved, resolveErr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--verify", commit+"^{commit}"); resolveErr == nil && resolved != "" {
+	} else if resolved, resolveErr := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--verify", commit+"^{commit}"); resolveErr == nil && resolved != "" {
 		commit = resolved
 	}
 	raw, ok := snapshot.RawDelta(commit)
 	if !ok {
-		return fmt.Errorf("commit %s is not indexed; run `"+brainInvocation(os.LookupEnv, "entities backfill")+"`", shortSHA(commit))
+		return fmt.Errorf("commit %s is not indexed; run `"+opts.Deps.BrainInvocation("entities backfill")+"`", base.ShortSHA(commit))
 	}
 	out := cmd.OutOrStdout()
 	if summary {
@@ -508,7 +505,7 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 			fmt.Fprintln(out, raw)
 			return nil
 		}
-		fmt.Fprintf(out, "%s (base %s) computed %s\n", shortSHA(delta.Head), shortSHA(delta.Base), delta.ComputedAt)
+		fmt.Fprintf(out, "%s (base %s) computed %s\n", base.ShortSHA(delta.Head), base.ShortSHA(delta.Base), delta.ComputedAt)
 		for _, entity := range delta.Entities {
 			fmt.Fprintf(out, "  %-9s %s %s (%s:%d)\n", entity.Change, entity.Kind, entity.Name, entity.Path, entity.StartLine)
 		}
@@ -521,7 +518,7 @@ func runEntitiesShow(ctx context.Context, cmd *cobra.Command, opts Options, ref 
 }
 
 // commitForCheckpoint finds the newest indexed commit carrying a checkpoint id.
-func commitForCheckpoint(cache entityIndexCache, checkpointID string) (string, bool) {
+func commitForCheckpoint(cache IndexCache, checkpointID string) (string, bool) {
 	best := ""
 	var bestAt time.Time
 	for _, occurrences := range cache.Entries {
@@ -543,59 +540,39 @@ func commitForCheckpoint(cache entityIndexCache, checkpointID string) (string, b
 	return best, best != ""
 }
 
-// gitmetaDirForKey resolves the local git-meta store path for a repo key
-// (<cache>/brain/<key>/gitmeta.git), mirroring brainDirForKey's key handling but
-// rooted in the plugin CACHE tree. The store holds the entity index's meta
-// records (and, historically, the retired local-gitmeta fact-set heads —
-// COR-2236).
-func gitmetaDirForKey(env EntireEnv, key string) (string, error) {
-	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
-	}
-	dirs, err := resolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	root := filepath.Join(dirs.Cache, "brain")
-	if err := rejectBrainRootPathSymlinks(root, filepath.FromSlash(key)); err != nil {
-		return "", err
-	}
-	return filepath.Join(root, filepath.FromSlash(key), "gitmeta.git"), nil
-}
-
 // openEntityIndexStore resolves the repository, its brain storage, and the
 // shared local git-meta store the index lives in.
-func openEntityIndexStore(ctx context.Context, opts Options, target string) (string, repoStorage, *factgitmeta.MetaStore, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+func openEntityIndexStore(ctx context.Context, opts Config, target string) (string, base.RepoStorage, *factgitmeta.MetaStore, error) {
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return "", repoStorage{}, nil, err
+		return "", base.RepoStorage{}, nil, err
 	}
 	if !local {
-		return "", repoStorage{}, nil, fmt.Errorf("the entity index requires a local repository path: %s", target)
+		return "", base.RepoStorage{}, nil, fmt.Errorf("the entity index requires a local repository path: %s", target)
 	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	storage, err := opts.Deps.RepoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return "", repoStorage{}, nil, err
+		return "", base.RepoStorage{}, nil, err
 	}
-	gitDir, err := gitmetaDirForKey(opts.Env, storage.Key)
+	gitDir, err := opts.Deps.GitmetaDirForKey(opts.Env, storage.Key)
 	if err != nil {
-		return "", repoStorage{}, nil, err
+		return "", base.RepoStorage{}, nil, err
 	}
 	store, err := factgitmeta.OpenMetaStore(gitDir, opts.Now)
 	if err != nil {
-		return "", repoStorage{}, nil, err
+		return "", base.RepoStorage{}, nil, err
 	}
 	return repoDir, storage, store, nil
 }
 
 // loadEntityIndexView returns the derived cache, rebuilding it from git-meta
 // when it is absent, unreadable, or pinned to a stale git-meta tip.
-func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*entityIndexView, error) {
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+func loadEntityIndexView(ctx context.Context, opts Config, repoDir string) (*entityIndexView, error) {
+	storage, err := opts.Deps.RepoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return nil, err
 	}
-	gitDir, err := gitmetaDirForKey(opts.Env, storage.Key)
+	gitDir, err := opts.Deps.GitmetaDirForKey(opts.Env, storage.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -609,7 +586,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	}
 	view := &entityIndexView{}
 	finish := func() (*entityIndexView, error) {
-		byCheckpoint, err := sessionIDsByCheckpoint(ctx, opts, repoDir, storage.BrainDir)
+		byCheckpoint, err := opts.Deps.SessionIDsByCheckpoint(ctx, opts.Options, repoDir, storage.BrainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -627,7 +604,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	if identityErr != nil {
 		view.warning = "cannot verify entity history parser identity: " + identityErr.Error()
 	}
-	previous, hasPrevious := loadEntityIndexCache(storage.BrainDir)
+	previous, hasPrevious := LoadIndexCache(storage.BrainDir)
 	if identityErr != nil && hasPrevious {
 		revision = previous.IdentityRevision
 	}
@@ -636,7 +613,7 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	if hasPrevious && previous.MetaTip == tip && tip != "" {
 		view.cache = previous
 		if previous.NeedsMigration && view.warning == "" {
-			view.warning = "history from another parser revision is available; run `" + brainInvocation(os.LookupEnv, "entities migrate") + "` to carry it forward"
+			view.warning = "history from another parser revision is available; run `" + opts.Deps.BrainInvocation("entities migrate") + "` to carry it forward"
 		}
 		return finish()
 	}
@@ -656,12 +633,12 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 	}
 	view.cache = cache
 	if cache.NeedsMigration && view.warning == "" {
-		view.warning = "history from another parser revision is available; run `" + brainInvocation(os.LookupEnv, "entities migrate") + "` to carry it forward"
+		view.warning = "history from another parser revision is available; run `" + opts.Deps.BrainInvocation("entities migrate") + "` to carry it forward"
 	}
 	view.rebuilt = true
 	// Persisting is an optimization, never a correctness requirement: a
 	// read-only brain dir must still answer queries.
-	if err := saveEntityIndexCache(storage.BrainDir, cache); err != nil {
+	if err := opts.Deps.SaveIndexCache(storage.BrainDir, cache); err != nil {
 		return finish() //nolint:nilerr // a cache we could not persist is still a valid answer
 	}
 	return finish()
@@ -670,17 +647,17 @@ func loadEntityIndexView(ctx context.Context, opts Options, repoDir string) (*en
 // rebuildEntityIndexCache materializes the git-meta index and joins each
 // indexed commit to its checkpoint trailer and the sessions those checkpoints
 // belong to.
-func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDir string, store *factgitmeta.MetaStore, tip, revision string) (entityIndexCache, error) {
+func rebuildEntityIndexCache(ctx context.Context, opts Config, repoDir, brainDir string, store *factgitmeta.MetaStore, tip, revision string) (IndexCache, error) {
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	cache := entityIndexCache{
-		SchemaVersion:    entityIndexCacheVersion,
+	cache := IndexCache{
+		SchemaVersion:    CacheVersion,
 		IdentityRevision: revision,
 		GeneratedAt:      now().UTC(),
 		MetaTip:          tip,
-		Entries:          map[string][]entityIndexOccurrence{},
+		Entries:          map[string][]IndexOccurrence{},
 		Aliases:          map[string]string{},
 		LastTouch:        map[string]int64{},
 	}
@@ -698,11 +675,11 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 
 	commitMeta, err := entityCommitMetadata(ctx, opts.Runner, repoDir, snapshot.IndexedCommits())
 	if err != nil {
-		return entityIndexCache{}, err
+		return IndexCache{}, err
 	}
-	sessionsByCheckpoint, err := sessionIDsByCheckpoint(ctx, opts, repoDir, brainDir)
+	sessionsByCheckpoint, err := opts.Deps.SessionIDsByCheckpoint(ctx, opts.Options, repoDir, brainDir)
 	if err != nil {
-		return entityIndexCache{}, err
+		return IndexCache{}, err
 	}
 
 	keys := snapshot.Keys()
@@ -715,10 +692,10 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 	}
 	for _, key := range keys {
 		commits := snapshot.Commits(key)
-		occurrences := make([]entityIndexOccurrence, 0, len(commits))
+		occurrences := make([]IndexOccurrence, 0, len(commits))
 		for _, sha := range commits {
 			meta := commitMeta[sha]
-			occ := entityIndexOccurrence{Commit: sha, Subject: meta.subject, CheckpointIDs: meta.checkpointIDs}
+			occ := IndexOccurrence{Commit: sha, Subject: meta.subject, CheckpointIDs: meta.checkpointIDs}
 			if !meta.committedAt.IsZero() {
 				at := meta.committedAt
 				occ.CommittedAt = &at
@@ -741,7 +718,7 @@ func rebuildEntityIndexCache(ctx context.Context, opts Options, repoDir, brainDi
 
 // sortOccurrencesByCommitDate orders occurrences oldest first, stably, leaving
 // undated ones (a commit git could not describe) in their index order at the end.
-func sortOccurrencesByCommitDate(occurrences []entityIndexOccurrence) {
+func sortOccurrencesByCommitDate(occurrences []IndexOccurrence) {
 	sort.SliceStable(occurrences, func(i, j int) bool {
 		left, right := occurrences[i].CommittedAt, occurrences[j].CommittedAt
 		if left == nil || right == nil {
@@ -758,13 +735,13 @@ type entityCommitFacts struct {
 	checkpointIDs []string
 }
 
-// entityCommitLogFormat frames one commit as sha, COMMITTER date, subject, and
+// CommitLogFormat frames one commit as sha, COMMITTER date, subject, and
 // full body. The committer date is the one that orders work as it landed: a
 // rebase, a cherry-pick, or a patch applied days after it was written keeps its
 // author date, so ordering provenance by %aI can attribute a fact to the wrong
 // checkpoint. git's %x00/%x1e are placeholders, not literal control bytes: an
 // argv string may not contain a NUL, so they only appear in the output.
-const entityCommitLogFormat = "--format=%H%x00%cI%x00%s%x00%B%x1e"
+const CommitLogFormat = "--format=%H%x00%cI%x00%s%x00%B%x1e"
 
 // entityCommitMetadata reads subject, committer date, and Entire-Checkpoint
 // trailers for the indexed commits, in bounded batches so a large index does
@@ -776,7 +753,7 @@ const entityCommitLogFormat = "--format=%H%x00%cI%x00%s%x00%B%x1e"
 // so it is dropped and the rest of the batch is re-read. Anything else is a git
 // failure, and it is returned as an error: swallowing it produced an EMPTY join
 // that then got persisted against the current git-meta tip and served forever.
-func entityCommitMetadata(ctx context.Context, runner CommandRunner, repoDir string, commits []string) (map[string]entityCommitFacts, error) {
+func entityCommitMetadata(ctx context.Context, runner base.CommandRunner, repoDir string, commits []string) (map[string]entityCommitFacts, error) {
 	out := make(map[string]entityCommitFacts, len(commits))
 	if runner == nil {
 		return out, nil
@@ -801,12 +778,12 @@ func entityCommitMetadata(ctx context.Context, runner CommandRunner, repoDir str
 				return nil, fmt.Errorf("read commit metadata for %d retained commit(s): %w", len(present), err)
 			}
 		}
-		for _, record := range strings.Split(string(stdout), gitLogRecordSeparator) {
+		for _, record := range strings.Split(string(stdout), "\x1e") {
 			record = strings.TrimLeft(record, "\n")
 			if strings.TrimSpace(record) == "" {
 				continue
 			}
-			parts := strings.SplitN(record, gitLogFieldSeparator, 4)
+			parts := strings.SplitN(record, "\x00", 4)
 			if len(parts) != 4 {
 				continue
 			}
@@ -818,25 +795,25 @@ func entityCommitMetadata(ctx context.Context, runner CommandRunner, repoDir str
 			out[sha] = entityCommitFacts{
 				subject:       strings.TrimSpace(parts[2]),
 				committedAt:   at.UTC(),
-				checkpointIDs: checkpointIDsFromCommitMessageText(parts[3]),
+				checkpointIDs: base.CheckpointIDsFromCommitMessageText(parts[3]),
 			}
 		}
 	}
 	return out, nil
 }
 
-func entityCommitLogBatch(ctx context.Context, runner CommandRunner, repoDir string, commits []string) ([]byte, error) {
+func entityCommitLogBatch(ctx context.Context, runner base.CommandRunner, repoDir string, commits []string) ([]byte, error) {
 	if len(commits) == 0 {
 		return nil, nil
 	}
-	args := append([]string{"log", "--no-walk", entityCommitLogFormat}, commits...)
+	args := append([]string{"log", "--no-walk", CommitLogFormat}, commits...)
 	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
 	return stdout, err
 }
 
 // partitionPresentCommits splits a batch into the commits git can still resolve
 // locally and the ones it cannot. It runs only on the failure path.
-func partitionPresentCommits(ctx context.Context, runner CommandRunner, repoDir string, commits []string) (present, absent []string) {
+func partitionPresentCommits(ctx context.Context, runner base.CommandRunner, repoDir string, commits []string) (present, absent []string) {
 	for _, sha := range commits {
 		if _, _, err := runner.Run(ctx, repoDir, "git", "cat-file", "-e", sha+"^{commit}"); err != nil {
 			absent = append(absent, sha)
@@ -847,74 +824,11 @@ func partitionPresentCommits(ctx context.Context, runner CommandRunner, repoDir 
 	return present, absent
 }
 
-// sessionIDsByCheckpoint maps a checkpoint id to the sessions it belongs to.
-//
-// Two sources, in this order:
-//
-//  1. The LOCAL CHECKPOINT STORE, which knows the session behind EVERY
-//     checkpoint. This is the one that matters: the brain manifest records only
-//     each session's LATEST checkpoint, and "the session's last checkpoint" is
-//     exactly the coarse answer this index exists to sharpen. Without it a
-//     mid-session checkpoint carries no session at all and provenance could
-//     never move off the last one.
-//  2. The brain manifest, which still covers sessions whose checkpoints are no
-//     longer readable locally.
-//
-// The checkpoint store is best-effort: an unreadable or absent one leaves the
-// manifest join exactly as it was.
-// Session tombstones are honored here rather than only at the manifest, because
-// the checkpoint-store half of this join reads the repository's checkpoint refs
-// directly and never consults the brain manifest at all. Without the guard an
-// excluded or purged session reappeared in the index on the next
-// `entities backfill`, and `entities history` answered with it — a derived
-// projection quietly restoring the session linkage the user asked to erase.
-// Unreadable tombstone state fails the join closed for the same reason every
-// other privacy gate does.
-func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir string) (map[string][]string, error) {
-	guard, err := loadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return nil, err
-	}
-	out := map[string][]string{}
-	add := func(checkpoint, id string) {
-		checkpoint, id = strings.TrimSpace(checkpoint), strings.TrimSpace(id)
-		if checkpoint == "" || id == "" || guard.blocksSession(id) {
-			return
-		}
-		if !containsString(out[checkpoint], id) {
-			out[checkpoint] = append(out[checkpoint], id)
-		}
-	}
-	// Read through the export-maintained metadata cache, like the transcript
-	// store does: without it this join reads every checkpoint's metadata blob
-	// with its own git cat-file, which dominated distill wall time (COR-2182).
-	// Loaded read-only; export remains the only writer.
-	metadataCache := loadCheckpointMetadataCache(filepath.Join(brainDir, filepath.FromSlash(checkpointMetadataCachePath)))
-	if snapshot, _, err := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, true, checkpointBranchDestinations{}, metadataCache); err == nil && snapshot != nil {
-		for _, member := range snapshot.SessionCheckpoints {
-			add(member.CheckpointID, member.SessionID)
-		}
-	}
-	if manifest, err := loadBrainManifest(brainDir); err == nil && manifest != nil {
-		sessions := manifest.Sessions
-		if manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
-			sessions = manifest.Sources.Sessions.Sessions
-		}
-		for _, session := range sessions {
-			add(session.LatestCheckpoint, session.SessionID)
-		}
-	}
-	for key := range out {
-		sort.Strings(out[key])
-	}
-	return out, nil
-}
-
 func sessionIDsFor(byCheckpoint map[string][]string, checkpointIDs []string) []string {
 	var out []string
 	for _, checkpoint := range checkpointIDs {
 		for _, id := range byCheckpoint[checkpoint] {
-			if !containsString(out, id) {
+			if !base.ContainsString(out, id) {
 				out = append(out, id)
 			}
 		}
@@ -922,26 +836,17 @@ func sessionIDsFor(byCheckpoint map[string][]string, checkpointIDs []string) []s
 	return out
 }
 
-func containsString(values []string, want string) bool {
-	for _, v := range values {
-		if v == want {
-			return true
-		}
-	}
-	return false
-}
-
-func loadEntityIndexCache(brainDir string) (entityIndexCache, bool) {
-	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)), defaultMaxReadBytes)
+func LoadIndexCache(brainDir string) (IndexCache, bool) {
+	data, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(CachePath)), base.DefaultMaxReadBytes)
 	if err != nil {
-		return entityIndexCache{}, false
+		return IndexCache{}, false
 	}
-	var cache entityIndexCache
+	var cache IndexCache
 	if err := json.Unmarshal(data, &cache); err != nil {
-		return entityIndexCache{}, false
+		return IndexCache{}, false
 	}
-	if cache.SchemaVersion != entityIndexCacheVersion || cache.Entries == nil {
-		return entityIndexCache{}, false
+	if cache.SchemaVersion != CacheVersion || cache.Entries == nil {
+		return IndexCache{}, false
 	}
 	if cache.Aliases == nil {
 		cache.Aliases = map[string]string{}
@@ -955,23 +860,7 @@ func loadEntityIndexCache(brainDir string) (entityIndexCache, bool) {
 	return cache, true
 }
 
-func saveEntityIndexCache(brainDir string, cache entityIndexCache) error {
-	if strings.TrimSpace(brainDir) == "" {
-		return errors.New("entity index cache: brain dir is empty")
-	}
-	if err := os.MkdirAll(filepath.Join(brainDir, entitiesDirName), 0o700); err != nil {
-		return err
-	}
-	data, err := json.Marshal(cache)
-	if err != nil {
-		return err
-	}
-	return withBrainWriteLock(brainDir, func() error {
-		return writeBrainRelativeFileAtomic(brainDir, entitiesCachePath, append(data, '\n'), 0o600)
-	})
-}
-
-// refreshEntityIndexQuietly is the deterministic, zero-token freshness step: it
+// RefreshIndexQuietly is the deterministic, zero-token freshness step: it
 // extends the branch's indexed window over whatever landed since. It is bounded
 // and failure-silent by design — it rides the same tick as the other free
 // refresh steps, and a missing `entire graph` provider must never fail a watch
@@ -981,7 +870,7 @@ func saveEntityIndexCache(brainDir string, cache entityIndexCache) error {
 // bounds the git and provider work, but a context cannot interrupt flock(2), so
 // a blocking write against a contended store would hang the caller for as long
 // as the other writer runs. Contention costs a skipped tick instead.
-func refreshEntityIndexQuietly(ctx context.Context, opts Options, repoDir string) error {
+func RefreshIndexQuietly(ctx context.Context, opts Config, repoDir string) error {
 	// A hard deadline, not just a commit budget: the provider runs once per new
 	// commit, and a watch tick must stay a tick even on a repository where the
 	// semantic diff is slow.
@@ -1012,17 +901,4 @@ func refreshEntityIndexQuietly(ctx context.Context, opts Options, repoDir string
 	// Refresh the derived join so the next query does not pay for it.
 	_, err = loadEntityIndexView(ctx, opts, repoDir)
 	return err
-}
-
-func writeIndentedJSON(out io.Writer, value any) error {
-	encoder := json.NewEncoder(out)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
-}
-
-func shortSHA(sha string) string {
-	if len(sha) > 12 {
-		return sha[:12]
-	}
-	return sha
 }

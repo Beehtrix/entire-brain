@@ -150,7 +150,7 @@ func TestSetupSummaryDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
 	// The terse block names the lost CAPABILITY, not the component id -- that
 	// is the vocabulary a reader of this block has. `--verbose` and `doctor`
 	// carry the component names.
-	if !strings.Contains(got, "semantic search unavailable") {
+	if !strings.Contains(got, "code context unavailable") {
 		t.Fatalf("the summary must name what is unavailable:\n%s", got)
 	}
 	if !strings.Contains(got, "could not be built") {
@@ -220,7 +220,7 @@ func TestSetupSaysWhatIsUnavailableWhenNothingCanAnswer(t *testing.T) {
 	}
 	// The failure has to NAME both missing sources. "setup failed" alone sends
 	// the reader back to the output they already could not act on.
-	for _, want := range []string{"seed baseline", "semantic index"} {
+	for _, want := range []string{"seed baseline", "code index"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("setup must name what is unavailable (%q): %v", want, err)
 		}
@@ -641,7 +641,7 @@ func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
 	if strings.Contains(got, "queryable now") {
 		t.Fatalf("no index and no baseline is not queryable: %q", got)
 	}
-	for _, want := range []string{"semantic index", "seed baseline"} {
+	for _, want := range []string{"code index", "seed baseline"} {
 		if !strings.Contains(got, "no "+want) {
 			t.Fatalf("the clause must name what is unavailable (%q): %q", want, got)
 		}

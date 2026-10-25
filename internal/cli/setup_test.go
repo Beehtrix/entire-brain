@@ -391,14 +391,14 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"semantic index failed",
+		"code index failed",
 		"repo key mismatch",
 		// The dash is ASCII here on purpose: the test buffer is not a terminal,
 		// so the renderer resolves to the plain, locale-independent glyph set.
 		"-- continuing; run 'entire-brain doctor' for detail",
 		setupRepoKeyMismatchHint(setupBrainBinaryName),
 		"the brain is queryable now",
-		"FAILED semantic",
+		"FAILED code index",
 		"Ready",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -412,7 +412,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		t.Fatalf("the phase summary must name the components that built:\n%s", out)
 	}
 	// Every later phase still ran.
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("a degraded component must not cost the repo its workspace: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 
 	out := runSetupForTest(t, f, opts, rec)
 
-	if !strings.Contains(out, "1 of 2 components built, FAILED semantic") {
+	if !strings.Contains(out, "1 of 2 components built, FAILED code index") {
 		t.Fatalf("the phase line must name both halves:\n%s", out)
 	}
 }
@@ -687,7 +687,7 @@ func TestSetupRegistersRepoInWorkspaceIdempotently(t *testing.T) {
 		t.Fatalf("second run should detect existing membership:\n%s", second)
 	}
 
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -708,7 +708,7 @@ func TestSetupCreatesTheWorkspaceOnFirstUse(t *testing.T) {
 
 	runSetupForTest(t, f, opts, rec)
 
-	if _, err := loadWorkspaceManifest(f.env, "brand-new"); err != nil {
+	if _, err := workspaceStore(f.env).LoadManifest("brand-new"); err != nil {
 		t.Fatalf("setup must create the workspace it registers into: %v", err)
 	}
 }
@@ -787,7 +787,7 @@ func TestSetupSkipsTheDaemonOnAnOSWithNoServiceManager(t *testing.T) {
 	if rec.instantCalls != 1 {
 		t.Fatalf("the instant phase must still run, got %d", rec.instantCalls)
 	}
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("workspace registration must still happen: %v", err)
 	}

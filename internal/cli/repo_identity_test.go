@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -97,7 +98,7 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 			printedRoot, resolved, err)
 	}
 
-	cwdRepoDir, local, err := resolveLocalTargetRepoDir(context.Background(), runner, ".")
+	cwdRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, ".")
 	if err != nil || !local {
 		t.Fatalf("resolve cwd target: %v (local=%v)", err, local)
 	}
@@ -107,7 +108,7 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 	}
 
 	// The config-file launch, bound to the printed root.
-	configRepoDir, local, err := resolveLocalTargetRepoDir(context.Background(), runner, printedRoot)
+	configRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, printedRoot)
 	if err != nil || !local {
 		t.Fatalf("resolve bound target: %v (local=%v)", err, local)
 	}
@@ -122,7 +123,7 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 
 	// And an explicitly supplied LOGICAL root -- a hand-written MCP entry, or a
 	// host that passes the path the user typed -- lands on the same store.
-	logicalRepoDir, local, err := resolveLocalTargetRepoDir(context.Background(), runner, logical)
+	logicalRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, logical)
 	if err != nil || !local {
 		t.Fatalf("resolve logical target: %v (local=%v)", err, local)
 	}

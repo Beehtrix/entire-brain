@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
 
@@ -51,17 +52,6 @@ var knownRepoDomainSlugs = map[string]string{
 	"entire.io":     "et",
 	"tangled.org":   "tg",
 	"code.storage":  "cs",
-}
-
-// EntireEnv captures the environment variables supplied by the parent Entire
-// CLI when this binary is dispatched as an external command.
-type EntireEnv struct {
-	CLIVersion      string
-	RepoRoot        string
-	PluginConfigDir string
-	PluginDataDir   string
-	PluginStateDir  string
-	PluginCacheDir  string
 }
 
 func EnvFromOS() EntireEnv {
@@ -136,12 +126,6 @@ func resolveXDGDir(pluginDir, pluginEnv, xdgEnv, homeFallback string) (string, e
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
 	return filepath.Join(home, homeFallback), nil
-}
-
-type repoStorage struct {
-	Key      string
-	BrainDir string
-	HeadPath string
 }
 
 const localRepoIdentityConflictCode = "repo_identity_conflict"
@@ -347,8 +331,8 @@ func repoStorageContainsState(storage repoStorage) (bool, error) {
 // places that build a store path without that helper — `brain path`, and
 // headPathForKey — accepting a key every other command refuses.
 func rejectReservedRepoKeySegment(key string) error {
-	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
+		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 	}
 	return nil
 }
@@ -553,8 +537,8 @@ func repoKeyFromRemoteWithSlug(configDir, remote string, slugForHost func(string
 			return "", false, nil
 		}
 		key := strings.Join(components, "/")
-		if components[0] == workspaceDirName {
-			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+		if components[0] == workspace.DirName {
+			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 		}
 		return key, true, nil
 	}

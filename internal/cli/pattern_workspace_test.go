@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -57,9 +58,9 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 	seedMemberCorpus(t, aDir, "gh/acme/a", "migrate:schema", 4, "goose up", "goose status")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 
-	manifest := workspaceManifest{
+	manifest := workspace.Manifest{
 		Name:  "plat",
-		Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}},
+		Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}},
 	}
 	counts, err := buildWorkspacePatternCorpus(env, manifest, time.Now())
 	if err != nil {
@@ -69,7 +70,7 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 		t.Fatalf("expected 2 member corpora, got %d (warnings: %v)", counts.WithCorpus, counts.Warnings)
 	}
 
-	wsDir, err := workspaceDir(env, "plat")
+	wsDir, err := workspaceStore(env).Dir("plat")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +113,8 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	bDir, _ := brainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
-	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
@@ -121,7 +122,7 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	}
 
 	// The id `workspace patterns` prints (scope=workspace).
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	wdb, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
@@ -185,13 +186,13 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	bDir, _ := brainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
-	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
 
 	// Control: without rejection, the shared task aggregates to the workspace.
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	if !workspaceHasDeploy(t, wsDir) {
 		t.Fatal("control: shared deploy:release should aggregate to the workspace")
 	}
@@ -243,11 +244,11 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	bDir, _ := brainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
-	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	db, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
@@ -308,11 +309,11 @@ func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
 	bDir, _ := brainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
-	manifest := workspaceManifest{Name: "plat", Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
+	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceDir(env, "plat")
+	wsDir, _ := workspaceStore(env).Dir("plat")
 	db, err := openPatternCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
@@ -333,9 +334,9 @@ func TestWorkspaceCorpusHandlesMissingMember(t *testing.T) {
 	aDir, _ := brainDirForKey(env, "gh/acme/a")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	// gh/acme/missing has no corpus on disk.
-	manifest := workspaceManifest{
+	manifest := workspace.Manifest{
 		Name:  "plat",
-		Repos: []workspaceRepo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/missing"}},
+		Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/missing"}},
 	}
 	counts, err := buildWorkspacePatternCorpus(env, manifest, time.Now())
 	if err != nil {

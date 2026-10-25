@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Dossier-driven skill synthesis (PR #44 follow-up).
@@ -247,7 +249,7 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 		if a.Excerpt == "" || excerpts >= 3 {
 			continue
 		}
-		fmt.Fprintf(&b, "Evidence (%s, %s):\n%s\n", a.SessionID, a.Outcome, truncateString(a.Excerpt, 1200))
+		fmt.Fprintf(&b, "Evidence (%s, %s):\n%s\n", a.SessionID, a.Outcome, base.TruncateString(a.Excerpt, 1200))
 		excerpts++
 	}
 	return redactText(b.String())

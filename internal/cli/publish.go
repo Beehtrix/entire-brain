@@ -18,14 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"
+	"github.com/spf13/cobra"
 )
 
 // Hosted brain publish (P1.M1.5, client half). This command is the ONLY path in
@@ -133,7 +133,7 @@ func newPublishCommand(opts Options) *cobra.Command {
 		Use:   "publish",
 		Short: "Publish the local brain to hosted Entire (opt-in)",
 		Long: `Publish serializes the current on-disk brain into the versioned brain wire
-artifacts (manifest, semantic snapshots, branch overlays, and durable facts) and
+artifacts (manifest, branch overlays, and durable facts) and
 uploads them to hosted Entire.
 
 Hosted publishing is opt-in and off by default: the brain stays entirely local
@@ -257,11 +257,6 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	// the wire manifest). Order within each kind is stable so re-publishing an
 	// unchanged brain produces a byte-identical request (idempotent).
 	var blobs []publishArtifact
-	snapshots, err := collectSnapshotArtifacts(art, storage.BrainDir)
-	if err != nil {
-		return publishRequestBody{}, "", err
-	}
-	blobs = append(blobs, snapshots...)
 	overlays, err := collectOverlayArtifacts(art, storage.BrainDir)
 	if err != nil {
 		return publishRequestBody{}, "", err
@@ -372,39 +367,6 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 		total += int64(base64.StdEncoding.EncodedLen(len(a.Data)))
 	}
 	return total
-}
-
-// collectSnapshotArtifacts reads semantic/snapshots/<commit>/snapshot.ndjson,
-// keying each by its commit, and registers a SnapshotRef on art.
-func collectSnapshotArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	entries, _, err := readPrivacyDirectory(brainDir, filepath.Join(semanticDirName, semanticSnapshotsDir), "publish snapshots")
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read snapshots: %w", err)
-	}
-	commits := subdirNames(entries)
-	sort.Strings(commits)
-
-	var out []publishArtifact
-	for _, commit := range commits {
-		rel := filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir, commit, semanticSnapshotName))
-		data, ok, err := readBrainBlob(brainDir, rel)
-		if err != nil {
-			return nil, fmt.Errorf("read snapshot %s: %w", commit, err)
-		}
-		if !ok {
-			continue
-		}
-		digest := contentDigest(data)
-		art.AddSnapshot(brainwire.SnapshotRef{
-			Commit:  commit,
-			Content: brainwire.ContentRef{Digest: digest, Size: int64(len(data)), MediaType: mediaTypeNDJSON, Path: rel},
-		})
-		out = append(out, publishArtifact{Kind: brainKindSnapshot, Ref: commit, Digest: digest, Data: data})
-	}
-	return out, nil
 }
 
 // collectOverlayArtifacts reads semantic/overlays/<base>..<head>.json, keying
@@ -756,14 +718,14 @@ func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	defer f.Close()
-	max := semanticSnapshotMaxBytes()
+	max := base.SemanticSnapshotMaxBytes()
 	path := f.Name()
 	if info, err := f.Stat(); err != nil {
 		return nil, false, err
 	} else if info.Size() > max {
-		return nil, false, &readBoundExceededError{source: path, max: max}
+		return nil, false, &readBoundExceededError{Source: path, Max: max}
 	}
-	data, err := safeReadAll(f, max, path)
+	data, err := base.SafeReadAll(f, max, path)
 	if err != nil {
 		return nil, false, err
 	}

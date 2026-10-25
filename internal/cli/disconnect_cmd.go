@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ Run 'entire brain connect' to opt back in.`,
 
 func runDisconnect(cmd *cobra.Command, opts Options) error {
 	ctx := cmd.Context()
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}

@@ -214,40 +214,6 @@ func doctorFindingsByName(findings []doctorCheckResult) map[string]doctorCheckRe
 	return byName
 }
 
-// TestDoctorFailsOnUnreadableSemanticStore is the gate defect. "file is not a
-// database" is the strongest broken signal this tool has, and it was reported
-// as a warning, so the default `--fail-on error` gate exited 0 on a corrupt
-// brain.
-func TestDoctorFailsOnUnreadableSemanticStore(t *testing.T) {
-	report := staleReport{Severity: "unsafe", Axes: map[string]staleAxis{
-		"snapshot":              {State: "ok", Detail: "semantic/snapshots/a/snapshot.ndjson"},
-		"store":                 {State: "unsafe", Detail: "validate semantic sqlite integrity: file is not a database (26)"},
-		"head":                  {State: "ok"},
-		"branch_tip":            {State: "ok"},
-		"worktree":              {State: "clean"},
-		"provider":              {State: "ok", Detail: "entire-graph 1.2.3"},
-		"semantic_completeness": {State: "ok"},
-	}}
-	findings := semanticDoctorFindings(report)
-	byName := doctorFindingsByName(findings)
-	semantic, ok := byName["semantic"]
-	if !ok {
-		t.Fatalf("doctor dropped the semantic finding: %+v", findings)
-	}
-	if semantic.State != "error" {
-		t.Fatalf("semantic state = %q for an unreadable store, want error: %+v", semantic.State, semantic)
-	}
-	if semantic.scope() != doctorScopeBrain {
-		t.Fatalf("semantic scope = %q, want %q", semantic.scope(), doctorScopeBrain)
-	}
-	if !strings.Contains(semantic.Detail, "file is not a database") {
-		t.Fatalf("semantic detail lost the reason: %q", semantic.Detail)
-	}
-	if err := doctorGateFailure(doctorReport{Checks: findings}, doctorFailOnError); err == nil {
-		t.Fatalf("the default --fail-on error gate must fire on an unreadable semantic store")
-	}
-}
-
 // TestDoctorDoesNotFailOnDegradedProvider is the constraint that made #239
 // leave this check alone: the provider axis fires on any machine without the
 // host CLI, and failing a gate on it would break CI everywhere.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -319,7 +320,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 // hostedSyncBranch resolves the branch a hosted sync step should cover: the
 // repo's current branch, else the default branch.
 func hostedSyncBranch(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if current, err := gitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if current, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		if branch := strings.TrimSpace(current); branch != "" {
 			return branch
 		}

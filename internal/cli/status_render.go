@@ -211,6 +211,8 @@ type statusHealth struct {
 	Warnings int
 	Failed   []string
 	Severity string
+	// An old layout needs the migration bridge, even when Graph is absent.
+	BrainLayoutRemedy string
 	// BrainMissing reports that this repository has no brain at all: the
 	// manifest is absent and every source is unbuilt. It is a STATE, not a
 	// problem count, which is why it cannot be folded into Issues — and why
@@ -276,6 +278,12 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 		// was never built (and for one just removed by `reset --force`).
 		BrainMissing: report.Brain.ManifestState == "absent",
 		Cause:        statusFreshnessCause(report),
+	}
+	for _, issue := range report.Issues {
+		if issue.Kind == "brain_layout" {
+			health.BrainLayoutRemedy = issue.Action
+			break
+		}
 	}
 	// Only one of the two: "no brain" already implies "no semantic index", and
 	// a verdict that said both would be reporting one fact twice.
@@ -386,12 +394,14 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	brainCmd = setupBrainCommand(brainCmd)
 	command := "run `" + brainCmd + " " + h.repairCommand() + "`"
 	switch {
+	case h.BrainLayoutRemedy != "":
+		return h.BrainLayoutRemedy
 	case h.BrainMissing:
 		return command
 	case h.SemanticMissing && h.SemanticProviderAbsent:
 		// Refresh cannot build what no installed provider produces; naming it
 		// anyway sends the reader through an exit that changes nothing.
-		return "the graph provider is not installed, so code context and semantic queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + semanticIndexVerb + "`"
+		return "the graph provider is not installed, so code context queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + semanticIndexVerb + "`"
 	case h.SemanticMissing && h.SemanticStoreUnsupported:
 		// Same shape as the provider-absent case above, and it must outrank
 		// the dirty-tree override below: neither refresh nor a commit builds
@@ -433,7 +443,7 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 		parts = append(parts, "no brain for this repo yet")
 	}
 	if h.SemanticMissing {
-		parts = append(parts, "no semantic index")
+		parts = append(parts, "no code index")
 	}
 	if len(h.Failed) > 0 {
 		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(h.Failed, ", ")))
@@ -504,7 +514,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 		render.Bold(valueOrUnset(report.Repo.Key)))
 	identity := []string{"manifest: " + report.Brain.ManifestState}
 	if s := report.Semantic; s != nil && s.Coverage != nil {
-		identity = append(identity, fmt.Sprintf("semantic: %d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
+		identity = append(identity, fmt.Sprintf("code index: %d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
 	}
 	if f := report.Facts; f != nil {
 		if report.Integrity == "not_checked" {

@@ -46,7 +46,7 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep me" {
 		t.Fatalf("unrelated state changed: %q, %v", got, err)
 	}
-	if !strings.Contains(out.String(), "reset semantic brain") {
+	if !strings.Contains(out.String(), "reset code index") {
 		t.Fatalf("reset output = %q", out.String())
 	}
 }

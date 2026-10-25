@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +79,7 @@ func rememberAnchorCommit(ctx context.Context, opts Options, repoDir, branch str
 	if explicit {
 		args = []string{"rev-parse", "--verify", branch + "^{commit}"}
 	}
-	commit, err := gitScalar(ctx, opts.Runner, repoDir, args...)
+	commit, err := base.GitScalar(ctx, opts.Runner, repoDir, args...)
 	if err != nil {
 		return "", false
 	}
@@ -172,7 +173,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
 		Kind:       kind,
-		Locus:      factLocus(text),
+		Locus:      base.FactLocus(text),
 		Text:       text,
 		Branch:     branch,
 		Origin:     factOriginAuthored,

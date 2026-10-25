@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) {
@@ -145,7 +147,7 @@ func TestMemoryStateReadersRejectLeafAliases(t *testing.T) {
 		if err := os.Symlink(outside, path); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		if _, _, err := readMemoryStateFile(brainDir, rel, "test state", maxManifestBytes); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if _, _, err := readMemoryStateFile(brainDir, rel, "test state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
 			t.Fatalf("alias %s read error = %v", rel, err)
 		}
 	}

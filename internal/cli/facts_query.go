@@ -3,6 +3,8 @@ package cli
 import (
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // factLocusBoost is added per shared code identifier between the query and a
@@ -24,7 +26,7 @@ const factClosedNegativeBoost = 30
 // threshold semantics (hookPostFailureMinScore is calibrated to this scale).
 func factLexicalScore(f factRecord, query string, queryLocus []string) int {
 	score := factQueryScore(f, query)
-	if overlap := locusOverlapTokens(queryLocus, factLocusOf(f)); overlap > 0 {
+	if overlap := locusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
 		score += overlap * factLocusBoost
 	}
 	if score > 0 && factKindOrInferred(f) == factKindClosedNegative {
@@ -66,7 +68,7 @@ func rankFacts(facts []factRecord, query string, limit int, includeAll bool) []f
 		return candidates
 	}
 
-	queryLocus := factLocus(query)
+	queryLocus := base.FactLocus(query)
 	terms := factQueryTerms(query)
 	corpus := newBM25Corpus(candidates)
 	scored := make([]scoredFact, 0, len(candidates))

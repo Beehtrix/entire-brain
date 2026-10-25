@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -176,7 +178,7 @@ func runWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchComm
 	if now == nil {
 		now = time.Now
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -387,7 +389,7 @@ func watchTick(ctx context.Context, out io.Writer, w watchCommandOptions, cursor
 			// (issue #327). Everything else still aborts, because an
 			// unrefreshed brain must not have tokens spent against it.
 			if strings.Contains(err.Error(), dirtyWorktreeErrorCode+":") {
-				fmt.Fprintf(out, "[watch] semantic index skipped (uncommitted worktree); continuing\n")
+				fmt.Fprintf(out, "[watch] code index skipped (uncommitted worktree); continuing\n")
 			} else {
 				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 				return
@@ -796,7 +798,7 @@ func watchDeterministicRefreshComponents(ctx context.Context, cmd *cobra.Command
 	if component != nil {
 		entityTask = newProgress(cmd.OutOrStdout(), "refresh").Begin("entity index")
 	}
-	entityErr := refreshEntityIndexQuietly(ctx, perRepo, repoDir)
+	entityErr := entities.RefreshIndexQuietly(ctx, entityConfig(perRepo), repoDir)
 	if entityTask != nil {
 		entityTask.Finish(entityErr)
 	}

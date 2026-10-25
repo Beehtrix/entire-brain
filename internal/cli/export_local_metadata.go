@@ -76,6 +76,17 @@ func newLocalCheckpointMetadata(snapshot *checkpointSnapshot, discovered []check
 
 	covered := make(map[string]struct{}, len(localSessions))
 	for _, entry := range discovered {
+		// The routed pass drops a non-committed entry outright — "skipped
+		// non-committed checkpoint list entry" — without even marking the
+		// catalog incomplete. Covering one would therefore make this the only
+		// authority that accepts it, and because the local ref enumeration
+		// marks everything it produces logs-only, a false reading can only
+		// come from Entire's own list, where it is a deliberate statement
+		// about the checkpoint. Honour it: never cover what the pass refuses
+		// to read.
+		if !entry.IsLogsOnly {
+			continue
+		}
 		sessions, read := localSessions[entry.CheckpointID]
 		if !read {
 			continue
@@ -119,7 +130,28 @@ func newLocalCheckpointMetadata(snapshot *checkpointSnapshot, discovered []check
 	return &localCheckpointMetadata{selected: snapshot.Selected, covered: covered}, nil
 }
 
-// seed copies the snapshot's selection into the pass's accumulator.
+// seed copies the COVERED part of the snapshot's selection into the pass's
+// accumulator.
+//
+// Coverage is the only warrant this shortcut has. `covered` is built by
+// skipping every checkpoint the two authorities could not be reconciled over —
+// one the snapshot could not read, one Entire named without declaring its
+// sessions, one whose declared sessions the local refs cannot all resolve, one
+// Entire marks non-committed — and each of those skips exists so the routed
+// pass gets the entry instead. Seeding the whole selection handed those
+// sessions to the export anyway, from the authority that was just overruled,
+// so the skip stopped a child process without stopping the record. For the
+// session Entire declares and the local refs cannot resolve that is the exact
+// inverse of the contract above: its job is to reach the detail path and
+// refuse the export rather than let a quietly smaller corpus ship, and a
+// non-committed entry's sessions shipped with the catalog still reported
+// complete.
+//
+// So the filter is the contract, not an optimisation: what the pass will ask
+// Entire about, this must not answer first. Nothing is lost — an uncovered
+// checkpoint is still in `checkpoints`, so the pass reads its routed detail
+// and re-adds its sessions from the authority that owns them, or skips and
+// refuses as that authority's answer dictates.
 //
 // The values are taken as they are, not re-added: addSelectedSession reads
 // candidate.Branch as the SOURCE branch and fans it back out over the branch
@@ -138,6 +170,13 @@ func newLocalCheckpointMetadata(snapshot *checkpointSnapshot, discovered []check
 // session.
 func (m *localCheckpointMetadata) seed(selected map[string]selectedSession) {
 	for key, session := range m.selected {
+		// CheckpointID is the winning checkpoint this record was reduced onto,
+		// which is the same identity `covered` is keyed by. Asked through
+		// covers() so there is one definition of covered-ness, shared with the
+		// pass's own skip and with the detail prefetch.
+		if !m.covers(session.CheckpointID) {
+			continue
+		}
 		session.SourceTranscriptPath = ""
 		session.CompactTranscriptPath = ""
 		session.SourceKey = ""

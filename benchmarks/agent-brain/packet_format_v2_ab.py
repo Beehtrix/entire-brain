@@ -37,7 +37,13 @@ FORMAT_ORDER = ("legacy_json", "compact_v2")
 COMPACT_MARKER = "entire.brain_brief compact_v2"
 COMPACT_V2_LEGEND = "legend ~=absent ^=previous_same_opcode_record_same_column"
 PRODUCT_CONTRACT_COMMIT_SHA1 = "172aaa3f361376cc00914e26d570f80b74442b5a"
-COMPACT_V2_GOLDEN_SHA256 = "e0bc12b75059a7bba809ef1a66739c49d397852a30271da1b3e2ef4f9a6ca982"
+# Re-pinned when the ancestor-staleness disclosure added one body record to
+# the compact packet (and a positional schema for it in v2, without which
+# v2/v3 hard-refuse the unschemad v1 tag). The pin exists to catch
+# UNINTENDED golden drift, so it is re-anchored to the reviewed golden
+# rather than relaxed: the Go side proves that golden with
+# TestBrainBriefCompactV2GoldenAndExactProjectionParity.
+COMPACT_V2_GOLDEN_SHA256 = "e7dd2b621aba6d0c25ff465e9f7402078b2e8959a4df9a8c972185030de05816"
 MAX_MCP_FRAME_BYTES = 4 * 1024 * 1024
 MAX_MCP_STDOUT_BYTES = 2 * (MAX_MCP_FRAME_BYTES + 128)
 TOKEN_PROXY_NAME = "utf8_byte_quads_v1"
@@ -66,6 +72,9 @@ COMPACT_BODY_TAG_ORDER = (
     "edit_file",
     "test_file",
     "likely_file",
+    # compact_v1 grew a staleness record between likely_file and symbol, and
+    # v2/v3 transcode the v1 string, so the tag has to be known here too.
+    "staleness",
     "symbol",
     "relation",
     "relation_evidence",
@@ -261,6 +270,19 @@ COMPACT_V2_SCHEMAS = (
     _v2_schema("edit_file", "e", _v2_metadata("path", V2_STRING)),
     _v2_schema("test_file", "t", _v2_metadata("path", V2_STRING)),
     _v2_schema("likely_file", "p", _v2_metadata("path", V2_STRING)),
+    # Mirrors compactV2SchemaFor("staleness", 'A', ...) in
+    # internal/cli/brain_brief_compact_v2.go, opcode and field ORDER included:
+    # v2 is positional, so a divergent order would decode to the wrong values
+    # rather than fail loudly.
+    _v2_schema(
+        "staleness",
+        "A",
+        _v2_metadata("ancestor_commit", V2_STRING),
+        _v2_metadata("commits_behind", V2_INT),
+        _v2_metadata("changed_files", V2_STRINGS),
+        _v2_metadata("unreliable", V2_STRINGS),
+        _v2_metadata("excluded_records", V2_INT),
+    ),
     _v2_symbol_schema("symbol", "y"),
     _v2_relation_schema("relation", "r"),
     _v2_evidence_schema("relation_evidence", "R"),
@@ -1617,6 +1639,26 @@ def canonical_projection_from_legacy(value: Any) -> list[dict[str, Any]]:
 
     semantic = _object(report.get("semantic"), "semantic")
     context = _object(semantic.get("context"), "semantic.context")
+    # Emitted between likely_file and symbol, mirroring the Go renderer: an
+    # ancestor-served answer must declare its staleness BEFORE the results it
+    # qualifies, because a reader that caps its intake would never reach a
+    # caveat printed after them. excluded_records is always present because
+    # unreliable is structurally empty in the common incomplete case.
+    staleness_value = semantic.get("staleness")
+    if staleness_value is not None:
+        staleness = _object(staleness_value, "semantic.staleness")
+        records.append(
+            _record(
+                "staleness",
+                (
+                    ("ancestor_commit", _string(_get(staleness, "ancestor_commit", ""), "semantic.staleness.ancestor_commit")),
+                    ("commits_behind", _integer(_get(staleness, "commits_behind", 0), "semantic.staleness.commits_behind")),
+                    ("changed_files", _opt_strings(_get(staleness, "changed_files", []), "semantic.staleness.changed_files")),
+                    ("unreliable", _opt_strings(_get(staleness, "unreliable", []), "semantic.staleness.unreliable")),
+                    ("excluded_records", _integer(_get(staleness, "excluded_records", 0), "semantic.staleness.excluded_records")),
+                ),
+            )
+        )
     for symbol in _array(_get(context, "symbols", []), "semantic.context.symbols"):
         records.append(_semantic_symbol_record("symbol", symbol))
     for index, relation in enumerate(_array(_get(context, "relations", []), "semantic.context.relations")):

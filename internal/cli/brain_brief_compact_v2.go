@@ -126,6 +126,13 @@ var compactV2Schemas = []compactV2Schema{
 	compactV2SchemaFor("edit_file", 'e', compactV2Metadata("path", compactV2String)),
 	compactV2SchemaFor("test_file", 't', compactV2Metadata("path", compactV2String)),
 	compactV2SchemaFor("likely_file", 'p', compactV2Metadata("path", compactV2String)),
+	// compact_v1 grew a staleness record, and v2/v3 refuse a v1 tag they have no
+	// schema for -- so this entry is what keeps the ancestor disclosure reaching
+	// agents on every compact format rather than failing the packet outright.
+	compactV2SchemaFor("staleness", 'A',
+		compactV2Metadata("ancestor_commit", compactV2String), compactV2Metadata("commits_behind", compactV2Int),
+		compactV2Metadata("changed_files", compactV2Strings), compactV2Metadata("unreliable", compactV2Strings),
+		compactV2Metadata("excluded_records", compactV2Int)),
 	compactV2SemanticSymbolSchema("symbol", 'y', false),
 	compactV2SemanticRelationSchema("relation", 'r'),
 	compactV2EvidenceSchema("relation_evidence", 'R'),

@@ -185,3 +185,46 @@ func TestBrainBriefServesAnAncestorAnswerWithItsStaleness(t *testing.T) {
 		t.Fatalf("unreliable = %v, want the one returned symbol in a changed file", stale.Unreliable)
 	}
 }
+
+// GOLDEN: the exact `stale` block graph #380 emitted on a live run (fresh clone
+// of entire-graph @d4a0c186, store built at HEAD~1, queried at HEAD with
+// --allow-ancestor 3). Synthetic fixtures prove my own logic; this proves the
+// contract against what the producer actually writes, which is the only version
+// that matters. If the shape moves, this is what fails.
+func TestProducerEmittedStaleBlockParsesAndIsUsable(t *testing.T) {
+	t.Parallel()
+	const live = `{"schema_version":"1.1","commit":"aaa111","tree":"tree111",` +
+		`"symbols":[{"id":"g1","name":"Workflow","kind":"type","file_path":".github/workflows/test.yml","start_line":1,"end_line":3},` +
+		`{"id":"g2","name":"Serve","kind":"function","file_path":"internal/server/route.go","start_line":1,"end_line":9}],` +
+		`"relations":[],"tests":[],"latency_ms":350,` +
+		`"stale":{"ancestor_commit":"8d91390a","ancestor_tree":"65801fbc","commits_behind":1,` +
+		`"changed_files":[".github/workflows/test.yml"],"excluded_records":1}}`
+
+	var got graphTaskContext
+	if err := json.Unmarshal([]byte(live), &got); err != nil {
+		t.Fatalf("the producer's own output does not parse: %v", err)
+	}
+	if got.Stale == nil {
+		t.Fatal("the stale block did not bind; a field name must have drifted")
+	}
+	if got.Stale.AncestorCommit != "8d91390a" || got.Stale.AncestorTree != "65801fbc" ||
+		got.Stale.CommitsBehind != 1 || got.Stale.ExcludedRecords != 1 ||
+		len(got.Stale.ChangedFiles) != 1 || got.Stale.ChangedFiles[0] != ".github/workflows/test.yml" {
+		t.Fatalf("a field bound to the wrong place: %+v", got.Stale)
+	}
+	if !got.Stale.usable() {
+		t.Fatal("the fail-closed check REJECTED the producer's real output; one of us has to change")
+	}
+
+	// And the consumer-facing part: only the changed file is unreliable.
+	stale := semanticStalenessFor(got.Stale, got.Symbols, got.Tests)
+	if stale == nil {
+		t.Fatal("no staleness derived from a real stale block")
+	}
+	if !reflect.DeepEqual(stale.Unreliable, []string{".github/workflows/test.yml"}) {
+		t.Fatalf("unreliable = %v, want only the changed file", stale.Unreliable)
+	}
+	if stale.CommitsBehind != 1 || stale.AncestorCommit != "8d91390a" {
+		t.Fatalf("staleness lost the ancestor identity: %+v", stale)
+	}
+}

@@ -331,3 +331,111 @@ func TestRoutedCheckpointListMarksEveryEntryAsRouted(t *testing.T) {
 		}
 	}
 }
+
+// The seed is bounded by coverage, because coverage is the only warrant this
+// shortcut has. A checkpoint Entire names with a session the local refs cannot
+// resolve is deliberately left uncovered so the detail path refuses the export
+// instead of shipping a quietly smaller corpus; seeding the whole selection
+// put that checkpoint's sessions in from the snapshot anyway, and the record
+// that won was the snapshot's, not the one Entire declares it has.
+func TestLocalCheckpointMetadataSeedsOnlyCoveredSessions(t *testing.T) {
+	t.Parallel()
+	snap := localMetaSnapshot(t, "aaa111aaa111", "bbb222bbb222")
+	covered := routedEntry("aaa111aaa111", "session-aaa111aaa111")
+	// One declared session the local store never read: not coverable.
+	uncovered := routedEntry("bbb222bbb222", "session-bbb222bbb222", "remote-only-session")
+	checkpoints := []checkpointListEntry{covered, uncovered}
+
+	local, warnings := newLocalCheckpointMetadata(snap, checkpoints)
+	if local == nil {
+		t.Fatalf("shortcut declined a snapshot that covers one of two checkpoints: %v", warnings)
+	}
+	if !local.covers("aaa111aaa111") || local.covers("bbb222bbb222") {
+		t.Fatalf("coverage is wrong: aaa=%v bbb=%v", local.covers("aaa111aaa111"), local.covers("bbb222bbb222"))
+	}
+
+	seeded := map[string]selectedSession{}
+	local.seed(seeded)
+	if _, ok := seeded[selectedSessionKey("main", "session-aaa111aaa111")]; !ok {
+		t.Fatalf("the covered checkpoint's session was not seeded: %+v", seeded)
+	}
+	if _, ok := seeded[selectedSessionKey("main", "session-bbb222bbb222")]; ok {
+		t.Fatal("a session whose winning checkpoint is not covered was seeded, so the detail path's refusal was pre-empted by the authority it overrules")
+	}
+	if len(seeded) != 1 {
+		t.Fatalf("seed produced %d sessions for one covered checkpoint: %+v", len(seeded), seeded)
+	}
+
+	// Nothing is lost: the uncovered checkpoint is still asked about, and the
+	// record that reaches the selection is the one Entire's detail carries.
+	// Agent distinguishes the two authorities — localMetaSnapshot writes
+	// "Claude Code", so a seeded record winning this key is visible here.
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "bbb222bbb222"): {
+			stdout: `{"checkpoint_id":"bbb222bbb222","branch":"main","sessions":[` +
+				`{"index":0,"session_id":"session-bbb222bbb222","branch":"main","agent":"routed-authority"},` +
+				`{"index":1,"session_id":"remote-only-session","branch":"main","agent":"routed-authority"}]}`,
+		},
+	}}
+	selected, selectWarnings, complete, err := selectRoutedCheckpointSessions(
+		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, local)
+	if err != nil || !complete {
+		t.Fatalf("mixed pass = warnings:%v complete:%v err:%v", selectWarnings, complete, err)
+	}
+	if len(runner.calls) != 1 || !strings.Contains(strings.Join(runner.calls[0].args, " "), "bbb222bbb222") {
+		t.Fatalf("the uncovered checkpoint was not the one asked about: %+v", runner.calls)
+	}
+	got, ok := selected[selectedSessionKey("main", "session-bbb222bbb222")]
+	if !ok {
+		t.Fatalf("filtering the seed lost a session instead of routing it: %+v", selected)
+	}
+	if got.Agent != "routed-authority" {
+		t.Fatalf("the snapshot's record masked Entire's for an uncovered checkpoint: agent %q", got.Agent)
+	}
+	if _, ok := selected[selectedSessionKey("main", "remote-only-session")]; !ok {
+		t.Fatalf("the session only Entire declares never reached the selection, so nothing can refuse the export: %+v", selected)
+	}
+}
+
+// A non-committed entry is refused by the routed pass outright, and without
+// even marking the catalog incomplete — so a covered one would ship on every
+// path, under a manifest still reporting itself complete. Only Entire's list
+// can report false here; the local ref enumeration marks everything it
+// produces logs-only.
+func TestLocalCheckpointMetadataDoesNotCoverANonCommittedCheckpoint(t *testing.T) {
+	t.Parallel()
+	snap := localMetaSnapshot(t, "aaa111aaa111", "ccc333ccc333")
+	nonCommitted := routedEntry("ccc333ccc333", "session-ccc333ccc333")
+	nonCommitted.IsLogsOnly = false
+	checkpoints := []checkpointListEntry{routedEntry("aaa111aaa111", "session-aaa111aaa111"), nonCommitted}
+
+	local, warnings := newLocalCheckpointMetadata(snap, checkpoints)
+	if local == nil {
+		t.Fatalf("shortcut declined: %v", warnings)
+	}
+	if local.covers("ccc333ccc333") {
+		t.Fatal("a checkpoint Entire marks non-committed was covered, which is the one authority that accepts it")
+	}
+
+	runner := &fakeCommandRunner{}
+	selected, selectWarnings, complete, err := selectRoutedCheckpointSessions(
+		context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, local)
+	if err != nil || !complete {
+		t.Fatalf("pass = warnings:%v complete:%v err:%v", selectWarnings, complete, err)
+	}
+	if len(runner.calls) != 0 {
+		t.Fatalf("a non-committed entry is never read, so no child was due: %+v", runner.calls)
+	}
+	if _, ok := selected[selectedSessionKey("main", "session-ccc333ccc333")]; ok {
+		t.Fatal("the pass skipped the non-committed entry and the seed shipped its session anyway, with the catalog still reported complete")
+	}
+	if _, ok := selected[selectedSessionKey("main", "session-aaa111aaa111")]; !ok {
+		t.Fatalf("the covered checkpoint's session is missing: %+v", selected)
+	}
+	if len(selected) != 1 {
+		t.Fatalf("expected only the covered session, got %d: %+v", len(selected), selected)
+	}
+	if !strings.Contains(strings.Join(selectWarnings, "\n"), "skipped non-committed checkpoint list entry ccc333ccc333") {
+		t.Fatalf("the pass did not report the skip it made: %v", selectWarnings)
+	}
+}

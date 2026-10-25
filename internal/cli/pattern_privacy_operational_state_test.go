@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func writePatternPublicationPrivacyFixture(t *testing.T, brainDir, candidate string, candidateData []byte) ([]byte, string) {
@@ -25,8 +26,8 @@ func writePatternPublicationPrivacyFixture(t *testing.T, brainDir, candidate str
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(candidateData)
-	publication := patternCorpusPublication{
-		SchemaVersion: patternCorpusPublicationVersion,
+	publication := patterncore.CorpusPublication{
+		SchemaVersion: patterncore.CorpusPublicationVersion,
 		Candidate:     candidate,
 		SHA256:        hex.EncodeToString(sum[:]),
 		Size:          int64(len(candidateData)),
@@ -36,7 +37,7 @@ func writePatternPublicationPrivacyFixture(t *testing.T, brainDir, candidate str
 		t.Fatal(err)
 	}
 	marker = append(marker, '\n')
-	markerPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	markerPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	if err := os.WriteFile(markerPath, marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -54,16 +55,16 @@ func privacyPlanContainsDerived(plan sessionPurgePlan, rel string) bool {
 
 func TestPatternCorpusPublicationPrivacyInventoryAndCleanup(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	candidate := patternCorpusStagingPrefix + "privacy-current"
+	candidate := patterncore.CorpusStagingPrefix + "privacy-current"
 	marker, candidatePath := writePatternPublicationPrivacyFixture(t, brainDir, candidate, []byte(privacyCanary))
-	markerPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	markerPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	candidateRel := filepath.ToSlash(filepath.Join("patterns", candidate))
 
 	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !privacyPlanContainsDerived(plan, patternCorpusPublicationMarkerPath) || !privacyPlanContainsDerived(plan, candidateRel) {
+	if !privacyPlanContainsDerived(plan, patterncore.CorpusPublicationMarkerPath) || !privacyPlanContainsDerived(plan, candidateRel) {
 		t.Fatalf("publication marker/candidate absent from privacy plan: %+v", plan.DerivedStores)
 	}
 	requireForwardStateBytes(t, markerPath, marker)
@@ -111,7 +112,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 	} {
 		t.Run("unknown-newer-"+action.name, func(t *testing.T) {
 			brainDir := writePrivacyFixture(t)
-			candidate := patternCorpusStagingPrefix + "privacy-future"
+			candidate := patterncore.CorpusStagingPrefix + "privacy-future"
 			candidateData := []byte(privacyCanary + "-candidate")
 			if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 				t.Fatal(err)
@@ -121,11 +122,11 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 				t.Fatal(err)
 			}
 			future := []byte(`{"schema_version":2,"candidate":"` + candidate + `","future":true}` + "\n")
-			markerPath := writeForwardStateFixture(t, brainDir, patternCorpusPublicationMarkerPath, future)
+			markerPath := writeForwardStateFixture(t, brainDir, patterncore.CorpusPublicationMarkerPath, future)
 
 			err := action.run(brainDir)
 			var typed *patternCorpusPublicationLoadError
-			if !errors.As(err, &typed) || typed.Code != memoryErrUnsupportedVersion || typed.State != patternCorpusPublicationUnsupported || typed.Version != patternCorpusPublicationVersion+1 {
+			if !errors.As(err, &typed) || typed.Code != memoryErrUnsupportedVersion || typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
 			requireForwardStateBytes(t, markerPath, future)
@@ -135,7 +136,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 
 	t.Run("corrupt-current-cleanup", func(t *testing.T) {
 		brainDir := writePrivacyFixture(t)
-		candidate := patternCorpusStagingPrefix + "privacy-corrupt"
+		candidate := patterncore.CorpusStagingPrefix + "privacy-corrupt"
 		candidateData := []byte(privacyCanary + "-corrupt-candidate")
 		if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 			t.Fatal(err)
@@ -145,7 +146,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 			t.Fatal(err)
 		}
 		corrupt := []byte(`{"schema_version":1,"candidate":"` + candidate + `","future":true}` + "\n")
-		markerPath := writeForwardStateFixture(t, brainDir, patternCorpusPublicationMarkerPath, corrupt)
+		markerPath := writeForwardStateFixture(t, brainDir, patterncore.CorpusPublicationMarkerPath, corrupt)
 		err := executeSessionCleanup(brainDir, "secret-sess", sessionPurgePlan{}, now, "test", true)
 		var typed *patternCorpusPublicationLoadError
 		if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || typed.State != patternCorpusPublicationCorrupt {
@@ -157,7 +158,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 
 	t.Run("unsafe-cleanup", func(t *testing.T) {
 		brainDir := writePrivacyFixture(t)
-		candidate := patternCorpusStagingPrefix + "privacy-unsafe"
+		candidate := patterncore.CorpusStagingPrefix + "privacy-unsafe"
 		candidateData := []byte(privacyCanary + "-unsafe-candidate")
 		if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 			t.Fatal(err)
@@ -171,7 +172,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 		if err := os.WriteFile(outside, outsideData, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		markerPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+		markerPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 		if err := os.Symlink(outside, markerPath); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
@@ -190,10 +191,10 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 
 func TestPatternCorpusPublicationPrivacyRemovalRejectsIdentityTakeover(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	candidate := patternCorpusStagingPrefix + "privacy-race"
+	candidate := patterncore.CorpusStagingPrefix + "privacy-race"
 	candidateData := []byte(privacyCanary + "-raced-candidate")
 	_, candidatePath := writePatternPublicationPrivacyFixture(t, brainDir, candidate, candidateData)
-	markerPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	markerPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	replacementPath := filepath.Join(brainDir, "patterns", ".replacement-publication")
 	replacement := []byte(`{"schema_version":2,"future":true}` + "\n")
 	if err := os.WriteFile(replacementPath, replacement, 0o600); err != nil {

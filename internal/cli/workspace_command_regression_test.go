@@ -367,7 +367,7 @@ func TestWorkspaceCommandUnsafePublicationArtifactFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(wsDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	marker := filepath.Join(wsDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -78,7 +79,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	if !strings.Contains(report.Summary, "PARTIAL") {
 		t.Errorf("brain review claims a complete result: %s", report.Summary)
 	}
-	manifest := workspaceManifest{Name: "capped", Repos: []workspaceRepo{{RepoKey: key, LocalPathHint: repo}}}
+	manifest := workspace.Manifest{Name: "capped", Repos: []workspace.Repo{{RepoKey: key, LocalPathHint: repo}}}
 	opts.Runner = &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
 	for _, review := range []bool{false, true} {
 		if regressed && !review {

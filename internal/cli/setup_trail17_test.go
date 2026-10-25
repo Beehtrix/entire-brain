@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 func TestSetupPlainRunKeepsMachineDaemonIdentity(t *testing.T) {
@@ -144,11 +146,11 @@ func TestFailedWorkspaceRegistrationPreservesSharedTuning(t *testing.T) {
 	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "1h"}); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := workspaceDir(f.env, setupDefaultWorkspace)
+	dir, err := workspaceStore(f.env).Dir(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(dir, workspaceManifestName), []byte("invalid"), 0600); err != nil {
+	if err := writeFileAtomic(filepath.Join(dir, workspace.ManifestName), []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	rec := &recordedSetup{}

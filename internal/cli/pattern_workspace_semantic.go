@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // Workspace semantic merge (SR5).
@@ -76,12 +78,12 @@ Use "accepted" only for a genuine cross-repo family spanning >=2 repos. Do not i
 
 // proposeWorkspaceFamilies runs the agent judgment layer over member-repo task
 // candidates and stores accepted cross-repo families as workspace dossiers.
-func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspaceManifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	if err := rejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return stats, err
 	}
@@ -96,13 +98,13 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 	return stats, nil
 }
 
-func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspaceManifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
+func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
 	var stats dossierVerifyStats
 	// Gather each member's promotable task candidates (the cheap exact signal feeds
 	// the agent, which merges across repos by meaning).
 	perRepo := map[string][]map[string]any{}
 	contributing := 0
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
+	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
 		memberDir, err := brainDirForKey(env, repo.RepoKey)
@@ -257,7 +259,7 @@ func familyRepoKeysJoined(f workspaceFamily) string {
 	return strings.Join(keys, ",")
 }
 
-func workspaceMembershipFingerprint(manifest workspaceManifest) string {
+func workspaceMembershipFingerprint(manifest workspace.Manifest) string {
 	keys := make([]string, 0, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
 		keys = append(keys, repo.RepoKey)
@@ -282,23 +284,23 @@ func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily,
 	}
 	defer db.Close()
 	// A cached family is only eligible in the current persisted workspace.
-	if err := rejectExistingSymlinkPathComponents(wsBrainDir, workspaceManifestName); err != nil {
+	if err := rejectExistingSymlinkPathComponents(wsBrainDir, workspace.ManifestName); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(filepath.Join(wsBrainDir, workspaceManifestName))
+	data, err := os.ReadFile(filepath.Join(wsBrainDir, workspace.ManifestName))
 	if err != nil {
 		return nil, err
 	}
-	var manifest workspaceManifest
+	var manifest workspace.Manifest
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return nil, err
 	}
-	if manifest.SchemaVersion != workspaceSchemaVersion || manifest.Name != filepath.Base(wsBrainDir) {
+	if manifest.SchemaVersion != workspace.SchemaVersion || manifest.Name != filepath.Base(wsBrainDir) {
 		return nil, fmt.Errorf("invalid workspace manifest identity")
 	}
 	members := map[string]bool{}
 	for _, repo := range manifest.Repos {
-		if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
+		if err := workspace.ValidateRepoKey(repo.RepoKey); err != nil {
 			return nil, err
 		}
 		members[repo.RepoKey] = true

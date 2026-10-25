@@ -4,62 +4,22 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
-const (
-	workspaceDirName          = "workspaces"
-	workspaceManifestName     = "workspace.json"
-	workspaceManifestLockName = "workspace-manifest.lock"
-	workspaceReadmeName       = "README.md"
-	workspaceGraphName        = "graph.json"
-	workspaceSchemaVersion    = 1
-)
-
-var workspaceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
-
-type workspaceManifest struct {
-	SchemaVersion int                      `json:"schema_version"`
-	Name          string                   `json:"name"`
-	Repos         []workspaceRepo          `json:"repos"`
-	RefreshedAt   time.Time                `json:"refreshed_at,omitempty"`
-	Freshness     []workspaceRepoFreshness `json:"freshness,omitempty"`
-}
-
-type workspaceRepo struct {
-	RepoKey       string `json:"repo_key"`
-	Name          string `json:"name,omitempty"`
-	LocalPathHint string `json:"local_path_hint,omitempty"`
-}
-
-type workspaceRepoFreshness struct {
-	RepoKey string `json:"repo_key"`
-	Name    string `json:"name,omitempty"`
-	State   string `json:"state"`
-	// PairingUnsafe is the scan-block signal: true only when the brain<->tree IDENTITY can't be
-	// trusted (the local_path_hint's repo_key no longer matches, or it could not be derived), so a
-	// regression scan would compare one repo's brain against an unrelated tree. This is distinct from
-	// State == "unsafe", which also covers a stale/broken semantic index (a valid pairing the scan
-	// can still run against raw sessions). See workspaceFreshnessBlocksScan.
-	PairingUnsafe  bool   `json:"pairing_unsafe,omitempty"`
-	Detail         string `json:"detail,omitempty"`
-	ContractState  string `json:"contract_state,omitempty"`
-	ContractDetail string `json:"contract_detail,omitempty"`
-}
+const workspaceGraphName = "graph.json"
 
 type workspaceAddOptions struct {
 	name string
@@ -98,18 +58,18 @@ type workspaceGraphOptions struct {
 }
 
 type workspaceContextResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	Symbols   []semanticRecord       `json:"symbols"`
-	Error     string                 `json:"error,omitempty"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	Symbols   []semanticRecord        `json:"symbols"`
+	Error     string                  `json:"error,omitempty"`
 }
 
 type workspaceRetrieveResult struct {
 	RepoKey                   string                   `json:"repo_key"`
 	Name                      string                   `json:"name,omitempty"`
 	Branch                    string                   `json:"branch,omitempty"`
-	Freshness                 workspaceRepoFreshness   `json:"freshness"`
+	Freshness                 workspace.RepoFreshness  `json:"freshness"`
 	Results                   []unifiedResult          `json:"results"`
 	AbstractPreviews          []sessionAbstractPreview `json:"abstract_previews,omitempty"`
 	AbstractPreviewsTruncated bool                     `json:"abstract_previews_truncated,omitempty"`
@@ -125,21 +85,21 @@ type workspaceGetResult struct {
 }
 
 type workspaceImpactResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	Roots     []semanticRecord       `json:"roots"`
-	Symbols   []semanticRecord       `json:"symbols"`
-	Relations []semanticRecord       `json:"relations"`
-	Error     string                 `json:"error,omitempty"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	Roots     []semanticRecord        `json:"roots"`
+	Symbols   []semanticRecord        `json:"symbols"`
+	Relations []semanticRecord        `json:"relations"`
+	Error     string                  `json:"error,omitempty"`
 }
 
 type workspaceGraphResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	Counts    map[string]int         `json:"counts,omitempty"`
-	Languages []string               `json:"languages,omitempty"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	Counts    map[string]int          `json:"counts,omitempty"`
+	Languages []string                `json:"languages,omitempty"`
 	// Retrieval-trust diagnostics carried from each repo's semantic source
 	// manifest so an agent can tell a trusted index from a degraded one per repo.
 	CompletenessLevel string            `json:"completeness_level,omitempty"`
@@ -150,82 +110,21 @@ type workspaceGraphResult struct {
 	Error             string            `json:"error,omitempty"`
 }
 
-type workspaceGraphContract struct {
-	Endpoint string   `json:"endpoint"`
-	Type     string   `json:"type"`
-	Repos    []string `json:"repos"`
-	Count    int      `json:"count"`
-}
-
-type workspaceGraphSymbolRef struct {
-	RepoKey       string `json:"repo_key"`
-	ID            string `json:"id"`
-	Kind          string `json:"kind,omitempty"`
-	Name          string `json:"name,omitempty"`
-	QualifiedName string `json:"qualified_name,omitempty"`
-	FilePath      string `json:"file_path,omitempty"`
-	Direction     string `json:"direction,omitempty"`
-	Count         int    `json:"count,omitempty"`
-}
-
-type workspaceGraphCrossEdge struct {
-	Endpoint     string                  `json:"endpoint"`
-	Type         string                  `json:"type"`
-	FromRepo     string                  `json:"from_repo"`
-	ToRepo       string                  `json:"to_repo"`
-	FromSymbol   workspaceGraphSymbolRef `json:"from_symbol"`
-	ToSymbol     workspaceGraphSymbolRef `json:"to_symbol"`
-	SharedCount  int                     `json:"shared_count"`
-	RelationKind string                  `json:"relation_kind"`
-}
-
-type workspaceExternalContractAggregate struct {
-	Endpoint     string
-	Type         string
-	RepoCounts   map[string]int
-	Participants []workspaceGraphSymbolRef
-}
-
-type workspaceRepoGraphIndex struct {
-	RepoKey         string
-	Imports         []workspaceGraphImportRef
-	ExternalSymbols []workspaceGraphExternalSymbolRef
-	Candidates      []workspaceGraphSymbolRef
-}
-
-type workspaceGraphImportRef struct {
-	Spec   string
-	Source workspaceGraphSymbolRef
-	Count  int
-}
-
-type workspaceGraphExternalSymbolRef struct {
-	Spec   string
-	Type   string
-	Source workspaceGraphSymbolRef
-	Count  int
-}
-
 type workspaceGraphPayload struct {
-	Generation  string                    `json:"generation,omitempty"`
-	Workspace   string                    `json:"workspace"`
-	GeneratedAt time.Time                 `json:"generated_at"`
-	Results     []workspaceGraphResult    `json:"results"`
-	Contracts   []workspaceGraphContract  `json:"contracts"`
-	CrossEdges  []workspaceGraphCrossEdge `json:"cross_edges"`
-}
-
-type workspaceSummary struct {
-	Name  string `json:"name"`
-	Repos int    `json:"repos"`
+	Generation  string                 `json:"generation,omitempty"`
+	Workspace   string                 `json:"workspace"`
+	GeneratedAt time.Time              `json:"generated_at"`
+	Results     []workspaceGraphResult `json:"results"`
+	Contracts   []workspace.Contract   `json:"contracts"`
+	CrossEdges  []workspace.CrossEdge  `json:"cross_edges"`
 }
 
 type workspaceRegressionResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	RepoPath  string                 `json:"repo_path,omitempty"`
-	Anomalies []regressionAnomaly    `json:"anomalies"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	RepoPath  string                  `json:"repo_path,omitempty"`
+	Anomalies []regressionAnomaly     `json:"anomalies"`
 	// Checked and FilesScanned are the machine-readable answer to "did this
 	// repo actually get compared?", so a consumer never has to parse prose (or
 	// infer from an empty anomaly list) to find out. Checked is false whenever
@@ -242,12 +141,12 @@ type workspaceRegressionResult struct {
 }
 
 type workspaceReviewResult struct {
-	RepoKey   string                 `json:"repo_key"`
-	Name      string                 `json:"name,omitempty"`
-	Freshness workspaceRepoFreshness `json:"freshness"`
-	RepoPath  string                 `json:"repo_path,omitempty"`
-	Summary   string                 `json:"summary"`
-	Findings  []reviewFinding        `json:"findings"`
+	RepoKey   string                  `json:"repo_key"`
+	Name      string                  `json:"name,omitempty"`
+	Freshness workspace.RepoFreshness `json:"freshness"`
+	RepoPath  string                  `json:"repo_path,omitempty"`
+	Summary   string                  `json:"summary"`
+	Findings  []reviewFinding         `json:"findings"`
 	// See workspaceRegressionResult: Checked/FilesScanned keep the "was this
 	// repo compared at all?" answer out of the prose.
 	Checked      bool `json:"checked"`
@@ -300,17 +199,17 @@ func newWorkspaceCreateCommand(opts Options) *cobra.Command {
 		Short: "Create a local workspace brain",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := workspaceDir(opts.Env, args[0])
+			dir, err := workspaceStore(opts.Env).Dir(args[0])
 			if err != nil {
 				return err
 			}
-			if _, err := os.Stat(filepath.Join(dir, workspaceManifestName)); err == nil {
+			if _, err := os.Stat(filepath.Join(dir, workspace.ManifestName)); err == nil {
 				return fmt.Errorf("workspace already exists: %s", args[0])
 			} else if err != nil && !os.IsNotExist(err) {
 				return err
 			}
-			manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: args[0]}
-			if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+			manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: args[0]}
+			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), dir)
@@ -533,7 +432,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
 		}
-		manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+		manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 		if err != nil {
 			return err
 		}
@@ -685,7 +584,7 @@ func newWorkspaceGetCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addOpts workspaceAddOptions, workspaceName, repoPath string) error {
-	if err := validateWorkspaceRepoName(addOpts.name); err != nil {
+	if err := workspace.ValidateRepoName(addOpts.name); err != nil {
 		return err
 	}
 	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repoPath)
@@ -715,7 +614,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		return err
 	}
 	key := storage.Key
-	result, err := addWorkspaceRepoLocked(opts.Env, workspaceName, workspaceRepo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir})
+	result, err := workspaceStore(opts.Env).AddRepoLocked(workspaceName, workspace.Repo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir})
 	if err != nil {
 		return err
 	}
@@ -743,107 +642,8 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 	return nil
 }
 
-// workspaceAddResult reports what the locked add actually did, so callers can
-// say "created", "added" or "already a member" without re-reading the manifest
-// and racing the very window the lock closed.
-type workspaceAddResult struct {
-	Created bool
-	Already bool
-	// PreviousPathHint is the checkout an existing member pointed at before this
-	// add rebound it, so a caller can say WHICH tree the workspace now scans.
-	// Empty unless Already is true.
-	PreviousPathHint string
-}
-
-// workspaceDirOrEmpty resolves a workspace directory for use in a MESSAGE only:
-// the caller is already reporting an error, so a second one would just hide the
-// first.
-func workspaceDirOrEmpty(env EntireEnv, name string) string {
-	dir, err := workspaceDir(env, name)
-	if err != nil {
-		return ""
-	}
-	return dir
-}
-
-// addWorkspaceRepoLocked is the ONLY way a repo enters a workspace manifest.
-// Membership is a read-modify-write of a shared file, and the common case —
-// running `entire-brain setup` in two repos at once — had both readers load the
-// same manifest and both write their own single-member version back, so one
-// registration vanished with no error anywhere. The lock lives beside the
-// manifest and follows the same discipline as the brain locks: reject symlinked
-// path components first, then hold the lock across load AND write.
-func addWorkspaceRepoLocked(env EntireEnv, workspaceName string, repo workspaceRepo) (workspaceAddResult, error) {
-	var result workspaceAddResult
-	if err := validateWorkspaceName(workspaceName); err != nil {
-		return result, err
-	}
-	if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
-		return result, err
-	}
-	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
-	if err != nil {
-		return result, err
-	}
-	defer func() { _ = lock.Close() }()
-
-	manifest, err := loadWorkspaceManifest(env, workspaceName)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			// A manifest that exists but cannot be read blocks registration for
-			// EVERY repo in the workspace, permanently, and the underlying error
-			// ("invalid character ...") names neither the file nor a way out.
-			// Recreating it silently would be worse — it would drop every other
-			// member — so say exactly which file to look at.
-			return result, fmt.Errorf("%w\nworkspace manifest %s is unusable; fix or delete it, then re-run (deleting it drops the other members, who re-register on their next setup)",
-				err, filepath.Join(workspaceDirOrEmpty(env, workspaceName), workspaceManifestName))
-		}
-		manifest = workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: workspaceName}
-		result.Created = true
-	}
-	replaced := false
-	for i := range manifest.Repos {
-		if manifest.Repos[i].RepoKey == repo.RepoKey {
-			result.Already = true
-			result.PreviousPathHint = manifest.Repos[i].LocalPathHint
-			// Keep the freshest local path hint; the member itself is unchanged.
-			// A caller that carries no display name — `setup`'s registration,
-			// which re-runs every time — must not erase the one a human set with
-			// `workspace add --name`.
-			if strings.TrimSpace(repo.Name) == "" {
-				repo.Name = manifest.Repos[i].Name
-			}
-			manifest.Repos[i] = repo
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		manifest.Repos = append(manifest.Repos, repo)
-	}
-	sortWorkspaceRepos(manifest.Repos)
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func acquireWorkspaceManifestLock(env EntireEnv, workspaceName string) (*fileLock, error) {
-	dir, err := workspaceDir(env, workspaceName)
-	if err != nil {
-		return nil, err
-	}
-	workspaceRoot := filepath.Dir(dir)
-	if err := rejectExistingSymlinkPathComponents(workspaceRoot, brainLockDirName); err != nil {
-		return nil, err
-	}
-	// Keep membership locks outside the workspace directory so whole-workspace
-	// deletion can hold the same lock without deleting an open lock file.
-	return acquireFileLock(filepath.Join(workspaceRoot, brainLockDirName, workspaceName+"-"+workspaceManifestLockName), "workspace_manifest_locked", brainWriteLockTimeout)
-}
-
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -868,7 +668,7 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	if err := writeWorkspaceRefreshResult(opts.Env, workspaceName, freshness, opts.Now().UTC()); err != nil {
+	if err := workspaceStore(opts.Env).MergeRefreshResult(workspaceName, freshness, opts.Now().UTC()); err != nil {
 		return err
 	}
 	if full {
@@ -884,40 +684,11 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	return nil
 }
 
-// writeWorkspaceRefreshResult keeps the expensive multi-repo work outside the
-// membership lock, then merges its results into the latest manifest. Repos
-// added during refresh are preserved and simply receive freshness next pass;
-// repos removed during refresh are not resurrected.
-func writeWorkspaceRefreshResult(env EntireEnv, workspaceName string, freshness []workspaceRepoFreshness, refreshedAt time.Time) error {
-	lock, err := acquireWorkspaceManifestLock(env, workspaceName)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = lock.Close() }()
-	manifest, err := loadWorkspaceManifest(env, workspaceName)
-	if err != nil {
-		return err
-	}
-	byRepo := make(map[string]workspaceRepoFreshness, len(freshness))
-	for _, state := range freshness {
-		byRepo[state.RepoKey] = state
-	}
-	merged := make([]workspaceRepoFreshness, 0, len(manifest.Repos))
-	for _, repo := range manifest.Repos {
-		if state, ok := byRepo[repo.RepoKey]; ok {
-			merged = append(merged, state)
-		}
-	}
-	manifest.Freshness = merged
-	manifest.RefreshedAt = refreshedAt
-	return writeWorkspaceManifest(env, manifest)
-}
-
 func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspaceContextOptions, workspaceName, query string) error {
 	if contextOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -975,7 +746,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 	if impactOpts.depth <= 0 {
 		return errors.New("--depth must be greater than zero")
 	}
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -1029,7 +800,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 }
 
 func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, workspaceName string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -1040,7 +811,7 @@ func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGrap
 // execution. The wording matches the per-member skips the runners already emit
 // for an unsafe pairing, so a reader cannot tell a skip apart by shape and then
 // treat one of them as a silent success.
-func workspaceSkippedResultError(f workspaceRepoFreshness) string {
+func workspaceSkippedResultError(f workspace.RepoFreshness) string {
 	detail := strings.TrimSpace(f.Detail)
 	if detail == "" {
 		detail = "member could not be verified against a checkout in scope"
@@ -1048,7 +819,7 @@ func workspaceSkippedResultError(f workspaceRepoFreshness) string {
 	return "skipped (unverified): " + detail
 }
 
-func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, manifest workspaceManifest, skipped []workspaceRepoFreshness) error {
+func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, manifest workspace.Manifest, skipped []workspace.RepoFreshness) error {
 	if graphOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -1084,18 +855,18 @@ func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts works
 	return nil
 }
 
-func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (workspaceGraphPayload, error) {
+func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest workspace.Manifest, limit int) (workspaceGraphPayload, error) {
 	generation, err := workspaceGraphGeneration(opts.Env, manifest)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
 	var results []workspaceGraphResult
-	contractIndex := map[string]*workspaceExternalContractAggregate{}
-	var repoIndexes []workspaceRepoGraphIndex
+	contractIndex := map[string]*workspace.ExternalContractAggregate{}
+	var repoIndexes []workspace.RepoGraphIndex
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
 		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		repoIndex := workspaceRepoGraphIndex{RepoKey: repo.RepoKey}
+		repoIndex := workspace.RepoGraphIndex{RepoKey: repo.RepoKey}
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return workspaceGraphPayload{}, err
@@ -1143,16 +914,16 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 			result.Metrics, err = semanticGraphMetrics(db)
 		}
 		if err == nil {
-			err = collectWorkspaceExternalContracts(db, repo.RepoKey, contractIndex)
+			err = workspace.CollectExternalContracts(db, repo.RepoKey, contractIndex)
 		}
 		if err == nil {
-			repoIndex.Imports, err = collectWorkspaceImportRefs(db, repo.RepoKey)
+			repoIndex.Imports, err = workspace.CollectImportRefs(db, repo.RepoKey)
 		}
 		if err == nil {
-			repoIndex.ExternalSymbols, err = collectWorkspaceExternalSymbolRefs(db, repo.RepoKey)
+			repoIndex.ExternalSymbols, err = workspace.CollectExternalSymbolRefs(db, repo.RepoKey)
 		}
 		if err == nil {
-			repoIndex.Candidates, err = collectWorkspaceTargetCandidates(db, repo.RepoKey)
+			repoIndex.Candidates, err = workspace.CollectTargetCandidates(db, repo.RepoKey)
 		}
 		if closeErr := db.Close(); err == nil {
 			err = closeErr
@@ -1165,31 +936,31 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		}
 		results = append(results, result)
 	}
-	crossEdges := workspaceGraphCrossEdges(contractIndex, limit)
-	crossEdges = append(crossEdges, workspaceGraphRouteCallCrossEdges(contractIndex, limit)...)
-	crossEdges = append(crossEdges, workspaceGraphGraphQLCrossEdges(contractIndex, limit)...)
-	crossEdges = append(crossEdges, workspaceGraphChannelCrossEdges(contractIndex, limit)...)
-	crossEdges = append(crossEdges, workspaceGraphResourceCrossEdges(contractIndex, repoIndexes, limit)...)
-	crossEdges = append(crossEdges, workspaceGraphImportCrossEdges(repoIndexes, limit)...)
-	crossEdges = append(crossEdges, workspaceGraphExternalSymbolCrossEdges(repoIndexes, limit)...)
-	sortWorkspaceGraphCrossEdges(crossEdges)
+	crossEdges := workspace.GraphCrossEdges(contractIndex, limit)
+	crossEdges = append(crossEdges, workspace.GraphRouteCallCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspace.GraphGraphQLCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspace.GraphChannelCrossEdges(contractIndex, limit)...)
+	crossEdges = append(crossEdges, workspace.GraphResourceCrossEdges(contractIndex, repoIndexes, limit)...)
+	crossEdges = append(crossEdges, workspace.GraphImportCrossEdges(repoIndexes, limit)...)
+	crossEdges = append(crossEdges, workspace.GraphExternalSymbolCrossEdges(repoIndexes, limit)...)
+	workspace.SortGraphCrossEdges(crossEdges)
 	if len(crossEdges) > limit {
 		crossEdges = crossEdges[:limit]
 	}
 	if crossEdges == nil {
-		crossEdges = []workspaceGraphCrossEdge{}
+		crossEdges = []workspace.CrossEdge{}
 	}
 	return workspaceGraphPayload{
 		Workspace:   manifest.Name,
 		Generation:  generation,
 		GeneratedAt: opts.Now().UTC(),
 		Results:     results,
-		Contracts:   workspaceGraphContracts(contractIndex, limit),
+		Contracts:   workspace.GraphContracts(contractIndex, limit),
 		CrossEdges:  crossEdges,
 	}, nil
 }
 
-func writeWorkspaceGraphSnapshot(ctx context.Context, opts Options, manifest workspaceManifest, limit int) (string, error) {
+func writeWorkspaceGraphSnapshot(ctx context.Context, opts Options, manifest workspace.Manifest, limit int) (string, error) {
 	payload, err := buildWorkspaceGraphPayload(ctx, opts, manifest, limit)
 	if err != nil {
 		return "", err
@@ -1198,11 +969,11 @@ func writeWorkspaceGraphSnapshot(ctx context.Context, opts Options, manifest wor
 }
 
 func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (string, error) {
-	dir, err := workspaceDir(env, payload.Workspace)
+	dir, err := workspaceStore(env).Dir(payload.Workspace)
 	if err != nil {
 		return "", err
 	}
-	rel := filepath.ToSlash(filepath.Join(workspaceDirName, payload.Workspace, workspaceGraphName))
+	rel := filepath.ToSlash(filepath.Join(workspace.DirName, payload.Workspace, workspaceGraphName))
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", err
@@ -1212,1218 +983,6 @@ func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (s
 		return "", err
 	}
 	return rel, nil
-}
-
-func collectWorkspaceExternalContracts(db *sql.DB, repoKey string, out map[string]*workspaceExternalContractAggregate) error {
-	rows, err := db.Query(`
-SELECT CASE
-    WHEN r.from_id LIKE 'external:%' THEN r.from_id
-    ELSE r.to_id
-  END AS endpoint,
-  r.type,
-  CASE
-    WHEN r.from_id LIKE 'external:%' THEN r.to_id
-    ELSE r.from_id
-  END AS local_id,
-  CASE
-    WHEN r.from_id LIKE 'external:%' THEN 'from_endpoint'
-    ELSE 'to_endpoint'
-  END AS direction,
-  COALESCE(s.kind, '') AS kind,
-  COALESCE(s.name, '') AS name,
-  COALESCE(s.qualified_name, '') AS qualified_name,
-  COALESCE(s.file_path, '') AS file_path,
-  COUNT(*) AS c
-FROM relations r
-LEFT JOIN symbols s ON s.id = CASE
-  WHEN r.from_id LIKE 'external:%' THEN r.to_id
-  ELSE r.from_id
-END
-WHERE r.from_id LIKE 'external:%' OR r.to_id LIKE 'external:%'
-GROUP BY endpoint, r.type, local_id, direction, kind, name, qualified_name, file_path
-ORDER BY endpoint, r.type, local_id`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var endpoint, typ, localID, direction, kind, name, qualifiedName, filePath string
-		var count int
-		if err := rows.Scan(&endpoint, &typ, &localID, &direction, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
-			return err
-		}
-		key := typ + "\x00" + endpoint
-		aggregate := out[key]
-		if aggregate == nil {
-			aggregate = &workspaceExternalContractAggregate{Endpoint: endpoint, Type: typ, RepoCounts: map[string]int{}}
-			out[key] = aggregate
-		}
-		aggregate.RepoCounts[repoKey] += count
-		if strings.HasPrefix(localID, "external:") {
-			continue
-		}
-		aggregate.Participants = append(aggregate.Participants, workspaceGraphSymbolRef{
-			RepoKey:       repoKey,
-			ID:            localID,
-			Kind:          kind,
-			Name:          name,
-			QualifiedName: qualifiedName,
-			FilePath:      filePath,
-			Direction:     direction,
-			Count:         count,
-		})
-	}
-	return rows.Err()
-}
-
-func collectWorkspaceImportRefs(db *sql.DB, repoKey string) ([]workspaceGraphImportRef, error) {
-	rows, err := db.Query(`
-SELECT CASE
-    WHEN r.from_id LIKE 'external:import:%' THEN r.from_id
-    ELSE r.to_id
-  END AS endpoint,
-  CASE
-    WHEN r.from_id LIKE 'external:import:%' THEN r.to_id
-    ELSE r.from_id
-  END AS local_id,
-  COALESCE(s.kind, '') AS kind,
-  COALESCE(s.name, '') AS name,
-  COALESCE(s.qualified_name, '') AS qualified_name,
-  COALESCE(s.file_path, '') AS file_path,
-  COUNT(*) AS c
-FROM relations r
-LEFT JOIN symbols s ON s.id = CASE
-  WHEN r.from_id LIKE 'external:import:%' THEN r.to_id
-  ELSE r.from_id
-END
-WHERE r.type = 'IMPORTS'
-  AND (r.from_id LIKE 'external:import:%' OR r.to_id LIKE 'external:import:%')
-GROUP BY endpoint, local_id, kind, name, qualified_name, file_path
-ORDER BY endpoint, local_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var refs []workspaceGraphImportRef
-	for rows.Next() {
-		var endpoint, localID, kind, name, qualifiedName, filePath string
-		var count int
-		if err := rows.Scan(&endpoint, &localID, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
-			return nil, err
-		}
-		spec := strings.TrimPrefix(endpoint, "external:import:")
-		if spec == "" || strings.HasPrefix(localID, "external:") {
-			continue
-		}
-		refs = append(refs, workspaceGraphImportRef{
-			Spec: spec,
-			Source: workspaceGraphSymbolRef{
-				RepoKey:       repoKey,
-				ID:            localID,
-				Kind:          kind,
-				Name:          name,
-				QualifiedName: qualifiedName,
-				FilePath:      filePath,
-				Direction:     "imports_external",
-				Count:         count,
-			},
-			Count: count,
-		})
-	}
-	if refs == nil {
-		refs = []workspaceGraphImportRef{}
-	}
-	return refs, rows.Err()
-}
-
-func collectWorkspaceExternalSymbolRefs(db *sql.DB, repoKey string) ([]workspaceGraphExternalSymbolRef, error) {
-	rows, err := db.Query(`
-SELECT CASE
-    WHEN r.from_id LIKE 'external:symbol:%' THEN r.from_id
-    ELSE r.to_id
-  END AS endpoint,
-  r.type,
-  CASE
-    WHEN r.from_id LIKE 'external:symbol:%' THEN r.to_id
-    ELSE r.from_id
-  END AS local_id,
-  COALESCE(s.kind, '') AS kind,
-  COALESCE(s.name, '') AS name,
-  COALESCE(s.qualified_name, '') AS qualified_name,
-  COALESCE(s.file_path, '') AS file_path,
-  COUNT(*) AS c
-FROM relations r
-LEFT JOIN symbols s ON s.id = CASE
-  WHEN r.from_id LIKE 'external:symbol:%' THEN r.to_id
-  ELSE r.from_id
-END
-WHERE r.from_id LIKE 'external:symbol:%' OR r.to_id LIKE 'external:symbol:%'
-GROUP BY endpoint, r.type, local_id, kind, name, qualified_name, file_path
-ORDER BY endpoint, r.type, local_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var refs []workspaceGraphExternalSymbolRef
-	for rows.Next() {
-		var endpoint, typ, localID, kind, name, qualifiedName, filePath string
-		var count int
-		if err := rows.Scan(&endpoint, &typ, &localID, &kind, &name, &qualifiedName, &filePath, &count); err != nil {
-			return nil, err
-		}
-		spec := strings.TrimPrefix(endpoint, "external:symbol:")
-		if spec == "" || strings.HasPrefix(localID, "external:") {
-			continue
-		}
-		refs = append(refs, workspaceGraphExternalSymbolRef{
-			Spec: spec,
-			Type: typ,
-			Source: workspaceGraphSymbolRef{
-				RepoKey:       repoKey,
-				ID:            localID,
-				Kind:          kind,
-				Name:          name,
-				QualifiedName: qualifiedName,
-				FilePath:      filePath,
-				Direction:     "external_symbol_source",
-				Count:         count,
-			},
-			Count: count,
-		})
-	}
-	if refs == nil {
-		refs = []workspaceGraphExternalSymbolRef{}
-	}
-	return refs, rows.Err()
-}
-
-func collectWorkspaceTargetCandidates(db *sql.DB, repoKey string) ([]workspaceGraphSymbolRef, error) {
-	rows, err := db.Query(`
-SELECT id, kind, name, qualified_name, file_path
-FROM symbols
-ORDER BY file_path, kind, qualified_name, name, id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var candidates []workspaceGraphSymbolRef
-	for rows.Next() {
-		var candidate workspaceGraphSymbolRef
-		candidate.RepoKey = repoKey
-		if err := rows.Scan(&candidate.ID, &candidate.Kind, &candidate.Name, &candidate.QualifiedName, &candidate.FilePath); err != nil {
-			return nil, err
-		}
-		candidate.Direction = "import_target_candidate"
-		candidates = append(candidates, candidate)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	fileRows, err := db.Query(`SELECT path FROM files WHERE trim(path) <> '' ORDER BY path`)
-	if err != nil {
-		return nil, err
-	}
-	defer fileRows.Close()
-	for fileRows.Next() {
-		var path string
-		if err := fileRows.Scan(&path); err != nil {
-			return nil, err
-		}
-		candidates = append(candidates, workspaceGraphSymbolRef{
-			RepoKey:   repoKey,
-			ID:        repoKey + ":file:" + filepath.ToSlash(path),
-			Kind:      "file",
-			Name:      filepath.Base(path),
-			FilePath:  filepath.ToSlash(path),
-			Direction: "import_target_candidate",
-		})
-	}
-	if candidates == nil {
-		candidates = []workspaceGraphSymbolRef{}
-	}
-	return candidates, fileRows.Err()
-}
-
-func workspaceGraphContracts(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphContract {
-	var contracts []workspaceGraphContract
-	for _, aggregate := range index {
-		if len(aggregate.RepoCounts) < 2 {
-			continue
-		}
-		repos := make([]string, 0, len(aggregate.RepoCounts))
-		count := 0
-		for repo, n := range aggregate.RepoCounts {
-			repos = append(repos, repo)
-			count += n
-		}
-		sort.Strings(repos)
-		contracts = append(contracts, workspaceGraphContract{Endpoint: aggregate.Endpoint, Type: aggregate.Type, Repos: repos, Count: count})
-	}
-	sort.Slice(contracts, func(i, j int) bool {
-		if contracts[i].Count == contracts[j].Count {
-			if contracts[i].Type == contracts[j].Type {
-				return contracts[i].Endpoint < contracts[j].Endpoint
-			}
-			return contracts[i].Type < contracts[j].Type
-		}
-		return contracts[i].Count > contracts[j].Count
-	})
-	if len(contracts) > limit {
-		contracts = contracts[:limit]
-	}
-	if contracts == nil {
-		return []workspaceGraphContract{}
-	}
-	return contracts
-}
-
-func workspaceGraphCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
-	var edges []workspaceGraphCrossEdge
-	for _, aggregate := range index {
-		if len(aggregate.RepoCounts) < 2 || len(aggregate.Participants) < 2 {
-			continue
-		}
-		participants := append([]workspaceGraphSymbolRef(nil), aggregate.Participants...)
-		sort.Slice(participants, func(i, j int) bool {
-			if participants[i].RepoKey == participants[j].RepoKey {
-				return participants[i].ID < participants[j].ID
-			}
-			return participants[i].RepoKey < participants[j].RepoKey
-		})
-		for i := 0; i < len(participants); i++ {
-			for j := i + 1; j < len(participants); j++ {
-				if participants[i].RepoKey == participants[j].RepoKey {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     aggregate.Endpoint,
-					Type:         aggregate.Type,
-					FromRepo:     participants[i].RepoKey,
-					ToRepo:       participants[j].RepoKey,
-					FromSymbol:   participants[i],
-					ToSymbol:     participants[j],
-					SharedCount:  participants[i].Count + participants[j].Count,
-					RelationKind: "shared_external_contract",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceGraphImportCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
-	var edges []workspaceGraphCrossEdge
-	// Import prefixes depend only on a repo key, so compute them once per repo
-	// instead of re-deriving them for every (fromRepo, import) pair in the loop.
-	prefixesByRepo := make([][]string, len(indexes))
-	for i, repo := range indexes {
-		prefixesByRepo[i] = workspaceRepoImportPrefixes(repo.RepoKey)
-	}
-	for _, fromRepo := range indexes {
-		for _, imp := range fromRepo.Imports {
-			normalizedSpec := workspaceNormalizeImportSpec(imp.Spec)
-			for j, toRepo := range indexes {
-				if fromRepo.RepoKey == toRepo.RepoKey {
-					continue
-				}
-				subpath, ok := workspaceImportMatchesPrefixes(normalizedSpec, prefixesByRepo[j])
-				if !ok {
-					continue
-				}
-				target, ok := workspaceImportTargetCandidate(toRepo.Candidates, subpath)
-				if !ok {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     "external:import:" + imp.Spec,
-					Type:         "IMPORTS",
-					FromRepo:     fromRepo.RepoKey,
-					ToRepo:       toRepo.RepoKey,
-					FromSymbol:   imp.Source,
-					ToSymbol:     target,
-					SharedCount:  imp.Count,
-					RelationKind: "cross_repo_import_candidate",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceGraphRouteCallCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
-	handlersByEndpoint := map[string][]workspaceGraphSymbolRef{}
-	callersByEndpoint := map[string][]workspaceGraphSymbolRef{}
-	for _, aggregate := range index {
-		if !strings.HasPrefix(aggregate.Endpoint, "external:route:") {
-			continue
-		}
-		endpoint := workspaceCanonicalRouteEndpoint(aggregate.Endpoint)
-		switch aggregate.Type {
-		case "HANDLES_ROUTE":
-			handlersByEndpoint[endpoint] = append(handlersByEndpoint[endpoint], aggregate.Participants...)
-		case "HTTP_CALLS":
-			callersByEndpoint[endpoint] = append(callersByEndpoint[endpoint], aggregate.Participants...)
-		}
-	}
-	var edges []workspaceGraphCrossEdge
-	for endpoint, callers := range callersByEndpoint {
-		handlers := handlersByEndpoint[endpoint]
-		if len(callers) == 0 || len(handlers) == 0 {
-			continue
-		}
-		sortWorkspaceGraphSymbolRefs(callers)
-		sortWorkspaceGraphSymbolRefs(handlers)
-		for _, caller := range callers {
-			for _, handler := range handlers {
-				if caller.RepoKey == handler.RepoKey {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     endpoint,
-					Type:         "CALLS",
-					FromRepo:     caller.RepoKey,
-					ToRepo:       handler.RepoKey,
-					FromSymbol:   caller,
-					ToSymbol:     handler,
-					SharedCount:  caller.Count + handler.Count,
-					RelationKind: "cross_repo_route_call",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceCanonicalRouteEndpoint(endpoint string) string {
-	const prefix = "external:route:"
-	if !strings.HasPrefix(endpoint, prefix) {
-		return endpoint
-	}
-	route := strings.TrimPrefix(endpoint, prefix)
-	if route != "/" {
-		route = strings.TrimRight(route, "/")
-		if route == "" {
-			route = "/"
-		}
-	}
-	route = regexp.MustCompile(`\{[^}/]+\}`).ReplaceAllString(route, `{param}`)
-	route = regexp.MustCompile(`<(?:(?:[A-Za-z_][A-Za-z0-9_]*):)?[A-Za-z_][A-Za-z0-9_]*>`).ReplaceAllString(route, `{param}`)
-	route = regexp.MustCompile(`\[\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]\]`).ReplaceAllString(route, `{param}`)
-	route = regexp.MustCompile(`\[\.{0,3}[A-Za-z_][A-Za-z0-9_]*\]`).ReplaceAllString(route, `{param}`)
-	route = regexp.MustCompile(`\*[A-Za-z_][A-Za-z0-9_]*`).ReplaceAllString(route, `{param}`)
-	route = regexp.MustCompile(`:([A-Za-z_][A-Za-z0-9_]*)`).ReplaceAllString(route, `{param}`)
-	return prefix + route
-}
-
-func workspaceGraphGraphQLCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
-	var edges []workspaceGraphCrossEdge
-	for _, aggregate := range index {
-		if aggregate.Type != "HANDLES_GRAPHQL" || !strings.HasPrefix(aggregate.Endpoint, "external:graphql:") {
-			continue
-		}
-		var targets []workspaceGraphSymbolRef
-		var operations []workspaceGraphSymbolRef
-		var schemaFields []workspaceGraphSymbolRef
-		var resolvers []workspaceGraphSymbolRef
-		for _, participant := range aggregate.Participants {
-			if participant.Kind == "graphql_resolver" || participant.Kind == "graphql_schema_field" {
-				targets = append(targets, participant)
-				if participant.Kind == "graphql_schema_field" {
-					schemaFields = append(schemaFields, participant)
-				} else {
-					resolvers = append(resolvers, participant)
-				}
-			} else {
-				operations = append(operations, participant)
-			}
-		}
-		sortWorkspaceGraphSymbolRefs(operations)
-		sortWorkspaceGraphSymbolRefs(targets)
-		sortWorkspaceGraphSymbolRefs(schemaFields)
-		sortWorkspaceGraphSymbolRefs(resolvers)
-		for _, operation := range operations {
-			for _, target := range targets {
-				if operation.RepoKey == target.RepoKey {
-					continue
-				}
-				relationKind := "cross_repo_graphql_call"
-				if target.Kind == "graphql_schema_field" {
-					relationKind = "cross_repo_graphql_schema"
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     aggregate.Endpoint,
-					Type:         "CALLS",
-					FromRepo:     operation.RepoKey,
-					ToRepo:       target.RepoKey,
-					FromSymbol:   operation,
-					ToSymbol:     target,
-					SharedCount:  operation.Count + target.Count,
-					RelationKind: relationKind,
-				})
-			}
-		}
-		for _, schemaField := range schemaFields {
-			for _, resolver := range resolvers {
-				if schemaField.RepoKey == resolver.RepoKey {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     aggregate.Endpoint,
-					Type:         "CALLS",
-					FromRepo:     schemaField.RepoKey,
-					ToRepo:       resolver.RepoKey,
-					FromSymbol:   schemaField,
-					ToSymbol:     resolver,
-					SharedCount:  schemaField.Count + resolver.Count,
-					RelationKind: "cross_repo_graphql_schema_resolver",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceGraphChannelCrossEdges(index map[string]*workspaceExternalContractAggregate, limit int) []workspaceGraphCrossEdge {
-	emittersByEndpoint := map[string][]workspaceGraphSymbolRef{}
-	listenersByEndpoint := map[string][]workspaceGraphSymbolRef{}
-	for _, aggregate := range index {
-		if !strings.HasPrefix(aggregate.Endpoint, "external:channel:") {
-			continue
-		}
-		switch aggregate.Type {
-		case "EMITS":
-			emittersByEndpoint[aggregate.Endpoint] = append(emittersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
-		case "LISTENS_ON":
-			listenersByEndpoint[aggregate.Endpoint] = append(listenersByEndpoint[aggregate.Endpoint], aggregate.Participants...)
-		}
-	}
-	var edges []workspaceGraphCrossEdge
-	for endpoint, emitters := range emittersByEndpoint {
-		listeners := listenersByEndpoint[endpoint]
-		if len(emitters) == 0 || len(listeners) == 0 {
-			continue
-		}
-		sortWorkspaceGraphSymbolRefs(emitters)
-		sortWorkspaceGraphSymbolRefs(listeners)
-		for _, emitter := range emitters {
-			for _, listener := range listeners {
-				if emitter.RepoKey == listener.RepoKey {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     endpoint,
-					Type:         "EMITS",
-					FromRepo:     emitter.RepoKey,
-					ToRepo:       listener.RepoKey,
-					FromSymbol:   emitter,
-					ToSymbol:     listener,
-					SharedCount:  emitter.Count + listener.Count,
-					RelationKind: "cross_repo_channel_flow",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceGraphResourceCrossEdges(index map[string]*workspaceExternalContractAggregate, indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
-	candidatesByRepo := map[string][]workspaceGraphSymbolRef{}
-	for _, repoIndex := range indexes {
-		candidatesByRepo[repoIndex.RepoKey] = repoIndex.Candidates
-	}
-	var edges []workspaceGraphCrossEdge
-	for _, aggregate := range index {
-		if aggregate.Type != "RESOURCE_DEPENDS_ON" {
-			continue
-		}
-		kind, name, ok := workspaceKubernetesExternalResource(aggregate.Endpoint)
-		if !ok {
-			continue
-		}
-		for _, participant := range aggregate.Participants {
-			for repoKey, candidates := range candidatesByRepo {
-				if repoKey == participant.RepoKey {
-					continue
-				}
-				target, ok := workspaceResourceTargetCandidate(candidates, kind, name)
-				if !ok {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     aggregate.Endpoint,
-					Type:         aggregate.Type,
-					FromRepo:     participant.RepoKey,
-					ToRepo:       repoKey,
-					FromSymbol:   participant,
-					ToSymbol:     target,
-					SharedCount:  participant.Count,
-					RelationKind: "cross_repo_resource_candidate",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func workspaceGraphExternalSymbolCrossEdges(indexes []workspaceRepoGraphIndex, limit int) []workspaceGraphCrossEdge {
-	var edges []workspaceGraphCrossEdge
-	for _, fromRepo := range indexes {
-		for _, ref := range fromRepo.ExternalSymbols {
-			for _, toRepo := range indexes {
-				if fromRepo.RepoKey == toRepo.RepoKey {
-					continue
-				}
-				target, ok := workspaceExternalSymbolTarget(toRepo.Candidates, ref.Spec)
-				if !ok {
-					continue
-				}
-				edges = keepWorkspaceGraphEdge(edges, limit, workspaceGraphCrossEdge{
-					Endpoint:     "external:symbol:" + ref.Spec,
-					Type:         ref.Type,
-					FromRepo:     fromRepo.RepoKey,
-					ToRepo:       toRepo.RepoKey,
-					FromSymbol:   ref.Source,
-					ToSymbol:     target,
-					SharedCount:  ref.Count,
-					RelationKind: "cross_repo_external_symbol",
-				})
-			}
-		}
-	}
-	sortWorkspaceGraphCrossEdges(edges)
-	if len(edges) > limit {
-		edges = edges[:limit]
-	}
-	if edges == nil {
-		return []workspaceGraphCrossEdge{}
-	}
-	return edges
-}
-
-func sortWorkspaceGraphSymbolRefs(refs []workspaceGraphSymbolRef) {
-	sort.Slice(refs, func(i, j int) bool {
-		if refs[i].RepoKey != refs[j].RepoKey {
-			return refs[i].RepoKey < refs[j].RepoKey
-		}
-		if refs[i].FilePath != refs[j].FilePath {
-			return refs[i].FilePath < refs[j].FilePath
-		}
-		if refs[i].QualifiedName != refs[j].QualifiedName {
-			return refs[i].QualifiedName < refs[j].QualifiedName
-		}
-		if refs[i].Name != refs[j].Name {
-			return refs[i].Name < refs[j].Name
-		}
-		return refs[i].ID < refs[j].ID
-	})
-}
-
-func workspaceImportMatchesRepo(spec, repoKey string) (string, bool) {
-	return workspaceImportMatchesPrefixes(workspaceNormalizeImportSpec(spec), workspaceRepoImportPrefixes(repoKey))
-}
-
-// workspaceNormalizeImportSpec canonicalizes an import spec (slash separators,
-// trimmed, `::` flattened to `/`) so it can be matched against repo prefixes.
-func workspaceNormalizeImportSpec(spec string) string {
-	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
-	return strings.ReplaceAll(spec, "::", "/")
-}
-
-// workspaceImportMatchesPrefixes reports whether a normalized import spec
-// resolves under one of a repo's precomputed import prefixes, returning the
-// matched subpath. Keeping this separate from workspaceRepoImportPrefixes lets
-// callers hoist the per-repo prefix computation out of hot nested loops.
-func workspaceImportMatchesPrefixes(normalizedSpec string, prefixes []string) (string, bool) {
-	for _, prefix := range prefixes {
-		if normalizedSpec == prefix {
-			return "", true
-		}
-		if strings.HasPrefix(normalizedSpec, prefix+"/") {
-			return strings.TrimPrefix(normalizedSpec, prefix+"/"), true
-		}
-		if strings.HasPrefix(normalizedSpec, prefix+".") {
-			return strings.ReplaceAll(strings.TrimPrefix(normalizedSpec, prefix+"."), ".", "/"), true
-		}
-	}
-	return "", false
-}
-
-func workspaceRepoImportPrefixes(repoKey string) []string {
-	repoKey = strings.Trim(strings.TrimSpace(filepath.ToSlash(repoKey)), "/")
-	parts := strings.Split(repoKey, "/")
-	prefixes := []string{repoKey}
-	if len(parts) >= 3 && parts[0] == "gh" {
-		ownerRepo := strings.Join(parts[1:3], "/")
-		prefixes = append(prefixes, "github.com/"+ownerRepo, ownerRepo, "@"+ownerRepo)
-		if len(parts) >= 5 && parts[3] == "packages" {
-			pkg := strings.Join(parts[4:], "/")
-			prefixes = append(prefixes, "github.com/"+ownerRepo+"/packages/"+pkg, ownerRepo+"/packages/"+pkg, "@"+parts[1]+"/"+pkg)
-			for _, alias := range workspacePackageImportAliases("gh", pkg) {
-				prefixes = append(prefixes, "github.com/"+ownerRepo+"/packages/"+alias, ownerRepo+"/packages/"+alias, "@"+parts[1]+"/"+alias)
-			}
-		}
-	}
-	if len(parts) >= 2 {
-		switch parts[0] {
-		case "cargo", "composer", "gem", "gomod", "npm", "nuget", "pypi":
-			pkg := strings.Join(parts[1:], "/")
-			prefixes = append(prefixes, pkg)
-			prefixes = append(prefixes, workspacePackageImportAliases(parts[0], pkg)...)
-		case "maven":
-			groupArtifact := strings.Join(parts[1:], "/")
-			prefixes = append(prefixes, groupArtifact, strings.ReplaceAll(groupArtifact, "/", "."))
-		}
-	}
-	sort.Slice(prefixes, func(i, j int) bool {
-		if len(prefixes[i]) != len(prefixes[j]) {
-			return len(prefixes[i]) > len(prefixes[j])
-		}
-		return prefixes[i] < prefixes[j]
-	})
-	deduped := prefixes[:0]
-	seen := map[string]bool{}
-	for _, prefix := range prefixes {
-		if prefix == "" || seen[prefix] {
-			continue
-		}
-		deduped = append(deduped, prefix)
-		seen[prefix] = true
-	}
-	return deduped
-}
-
-func workspacePackageImportAliases(ecosystem, pkg string) []string {
-	pkg = strings.Trim(strings.TrimSpace(filepath.ToSlash(pkg)), "/")
-	if pkg == "" {
-		return nil
-	}
-	var aliases []string
-	addHyphenUnderscore := func(value string) {
-		if strings.Contains(value, "-") {
-			aliases = append(aliases, strings.ReplaceAll(value, "-", "_"))
-		}
-		if strings.Contains(value, "_") {
-			aliases = append(aliases, strings.ReplaceAll(value, "_", "-"))
-		}
-	}
-	switch ecosystem {
-	case "cargo", "gh", "pypi":
-		addHyphenUnderscore(pkg)
-	case "gem":
-		// RubyGems often use hyphenated package names and underscored require
-		// paths, while existing exact gem prefixes remain preferred.
-		if strings.Contains(pkg, "-") {
-			aliases = append(aliases, strings.ReplaceAll(pkg, "-", "_"))
-		}
-	}
-	return aliases
-}
-
-func workspaceKubernetesExternalResource(endpoint string) (string, string, bool) {
-	endpoint = strings.TrimSpace(endpoint)
-	for _, parser := range []struct {
-		prefix     string
-		kindPrefix string
-	}{
-		{prefix: "external:config:kubernetes/"},
-		{prefix: "external:config:compose/", kindPrefix: "compose."},
-	} {
-		if !strings.HasPrefix(endpoint, parser.prefix) {
-			continue
-		}
-		rest := strings.Trim(strings.TrimPrefix(endpoint, parser.prefix), "/")
-		parts := strings.Split(rest, "/")
-		if len(parts) != 2 && len(parts) != 3 {
-			return "", "", false
-		}
-		kind := strings.TrimSpace(parts[0])
-		name := strings.TrimSpace(parts[len(parts)-1])
-		if kind == "" || name == "" {
-			return "", "", false
-		}
-		if len(parts) == 3 {
-			namespace := strings.TrimSpace(parts[1])
-			if namespace == "" {
-				return "", "", false
-			}
-			name = namespace + "/" + name
-		}
-		return parser.kindPrefix + kind, name, true
-	}
-	return "", "", false
-}
-
-func workspaceResourceTargetCandidate(candidates []workspaceGraphSymbolRef, kind, name string) (workspaceGraphSymbolRef, bool) {
-	expected := workspaceResourceTargetNames(kind, name)
-	for _, candidate := range candidates {
-		if !strings.EqualFold(candidate.Kind, "resource") {
-			continue
-		}
-		for _, value := range []string{candidate.Name, candidate.QualifiedName} {
-			if !expected[strings.ToLower(strings.TrimSpace(value))] {
-				continue
-			}
-			candidate.Direction = "external_resource_target"
-			return candidate, true
-		}
-	}
-	return workspaceGraphSymbolRef{}, false
-}
-
-func workspaceResourceTargetNames(kind, name string) map[string]bool {
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	name = strings.ToLower(strings.Trim(strings.TrimSpace(name), "/"))
-	out := map[string]bool{}
-	if kind == "" || name == "" {
-		return out
-	}
-	out[kind+"."+strings.ReplaceAll(name, "/", ".")] = true
-	if strings.Contains(name, "/") {
-		_, shortName, ok := strings.Cut(name, "/")
-		if ok && shortName != "" {
-			out[kind+"."+shortName] = true
-		}
-	}
-	return out
-}
-
-func workspaceExternalSymbolTarget(candidates []workspaceGraphSymbolRef, spec string) (workspaceGraphSymbolRef, bool) {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return workspaceGraphSymbolRef{}, false
-	}
-	var matches []workspaceGraphSymbolRef
-	for _, candidate := range candidates {
-		if candidate.ID == "" || strings.EqualFold(candidate.Kind, "file") {
-			continue
-		}
-		if workspaceExternalSymbolMatchesCandidate(spec, candidate) {
-			candidate.Direction = "external_symbol_target"
-			matches = append(matches, candidate)
-		}
-	}
-	if len(matches) == 0 {
-		return workspaceGraphSymbolRef{}, false
-	}
-	sort.Slice(matches, func(i, j int) bool {
-		leftRank := workspaceExternalSymbolCandidateRank(spec, matches[i])
-		rightRank := workspaceExternalSymbolCandidateRank(spec, matches[j])
-		if leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		if matches[i].FilePath != matches[j].FilePath {
-			return matches[i].FilePath < matches[j].FilePath
-		}
-		if matches[i].QualifiedName != matches[j].QualifiedName {
-			return matches[i].QualifiedName < matches[j].QualifiedName
-		}
-		if matches[i].Name != matches[j].Name {
-			return matches[i].Name < matches[j].Name
-		}
-		return matches[i].ID < matches[j].ID
-	})
-	return matches[0], true
-}
-
-func workspaceExternalSymbolMatchesCandidate(spec string, candidate workspaceGraphSymbolRef) bool {
-	aliases := workspaceExternalSymbolCandidateAliases(candidate)
-	for _, normalized := range workspaceExternalSymbolCandidateSpecs(spec, candidate.RepoKey) {
-		for _, alias := range aliases {
-			if alias == normalized {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func workspaceExternalSymbolCandidateRank(spec string, candidate workspaceGraphSymbolRef) int {
-	normalized := map[string]bool{}
-	for _, value := range workspaceExternalSymbolCandidateSpecs(spec, candidate.RepoKey) {
-		normalized[value] = true
-	}
-	switch {
-	case candidate.QualifiedName == spec:
-		return 0
-	case candidate.Name == spec:
-		return 1
-	case normalized[candidate.QualifiedName]:
-		return 2
-	case normalized[candidate.Name]:
-		return 3
-	case workspaceExternalSymbolMatchesCandidate(spec, candidate):
-		return 4
-	default:
-		return 5
-	}
-}
-
-func workspaceExternalSymbolCandidateAliases(candidate workspaceGraphSymbolRef) []string {
-	seen := map[string]bool{}
-	add := func(value string) {
-		value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
-		if value == "" {
-			return
-		}
-		seen[value] = true
-		seen[strings.ReplaceAll(value, "/", ".")] = true
-	}
-	add(candidate.QualifiedName)
-	add(candidate.Name)
-	if candidate.FilePath != "" && candidate.Name != "" {
-		path := strings.TrimSuffix(strings.Trim(filepath.ToSlash(candidate.FilePath), "/"), filepath.Ext(candidate.FilePath))
-		if path != "" {
-			add(path + "/" + candidate.Name)
-			add(path + "." + candidate.Name)
-			parts := strings.Split(path, "/")
-			for i := 1; i < len(parts); i++ {
-				add(strings.Join(parts[i:], "/") + "/" + candidate.Name)
-				add(strings.Join(parts[i:], ".") + "." + candidate.Name)
-			}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for alias := range seen {
-		out = append(out, alias)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func workspaceExternalSymbolCandidateSpecs(spec, repoKey string) []string {
-	spec = strings.Trim(strings.TrimSpace(filepath.ToSlash(spec)), "/")
-	colonSpec := strings.ReplaceAll(spec, "::", "/")
-	seen := map[string]bool{}
-	add := func(value string) {
-		value = strings.Trim(strings.TrimSpace(filepath.ToSlash(value)), "/")
-		if value != "" {
-			seen[value] = true
-			seen[strings.ReplaceAll(value, "/", ".")] = true
-		}
-	}
-	add(spec)
-	add(colonSpec)
-	for _, prefix := range workspaceRepoImportPrefixes(repoKey) {
-		prefix = strings.Trim(strings.TrimSpace(filepath.ToSlash(prefix)), "/")
-		if prefix == "" {
-			continue
-		}
-		for _, candidateSpec := range []string{spec, colonSpec} {
-			for _, sep := range []string{"/", "."} {
-				if strings.HasPrefix(candidateSpec, prefix+sep) {
-					add(strings.TrimPrefix(candidateSpec, prefix+sep))
-				}
-			}
-		}
-	}
-	keys := make([]string, 0, len(seen))
-	for key := range seen {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	return keys
-}
-
-func workspaceImportTargetCandidate(candidates []workspaceGraphSymbolRef, subpath string) (workspaceGraphSymbolRef, bool) {
-	subpath = strings.Trim(strings.TrimSpace(filepath.ToSlash(subpath)), "/")
-	matchesSubpath := func(path string) bool {
-		return workspaceImportPathMatchesSubpath(path, subpath)
-	}
-	var symbolMatches []workspaceGraphSymbolRef
-	for _, candidate := range candidates {
-		if workspaceImportSymbolMatchesSubpath(candidate, subpath) {
-			candidate.Direction = "import_symbol_target"
-			symbolMatches = append(symbolMatches, candidate)
-		}
-	}
-	if len(symbolMatches) > 0 {
-		sort.Slice(symbolMatches, func(i, j int) bool {
-			leftRank := workspaceImportSymbolCandidateRank(symbolMatches[i], subpath)
-			rightRank := workspaceImportSymbolCandidateRank(symbolMatches[j], subpath)
-			if leftRank != rightRank {
-				return leftRank < rightRank
-			}
-			if symbolMatches[i].FilePath != symbolMatches[j].FilePath {
-				return symbolMatches[i].FilePath < symbolMatches[j].FilePath
-			}
-			if symbolMatches[i].QualifiedName != symbolMatches[j].QualifiedName {
-				return symbolMatches[i].QualifiedName < symbolMatches[j].QualifiedName
-			}
-			if symbolMatches[i].Name != symbolMatches[j].Name {
-				return symbolMatches[i].Name < symbolMatches[j].Name
-			}
-			return symbolMatches[i].ID < symbolMatches[j].ID
-		})
-		return symbolMatches[0], true
-	}
-	var filtered []workspaceGraphSymbolRef
-	for _, candidate := range candidates {
-		if matchesSubpath(candidate.FilePath) {
-			candidate.Direction = "import_path_target"
-			filtered = append(filtered, candidate)
-		}
-	}
-	if len(filtered) == 0 && subpath != "" {
-		filtered = append(filtered, candidates...)
-	}
-	if len(filtered) == 0 {
-		return workspaceGraphSymbolRef{}, false
-	}
-	sort.Slice(filtered, func(i, j int) bool {
-		leftRank := workspaceImportCandidateRank(filtered[i])
-		rightRank := workspaceImportCandidateRank(filtered[j])
-		if leftRank != rightRank {
-			return leftRank < rightRank
-		}
-		if filtered[i].FilePath != filtered[j].FilePath {
-			return filtered[i].FilePath < filtered[j].FilePath
-		}
-		if filtered[i].QualifiedName != filtered[j].QualifiedName {
-			return filtered[i].QualifiedName < filtered[j].QualifiedName
-		}
-		if filtered[i].Name != filtered[j].Name {
-			return filtered[i].Name < filtered[j].Name
-		}
-		return filtered[i].ID < filtered[j].ID
-	})
-	return filtered[0], true
-}
-
-func workspaceImportPathMatchesSubpath(path, subpath string) bool {
-	path = strings.Trim(filepath.ToSlash(path), "/")
-	subpath = strings.Trim(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/")), "/")
-	path = strings.TrimSuffix(path, filepath.Ext(path))
-	for _, variant := range workspaceImportSubpathVariants(subpath) {
-		if variant == "" {
-			return true
-		}
-		if path == variant || strings.HasPrefix(path, variant+"/") {
-			return true
-		}
-		parts := strings.Split(path, "/")
-		for i := 1; i < len(parts); i++ {
-			suffix := strings.Join(parts[i:], "/")
-			if suffix == variant || strings.HasPrefix(suffix, variant+"/") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func workspaceImportSubpathVariants(subpath string) []string {
-	subpath = strings.Trim(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/")), "/")
-	variants := []string{subpath}
-	parts := strings.Split(subpath, "/")
-	if len(parts) > 0 && regexp.MustCompile(`^v[2-9][0-9]*$`).MatchString(parts[0]) {
-		variants = append(variants, strings.Join(parts[1:], "/"))
-	}
-	return variants
-}
-
-func workspaceImportSymbolMatchesSubpath(candidate workspaceGraphSymbolRef, subpath string) bool {
-	if candidate.ID == "" || strings.EqualFold(candidate.Kind, "file") || subpath == "" {
-		return false
-	}
-	for _, name := range workspaceImportSymbolNames(subpath) {
-		if candidate.Name == name || candidate.QualifiedName == name {
-			return true
-		}
-		if strings.HasSuffix(candidate.QualifiedName, "."+name) || strings.HasSuffix(candidate.QualifiedName, "/"+name) {
-			return true
-		}
-	}
-	return false
-}
-
-func workspaceImportSymbolCandidateRank(candidate workspaceGraphSymbolRef, subpath string) int {
-	names := workspaceImportSymbolNames(subpath)
-	for _, name := range names {
-		if candidate.QualifiedName == name {
-			return 0
-		}
-	}
-	for _, name := range names {
-		if candidate.Name == name {
-			return 1
-		}
-	}
-	for _, name := range names {
-		if strings.HasSuffix(candidate.QualifiedName, "."+name) || strings.HasSuffix(candidate.QualifiedName, "/"+name) {
-			return 2
-		}
-	}
-	return 3
-}
-
-func workspaceImportSymbolNames(subpath string) []string {
-	subpath = strings.Trim(strings.TrimSpace(filepath.ToSlash(strings.ReplaceAll(subpath, "::", "/"))), "/")
-	if subpath == "" {
-		return nil
-	}
-	seen := map[string]bool{}
-	add := func(value string) {
-		value = strings.Trim(strings.TrimSpace(value), ". /")
-		if value != "" {
-			seen[value] = true
-		}
-	}
-	add(subpath)
-	add(strings.ReplaceAll(subpath, "/", "."))
-	parts := strings.FieldsFunc(subpath, func(r rune) bool { return r == '/' || r == '.' })
-	if len(parts) > 0 {
-		add(parts[len(parts)-1])
-	}
-	out := make([]string, 0, len(seen))
-	for value := range seen {
-		out = append(out, value)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if len(out[i]) != len(out[j]) {
-			return len(out[i]) > len(out[j])
-		}
-		return out[i] < out[j]
-	})
-	return out
-}
-
-// workspaceImportCandidateRank orders the symbols a cross-repo import edge may
-// point at, best first.
-//
-// Prose ranks BELOW every file. A repository's symbol table carries its
-// Markdown headings as `section` symbols, `section` fell into the default arm
-// alongside every real code symbol, and the tie was then broken by file path --
-// where `README.md` sorts ahead of `client/client.go`, `money/money.go` and
-// everything else. So a root-package import (`@owner/pkg`, `github.com/o/p`,
-// with no subpath to match a symbol name against) resolved to the target
-// repository's README heading, every time, in preference to its actual API:
-//
-//	web-dash imports @fleetk7q3z9/api-client
-//	  -> api-client README.md section:api-client     (was)
-//	  -> api-client client/client.go type:Client     (now)
-//
-// The edge is what tells an agent where a cross-repo dependency LANDS, so
-// pointing it at documentation is worse than pointing it at nothing: the target
-// is real, plausible, and never the code that would have to change.
-func workspaceImportCandidateRank(candidate workspaceGraphSymbolRef) int {
-	if workspaceDocumentationSymbolKinds[strings.ToLower(strings.TrimSpace(candidate.Kind))] {
-		return 3
-	}
-	switch strings.ToLower(candidate.Kind) {
-	case "package", "module", "namespace", "project":
-		return 0
-	case "file":
-		return 2
-	default:
-		return 1
-	}
-}
-
-// workspaceDocumentationSymbolKinds are the symbol kinds that describe prose
-// rather than code. They are still legitimate import targets when nothing else
-// matches -- a docs-only repository has nothing better to offer -- so they are
-// ranked last rather than filtered out.
-var workspaceDocumentationSymbolKinds = map[string]bool{
-	"section":   true,
-	"heading":   true,
-	"chapter":   true,
-	"doc":       true,
-	"document":  true,
-	"paragraph": true,
-}
-
-func workspaceGraphEdgeLess(a, b workspaceGraphCrossEdge) bool {
-	if a.SharedCount != b.SharedCount {
-		return a.SharedCount > b.SharedCount
-	}
-	for _, pair := range [][2]string{{a.RelationKind, b.RelationKind}, {a.Type, b.Type}, {a.Endpoint, b.Endpoint}, {a.FromRepo, b.FromRepo}, {a.ToRepo, b.ToRepo}, {a.FromSymbol.ID, b.FromSymbol.ID}, {a.ToSymbol.ID, b.ToSymbol.ID}} {
-		if pair[0] != pair[1] {
-			return pair[0] < pair[1]
-		}
-	}
-	return false
-}
-
-func sortWorkspaceGraphCrossEdges(edges []workspaceGraphCrossEdge) {
-	sort.Slice(edges, func(i, j int) bool { return workspaceGraphEdgeLess(edges[i], edges[j]) })
-}
-
-// keepWorkspaceGraphEdge retains the best limit edges while candidates stream in.
-// It allocates O(limit) storage instead of retaining every cross-repository pair.
-func keepWorkspaceGraphEdge(edges []workspaceGraphCrossEdge, limit int, edge workspaceGraphCrossEdge) []workspaceGraphCrossEdge {
-	if limit <= 0 {
-		return edges
-	}
-	if len(edges) == limit && !workspaceGraphEdgeLess(edge, edges[len(edges)-1]) {
-		return edges
-	}
-	// Ranking includes the occurrence count; identity does not. Canonical routes
-	// and channels can contribute the same pair with different counts. Keep its
-	// strongest candidate without allowing duplicates to consume the limit.
-	for i, existing := range edges {
-		if existing.RelationKind == edge.RelationKind && existing.Type == edge.Type && existing.Endpoint == edge.Endpoint &&
-			existing.FromRepo == edge.FromRepo && existing.ToRepo == edge.ToRepo &&
-			existing.FromSymbol.ID == edge.FromSymbol.ID && existing.ToSymbol.ID == edge.ToSymbol.ID {
-			if !workspaceGraphEdgeLess(edge, existing) {
-				return edges
-			}
-			copy(edges[i:], edges[i+1:])
-			edges = edges[:len(edges)-1]
-			break
-		}
-	}
-	at := sort.Search(len(edges), func(i int) bool { return !workspaceGraphEdgeLess(edges[i], edge) })
-	if at < len(edges) && !workspaceGraphEdgeLess(edge, edges[at]) {
-		return edges
-	}
-	if len(edges) < limit {
-		edges = append(edges, workspaceGraphCrossEdge{})
-	}
-	copy(edges[at+1:], edges[at:len(edges)-1])
-	edges[at] = edge
-	return edges
 }
 
 func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspaceRetrieveOptions, mode retrievalMode, workspaceName, query string) error {
@@ -2456,7 +1015,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if ropts.hasConversationOnlyFilters() && ropts.Source != retrievalSourceConversation {
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -2608,7 +1167,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
 }
 
-func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspaceManifest) ([]retrievalPrivacyPolicy, map[string]string, error) {
+func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspace.Manifest) ([]retrievalPrivacyPolicy, map[string]string, error) {
 	policies := make([]retrievalPrivacyPolicy, 0, len(manifest.Repos))
 	byRepo := make(map[string]string, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
@@ -2633,7 +1192,7 @@ func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspaceM
 // transcript-derived projections are clean before a workspace aggregate is
 // read. Policy capture alone only proves the tombstone file did not change; it
 // cannot make a corpus built before an already-present tombstone safe.
-func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspaceManifest) ([]retrievalPrivacyPolicy, error) {
+func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspace.Manifest) ([]retrievalPrivacyPolicy, error) {
 	policies, _, err := captureWorkspaceRetrievalPrivacyPolicies(env, manifest)
 	if err != nil {
 		return nil, err
@@ -2652,7 +1211,7 @@ func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspaceManife
 	// Workspace pattern/theme/family rows live in their own aggregate corpus.
 	// Give that Brain the same final-emission proof as every member so a corpus
 	// alias or replacement after assembly cannot be collapsed into empty output.
-	wsDir, err := workspaceDir(env, manifest.Name)
+	wsDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -2669,7 +1228,7 @@ func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspaceManife
 }
 
 func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -2691,7 +1250,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		return err
 	}
 	if derivedAggregate {
-		wsDir, dirErr := workspaceDir(opts.Env, workspaceName)
+		wsDir, dirErr := workspaceStore(opts.Env).Dir(workspaceName)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -2699,7 +1258,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 			return safetyErr
 		}
 	}
-	members := make(map[string]workspaceRepo, len(manifest.Repos))
+	members := make(map[string]workspace.Repo, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
 		members[repo.RepoKey] = repo
 	}
@@ -2840,7 +1399,7 @@ func retrieveWorkspaceGraphCrossEdges(env EntireEnv, workspaceName, query string
 	scoredEdges := make([]scored, 0, len(payload.CrossEdges))
 	for _, edge := range payload.CrossEdges {
 		result := workspaceGraphCrossEdgeUnified(edge)
-		score := workspaceGraphSearchScore(result.Text, query)
+		score := workspace.GraphSearchScore(result.Text, query)
 		if score <= 0 {
 			continue
 		}
@@ -2884,7 +1443,7 @@ func getWorkspaceLevelRecord(env EntireEnv, workspaceName, id string) (unifiedRe
 }
 
 func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
-	dir, err := workspaceDir(env, workspaceName)
+	dir, err := workspaceStore(env).Dir(workspaceName)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -2896,7 +1455,7 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	manifest, err := loadWorkspaceManifest(env, workspaceName)
+	manifest, err := workspaceStore(env).LoadManifest(workspaceName)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -2905,14 +1464,14 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 		return workspaceGraphPayload{}, err
 	}
 	if payload.Generation == "" || payload.Generation != generation {
-		return workspaceGraphPayload{Workspace: workspaceName, CrossEdges: []workspaceGraphCrossEdge{}}, nil
+		return workspaceGraphPayload{Workspace: workspaceName, CrossEdges: []workspace.CrossEdge{}}, nil
 	}
 	return payload, nil
 }
 
-func workspaceGraphCrossEdgeUnified(edge workspaceGraphCrossEdge) unifiedResult {
-	fromName := workspaceGraphSymbolDisplay(edge.FromSymbol)
-	toName := workspaceGraphSymbolDisplay(edge.ToSymbol)
+func workspaceGraphCrossEdgeUnified(edge workspace.CrossEdge) unifiedResult {
+	fromName := workspace.GraphSymbolDisplay(edge.FromSymbol)
+	toName := workspace.GraphSymbolDisplay(edge.ToSymbol)
 	text := strings.Join(strings.Fields(fmt.Sprintf(
 		"%s %s connects %s/%s to %s/%s through endpoint %s type %s shared_count %d from_path %s to_path %s",
 		edge.RelationKind,
@@ -2929,76 +1488,11 @@ func workspaceGraphCrossEdgeUnified(edge workspaceGraphCrossEdge) unifiedResult 
 	)), " ")
 	return unifiedResult{
 		Source:  "workspace_graph",
-		ID:      workspaceGraphCrossEdgeID(edge),
-		Path:    workspaceGraphCrossEdgePath(edge),
+		ID:      workspace.GraphCrossEdgeID(edge),
+		Path:    workspace.GraphCrossEdgePath(edge),
 		Heading: edge.RelationKind,
 		Text:    text,
 	}
-}
-
-func workspaceGraphCrossEdgeID(edge workspaceGraphCrossEdge) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(edge.RelationKind))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.Type))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.Endpoint))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.FromRepo))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.FromSymbol.ID))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.ToRepo))
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(edge.ToSymbol.ID))
-	return fmt.Sprintf("graph:%016x", h.Sum64())
-}
-
-func workspaceGraphCrossEdgePath(edge workspaceGraphCrossEdge) string {
-	from := strings.TrimSpace(edge.FromSymbol.FilePath)
-	to := strings.TrimSpace(edge.ToSymbol.FilePath)
-	switch {
-	case from != "" && to != "":
-		return edge.FromRepo + ":" + from + " -> " + edge.ToRepo + ":" + to
-	case from != "":
-		return edge.FromRepo + ":" + from
-	case to != "":
-		return edge.ToRepo + ":" + to
-	default:
-		return edge.FromRepo + " -> " + edge.ToRepo
-	}
-}
-
-func workspaceGraphSymbolDisplay(symbol workspaceGraphSymbolRef) string {
-	for _, value := range []string{symbol.QualifiedName, symbol.Name, symbol.ID} {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return "(unknown)"
-}
-
-func workspaceGraphSearchScore(text, query string) float64 {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return 0
-	}
-	text = strings.ToLower(text)
-	terms := strings.Fields(query)
-	if len(terms) == 0 {
-		return 0
-	}
-	var matched int
-	for _, term := range terms {
-		if strings.Contains(text, term) {
-			matched++
-		}
-	}
-	if matched == 0 {
-		return 0
-	}
-	return float64(matched) / float64(len(terms))
 }
 
 // workspaceMemberBranch picks the facts branch for a member brain. Workspace
@@ -3039,7 +1533,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 // refresh always runs (no watch cursor), spends no agent tokens, and one
 // member's failure never aborts the others. refreshRepo is injected so the
 // fan-out is testable without a real refresh (matching workspaceWatchLoop).
-func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, manifest workspaceManifest, refreshRepo func(repoDir string) error) error {
+func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, manifest workspace.Manifest, refreshRepo func(repoDir string) error) error {
 	dirs, err := resolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
@@ -3064,7 +1558,7 @@ func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, mani
 // repo key must still match the member's. This is the gate every workspace
 // fan-out that touches a member's working tree (watch, refresh --full) applies
 // before acting on a repo.
-func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, repo workspaceRepo) (string, error) {
+func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, repo workspace.Repo) (string, error) {
 	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, repo.LocalPathHint)
 	if err != nil || !local {
 		return "", errors.New("no resolvable local path")
@@ -3080,16 +1574,16 @@ func resolveWorkspaceMemberRepoDir(ctx context.Context, opts Options, _ string, 
 	return repoDir, nil
 }
 
-func workspaceFreshness(ctx context.Context, opts Options, manifest workspaceManifest) ([]workspaceRepoFreshness, error) {
-	var result []workspaceRepoFreshness
+func workspaceFreshness(ctx context.Context, opts Options, manifest workspace.Manifest) ([]workspace.RepoFreshness, error) {
+	var result []workspace.RepoFreshness
 	for _, repo := range manifest.Repos {
 		result = append(result, workspaceRepoFreshnessForRepo(ctx, opts, repo))
 	}
 	return result, nil
 }
 
-func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo workspaceRepo) workspaceRepoFreshness {
-	status := workspaceRepoFreshness{RepoKey: repo.RepoKey, Name: repo.Name}
+func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo workspace.Repo) workspace.RepoFreshness {
+	status := workspace.RepoFreshness{RepoKey: repo.RepoKey, Name: repo.Name}
 	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
 		status.State = "unsafe"
@@ -3133,7 +1627,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		return status
 	}
 	hintKey := storage.Key
-	if workspaceRepoKeyMismatch(repo.RepoKey, hintKey) {
+	if workspace.RepoKeyMismatch(repo.RepoKey, hintKey) {
 		// The tree the hint points at is a DIFFERENT repo than the registered brain → scanning would
 		// manufacture bogus regressions. This is the genuine block case.
 		status.State = "unsafe"
@@ -3184,14 +1678,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 	return status
 }
 
-func workspaceRepoKeyMismatch(registered, hint string) bool {
-	if registered == hint {
-		return false
-	}
-	return true
-}
-
-func workspaceSemanticSource(ctx context.Context, opts Options, repo workspaceRepo, brainDir string) (*semanticSourceManifest, error) {
+func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.Repo, brainDir string) (*semanticSourceManifest, error) {
 	if repo.LocalPathHint == "" {
 		return nil, errors.New("Graph inspection requires a local repository checkout")
 	}
@@ -3213,196 +1700,6 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspaceRe
 		}
 	}
 	return source, nil
-}
-
-// workspaceDir resolves a workspace's home at <data>/workspaces/<name> — a
-// SIBLING of the repos/ tree, not inside it. Workspaces are not repos:
-// keeping them under repos/ parked a magic "workspaces" directory in the
-// middle of the repo keyspace (an unknown host slug or hand-edited
-// DomainSlugs entry could legitimately claim the same segment and collide),
-// and forced any future repos/-enumerator to know to skip it. Manifests
-// written by older builds under repos/workspaces/<name> are migrated lazily
-// on first touch (a directory rename; the payload is kilobytes).
-func workspaceDir(env EntireEnv, name string) (string, error) {
-	if err := validateWorkspaceName(name); err != nil {
-		return "", err
-	}
-	dirs, err := resolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	workspaceRoot := filepath.Join(dirs.Data, workspaceDirName)
-	if err := rejectBrainRootPathSymlinks(workspaceRoot, name); err != nil {
-		return "", err
-	}
-	dir := filepath.Join(workspaceRoot, name)
-	if err := migrateLegacyWorkspaceDir(dirs.Data, name, dir); err != nil {
-		return "", err
-	}
-	return dir, nil
-}
-
-// migrateLegacyWorkspaceDir moves a pre-relocation workspace
-// (<data>/repos/workspaces/<name>) to its new home on first touch. A no-op
-// when the legacy dir is absent or the new dir already exists (the new copy
-// wins: it is the one current builds have been writing to).
-func migrateLegacyWorkspaceDir(dataDir, name, newDir string) error {
-	legacyRoot := filepath.Join(dataDir, repoStoreDirName)
-	legacy := filepath.Join(legacyRoot, workspaceDirName, name)
-	info, err := os.Lstat(legacy)
-	if err != nil || info.Mode()&os.ModeSymlink != 0 {
-		// Absent, unreadable, or a SYMLINK: never migrate. Renaming a symlink
-		// would move the link itself into the new home, making every future
-		// workspace write flow through an attacker-placed target.
-		return nil
-	}
-	if rejectBrainRootPathSymlinks(legacyRoot, filepath.Join(workspaceDirName, name)) != nil {
-		return nil // tampered legacy tree (symlinked root/components): leave it alone
-	}
-	if _, err := os.Stat(newDir); err == nil {
-		return nil // the new copy wins: it is the one current builds write to
-	}
-	if err := os.MkdirAll(filepath.Dir(newDir), 0o700); err != nil {
-		return err
-	}
-	if err := os.Rename(legacy, newDir); err != nil {
-		return fmt.Errorf("migrate workspace %s to %s: %w", name, newDir, err)
-	}
-	return nil
-}
-
-func loadWorkspaceManifest(env EntireEnv, name string) (workspaceManifest, error) {
-	if err := validateWorkspaceName(name); err != nil {
-		return workspaceManifest{}, err
-	}
-	dir, err := workspaceDir(env, name)
-	if err != nil {
-		return workspaceManifest{}, err
-	}
-	path := filepath.Join(dir, workspaceManifestName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return workspaceManifest{}, err
-	}
-	var manifest workspaceManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return workspaceManifest{}, err
-	}
-	if manifest.SchemaVersion != workspaceSchemaVersion {
-		return workspaceManifest{}, fmt.Errorf("unsupported workspace schema_version: %d", manifest.SchemaVersion)
-	}
-	if manifest.Name != name {
-		return workspaceManifest{}, fmt.Errorf("workspace name mismatch: %s", manifest.Name)
-	}
-	for _, repo := range manifest.Repos {
-		if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
-			return workspaceManifest{}, err
-		}
-	}
-	return manifest, nil
-}
-
-func writeWorkspaceManifest(env EntireEnv, manifest workspaceManifest) error {
-	if err := validateWorkspaceName(manifest.Name); err != nil {
-		return err
-	}
-	for _, repo := range manifest.Repos {
-		if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
-			return err
-		}
-	}
-	manifest.SchemaVersion = workspaceSchemaVersion
-	sortWorkspaceRepos(manifest.Repos)
-	dir, err := workspaceDir(env, manifest.Name)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(dir, workspaceManifestName), data, 0o600); err != nil {
-		return err
-	}
-	return writeFileAtomic(filepath.Join(dir, workspaceReadmeName), []byte(renderWorkspaceReadme(manifest)), 0o600)
-}
-
-// workspaceRepoNameMaxLength bounds the workspace-local display name. It is a
-// label a person reads in a list, not a key: 64 characters is past anything
-// anyone types deliberately and far short of the 5000-character value that
-// motivated the bound.
-const workspaceRepoNameMaxLength = 64
-
-// validateWorkspaceRepoName applies the workspace name's own rules to the
-// display name `workspace add --name` attaches to a member.
-//
-// The two arrived in the manifest through the same command and got opposite
-// treatment: the workspace name was allowlisted, while --name was stored raw,
-// so a 5000-character value and a `../`-laden one both round-tripped into
-// workspace.json and from there, unescaped, into the workspace README. The name
-// never builds a filesystem path, which is why this is not a traversal fix --
-// it is the missing half of one command's input validation.
-//
-// An empty name is not an error: `setup`'s re-registration carries none, and
-// refusing it there would make the display name mandatory.
-func validateWorkspaceRepoName(name string) error {
-	if name == "" {
-		return nil
-	}
-	if len(name) > workspaceRepoNameMaxLength {
-		return fmt.Errorf("workspace repo name must be at most %d characters: %d given", workspaceRepoNameMaxLength, len(name))
-	}
-	if name == "." || name == ".." || strings.Trim(name, ".") == "" || !workspaceNamePattern.MatchString(name) {
-		return fmt.Errorf("workspace repo name must contain only letters, numbers, dots, underscores, or dashes: %s", name)
-	}
-	return nil
-}
-
-func validateWorkspaceName(name string) error {
-	if name == "" || name == "." || name == ".." || strings.Trim(name, ".") == "" || !workspaceNamePattern.MatchString(name) {
-		return fmt.Errorf("workspace name must contain only letters, numbers, dots, underscores, or dashes: %s", name)
-	}
-	return nil
-}
-
-func validateWorkspaceRepoKey(key string) error {
-	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(key)))
-	if key == "" || key == "." || key == ".." || clean != key || strings.HasPrefix(key, "../") || strings.Contains(key, "/../") || filepath.IsAbs(filepath.FromSlash(key)) {
-		return fmt.Errorf("workspace repo_key is unsafe: %s", key)
-	}
-	for _, segment := range strings.Split(key, "/") {
-		if segment == "." || segment == ".." || segment == "" {
-			return fmt.Errorf("workspace repo_key is unsafe: %s", key)
-		}
-	}
-	return nil
-}
-
-func sortWorkspaceRepos(repos []workspaceRepo) {
-	sort.Slice(repos, func(i, j int) bool {
-		return repos[i].RepoKey < repos[j].RepoKey
-	})
-}
-
-func renderWorkspaceReadme(manifest workspaceManifest) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Workspace: %s\n\n", manifest.Name)
-	fmt.Fprintln(&b, "Local-only workspace brain. Repository identity is stored by repo key; path hints are local metadata.")
-	if len(manifest.Repos) > 0 {
-		fmt.Fprintln(&b, "\n## Repositories")
-		for _, repo := range manifest.Repos {
-			label := repo.RepoKey
-			if repo.Name != "" {
-				label = repo.Name + " (" + repo.RepoKey + ")"
-			}
-			fmt.Fprintf(&b, "- `%s`\n", label)
-		}
-	}
-	return b.String()
 }
 
 func writeJSON(cmd *cobra.Command, value any) error {
@@ -3476,8 +1773,8 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	// bulk-migration path for old installs).
 	names := map[string]struct{}{}
 	for _, root := range []string{
-		filepath.Join(dirs.Data, workspaceDirName),
-		filepath.Join(dirs.Data, repoStoreDirName, workspaceDirName),
+		filepath.Join(dirs.Data, workspace.DirName),
+		filepath.Join(dirs.Data, repoStoreDirName, workspace.DirName),
 	} {
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -3492,19 +1789,19 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 			}
 		}
 	}
-	var summaries []workspaceSummary
+	var summaries []workspace.Summary
 	for name := range names {
-		manifest, err := loadWorkspaceManifest(opts.Env, name)
+		manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 		if err != nil {
 			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
 			continue
 		}
-		summaries = append(summaries, workspaceSummary{Name: manifest.Name, Repos: len(manifest.Repos)})
+		summaries = append(summaries, workspace.Summary{Name: manifest.Name, Repos: len(manifest.Repos)})
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
 	if asJSON {
 		return writeJSON(cmd, struct {
-			Workspaces []workspaceSummary `json:"workspaces"`
+			Workspaces []workspace.Summary `json:"workspaces"`
 		}{Workspaces: summaries})
 	}
 	if len(summaries) == 0 {
@@ -3534,7 +1831,7 @@ func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
-	lock, err := acquireWorkspaceManifestLock(opts.Env, workspaceName)
+	lock, err := workspaceStore(opts.Env).AcquireManifestLock(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -3542,11 +1839,11 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 
 	if repoKey == "" {
 		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
-		dir, err := workspaceDir(opts.Env, workspaceName)
+		dir, err := workspaceStore(opts.Env).Dir(workspaceName)
 		if err != nil {
 			return err
 		}
-		if _, err := os.Stat(filepath.Join(dir, workspaceManifestName)); err != nil {
+		if _, err := os.Stat(filepath.Join(dir, workspace.ManifestName)); err != nil {
 			if os.IsNotExist(err) {
 				return fmt.Errorf("workspace not found: %s", workspaceName)
 			}
@@ -3558,11 +1855,11 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
 		return nil
 	}
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
-	kept := make([]workspaceRepo, 0, len(manifest.Repos))
+	kept := make([]workspace.Repo, 0, len(manifest.Repos))
 	removed := false
 	for _, r := range manifest.Repos {
 		if r.RepoKey == repoKey {
@@ -3576,7 +1873,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 	}
 	manifest.Repos = kept
 	manifest.Freshness = nil
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "removed %s from %s\n", repoKey, workspaceName)
@@ -3625,21 +1922,11 @@ func newWorkspaceReviewCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// workspaceFreshnessBlocksScan reports whether a repo's brain↔working-tree pairing is too unsafe to
-// scan. It blocks ONLY on PairingUnsafe — the local_path_hint's repo_key no longer matches (the repo
-// moved/was replaced) or could not be derived — because scanning would then compare one repo's brain
-// against an UNRELATED tree and manufacture bogus "regressions". It deliberately does NOT block on
-// State == "unsafe" alone: a valid pairing with a stale/broken semantic index is still scannable (the
-// detector reads raw sessions regardless of index age) — blocking those would drop real findings.
-func workspaceFreshnessBlocksScan(freshness workspaceRepoFreshness) bool {
-	return freshness.PairingUnsafe
-}
-
 // workspaceFreshnessWarning returns a loud, human-facing annotation for a repo that is scannable but
 // not "ok" (so the result is qualified rather than silently trusted), or "" for ok. Surfaced in both
 // JSON (prepended to result.Warnings) and text output. "unsafe" never reaches here — it blocks the
 // scan in workspaceFreshnessBlocksScan and is reported as a skip instead.
-func workspaceFreshnessWarning(f workspaceRepoFreshness) string {
+func workspaceFreshnessWarning(f workspace.RepoFreshness) string {
 	switch f.State {
 	case "unsafe":
 		// Reached only for a SCANNED repo (PairingUnsafe blocks before this), so "unsafe" here means
@@ -3690,7 +1977,7 @@ func workspaceRepoBlockNeedsHeader(state string, anomalies, warnings int, errTex
 // files to verify against -- and this function used to discard it with `_`. A caller with no count
 // cannot tell "compared the tree and found nothing wrong" from "never opened a file", and the
 // review summary went on to assert the first. See workspaceReviewSummary.
-func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspaceRepo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, bool, string) {
+func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspace.Repo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, bool, string) {
 	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
 		return "", nil, 0, nil, false, err.Error()
@@ -3729,14 +2016,14 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 }
 
 func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
 	return runWorkspaceRegressionsManifest(cmd, opts, ro, manifest, query, nil)
 }
 
-func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
+func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -3753,7 +2040,7 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceRegressionResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		if workspaceFreshnessBlocksScan(freshness) {
+		if workspace.FreshnessBlocksScan(freshness) {
 			result.Error = "skipped (unsafe): " + freshness.Detail
 		} else {
 			repoPath, anomalies, scanned, warnings, truncated, scanErr := scanWorkspaceRepoRegressions(cmd.Context(), opts, repo, ro, query)
@@ -3877,14 +2164,14 @@ func workspaceReviewSummary(checked bool, filesScanned int, historyTruncated boo
 }
 
 func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, workspaceName)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
 	return runWorkspaceReviewManifest(cmd, opts, ro, manifest, query, nil)
 }
 
-func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspaceManifest, query string, skipped []workspaceRepoFreshness) error {
+func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
@@ -3906,7 +2193,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceReviewResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		if workspaceFreshnessBlocksScan(freshness) {
+		if workspace.FreshnessBlocksScan(freshness) {
 			result.Error = "skipped (unsafe): " + freshness.Detail
 			result.Summary = "skipped: brain and working tree cannot be trusted to match."
 			results = append(results, result)
@@ -4020,9 +2307,9 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 // workspaceGraphGeneration binds cached edges to membership and member source
 // generations. A builder that finishes after either changes writes a stale token,
 // which readers reject even if that builder overwrites a newer cache file.
-func workspaceGraphGeneration(env EntireEnv, manifest workspaceManifest) (string, error) {
+func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (string, error) {
 	type memberSource struct {
-		Repo        workspaceRepo   `json:"repo"`
+		Repo        workspace.Repo  `json:"repo"`
 		Manifest    *exportManifest `json:"manifest"`
 		Unavailable bool            `json:"unavailable,omitempty"`
 		GraphDigest string          `json:"graph_digest,omitempty"`

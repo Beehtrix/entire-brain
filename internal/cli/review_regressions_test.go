@@ -19,7 +19,7 @@ import (
 // was an untested path: the full suite passed with each bug present.
 
 // TestInspectRawTextFailsClosedOnUnreadableManifest locks the raw-scan
-// exclusion guard. rawGuard.paths is the ONLY exclusion mechanism in the raw
+// exclusion guard. rawGuard.Paths is the ONLY exclusion mechanism in the raw
 // file walk (a bare file carries no session id to match), and it is populated
 // only from the manifest, so swallowing the manifest load error emptied the
 // guard and scanned tombstoned transcripts. `brain brief` merges these raw

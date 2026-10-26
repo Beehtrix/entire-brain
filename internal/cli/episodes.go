@@ -158,7 +158,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	}
 	defer beforeInventory.Close()
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		if guard.blocksExportSession(session) {
+		if guardBlocksExportSession(guard, session) {
 			continue
 		}
 		rel := strings.TrimSpace(session.TranscriptPath)
@@ -244,7 +244,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		// The guard's identity is the exact tombstone bytes this build
 		// filtered against, so the recorded epoch cannot drift from the
 		// corpus it describes.
-		PrivacyIdentity:     guard.policyIdentity,
+		PrivacyIdentity:     guard.PolicyIdentity,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Episodes:            len(episodes),
 		Reinforcement:       counts,

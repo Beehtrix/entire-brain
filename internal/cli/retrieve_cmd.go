@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"path/filepath"
 	"strings"
@@ -204,7 +205,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -715,7 +716,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return nil, err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return nil, err
 	}

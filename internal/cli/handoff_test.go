@@ -71,7 +71,7 @@ func TestBuildHandoffPacketOmitsExcludedSessionCanary(t *testing.T) {
 	stones := sessionTombstones{Version: brainstore.SessionTombstonesVersion, Excluded: map[string]sessionTombstone{
 		excluded.SessionID: {At: time.Now().UTC()},
 	}}
-	guard := sessionReadGuard{ids: stones.Excluded, paths: excludedTranscriptPaths(manifest, stones)}
+	guard := sessionReadGuard{IDs: stones.Excluded, Paths: excludedTranscriptPaths(manifest, stones)}
 	packet := buildHandoffPacket(manifest, index, facts, "main", 5, time.Now().UTC(), guard)
 	data, err := json.Marshal(packet)
 	if err != nil {

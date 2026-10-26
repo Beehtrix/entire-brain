@@ -136,7 +136,7 @@ func installLatePatternCorpusAlias(t *testing.T, brainDir string) {
 
 func TestPatternDerivedOutputRejectsLateCorpusAliasWithoutBytes(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now().UTC())
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestPatternDerivedOutputRejectsLateCorpusAliasWithoutBytes(t *testing.T) {
 
 func TestPatternDerivedMCPOutputRejectsLateCorpusAliasWithoutFrameBytes(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now().UTC())
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

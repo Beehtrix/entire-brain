@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -76,7 +77,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -226,7 +227,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 			if idx, err := loadBrainHistoryIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
-				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guard.blocksRecord(record) })
+				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guardBlocksRecord(guard, record) })
 				snap.History = dashHistoryViews(records, brainDir, limit)
 				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
@@ -318,7 +319,7 @@ func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map
 	src := manifest.Sources
 	if s := src.Sessions; s != nil {
 		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
-		if len(guards) > 0 && !guards[0].empty() {
+		if len(guards) > 0 && !guards[0].Empty() {
 			visible := guardExportSessions(guards[0], s.Sessions)
 			count, checkpoints = len(visible), 0
 			for _, session := range visible {

@@ -54,7 +54,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !guard.blocksRecord(historyRecord{Path: old}) || !guard.blocksFactAnchor(fact.Provenance[0]) {
+			if !guardBlocksRecord(guard, historyRecord{Path: old}) || !guardBlocksFactAnchor(guard, fact.Provenance[0]) {
 				t.Error("durable path lost from serving guard")
 			}
 			retry, err := buildSessionPurgePlan(b, "secret-sess")

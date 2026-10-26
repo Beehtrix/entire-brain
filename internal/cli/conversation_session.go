@@ -90,7 +90,7 @@ type conversationSessionView struct {
 func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
-		if record.Kind != conversationKind || guard.blocksRecord(record) {
+		if record.Kind != conversationKind || guardBlocksRecord(guard, record) {
 			continue
 		}
 		ref, degraded := recordSessionRef(record, repoKey, manifest)

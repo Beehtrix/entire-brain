@@ -51,7 +51,7 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 					}
 				}
 			},
-			code: memoryErrPrivacyDirty,
+			code: brainstore.PrivacyDirtyCode,
 		},
 		{
 			name: "dirty derived state",
@@ -64,7 +64,7 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 					t.Fatal(err)
 				}
 			},
-			code: memoryErrPrivacyDirty,
+			code: brainstore.PrivacyDirtyCode,
 		},
 		{
 			name: "unknown newer policy",
@@ -109,7 +109,7 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 
 func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,8 +134,8 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 		_, err := fmt.Fprint(cmd.OutOrStdout(), "private abstract\n")
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("late-exclusion output error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("late-exclusion output error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if external.Len() != 0 {
 		t.Fatalf("late exclusion leaked %d bytes: %q", external.Len(), external.String())
@@ -144,7 +144,7 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 
 func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

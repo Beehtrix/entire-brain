@@ -539,7 +539,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
@@ -639,7 +639,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
-		if record.Kind == "decision" && !guard.blocksRecord(record) {
+		if record.Kind == "decision" && !guardBlocksRecord(guard, record) {
 			decisions = append(decisions, record)
 		}
 	}
@@ -1696,8 +1696,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// predicate handed to rankFreshHistory protects the overlay arm.
 			briefGuard := briefPrivacyGuard
 			var briefGuardPred func(historyRecord) bool
-			if !briefGuard.empty() {
-				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
+			if !briefGuard.Empty() {
+				briefGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(briefGuard, r) }
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
@@ -1925,7 +1925,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
 	// legacy JSON, and the compact formats alike, so one wrapper covers all of
 	// them.
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if profile == nil {
 		var packet bytes.Buffer
@@ -5112,7 +5112,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	}
 	// Exclusion guard: the raw walk reads exported transcripts, so a
 	// tombstoned session's transcript (kept on exclude, deleted on purge)
-	// must be skipped here. rawGuard.paths is the ONLY exclusion mechanism in
+	// must be skipped here. rawGuard.Paths is the ONLY exclusion mechanism in
 	// this walk (there is no session id to match against a bare file), and it
 	// is populated only from the manifest, so a manifest that fails to load
 	// must fail the scan rather than silently scanning excluded transcripts.
@@ -5151,7 +5151,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
-		if _, excluded := rawGuard.paths[relSlash]; excluded {
+		if _, excluded := rawGuard.Paths[relSlash]; excluded {
 			return nil
 		}
 		report.Scanned++
@@ -5371,7 +5371,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 	// Exclusion guard, identical to inspectBrainRawText's. This is the
 	// shared product and profiling path, so without this a
 	// tombstoned session's transcript would be scanned here and its lines
-	// merged straight into report.History.Matches. rawGuard.paths is the only
+	// merged straight into report.History.Matches. rawGuard.Paths is the only
 	// exclusion mechanism available in a raw file walk, and it is populated
 	// only from the manifest, so an unreadable manifest must fail the scan
 	// rather than scan unguarded. An absent manifest is not an error.
@@ -5419,7 +5419,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
-		if _, excluded := rawGuard.paths[relSlash]; excluded {
+		if _, excluded := rawGuard.Paths[relSlash]; excluded {
 			return nil
 		}
 		scannedFiles++
@@ -5689,8 +5689,8 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// history context. The serving boundary loaded it fail-closed before
 	// assembling the brief.
 	var fGuardPred func(historyRecord) bool
-	if !fGuard.empty() {
-		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
+	if !fGuard.Empty() {
+		fGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(fGuard, r) }
 	}
 	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a

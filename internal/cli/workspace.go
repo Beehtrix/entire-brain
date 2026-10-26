@@ -1194,7 +1194,7 @@ func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspace.
 		if err != nil {
 			return nil, nil, err
 		}
-		policy, err := captureRetrievalPrivacyPolicy(brainDir)
+		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1221,7 +1221,7 @@ func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspace.Manif
 			return nil, gateErr
 		}
 		if !allowed {
-			return nil, fmt.Errorf("%s: workspace member has unverified transcript-derived projections: %s", memoryErrPrivacyDirty, policy.BrainDir)
+			return nil, fmt.Errorf("%s: workspace member has unverified transcript-derived projections: %s", brainstore.PrivacyDirtyCode, policy.BrainDir)
 		}
 	}
 	// Workspace pattern/theme/family rows live in their own aggregate corpus.
@@ -1231,7 +1231,7 @@ func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspace.Manif
 	if err != nil {
 		return nil, err
 	}
-	wsPolicy, err := captureRetrievalPrivacyPolicy(wsDir)
+	wsPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(wsDir)
 	if err != nil {
 		return nil, err
 	}

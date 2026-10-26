@@ -1643,7 +1643,7 @@ func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessi
 		return err
 	}
 	for _, record := range view.Records {
-		if guard.blocksRecord(record) {
+		if guardBlocksRecord(guard, record) {
 			return fmt.Errorf("%s: session %s is excluded", memoryErrPrivacyExcluded, view.Ref)
 		}
 	}
@@ -1685,7 +1685,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		return sessionAbstract{}, err
 	}
 	defer privacyUnlock()
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return sessionAbstract{}, err
 	}
@@ -2565,7 +2565,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				}
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
-			responsePolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+			responsePolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 			if err != nil {
 				return fail(err)
 			}

@@ -463,7 +463,7 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 	defer func() { rebuildMemoryProjection = oldRebuild }()
 	rebuildMemoryProjection = func(string, time.Time) error { return nil }
 	out, err := execute(t, newMemoryRepairCommand(opts))
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) || !strings.Contains(err.Error(), clibase.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>") {
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) || !strings.Contains(err.Error(), clibase.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>") {
 		t.Fatalf("repair must return actionable dirty-privacy failure: err=%v out=%s", err, out)
 	}
 	if strings.Contains(out, "repair: rebuilt") {

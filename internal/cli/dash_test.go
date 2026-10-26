@@ -61,7 +61,7 @@ func TestDashSessionViewsOmitExcludedMetadata(t *testing.T) {
 		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: "PRIVATE-DASH-CANARY"}},
 		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
 	}
-	guard := sessionReadGuard{ids: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}}
+	guard := sessionReadGuard{IDs: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}}
 	views := dashSessionViews(sessions, "/brain", 0, guard)
 	if len(views) != 1 || views[0].ID != "public" || views[0].Intent != "safe" {
 		t.Fatalf("dashboard exposed excluded session metadata: %+v", views)

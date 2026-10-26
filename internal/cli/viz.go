@@ -131,7 +131,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 
 	srv := &vizServer{
 		repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	// The manifest's RepoKey is the canonical key (it survives nested owner
 	// groups and any store-layout change); the brainDir tail is the fallback.
@@ -246,7 +246,7 @@ func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		policy, err := captureRetrievalPrivacyPolicy(s.brainDir)
+		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(s.brainDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -464,7 +464,7 @@ func (s *vizServer) requestSessionGuard(w http.ResponseWriter) (sessionReadGuard
 		if len(stones.Excluded) == 0 {
 			s.guard = sessionReadGuard{}
 		} else {
-			s.guard = sessionReadGuard{ids: stones.Excluded, paths: excludedTranscriptPaths(s.manifest, stones)}
+			s.guard = sessionReadGuard{IDs: stones.Excluded, Paths: excludedTranscriptPaths(s.manifest, stones)}
 		}
 		return s.guard, true
 	}
@@ -1077,7 +1077,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	recs := make([]historyRecord, 0, len(idx.Records))
 	seen := make(map[string]bool, len(idx.Records))
 	for _, h := range idx.Records {
-		if h.ID == "" || seen[h.ID] || guard.blocksRecord(h) {
+		if h.ID == "" || seen[h.ID] || guardBlocksRecord(guard, h) {
 			continue
 		}
 		seen[h.ID] = true

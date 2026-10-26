@@ -212,7 +212,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 			t.Fatal(err)
 		}
 		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json")
-		if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
 			t.Fatalf("dirty privacy state was not rejected: %v stdout=%s stderr=%s", err, stdout, stderr)
 		}
 		if stdout != "" {

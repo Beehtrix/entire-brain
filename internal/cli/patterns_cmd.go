@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"sort"
@@ -56,7 +57,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -431,7 +432,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -556,7 +557,7 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}

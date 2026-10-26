@@ -297,8 +297,8 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err != nil {
 		return err
 	}
-	if finalPolicy.Identity != guard.policyIdentity {
-		return fmt.Errorf("%s: session tombstones changed while building the pattern corpus", memoryErrPrivacyDirty)
+	if finalPolicy.Identity != guard.PolicyIdentity {
+		return fmt.Errorf("%s: session tombstones changed while building the pattern corpus", brainstore.PrivacyDirtyCode)
 	}
 	// Record a fingerprint for every branch that HAS facts. Branches that only
 	// have sessions need no loop of their own: the freshness gate above calls
@@ -325,7 +325,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
 		"pattern_indexer_version": strconv.Itoa(patternIndexerVersion),
 		"facts_fingerprint":       factFingerprint,
-		"privacy_policy_identity": guard.policyIdentity,
+		"privacy_policy_identity": guard.PolicyIdentity,
 		"repo_key":                repoKey,
 		"generated_at":            now.UTC().Format(time.RFC3339),
 		"sessions_fingerprint": func() string {

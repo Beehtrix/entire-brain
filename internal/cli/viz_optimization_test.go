@@ -242,7 +242,7 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	srv := &vizServer{
 		brainDir: brainDir,
 		manifest: &exportManifest{Sources: &brainSources{History: source}},
-		guard: sessionReadGuard{ids: map[string]sessionTombstone{"secret-session": {
+		guard: sessionReadGuard{IDs: map[string]sessionTombstone{"secret-session": {
 			At: time.Date(2026, time.September, 17, 10, 0, 0, 0, time.UTC),
 		}}},
 	}

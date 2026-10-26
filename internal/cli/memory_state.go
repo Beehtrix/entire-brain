@@ -152,7 +152,7 @@ func memoryErrorCode(err error) string {
 		memoryErrQueryTooBroad,
 		memoryErrInputTooLarge,
 		memoryErrPrivacyExcluded,
-		memoryErrPrivacyDirty,
+		brainstore.PrivacyDirtyCode,
 		brainstore.PrivacyBusyCode,
 		memoryErrIdentityAmbiguous,
 		memoryErrProviderUnavail,

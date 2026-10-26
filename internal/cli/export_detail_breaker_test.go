@@ -169,3 +169,25 @@ func TestRoutedDetailFanoutStopsAskingASlowHost(t *testing.T) {
 		t.Fatalf("skipped checkpoints must fold into ONE warning, got %d:\n%s", breakerWarnings, strings.Join(warnings, "\n"))
 	}
 }
+
+// The persistent-export refusal must name the slow host and say the brain is
+// untouched; the generic wording sends the reader to repair checkpoints that
+// are not broken. Both variants must keep the --output escape hatch.
+func TestRoutedMetadataRefusalNamesTheSlowHost(t *testing.T) {
+	t.Parallel()
+	opened := routedMetadataRefusal(true, []string{"w1"}).Error()
+	for _, want := range []string{"2902", "unchanged", "--output", checkpointScopeIncompleteCode} {
+		if !strings.Contains(opened, want) {
+			t.Fatalf("breaker refusal missing %q: %s", want, opened)
+		}
+	}
+	if strings.Contains(opened, "repair unreadable") {
+		t.Fatalf("breaker refusal must not prescribe per-checkpoint repair: %s", opened)
+	}
+	generic := routedMetadataRefusal(false, []string{"w1"}).Error()
+	for _, want := range []string{"repair unreadable", "--output", checkpointScopeIncompleteCode} {
+		if !strings.Contains(generic, want) {
+			t.Fatalf("generic refusal missing %q: %s", want, generic)
+		}
+	}
+}

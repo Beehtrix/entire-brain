@@ -47,6 +47,18 @@ func newCheckpointDetailBreaker() *checkpointDetailBreaker {
 	return &checkpointDetailBreaker{now: time.Now}
 }
 
+// opened reports whether the breaker has tripped, so the export's refusal can
+// name the slow host instead of telling the reader to repair checkpoints that
+// are not broken.
+func (b *checkpointDetailBreaker) opened() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.open
+}
+
 // do runs one detail read through the breaker. A nil breaker passes reads
 // through untouched, so call sites need no guard.
 func (b *checkpointDetailBreaker) do(fetch func() (checkpointExportEnvelope, error)) (checkpointExportEnvelope, error) {

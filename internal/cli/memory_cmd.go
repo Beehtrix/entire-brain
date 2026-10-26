@@ -452,7 +452,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return 0, receiptErr
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -833,7 +833,7 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return stats, receiptErr
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return stats, err
 	}
@@ -948,7 +948,7 @@ var memoryProjectionClaimsPerPass = 64
 
 func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 		return stats, err
 	}
 	reconcileSnapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
@@ -1090,7 +1090,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
 		}
-		stones, _, err := loadSessionTombstonesChecked(brainDir)
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return err
 		}
@@ -1196,7 +1196,7 @@ func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now ti
 
 func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 		return stats, err
 	}
 	var claimed *memoryJob
@@ -1340,7 +1340,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	// retryable path still fires.
 	settleErr := runErr
 	err = brainstore.WithBrainWriteLock(brainDir, func() error {
-		if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+		if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 			return err
 		}
 		settledAt := memoryClockNow(clock)
@@ -1452,7 +1452,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// Privacy policy is an input to every worker lane, including the
 			// export/delta prepass. Validate it before coordinator metadata or
 			// any derived state can be written.
-			if _, _, err := loadSessionTombstonesChecked(storage.BrainDir); err != nil {
+			if _, _, err := brainstore.LoadSessionTombstonesChecked(storage.BrainDir); err != nil {
 				return err
 			}
 			// Wait out everything beyond the last minute BEFORE taking the

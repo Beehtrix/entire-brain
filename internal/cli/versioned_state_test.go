@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,117 +9,6 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
-
-type versionedTestDoc struct {
-	SchemaVersion int    `json:"schema_version"`
-	Known         string `json:"known"`
-}
-
-// A document written by a different build of our own writer at a supported
-// schema version carries fields this build does not declare. For a reader that
-// is routine skew, not corruption.
-func TestDecodeVersionedJSONBody_TolerantModeAcceptsUnknownFields(t *testing.T) {
-	t.Parallel()
-
-	var got versionedTestDoc
-	if _, err := decodeVersionedJSONBody([]byte(`{"schema_version":3,"known":"kept","retired_field":0}`), &got, true); err != nil {
-		t.Fatalf("unknown field must not fail a reader: %v", err)
-	}
-	if got.Known != "kept" {
-		t.Fatalf("known field lost during tolerant decode: %+v", got)
-	}
-}
-
-// Writers keep the opposite answer: re-encoding from a struct that never saw a
-// field erases it, so an unrecognised field must stop the write.
-func TestDecodeVersionedJSONBody_StrictModeStillGuardsWriters(t *testing.T) {
-	t.Parallel()
-
-	var got versionedTestDoc
-	_, err := decodeVersionedJSONBody([]byte(`{"schema_version":3,"known":"kept","retired_field":0}`), &got, false)
-	if !isUnknownFieldError(err) {
-		t.Fatalf("a writer must refuse a field it cannot round-trip, got: %v", err)
-	}
-}
-
-// Tolerating unknown fields may not widen into tolerating malformed bytes or a
-// second document, in either mode.
-func TestDecodeStrictVersionedJSON_RejectsRealCorruption(t *testing.T) {
-	t.Parallel()
-
-	for name, data := range map[string]string{
-		"malformed":     `{"schema_version":3,`,
-		"trailing":      `{"schema_version":3}{"schema_version":3}`,
-		"wrong type":    `{"schema_version":3,"known":123}`,
-		"not an object": `["schema_version"]`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			var got versionedTestDoc
-			if _, err := decodeStrictVersionedJSON([]byte(data), &got, 3, "test document"); err == nil {
-				t.Fatalf("%s must be rejected", name)
-			} else if !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
-				t.Fatalf("%s must classify as %s, got: %v", name, brainstore.StateCorruptCode, err)
-			}
-
-			var tolerant versionedTestDoc
-			if _, err := decodeVersionedJSONBody([]byte(data), &tolerant, true); err == nil {
-				t.Fatalf("%s must be rejected by the tolerant reader too", name)
-			}
-		})
-	}
-}
-
-// A newer schema version keeps its own distinct, non-corrupt classification.
-func TestDecodeStrictVersionedJSON_NewerVersionStillUnsupported(t *testing.T) {
-	t.Parallel()
-
-	var got versionedTestDoc
-	_, err := decodeStrictVersionedJSON([]byte(`{"schema_version":9}`), &got, 3, "test document")
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-		t.Fatalf("newer schema must stay %s, got: %v", memoryErrUnsupportedVersion, err)
-	}
-}
-
-// The tolerant retry re-decodes into a target the aborted strict pass already
-// touched. Composite fields must come back exactly as a single clean decode
-// would leave them, with nothing merged in from the first attempt.
-func TestDecodeVersionedJSONBody_RetryDoesNotMergeIntoPartialTarget(t *testing.T) {
-	t.Parallel()
-
-	type doc struct {
-		SchemaVersion int               `json:"schema_version"`
-		Items         []string          `json:"items"`
-		Labels        map[string]string `json:"labels"`
-	}
-
-	var got, want doc
-	if _, err := decodeVersionedJSONBody([]byte(`{"schema_version":3,"items":["a","b"],"labels":{"k":"v"},"retired_field":1}`), &got, true); err != nil {
-		t.Fatalf("unknown field must not fail: %v", err)
-	}
-	if _, err := decodeVersionedJSONBody([]byte(`{"schema_version":3,"items":["a","b"],"labels":{"k":"v"}}`), &want, true); err != nil {
-		t.Fatalf("clean document must not fail: %v", err)
-	}
-	if len(got.Items) != len(want.Items) || len(got.Labels) != len(want.Labels) {
-		t.Fatalf("retry merged into a partial target: got %+v, want %+v", got, want)
-	}
-	for i := range want.Items {
-		if got.Items[i] != want.Items[i] {
-			t.Fatalf("retry merged into a partial target: got %+v, want %+v", got, want)
-		}
-	}
-}
-
-// Trailing data keeps its own classification rather than being folded into the
-// generic parse failure, because callers report it differently.
-func TestDecodeVersionedJSONBody_TrailingDataIsDistinct(t *testing.T) {
-	t.Parallel()
-
-	var got versionedTestDoc
-	if _, err := decodeVersionedJSONBody([]byte(`{"schema_version":3} {"schema_version":3}`), &got, true); !errors.Is(err, errTrailingJSONData) {
-		t.Fatalf("want errTrailingJSONData, got: %v", err)
-	}
-}
 
 func writeTestManifest(t *testing.T, body string) string {
 	t.Helper()
@@ -183,48 +70,16 @@ func TestLoadBrainManifestForReplace_StillRefusesUnknownFields(t *testing.T) {
 	}
 }
 
-// encoding/json exposes no typed error for an unknown field, so the tolerant
-// path discriminates on the stdlib's message. Pin it: if the stdlib ever rewords
-// it, this fails loudly here instead of silently re-bricking every brain.
-func TestUnknownFieldErrorTextIsStillStdlibContract(t *testing.T) {
-	t.Parallel()
-
-	// Nested targets too: the fallback must recognise the error wherever in the
-	// document the unknown field sits, or a manifest like ours (the retired
-	// field lives under sources.seed.history_coverage) is still called corrupt.
-	for name, body := range map[string]string{
-		"top level": `{"nope":1}`,
-		"nested":    `{"nested":{"nope":1}}`,
-		"deep":      `{"nested":{"nope":{"a":[1,2]}}}`,
-	} {
-		var target struct {
-			Nested struct {
-				Known string `json:"known"`
-			} `json:"nested"`
-		}
-		decoder := json.NewDecoder(strings.NewReader(body))
-		decoder.DisallowUnknownFields()
-		err := decoder.Decode(&target)
-		if err == nil {
-			t.Fatalf("%s: expected an unknown-field error from the stdlib decoder", name)
-		}
-		if !isUnknownFieldError(err) {
-			t.Fatalf("%s: stdlib unknown-field error text changed; isUnknownFieldError no longer matches it: %v", name, err)
-		}
-	}
-}
-
 // decodersAllowedToRejectUnknownFields are the only files that may call
 // DisallowUnknownFields directly. Everything reading the brain's own persisted
-// state goes through decodeVersionedJSONBody or the dedicated file-backed
-// manifest decoder, both of which force each caller to say
+// state goes through brainstore.DecodeVersionedJSONBody or the dedicated
+// file-backed manifest decoder, both of which force each caller to say
 // whether it is guarding a rewrite or only reading — the distinction this
 // package got wrong. Each entry carries its reason at the call site.
 var decodersAllowedToRejectUnknownFields = map[string]string{
 	"brain_manifest_read.go": "dedicated file-backed manifest decoder: strict rewrites, tolerant read retry with unknown-field reporting",
 	"export.go":              "user-authored settings, where an unknown key is usually a typo",
 	"memory_abstract.go":     "untrusted model output, not state a build of ours wrote",
-	"versioned_state.go":     "the shared decoder itself",
 }
 
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {
@@ -248,28 +103,10 @@ func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {
 		}
 		if _, ok := decodersAllowedToRejectUnknownFields[name]; !ok {
 			t.Errorf("%s calls DisallowUnknownFields() directly; read persisted brain state through "+
-				"decodeVersionedJSONBody and state whether the decode guards a rewrite, or add %s to "+
+				"brainstore.DecodeVersionedJSONBody and state whether the decode guards a rewrite, or add %s to "+
 				"decodersAllowedToRejectUnknownFields with the reason it may reject a field another "+
 				"build wrote", name, name)
 		}
-	}
-}
-
-// The tolerant reader must say when it dropped fields, so status and doctor can
-// recommend a refresh rather than quietly narrowing another build's manifest.
-func TestDecodeVersionedJSONBody_ReportsDroppedUnknownFields(t *testing.T) {
-	t.Parallel()
-
-	var got versionedTestDoc
-	dropped, err := decodeVersionedJSONBody([]byte(`{"schema_version":3,"known":"kept","retired_field":0}`), &got, true)
-	if err != nil || !dropped {
-		t.Fatalf("dropped=%v err=%v, want dropped with no error", dropped, err)
-	}
-
-	var clean versionedTestDoc
-	dropped, err = decodeVersionedJSONBody([]byte(`{"schema_version":3,"known":"kept"}`), &clean, true)
-	if err != nil || dropped {
-		t.Fatalf("dropped=%v err=%v, want no drop and no error", dropped, err)
 	}
 }
 
@@ -377,7 +214,7 @@ func TestDiscardManifestThisBuildCannotRewrite_KeepsWhatItMustNotDelete(t *testi
 		body     string
 		wantCode string
 	}{
-		"newer schema": {`{"schema_version":99,"future":true}`, memoryErrUnsupportedVersion},
+		"newer schema": {`{"schema_version":99,"future":true}`, brainstore.UnsupportedVersionCode},
 		"corrupt":      {`{"schema_version":3,"repo_key":`, brainstore.StateCorruptCode},
 		"wrong type":   {`{"schema_version":3,"repo_key":123}`, brainstore.StateCorruptCode},
 	} {
@@ -445,8 +282,8 @@ func TestDiscardManifestThisBuildCannotRewrite_KeepsOutOfRangeVersions(t *testin
 			if discarded {
 				t.Fatalf("%s schema version must not be deleted", name)
 			}
-			if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-				t.Fatalf("%s: err=%v, want %s", name, err, memoryErrUnsupportedVersion)
+			if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+				t.Fatalf("%s: err=%v, want %s", name, err, brainstore.UnsupportedVersionCode)
 			}
 			got, readErr := os.ReadFile(filepath.Join(dir, exportManifestFileName))
 			if readErr != nil || string(got) != body {

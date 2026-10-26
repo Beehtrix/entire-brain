@@ -305,7 +305,7 @@ func TestWorkspaceCommandMalformedMemberPrivacyFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tombstones := filepath.Join(memberDir, filepath.FromSlash(sessionTombstonesPath))
+	tombstones := filepath.Join(memberDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	if err := os.MkdirAll(filepath.Dir(tombstones), 0o700); err != nil {
 		t.Fatal(err)
 	}

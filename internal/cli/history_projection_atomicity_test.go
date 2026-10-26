@@ -196,9 +196,9 @@ func TestHistoryProjectionPrivacyOrOverlayChangeBeforeCommitPublishesNothing(t *
 		mutate func(t *testing.T, brainDir string, now time.Time)
 	}{
 		{name: "tombstone", mutate: func(t *testing.T, brainDir string, now time.Time) {
-			stones := loadSessionTombstones(brainDir)
+			stones := brainstore.LoadSessionTombstones(brainDir)
 			stones.Excluded["session-1"] = sessionTombstone{At: now, Reason: "test"}
-			if err := saveSessionTombstones(brainDir, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -281,7 +281,7 @@ func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -378,7 +378,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -437,7 +437,7 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -464,13 +464,13 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 
 func TestPrivacyVerifyFailsClosedOnCorruptEgressReceipt(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	rel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, "corrupt.json"))
-	if err := writeBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {

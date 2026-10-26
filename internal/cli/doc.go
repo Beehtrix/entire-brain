@@ -192,7 +192,7 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 	if int64(len(data)) > maxDocIndexBytes {
 		return nil, &readBoundExceededError{Source: docIndexPath, Max: maxDocIndexBytes}
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write doc index: %w", err)
 	}
 	source := &docSourceManifest{GeneratedAt: now, IndexPath: docIndexPath, Records: len(records), Files: files, Warnings: warnings}

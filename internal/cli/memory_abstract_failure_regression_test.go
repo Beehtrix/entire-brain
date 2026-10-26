@@ -16,7 +16,7 @@ import (
 func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 9, 18, 13, 0, 0, 0, time.UTC)
-	ref := conversationSessionIDPrefix + "inventory-good"
+	ref := brainstore.ConversationSessionIDPrefix + "inventory-good"
 	good := abstractEgressReceipt{
 		OperationID: strings.Repeat("a", 20), SessionRef: ref,
 		SessionDigest: "sha256:" + strings.Repeat("b", 64), Provider: "codex", Model: "hosted-test",
@@ -68,7 +68,7 @@ func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *test
 		t.Fatal(err)
 	}
 	wrong := good
-	wrong.SessionRef = conversationSessionIDPrefix + "different-session"
+	wrong.SessionRef = brainstore.ConversationSessionIDPrefix + "different-session"
 	wrong.OperationID = strings.Repeat("d", 20)
 	wrongBytes, err := json.Marshal(wrong)
 	if err != nil {
@@ -151,7 +151,7 @@ func TestManualAbstractEnqueueRefusalDryRunAndDurableRetry(t *testing.T) {
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return &fakeAbstractor{}, nil }
-	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, conversationSessionIDPrefix+"missing", localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, brainstore.ConversationSessionIDPrefix+"missing", localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing session error = %v", err)
 	}
 
@@ -251,9 +251,9 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 	t.Run("private session", func(t *testing.T) {
 		brainDir, _ := writeSessionNavigationFixture(t)
 		view := sessionViewForTest(t, brainDir)
-		stones := loadSessionTombstones(brainDir)
+		stones := brainstore.LoadSessionTombstones(brainDir)
 		stones.Excluded[view.Records[0].SessionID] = sessionTombstone{At: now, Reason: "explicitly private"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			t.Fatal(err)
 		}
 		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrSourceStale) {

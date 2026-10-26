@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
@@ -251,7 +252,7 @@ func writeBrainPracticesFile(outputDir string, practices []practiceRecord) error
 			return fmt.Errorf("encode practice: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsPracticesPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsPracticesPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write practices: %w", err)
 	}
 	return nil

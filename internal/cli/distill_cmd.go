@@ -2564,7 +2564,7 @@ func saveDistillCache(brainDir string, cache distillCache) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
 }
 
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the

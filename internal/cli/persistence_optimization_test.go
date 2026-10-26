@@ -44,7 +44,7 @@ func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []st
 
 func persistenceOptimizationTombstoneBytes(t *testing.T, brainDir string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)))
+	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,12 +93,12 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		t.Fatalf("initial corpus sessions = %v, want %v", got, want)
 	}
 
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now.Add(time.Minute), Reason: "optimization regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	tombstoneBytes := persistenceOptimizationTombstoneBytes(t, brainDir)
@@ -265,12 +265,12 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 		close(exclusionAttempted)
 		exclusionDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			events <- "exclusion_acquired"
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["secret-sess"] = sessionTombstone{At: now.Add(2 * time.Minute), Reason: "ordered exclusion"}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		})
 	}()
 	<-exclusionAttempted

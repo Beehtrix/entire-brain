@@ -75,7 +75,7 @@ func writeFactStoreFile(brainDir, dirName string, records []factRecord) error {
 		return err
 	}
 	rel := filepath.ToSlash(filepath.Join(factsDirName, dirName, factsFileName))
-	return writeBrainRelativeFileAtomic(brainDir, rel, buf.Bytes(), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, buf.Bytes(), 0o600)
 }
 
 // loadAllFactBranches returns every stored fact grouped by the branch recorded

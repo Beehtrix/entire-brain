@@ -293,7 +293,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err := buildSynapses(db, now); err != nil {
 		return err
 	}
-	_, finalPolicy, err := loadSessionTombstonesChecked(brainDir)
+	_, finalPolicy, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return err
 	}

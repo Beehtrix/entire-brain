@@ -284,7 +284,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		legacy := *source
@@ -443,8 +443,8 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 
 	assertUnsupported := func(label string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-			t.Fatalf("%s error = %v, want %s", label, err, memoryErrUnsupportedVersion)
+		if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+			t.Fatalf("%s error = %v, want %s", label, err, brainstore.UnsupportedVersionCode)
 		}
 	}
 	err = brainstore.WithBrainWriteLock(brainDir, func() error {

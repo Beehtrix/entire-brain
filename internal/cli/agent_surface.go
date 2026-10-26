@@ -4639,7 +4639,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		graphStatusWarning = layoutErr.Error()
 		code := memoryErrorCode(layoutErr)
 		if errors.Is(layoutErr, errLegacyBrainLayout) {
-			code = memoryErrUnsupportedVersion
+			code = brainstore.UnsupportedVersionCode
 		}
 		healthIssues = append(healthIssues, memoryHealthIssue{Kind: "brain_layout", Code: code, Action: layoutErr.Error()})
 	}
@@ -5082,7 +5082,7 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 		return true
 	}
 	for _, dir := range []string{
-		historyDirName,              // index, generations, staging, overlay, work records
+		brainstore.HistoryDirName,   // index, generations, staging, overlay, work records
 		factsDirName,                // distilled facts and the distill cache
 		"patterns",                  // corpus, runs, derived pattern outputs
 		seedDirName,                 // synthesized seed

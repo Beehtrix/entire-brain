@@ -34,7 +34,7 @@ func TestFilelessBundleOmitsExcludedSessions(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, opts, cmd, _, brain := bundleTestIndexedBrain(t)
-			if err := os.RemoveAll(filepath.Join(brain, historyDirName, "privacy")); err != nil {
+			if err := os.RemoveAll(filepath.Join(brain, brainstore.HistoryDirName, "privacy")); err != nil {
 				t.Fatal(err)
 			}
 			manifest, err := loadBrainManifest(brain)
@@ -115,9 +115,9 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stones := emptySessionTombstones()
+			stones := brainstore.EmptySessionTombstones()
 			stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-			if err := saveSessionTombstones(brain, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 				t.Fatal(err)
 			}
 			before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
@@ -174,9 +174,9 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 						t.Fatalf("history preparation holds the brain write lock: %v", err)
 					}
 					if changePrivacy {
-						stones := emptySessionTombstones()
+						stones := brainstore.EmptySessionTombstones()
 						stones.Excluded["session-one"] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-						err = saveSessionTombstones(brain, stones)
+						err = brainstore.SaveSessionTombstones(brain, stones)
 					}
 					unlock()
 					if err != nil {
@@ -218,9 +218,9 @@ func TestFilelessMigrationRecoversExcludedSessionAfterInclude(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := manifest.Sources.Sessions.Sessions[0]
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-	if err := saveSessionTombstones(brain, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 		t.Fatal(err)
 	}
 	runFilelessExport(t, opts, "", false)

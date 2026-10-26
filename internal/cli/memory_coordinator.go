@@ -174,7 +174,7 @@ func (c *memoryCoordinator) writeState(state string, heartbeat time.Time, finish
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(c.brainDir, memoryCoordinatorStateRel, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(c.brainDir, memoryCoordinatorStateRel, append(data, '\n'), 0o600)
 }
 
 func memoryCoordinatorHealth(state memoryCoordinatorState, now time.Time) map[string]any {
@@ -225,7 +225,7 @@ func loadMemoryCoordinatorState(brainDir string) (memoryCoordinatorState, error)
 		return memoryCoordinatorState{}, nil
 	}
 	var state memoryCoordinatorState
-	version, err := decodeStrictVersionedJSON(data, &state, memoryCoordinatorSchema, "coordinator state")
+	version, err := brainstore.DecodeStrictVersionedJSON(data, &state, memoryCoordinatorSchema, "coordinator state")
 	if err != nil {
 		return memoryCoordinatorState{}, err
 	}
@@ -308,13 +308,13 @@ func appendMemoryWorkerLogLine(brainDir string, now time.Time, event, owner, suf
 		}
 		if len(previous) > memoryWorkerLogMaxBytes/2 {
 			if archived, archivedPresent, err := readMemoryStateFile(brainDir, memoryWorkerLogArchiveRel, "worker log archive", memoryWorkerLogMaxBytes); err == nil && archivedPresent {
-				if err := writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogArchive2Rel, archived, 0o600); err != nil {
+				if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryWorkerLogArchive2Rel, archived, 0o600); err != nil {
 					return err
 				}
 			} else if err != nil {
 				return err
 			}
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogArchiveRel, previous, 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryWorkerLogArchiveRel, previous, 0o600); err != nil {
 				return err
 			}
 			previous = nil
@@ -326,7 +326,7 @@ func appendMemoryWorkerLogLine(brainDir string, now time.Time, event, owner, suf
 		owner = owner[:8]
 	}
 	line := []byte(fmt.Sprintf("%s event=%s owner=%s%s\n", now.UTC().Format(time.RFC3339), event, owner, suffix))
-	return writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, append(previous, line...), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, append(previous, line...), 0o600)
 }
 
 func memoryWorkerLogHealth(brainDir string) (map[string]any, error) {
@@ -390,7 +390,7 @@ func writeMemoryCancellationRequest(brainDir string, job memoryJob, now time.Tim
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, memoryCancellationRel(job.JobID), append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryCancellationRel(job.JobID), append(data, '\n'), 0o600)
 }
 
 func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationRequest, error) {
@@ -402,7 +402,7 @@ func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationR
 		return nil, nil
 	}
 	var request memoryCancellationRequest
-	version, err := decodeStrictVersionedJSON(data, &request, memoryCancellationSchema, "cancellation request")
+	version, err := brainstore.DecodeStrictVersionedJSON(data, &request, memoryCancellationSchema, "cancellation request")
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +415,7 @@ func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationR
 func removeMemoryCancellationRequest(brainDir, jobID string) error {
 	return removeCheckedMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", base.MaxManifestBytes, func(data []byte) error {
 		var request memoryCancellationRequest
-		version, err := decodeStrictVersionedJSON(data, &request, memoryCancellationSchema, "cancellation request")
+		version, err := brainstore.DecodeStrictVersionedJSON(data, &request, memoryCancellationSchema, "cancellation request")
 		if err != nil {
 			return err
 		}
@@ -436,7 +436,7 @@ func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (in
 		source = manifest.Sources.History
 	}
 	receipts, receiptsCurrent := loadProjectionState(brainDir, source)
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return 0, err
 	}

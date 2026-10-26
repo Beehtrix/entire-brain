@@ -22,7 +22,7 @@ import (
 func largeCoverageResults(count int) []unifiedResult {
 	results := make([]unifiedResult, count)
 	for i := range results {
-		sessionRef := conversationSessionIDPrefix + strings.Repeat("s", 64) + string(rune('a'+i%20))
+		sessionRef := brainstore.ConversationSessionIDPrefix + strings.Repeat("s", 64) + string(rune('a'+i%20))
 		concepts := make([]string, conversationConceptsMaxTotal)
 		matches := make([]conceptMatch, conversationConceptsMaxTotal)
 		evidenceIDs := make([]string, conversationConceptsMaxTotal)
@@ -239,9 +239,9 @@ func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
 			return
 		}
 		called = true
-		stones := loadSessionTombstones(brainDir)
+		stones := brainstore.LoadSessionTombstones(brainDir)
 		stones.Excluded["sess-one"] = sessionTombstone{At: time.Now().UTC(), Reason: "race regression"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			panic(err)
 		}
 	}
@@ -321,9 +321,9 @@ func installLateRetrievalTombstone(t *testing.T, fixture retrievalEmissionPrivac
 			return
 		}
 		called = true
-		stones := loadSessionTombstones(fixture.BrainDir)
+		stones := brainstore.LoadSessionTombstones(fixture.BrainDir)
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "late emission race"}
-		if err := saveSessionTombstones(fixture.BrainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(fixture.BrainDir, stones); err != nil {
 			panic(err)
 		}
 	}
@@ -447,12 +447,12 @@ func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPri
 		go func() {
 			defer close(result)
 			result <- brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-				stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+				stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 				if err != nil {
 					return err
 				}
 				stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "linearization race"}
-				return saveSessionTombstones(fixture.BrainDir, stones)
+				return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 			})
 		}()
 	}
@@ -681,12 +681,12 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return saveSessionTombstones(fixture.BrainDir, stones)
+		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -706,12 +706,12 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return saveSessionTombstones(fixture.BrainDir, stones)
+		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}

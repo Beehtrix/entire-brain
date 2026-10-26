@@ -552,9 +552,9 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	brainDir, changedRel, newRel := shortTermFixture(t)
 	// Tombstone the parallel session before the delta: it must not enter
 	// short-term memory.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["sess-parallel"] = sessionTombstone{At: time.Date(2026, 8, 7, 12, 30, 0, 0, time.UTC)}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats := buildShortTerm(t, brainDir)
@@ -576,7 +576,7 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	historyShortTermMaxRecords = 1
 	t.Cleanup(func() { historyShortTermMaxRecords = old })
 	delete(stones.Excluded, "sess-parallel")
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats = buildShortTerm(t, brainDir)
@@ -790,7 +790,7 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 // directions, and a duplicated ID may contribute rank at most once.
 func TestTwoTierStableIDReconciliation(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	generated := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)

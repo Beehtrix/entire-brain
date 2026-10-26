@@ -19,8 +19,8 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 	now := time.Date(2026, 8, 9, 14, 0, 0, 0, time.UTC)
 	excludeSessionForIncludeAtomicityTest(t, brainDir, sessionID, now)
 
-	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
-	transactionPath := filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID)))
+	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
+	transactionPath := filepath.Join(brainDir, filepath.FromSlash(brainstore.PrivacyTransactionRel(sessionID)))
 	tombstonesBefore, err := os.ReadFile(tombstonePath)
 	if err != nil {
 		t.Fatal(err)
@@ -78,7 +78,7 @@ func TestIncludeSessionPostRenameFailureRestoresExactlyAndRetries(t *testing.T) 
 	if !bytes.Equal(manifestAfterFailure, manifestBefore) {
 		t.Fatal("post-rename tombstone failure changed active history generation")
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

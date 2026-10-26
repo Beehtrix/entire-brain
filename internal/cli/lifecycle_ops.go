@@ -214,7 +214,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 					}
 					code, _ := health["error_code"].(string)
 					switch code {
-					case memoryErrUnsupportedVersion, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, memoryErrMigrationRequired:
+					case brainstore.UnsupportedVersionCode, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, memoryErrMigrationRequired:
 						errorCodes[code] = true
 					}
 				}

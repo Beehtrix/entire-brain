@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -173,7 +174,7 @@ func TestPrivacyVerifyFailsClosedOnAForwardVersionEntityIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = verifySessionPrivacy(brainDir)
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("verification accepted a forward-version entity index: %v", err)
 	}
 }

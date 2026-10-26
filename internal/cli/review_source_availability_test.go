@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,7 +117,7 @@ func TestOverviewIgnoresRetiredSemanticStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest.Sources.Semantic = &semanticSourceManifest{StorePath: "semantic/broken.sqlite"}
-	if err := writeBrainRelativeFileAtomic(brain, "semantic/broken.sqlite", []byte("invalid sqlite"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brain, "semantic/broken.sqlite", []byte("invalid sqlite"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {

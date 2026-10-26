@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,7 +264,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 			t.Fatalf("json=%v: %v", jsonOut, err)
 		}
 		got := out.String()
-		for _, want := range []string{repoKey + "/" + conversationSessionIDPrefix, repoKey + "/" + conversationIDPrefix + "one1", "beta cache eviction", "gamma flag"} {
+		for _, want := range []string{repoKey + "/" + brainstore.ConversationSessionIDPrefix, repoKey + "/" + conversationIDPrefix + "one1", "beta cache eviction", "gamma flag"} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("json=%v missing proof %q: %s", jsonOut, want, got)
 			}

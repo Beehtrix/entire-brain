@@ -87,7 +87,7 @@ func newPatternCorpusPublicationLoadError(err error, version int) error {
 	code := memoryErrorCode(err)
 	state := patternCorpusPublicationCorrupt
 	switch code {
-	case memoryErrUnsupportedVersion:
+	case brainstore.UnsupportedVersionCode:
 		state = patternCorpusPublicationUnsupported
 	case brainstore.StateUnsafeCode:
 		state = patternCorpusPublicationUnsafe
@@ -103,7 +103,7 @@ func newPatternCorpusPublicationLoadError(err error, version int) error {
 // additional fields remain opaque, read-only state.
 func decodePatternCorpusPublication(data []byte) (patterncore.CorpusPublication, error) {
 	var publication patterncore.CorpusPublication
-	version, err := decodeStrictVersionedJSON(data, &publication, patterncore.CorpusPublicationVersion, "pattern corpus publication marker")
+	version, err := brainstore.DecodeStrictVersionedJSON(data, &publication, patterncore.CorpusPublicationVersion, "pattern corpus publication marker")
 	if err != nil {
 		return patterncore.CorpusPublication{}, newPatternCorpusPublicationLoadError(err, version)
 	}

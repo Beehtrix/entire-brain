@@ -24,7 +24,7 @@ import (
 // the correctness authority. Losing every file here loses no memory.
 
 const (
-	memoryWorkDirRel  = historyDirName + "/work/v1"
+	memoryWorkDirRel  = brainstore.HistoryDirName + "/work/v1"
 	memoryHintsDirRel = memoryWorkDirRel + "/hints"
 	memoryJobsDirRel  = memoryWorkDirRel + "/jobs"
 
@@ -116,7 +116,7 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 	if err != nil {
 		return memoryLifecycleHint{}, err
 	}
-	return hint, writeBrainRelativeFileAtomic(brainDir, rel, append(data, '\n'), 0o600)
+	return hint, brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, append(data, '\n'), 0o600)
 }
 
 type memoryStateIssue struct {
@@ -143,7 +143,7 @@ func memoryErrorCode(err error) string {
 	for _, code := range []string{
 		memoryErrSessionInventory,
 		brainstore.StateUnsafeCode,
-		memoryErrUnsupportedVersion,
+		brainstore.UnsupportedVersionCode,
 		memoryErrMigrationRequired,
 		memoryErrSourceStale,
 		memoryErrCancelTooLate,
@@ -186,7 +186,7 @@ func memoryStateSeverityRank(code string) int {
 		return 1
 	case memoryErrMigrationRequired:
 		return 2
-	case memoryErrUnsupportedVersion:
+	case brainstore.UnsupportedVersionCode:
 		return 3
 	default:
 		return 4
@@ -433,7 +433,7 @@ func saveMemoryJob(brainDir string, job memoryJob) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, memoryJobRel(job.JobID), append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryJobRel(job.JobID), append(data, '\n'), 0o600)
 }
 
 func validMemoryJobState(state string) bool {

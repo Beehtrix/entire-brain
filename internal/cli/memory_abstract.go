@@ -29,11 +29,11 @@ import (
 // from explicit configuration and never auto-detected or silently substituted.
 
 const (
-	memoryConfigRel           = historyDirName + "/memory-config-v1.json"
+	memoryConfigRel           = brainstore.HistoryDirName + "/memory-config-v1.json"
 	memoryConfigSchemaVersion = 1
 
-	abstractsDirRel                 = historyDirName + "/abstracts/v1"
-	abstractEgressDirRel            = historyDirName + "/work/v1/abstract-egress"
+	abstractsDirRel                 = brainstore.HistoryDirName + "/abstracts/v1"
+	abstractEgressDirRel            = brainstore.HistoryDirName + "/work/v1/abstract-egress"
 	abstractEgressSchemaVersion     = 2
 	abstractEgressLegacyVersion     = 1
 	abstractEgressHealthMaxReceipts = 10_000
@@ -67,7 +67,7 @@ const (
 	abstractStatusCancelled   = "cancelled"
 	abstractStatusUnavailable = "provider_unavailable"
 	abstractStatusCorrupt     = brainstore.StateCorruptCode
-	abstractStatusUnsupported = memoryErrUnsupportedVersion
+	abstractStatusUnsupported = brainstore.UnsupportedVersionCode
 	abstractStatusDegraded    = memoryErrQueryTooBroad
 
 	abstractProviderTimeout = 2 * time.Minute
@@ -134,7 +134,7 @@ const (
 	memoryConfigAbsent      memoryConfigReadState = "absent"
 	memoryConfigCurrent     memoryConfigReadState = "current"
 	memoryConfigCorrupt     memoryConfigReadState = brainstore.StateCorruptCode
-	memoryConfigUnsupported memoryConfigReadState = memoryErrUnsupportedVersion
+	memoryConfigUnsupported memoryConfigReadState = brainstore.UnsupportedVersionCode
 	memoryConfigUnsafe      memoryConfigReadState = brainstore.StateUnsafeCode
 )
 
@@ -160,10 +160,10 @@ func loadMemoryConfigChecked(brainDir string) (memoryConfig, memoryConfigReadSta
 		return empty, memoryConfigCorrupt, fmt.Errorf("%s: decode %s: %w", brainstore.StateCorruptCode, memoryConfigRel, err)
 	}
 	if header.SchemaVersion > memoryConfigSchemaVersion {
-		return empty, memoryConfigUnsupported, fmt.Errorf("%s: %s schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, memoryConfigRel, header.SchemaVersion, memoryConfigSchemaVersion)
+		return empty, memoryConfigUnsupported, fmt.Errorf("%s: %s schema version %d is newer than supported version %d", brainstore.UnsupportedVersionCode, memoryConfigRel, header.SchemaVersion, memoryConfigSchemaVersion)
 	}
 	var config memoryConfig
-	if _, err := decodeVersionedJSONBody(data, &config, false); err != nil {
+	if _, err := brainstore.DecodeVersionedJSONBody(data, &config, false); err != nil {
 		return empty, memoryConfigCorrupt, fmt.Errorf("%s: decode %s failed strict validation", brainstore.StateCorruptCode, memoryConfigRel)
 	}
 	if config.SchemaVersion != memoryConfigSchemaVersion {
@@ -185,7 +185,7 @@ func saveMemoryConfig(brainDir string, config memoryConfig) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, memoryConfigRel, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryConfigRel, append(data, '\n'), 0o600)
 }
 
 // abstractStatement is one evidence-linked claim; the evidence ids must cite
@@ -260,7 +260,7 @@ func validAbstractEgressReceipt(receipt abstractEgressReceipt, version int, expe
 	_, operationHexErr := hex.DecodeString(receipt.OperationID)
 	provider := strings.ToLower(strings.TrimSpace(receipt.Provider))
 	if receipt.SchemaVersion != version || len(receipt.OperationID) != 20 || operationHexErr != nil ||
-		!strings.HasPrefix(receipt.SessionRef, conversationSessionIDPrefix) ||
+		!strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) ||
 		(expectedRef != "" && receipt.SessionRef != expectedRef) ||
 		!validSHA256Identity(receipt.SessionDigest) ||
 		(provider != "codex" && provider != "claude-code") || strings.TrimSpace(receipt.Model) == "" ||
@@ -281,10 +281,10 @@ func decodeAbstractEgressReceipt(data []byte, version int, expectedRef string) (
 		return abstractEgressReceipt{}, fmt.Errorf("%s: abstract egress receipt cannot be parsed", brainstore.StateCorruptCode)
 	}
 	if header.SchemaVersion > abstractEgressSchemaVersion {
-		return abstractEgressReceipt{SchemaVersion: header.SchemaVersion}, fmt.Errorf("%s: abstract egress receipt schema %d", memoryErrUnsupportedVersion, header.SchemaVersion)
+		return abstractEgressReceipt{SchemaVersion: header.SchemaVersion}, fmt.Errorf("%s: abstract egress receipt schema %d", brainstore.UnsupportedVersionCode, header.SchemaVersion)
 	}
 	var receipt abstractEgressReceipt
-	if _, err := decodeVersionedJSONBody(data, &receipt, false); err != nil {
+	if _, err := brainstore.DecodeVersionedJSONBody(data, &receipt, false); err != nil {
 		return receipt, fmt.Errorf("%s: abstract egress receipt cannot be parsed", brainstore.StateCorruptCode)
 	}
 	if err := validAbstractEgressReceipt(receipt, version, expectedRef); err != nil {
@@ -317,7 +317,7 @@ func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expect
 // history, so a repository with more than 10,000 hosted sessions remains
 // purgeable and verifiable.
 func loadAbstractEgressReceiptForSessionChecked(brainDir, sessionRef string) (abstractEgressReceiptFile, bool, error) {
-	if !strings.HasPrefix(sessionRef, conversationSessionIDPrefix) {
+	if !strings.HasPrefix(sessionRef, brainstore.ConversationSessionIDPrefix) {
 		return abstractEgressReceiptFile{}, false, fmt.Errorf("%s: invalid abstract egress session reference", brainstore.StateCorruptCode)
 	}
 	return readAbstractEgressReceiptExpected(brainDir, abstractEgressReceiptRel(sessionRef), abstractEgressSchemaVersion, sessionRef, nil)
@@ -593,7 +593,7 @@ func writeAbstractEgressReceipt(brainDir string, receipt abstractEgressReceipt) 
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, abstractEgressReceiptRel(receipt.SessionRef), append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, abstractEgressReceiptRel(receipt.SessionRef), append(data, '\n'), 0o600)
 }
 
 // reconcileStaleAbstractEgressReceiptsLocked repairs crash-left `started`
@@ -665,7 +665,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 	seen := map[string]bool{}
 	for _, result := range results {
 		ref := strings.TrimSpace(result.SessionRef)
-		if ref == "" && strings.HasPrefix(result.ID, conversationSessionIDPrefix) {
+		if ref == "" && strings.HasPrefix(result.ID, brainstore.ConversationSessionIDPrefix) {
 			ref = result.ID
 		}
 		if ref == "" || seen[ref] {
@@ -1030,7 +1030,7 @@ const (
 	sessionAbstractAbsent      sessionAbstractReadState = "absent"
 	sessionAbstractCurrent     sessionAbstractReadState = "current"
 	sessionAbstractCorrupt     sessionAbstractReadState = brainstore.StateCorruptCode
-	sessionAbstractUnsupported sessionAbstractReadState = memoryErrUnsupportedVersion
+	sessionAbstractUnsupported sessionAbstractReadState = brainstore.UnsupportedVersionCode
 	sessionAbstractUnsafe      sessionAbstractReadState = brainstore.StateUnsafeCode
 )
 
@@ -1061,16 +1061,16 @@ func decodeSessionAbstractBytes(data []byte, sessionDigest string) (sessionAbstr
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: decode abstract %s: %w", brainstore.StateCorruptCode, sessionDigest, err)
 	}
 	if header.SchemaVersion > abstractSchemaVersion {
-		return sessionAbstract{SchemaVersion: header.SchemaVersion}, sessionAbstractUnsupported, fmt.Errorf("%s: abstract %s schema version %d is newer than supported version %d", memoryErrUnsupportedVersion, sessionDigest, header.SchemaVersion, abstractSchemaVersion)
+		return sessionAbstract{SchemaVersion: header.SchemaVersion}, sessionAbstractUnsupported, fmt.Errorf("%s: abstract %s schema version %d is newer than supported version %d", brainstore.UnsupportedVersionCode, sessionDigest, header.SchemaVersion, abstractSchemaVersion)
 	}
 	var artifact sessionAbstract
-	if _, err := decodeVersionedJSONBody(data, &artifact, false); err != nil {
-		if errors.Is(err, errTrailingJSONData) {
+	if _, err := brainstore.DecodeVersionedJSONBody(data, &artifact, false); err != nil {
+		if errors.Is(err, brainstore.ErrTrailingJSONData) {
 			return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: abstract %s has trailing JSON data", brainstore.StateCorruptCode, sessionDigest)
 		}
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: decode abstract %s: %w", brainstore.StateCorruptCode, sessionDigest, err)
 	}
-	if artifact.SchemaVersion != abstractSchemaVersion || artifact.SessionDigest != sessionDigest || !strings.HasPrefix(artifact.SessionRef, conversationSessionIDPrefix) {
+	if artifact.SchemaVersion != abstractSchemaVersion || artifact.SessionDigest != sessionDigest || !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) {
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: abstract %s has invalid schema or digest identity", brainstore.StateCorruptCode, sessionDigest)
 	}
 	if err := validateSessionAbstractSchema(artifact); err != nil {
@@ -1210,7 +1210,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		if loadErr != nil {
 			code := brainstore.StateCorruptCode
 			if state == sessionAbstractUnsupported {
-				code = memoryErrUnsupportedVersion
+				code = brainstore.UnsupportedVersionCode
 			} else if state == sessionAbstractUnsafe {
 				code = brainstore.StateUnsafeCode
 			}
@@ -1473,7 +1473,7 @@ func abstractWindows(view conversationSessionView) ([][]conversationTurn, []abst
 }
 
 func validateSessionAbstractSchema(artifact sessionAbstract) error {
-	if !strings.HasPrefix(artifact.SessionRef, conversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, conversationSessionIDPrefix)) == "" || !validSHA256Identity(artifact.SessionDigest) {
+	if !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix)) == "" || !validSHA256Identity(artifact.SessionDigest) {
 		return errors.New("session_ref and session_digest identities are required")
 	}
 	if artifact.GeneratedAt.IsZero() {
@@ -1801,7 +1801,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		if err != nil {
 			return err
 		}
-		return writeBrainRelativeFileAtomic(brainDir, abstractRel(artifact.SessionDigest), append(data, '\n'), 0o600)
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, abstractRel(artifact.SessionDigest), append(data, '\n'), 0o600)
 	})
 	if err != nil {
 		return sessionAbstract{}, err
@@ -2087,9 +2087,9 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: abstract disappeared during cleanup inventory: %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		var artifact sessionAbstract
-		if _, err := decodeVersionedJSONBody(data, &artifact, false); err != nil ||
+		if _, err := brainstore.DecodeVersionedJSONBody(data, &artifact, false); err != nil ||
 			artifact.SchemaVersion != abstractSchemaVersion || artifact.SessionDigest != digest ||
-			!strings.HasPrefix(artifact.SessionRef, conversationSessionIDPrefix) || validateSessionAbstractSchema(artifact) != nil {
+			!strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || validateSessionAbstractSchema(artifact) != nil {
 			return fmt.Errorf("%s: invalid abstract cleanup artifact %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		if refs[artifact.SessionRef] {
@@ -2533,8 +2533,8 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ref := strings.TrimSpace(args[0])
-			if !strings.HasPrefix(ref, conversationSessionIDPrefix) {
-				return fmt.Errorf("argument must be a %s id", conversationSessionIDPrefix)
+			if !strings.HasPrefix(ref, brainstore.ConversationSessionIDPrefix) {
+				return fmt.Errorf("argument must be a %s id", brainstore.ConversationSessionIDPrefix)
 			}
 			oneOff := strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" || allowEgress
 			mutating := generate || oneOff || dryRun

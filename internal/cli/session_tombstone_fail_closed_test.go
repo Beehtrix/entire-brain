@@ -17,7 +17,7 @@ import (
 
 func writeSessionTombstoneBytes(t *testing.T, brainDir string, data []byte) {
 	t.Helper()
-	path := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -45,16 +45,16 @@ func TestSessionTombstonesInvalidStatesAreTyped(t *testing.T) {
 		state   sessionTombstoneState
 		version int
 	}{
-		{name: "malformed", data: "{broken", code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt},
-		{name: "nil map", data: `{"version":1,"excluded":null}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt, version: 1},
-		{name: "zero version", data: `{"version":0,"excluded":{}}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt},
-		{name: "negative version", data: `{"version":-1,"excluded":{}}`, code: brainstore.StateCorruptCode, state: sessionTombstoneCorrupt, version: -1},
-		{name: "newer version", data: `{"version":2,"excluded":{}}`, code: memoryErrUnsupportedVersion, state: sessionTombstoneUnsupported, version: 2},
+		{name: "malformed", data: "{broken", code: brainstore.StateCorruptCode, state: brainstore.SessionTombstoneCorrupt},
+		{name: "nil map", data: `{"version":1,"excluded":null}`, code: brainstore.StateCorruptCode, state: brainstore.SessionTombstoneCorrupt, version: 1},
+		{name: "zero version", data: `{"version":0,"excluded":{}}`, code: brainstore.StateCorruptCode, state: brainstore.SessionTombstoneCorrupt},
+		{name: "negative version", data: `{"version":-1,"excluded":{}}`, code: brainstore.StateCorruptCode, state: brainstore.SessionTombstoneCorrupt, version: -1},
+		{name: "newer version", data: `{"version":2,"excluded":{}}`, code: brainstore.UnsupportedVersionCode, state: brainstore.SessionTombstoneUnsupported, version: 2},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			brainDir := t.TempDir()
 			writeSessionTombstoneBytes(t, brainDir, []byte(test.data))
-			_, fileState, err := loadSessionTombstonesChecked(brainDir)
+			_, fileState, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			requireSessionTombstoneError(t, err, test.code, test.state)
 			if fileState.State != test.state || fileState.Version != test.version || fileState.Identity == "" {
 				t.Fatalf("file state = %+v, want state=%s version=%d with identity", fileState, test.state, test.version)
@@ -65,9 +65,9 @@ func TestSessionTombstonesInvalidStatesAreTyped(t *testing.T) {
 
 func TestCorruptSessionTombstonesFailClosedAcrossFreshRetrievalLoads(t *testing.T) {
 	brainDir, _, _ := historyProjectionFixture(t)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["session-1"] = sessionTombstone{At: time.Now().UTC(), Reason: "private"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate damage discovered after a process restart: no in-memory guard is
@@ -78,7 +78,7 @@ func TestCorruptSessionTombstonesFailClosedAcrossFreshRetrievalLoads(t *testing.
 		if len(results) != 0 {
 			t.Fatalf("request %d served excluded results: %+v", request, results)
 		}
-		requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
+		requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestCorruptSessionTombstonesBlockConsolidationAndPreserveActiveGeneration(t
 	if prepared != nil {
 		t.Fatalf("prepared corrupt-tombstone projection: %+v", prepared)
 	}
-	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
 	current, currentIndex := activeHistoryProjection(t, brainDir)
 	if current.IndexPath != previous.IndexPath || current.ProjectionStatePath != previous.ProjectionStatePath {
 		t.Fatalf("failed consolidation switched generation: before=%+v after=%+v", previous, current)
@@ -115,7 +115,7 @@ func TestCorruptSessionTombstonesBlockDeltaAndPreserveOverlay(t *testing.T) {
 		_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
 	})
-	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, err, brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
 	after, err := os.ReadFile(overlayPath)
 	if err != nil {
 		t.Fatal(err)
@@ -132,13 +132,13 @@ func TestMemoryStatusReportsTombstoneStateWithoutWriting(t *testing.T) {
 		state sessionTombstoneState
 		code  string
 	}{
-		{name: "corrupt", data: "{broken", state: sessionTombstoneCorrupt, code: brainstore.StateCorruptCode},
-		{name: "unsupported", data: `{"version":2,"excluded":{}}`, state: sessionTombstoneUnsupported, code: memoryErrUnsupportedVersion},
+		{name: "corrupt", data: "{broken", state: brainstore.SessionTombstoneCorrupt, code: brainstore.StateCorruptCode},
+		{name: "unsupported", data: `{"version":2,"excluded":{}}`, state: brainstore.SessionTombstoneUnsupported, code: brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			brainDir, _, _ := historyProjectionFixture(t)
 			writeSessionTombstoneBytes(t, brainDir, []byte(test.data))
-			path := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
+			path := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 			before, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
@@ -195,7 +195,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			requireSessionTombstoneError(t, run(), brainstore.StateCorruptCode, sessionTombstoneCorrupt)
+			requireSessionTombstoneError(t, run(), brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
 		})
 	}
 }
@@ -212,7 +212,7 @@ func TestCorruptTombstonesReturnTypedCLIAndMCPRetrievalErrors(t *testing.T) {
 	writeSessionTombstoneBytes(t, storage.BrainDir, []byte("{broken"))
 
 	out, cliErr := execute(t, NewRootCommand(opts), "search", "private canary", "--format", "json")
-	requireSessionTombstoneError(t, cliErr, brainstore.StateCorruptCode, sessionTombstoneCorrupt)
+	requireSessionTombstoneError(t, cliErr, brainstore.StateCorruptCode, brainstore.SessionTombstoneCorrupt)
 	var envelope commandJSONError
 	if err := json.Unmarshal([]byte(out), &envelope); err != nil || envelope.Code != brainstore.StateCorruptCode {
 		t.Fatalf("CLI error envelope = %+v decode=%v output=%s", envelope, err, out)

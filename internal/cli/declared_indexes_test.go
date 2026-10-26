@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func declaredIndexBrain(t *testing.T) (string, *exportManifest) {
 	t.Helper()
 	brainDir := t.TempDir()
 	generation := strings.Repeat("a", 40)
-	historyRel := historyDirName + "/generations/" + generation + "/" + historyIndexFileName
+	historyRel := brainstore.HistoryDirName + "/generations/" + generation + "/" + historyIndexFileName
 	seedRel := seedDirName + "/repo-overview.md"
 	historyBody := mustJSON(t, historyIndex{})
 	for rel, body := range map[string]string{
@@ -86,7 +87,7 @@ func TestDeclaredIndexesAreCheckedAgainstDisk(t *testing.T) {
 		t.Fatalf("a brain holding everything it declares reported defects: %+v", defects)
 	}
 	// The reproduction's own gesture: remove whole directories, not files.
-	for _, dir := range []string{docDirName, historyDirName, seedDirName} {
+	for _, dir := range []string{docDirName, brainstore.HistoryDirName, seedDirName} {
 		if err := os.RemoveAll(filepath.Join(brainDir, dir)); err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +160,7 @@ func TestStatusInstantLineReportsDeletedIndexes(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(brainDir, docDirName)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.RemoveAll(filepath.Join(brainDir, historyDirName)); err != nil {
+	if err := os.RemoveAll(filepath.Join(brainDir, brainstore.HistoryDirName)); err != nil {
 		t.Fatal(err)
 	}
 	after := state()
@@ -245,7 +246,7 @@ func TestHistoryIndexReadNamesADeletedGeneration(t *testing.T) {
 	if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
 		t.Fatalf("fixture history index is not readable: %v", err)
 	}
-	if err := os.RemoveAll(filepath.Join(brainDir, historyDirName)); err != nil {
+	if err := os.RemoveAll(filepath.Join(brainDir, brainstore.HistoryDirName)); err != nil {
 		t.Fatal(err)
 	}
 	_, err := loadBrainHistoryIndex(brainDir, source)

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,7 +67,7 @@ func privacyCommandFixture(t *testing.T) (Options, string) {
 	}
 	// The exported sessions root must exist for the history projection to be
 	// buildable at all; it is legitimately empty here.
-	if err := os.MkdirAll(filepath.Join(brainDir, exportSessionsDirectory, "feature"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.SessionsDirName, "feature"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now(), nil); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,9 +27,9 @@ import (
 func TestInspectRawTextFailsClosedOnUnreadableManifest(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -441,9 +442,9 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 		t.Fatalf("fact must be retrievable before exclusion: err=%v found=%d", err, len(pre))
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -495,7 +496,7 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
 	}
-	if code := memoryErrorCode(err); code != memoryErrUnsupportedVersion {
+	if code := memoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
 		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
 	}
 }
@@ -530,9 +531,9 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 		t.Fatalf("fixture invalid: the canary must be reachable before exclusion: %+v", pre)
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	post, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
@@ -566,9 +567,9 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	// The mid-cleanup window: the tombstone is live, but derived stores still

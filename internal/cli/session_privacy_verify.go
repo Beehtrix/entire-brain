@@ -60,7 +60,7 @@ func loadHistoryShortTermForPrivacy(brainDir string) (shortTermIndex, error) {
 		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, historyShortTermPath)
 	}
 	if overlay.Version != historyShortTermVersion || overlay.ReconcilerVersion != historyShortTermReconcilerVersion {
-		return empty, fmt.Errorf("%s: unsupported %s schema/reconciler version", memoryErrUnsupportedVersion, historyShortTermPath)
+		return empty, fmt.Errorf("%s: unsupported %s schema/reconciler version", brainstore.UnsupportedVersionCode, historyShortTermPath)
 	}
 	// A stale base pin is irrelevant to privacy: its records are still on disk
 	// and therefore must be inspected rather than silently treated as absent.
@@ -90,7 +90,7 @@ func loadHistoryScanCacheForPrivacy(brainDir string) (historyScanCache, error) {
 		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, historyScanCachePath)
 	}
 	if cache.Version != historyScanCacheVersion {
-		return empty, fmt.Errorf("%s: unsupported %s schema version %d", memoryErrUnsupportedVersion, historyScanCachePath, cache.Version)
+		return empty, fmt.Errorf("%s: unsupported %s schema version %d", brainstore.UnsupportedVersionCode, historyScanCachePath, cache.Version)
 	}
 	return cache, nil
 }
@@ -106,7 +106,7 @@ func loadDistillCacheForPrivacy(brainDir string) (distillCache, error) {
 		return empty, fmt.Errorf("%s: decode %s", brainstore.StateCorruptCode, distillCachePath)
 	}
 	if cache.Version != distillCacheVersion {
-		return empty, fmt.Errorf("%s: unsupported %s schema version %d", memoryErrUnsupportedVersion, distillCachePath, cache.Version)
+		return empty, fmt.Errorf("%s: unsupported %s schema version %d", brainstore.UnsupportedVersionCode, distillCachePath, cache.Version)
 	}
 	return cache, nil
 }
@@ -183,7 +183,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 	ownerByPath := map[string]string{}
 	for id, paths := range pathsBySession {
 		for rel := range paths {
-			ownerByPath[normalizePrivacyTranscriptPath(rel)] = id
+			ownerByPath[brainstore.NormalizePrivacyTranscriptPath(rel)] = id
 		}
 	}
 	db, err := sql.Open(sqlitedriver.Name, brainstore.SQLiteReadOnlyDSN(snapshotPath))
@@ -230,7 +230,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 			if _, excluded := stones.Excluded[strings.TrimSpace(sessionID)]; excluded {
 				owner = strings.TrimSpace(sessionID)
 			} else {
-				owner = ownerByPath[normalizePrivacyTranscriptPath(sourcePath)]
+				owner = ownerByPath[brainstore.NormalizePrivacyTranscriptPath(sourcePath)]
 			}
 			key := table.artifact + "\x00" + owner
 			if owner != "" && !seen[key] {
@@ -238,7 +238,7 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 				findings = append(findings, privacyVerifyFinding{
 					SessionID: owner,
 					Artifact:  table.artifact,
-					Detail:    fmt.Sprintf("%s row %s retains excluded session/path %s", table.name, rowID, normalizePrivacyTranscriptPath(sourcePath)),
+					Detail:    fmt.Sprintf("%s row %s retains excluded session/path %s", table.name, rowID, brainstore.NormalizePrivacyTranscriptPath(sourcePath)),
 				})
 			}
 		}
@@ -249,50 +249,6 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 		rows.Close()
 	}
 	return findings, nil
-}
-
-func loadPrivacyTransactionChecked(brainDir, sessionID string) (privacyTransaction, bool, error) {
-	rel := privacyTransactionRel(sessionID)
-	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "privacy transaction", base.MaxManifestBytes)
-	if err != nil || !present {
-		return privacyTransaction{}, present, err
-	}
-	tx, err := decodePrivacyTransaction(data, sessionID)
-	if err != nil {
-		return privacyTransaction{}, true, err
-	}
-	return tx, true, nil
-}
-
-func decodePrivacyTransaction(data []byte, sessionID string) (privacyTransaction, error) {
-	var tx privacyTransaction
-	version, err := decodeStrictVersionedJSON(data, &tx, privacyTransactionVersion, "privacy transaction")
-	if err != nil {
-		return privacyTransaction{}, err
-	}
-	validState := tx.State == privacyStateRequested || tx.State == privacyStateGuarded || tx.State == privacyStateRebuilding ||
-		tx.State == privacyStateVerified || tx.State == privacyStateComplete || tx.State == privacyStateError
-	if (version != privacyTransactionLegacyVersion && version != privacyTransactionVersion) || tx.SchemaVersion != version || tx.SessionID != sessionID ||
-		(tx.Operation != "exclude" && tx.Operation != "purge") || !validState || tx.StartedAt.IsZero() || tx.UpdatedAt.IsZero() ||
-		tx.UpdatedAt.Before(tx.StartedAt) {
-		return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
-	}
-	for _, artifact := range tx.Artifacts {
-		if strings.TrimSpace(artifact.Path) == "" || artifact.Bytes < 0 {
-			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction artifact %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
-		}
-	}
-	if len(tx.SessionRefs) > privacyTransactionSessionRefMax {
-		return privacyTransaction{}, fmt.Errorf("%s: privacy transaction has too many session refs %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
-	}
-	seenRefs := map[string]bool{}
-	for _, ref := range tx.SessionRefs {
-		if !strings.HasPrefix(ref, conversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(ref, conversationSessionIDPrefix)) == "" || seenRefs[ref] {
-			return privacyTransaction{}, fmt.Errorf("%s: invalid privacy transaction session ref %s", brainstore.StateCorruptCode, privacyTransactionRel(sessionID))
-		}
-		seenRefs[ref] = true
-	}
-	return tx, nil
 }
 
 // privacyDerivedReadGate prevents the tombstone-first cleanup window from
@@ -307,7 +263,7 @@ func privacyDerivedReadGate(brainDir string) (bool, error) {
 	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return false, err
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return false, err
 	}
@@ -378,7 +334,7 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 // sessions deliberately keep it.
 func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	report := privacyVerifyReport{Findings: []privacyVerifyFinding{}}
-	stones, tombstoneState, err := loadSessionTombstonesChecked(brainDir)
+	stones, tombstoneState, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -420,7 +376,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		}
 	}
 	if len(stones.Excluded) == 0 {
-		_, finalState, err := loadSessionTombstonesChecked(brainDir)
+		_, finalState, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return report, err
 		}
@@ -448,7 +404,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	for id := range stones.Excluded {
 		pathsBySession[id] = map[string]bool{}
 		refsBySession[id] = sessionRefsForSessionID(brainDir, manifest, id)
-		tx, present, txErr := loadPrivacyTransactionChecked(brainDir, id)
+		tx, present, txErr := brainstore.LoadPrivacyTransactionChecked(brainDir, id)
 		if txErr != nil {
 			return report, txErr
 		}
@@ -457,7 +413,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			for _, ref := range tx.SessionRefs {
 				refsBySession[id][ref] = true
 			}
-			paths, scopeErr := privacyTransactionTranscriptPaths(tx)
+			paths, scopeErr := brainstore.PrivacyTransactionTranscriptPaths(tx)
 			if scopeErr != nil {
 				return report, scopeErr
 			}
@@ -470,7 +426,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		for _, session := range manifest.Sources.Sessions.Sessions {
 			id := strings.TrimSpace(session.SessionID)
 			if paths, tracked := pathsBySession[id]; tracked {
-				if rel := normalizePrivacyTranscriptPath(session.TranscriptPath); rel != "" {
+				if rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath); rel != "" {
 					paths[rel] = true
 				}
 			}
@@ -482,12 +438,12 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		return report, err
 	}
 	for _, job := range jobs {
-		if refs, tracked := refsBySession[job.SessionID]; tracked && strings.HasPrefix(job.SessionRef, conversationSessionIDPrefix) {
+		if refs, tracked := refsBySession[job.SessionID]; tracked && strings.HasPrefix(job.SessionRef, brainstore.ConversationSessionIDPrefix) {
 			refs[job.SessionRef] = true
 		}
 	}
 	excludedPath := func(rel string) (string, bool) {
-		rel = normalizePrivacyTranscriptPath(rel)
+		rel = brainstore.NormalizePrivacyTranscriptPath(rel)
 		for id, paths := range pathsBySession {
 			if paths[rel] {
 				return id, true
@@ -623,7 +579,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			newestID, newestAt = id, stone.At
 		}
 	}
-	tombstoneInfo, tombstonesPresent, statErr := brainstore.PrivacyArtifactInfo(brainDir, sessionTombstonesPath, "session tombstones")
+	tombstoneInfo, tombstonesPresent, statErr := brainstore.PrivacyArtifactInfo(brainDir, brainstore.SessionTombstonesPath, "session tombstones")
 	if statErr != nil {
 		return report, statErr
 	}
@@ -686,8 +642,8 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	for _, rel := range []string{
 		patterncore.CorpusPath,
 		historyFTSDBRelPath(),
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 	} {
 		if !currentArtifacts[rel] {
 			continue
@@ -713,8 +669,8 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	// re-validate a vector store, so any surviving legacy store is itself a
 	// finding — its rows predate the removal and may retain purged sessions.
 	for _, rel := range []string{
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 	} {
 		if !currentArtifacts[rel] {
 			continue
@@ -805,7 +761,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	//. In-flight states are not findings: this function runs inside
 	// the cleanup itself, whose own transaction is mid-transition.
 	for id := range stones.Excluded {
-		if tx, ok := txBySession[id]; ok && tx.State == privacyStateError {
+		if tx, ok := txBySession[id]; ok && tx.State == brainstore.PrivacyStateError {
 			add(id, "privacy_transaction", fmt.Sprintf("%s failed (%s); re-run the operation", tx.Operation, tx.Error))
 		}
 	}
@@ -827,7 +783,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	}
 	// Verification is a snapshot proof. If the policy changes under us, retry
 	// instead of publishing Clean=true for a mixed set of tombstones/artifacts.
-	_, finalTombstoneState, err := loadSessionTombstonesChecked(brainDir)
+	_, finalTombstoneState, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -888,7 +844,7 @@ func privacyRetentionPlan(brainDir string, cutoff time.Time, branch string, purg
 	if err != nil {
 		return nil, err
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return nil, err
 	}

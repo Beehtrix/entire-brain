@@ -26,7 +26,7 @@ import (
 
 const (
 	projectionStateFileName = "projection-state-v1.json"
-	projectionStateRel      = historyDirName + "/" + projectionStateFileName
+	projectionStateRel      = brainstore.HistoryDirName + "/" + projectionStateFileName
 	projectionSchemaVersion = 1
 	// projectionReconcilerVersion mirrors the overlay's reconciliation rule
 	// version: receipts from a different rule are stale.
@@ -116,7 +116,7 @@ func newProjectionStateLoadError(state projectionStateReadState, path, detail st
 	code := brainstore.StateCorruptCode
 	switch state {
 	case projectionStateUnsupported:
-		code = memoryErrUnsupportedVersion
+		code = brainstore.UnsupportedVersionCode
 	case projectionStateStale:
 		code = memoryErrSourceStale
 	case projectionStateUnsafe:
@@ -144,7 +144,7 @@ func sessionTranscriptDigest(brainDir, rel string) (string, error) {
 // receipt. An unreadable transcript simply has no receipt: reconciliation
 // keeps its job open.
 func buildProjectionReceipts(brainDir string, manifest *exportManifest, index historyIndex, now time.Time) (projectionState, error) {
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return projectionState{}, err
 	}
@@ -210,7 +210,7 @@ func writeProjectionState(brainDir string, state projectionState) (digest string
 	if err != nil {
 		return "", err
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
 		return "", err
 	}
 	return digest, nil
@@ -307,7 +307,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 // supported decoding, so additive fields from a vNext producer cannot turn a
 // read-only receipt into disposable "corruption".
 func decodeProjectionStateDocument(data []byte, rel string) (projectionState, projectionStateReadState, error) {
-	version, err := checkedVersionedJSONHeader(data, projectionSchemaVersion, "projection receipt")
+	version, err := brainstore.CheckedVersionedJSONHeader(data, projectionSchemaVersion, "projection receipt")
 	if err != nil {
 		if version > projectionSchemaVersion {
 			return projectionState{}, projectionStateUnsupported, newProjectionStateLoadError(projectionStateUnsupported, rel, "schema is newer than this binary", version)
@@ -315,7 +315,7 @@ func decodeProjectionStateDocument(data []byte, rel string) (projectionState, pr
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "invalid JSON", version)
 	}
 	var state projectionState
-	if _, err := decodeStrictVersionedJSON(data, &state, projectionSchemaVersion, "projection receipt"); err != nil {
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &state, projectionSchemaVersion, "projection receipt"); err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "invalid JSON or unknown fields", version)
 	}
 	if state.SchemaVersion != projectionSchemaVersion {
@@ -326,7 +326,7 @@ func decodeProjectionStateDocument(data []byte, rel string) (projectionState, pr
 	}
 	previousRef := ""
 	for _, receipt := range state.Sessions {
-		if !strings.HasPrefix(receipt.SessionRef, conversationSessionIDPrefix) || strings.TrimSpace(receipt.SessionID) == "" ||
+		if !strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(receipt.SessionID) == "" ||
 			!validSHA256Identity(receipt.InputDigest) || receipt.ExchangeCount < 0 || receipt.CompletedAt.IsZero() || receipt.CompletedAt.After(state.GeneratedAt) {
 			return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "receipt has invalid identity or timestamp", state.SchemaVersion)
 		}

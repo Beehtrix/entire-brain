@@ -228,7 +228,7 @@ func writeHistoryIdentityManifestAtomic(brainDir string, manifest exportManifest
 		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 	}
 	data = append(data, '\n')
-	if err := writeBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 	}
 	return nil

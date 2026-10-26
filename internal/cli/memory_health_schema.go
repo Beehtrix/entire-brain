@@ -66,7 +66,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	case header.Version > historyShortTermVersion || header.ReconcilerVersion > historyShortTermReconcilerVersion:
 		health["state"] = shortTermStateUnsupported
 		health["schema_state"] = shortTermStateUnsupported
-		health["error_code"] = memoryErrUnsupportedVersion
+		health["error_code"] = brainstore.UnsupportedVersionCode
 		health["action"] = "upgrade entire-brain; this newer overlay remains read-only"
 		return health
 	case header.Version < historyShortTermVersion || header.ReconcilerVersion < historyShortTermReconcilerVersion:
@@ -256,7 +256,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		}
 		health["state"] = "unsupported"
 		health["schema_state"] = "unsupported"
-		health["error_code"] = memoryErrUnsupportedVersion
+		health["error_code"] = brainstore.UnsupportedVersionCode
 		health["action"] = "upgrade entire-brain; this newer or unknown FTS schema remains read-only"
 		return health
 	}
@@ -375,10 +375,10 @@ func memoryObservedSchemaVersions(current []int, issues []memoryStateIssue) []in
 
 func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 	priority := map[string]int{
-		memoryErrMigrationRequired:  1,
-		brainstore.StateCorruptCode: 2,
-		memoryErrUnsupportedVersion: 3,
-		brainstore.StateUnsafeCode:  4,
+		memoryErrMigrationRequired:        1,
+		brainstore.StateCorruptCode:       2,
+		brainstore.UnsupportedVersionCode: 3,
+		brainstore.StateUnsafeCode:        4,
 	}
 	selected, selectedPriority := brainstore.StateCorruptCode, -1
 	for _, issue := range issues {
@@ -389,7 +389,7 @@ func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 	switch selected {
 	case memoryErrMigrationRequired:
 		return memoryErrMigrationRequired, selected
-	case memoryErrUnsupportedVersion:
+	case brainstore.UnsupportedVersionCode:
 		return "unsupported", selected
 	case brainstore.StateUnsafeCode:
 		return "unsafe", selected

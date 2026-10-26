@@ -15,16 +15,16 @@ import (
 
 func TestSessionTombstoneLoaderRejectsFIFOBeforeOpen(t *testing.T) {
 	brainDir := t.TempDir()
-	path := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := syscall.Mkfifo(path, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
+	if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != brainstore.SessionTombstoneCorrupt {
 		t.Fatalf("FIFO state=%+v err=%v", state, err)
 	}
 	if !strings.Contains(err.Error(), "not a regular file") {
@@ -48,11 +48,11 @@ func TestMemoryMigrationProgressRejectsFIFOBeforeOpen(t *testing.T) {
 
 func TestPrivacyCheckedOpenRejectsLeafSwapToSymlink(t *testing.T) {
 	brainDir := t.TempDir()
-	stones := emptySessionTombstones()
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	stones := brainstore.EmptySessionTombstones()
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
+	target := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	outside := filepath.Join(t.TempDir(), "outside.json")
 	if err := os.WriteFile(outside, []byte(`{"version":1,"excluded":{}}`), 0o600); err != nil {
 		t.Fatal(err)
@@ -72,20 +72,20 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToSymlink(t *testing.T) {
 		return original(path, flag, perm)
 	}
 	t.Cleanup(func() { brainstore.PrivacyOpen = original })
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
+	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != brainstore.SessionTombstoneCorrupt {
 		t.Fatalf("leaf swap state=%+v err=%v swapped=%v", state, err, swapped)
 	}
 }
 
 func TestPrivacyCheckedOpenRejectsLeafSwapToFIFOWithoutBlocking(t *testing.T) {
 	brainDir := t.TempDir()
-	stones := emptySessionTombstones()
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	stones := brainstore.EmptySessionTombstones()
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
+	target := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	original := brainstore.PrivacyOpen
 	swapped := false
 	brainstore.PrivacyOpen = func(path string, flag int, perm os.FileMode) (*os.File, error) {
@@ -104,9 +104,9 @@ func TestPrivacyCheckedOpenRejectsLeafSwapToFIFOWithoutBlocking(t *testing.T) {
 		return original(path, flag, perm)
 	}
 	t.Cleanup(func() { brainstore.PrivacyOpen = original })
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != sessionTombstoneCorrupt {
+	if !swapped || !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || state.State != brainstore.SessionTombstoneCorrupt {
 		t.Fatalf("FIFO leaf swap state=%+v err=%v swapped=%v", state, err, swapped)
 	}
 }
@@ -140,7 +140,7 @@ func TestPrivacyCheckedDirectoryOpenRejectsSwapToSymlink(t *testing.T) {
 }
 
 func TestPrivacyVectorSnapshotRejectsSymlinkAndLeafSwap(t *testing.T) {
-	vectorRel := filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable))
+	vectorRel := filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable))
 	t.Run("symlink", func(t *testing.T) {
 		brainDir := t.TempDir()
 		path := filepath.Join(brainDir, filepath.FromSlash(vectorRel))

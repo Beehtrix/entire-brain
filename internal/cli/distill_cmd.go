@@ -316,6 +316,15 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 				if !distillOpts.force {
 					cacheKey := distillSessionCacheKeyFor(ps.branch, ps.session, duplicateKeys)
 					if prev, ok := cachedDistillFingerprintForKey(prevCache, cacheKey); ok && (prev == ps.fingerprint || grandfatheredContentFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts) || grandfatheredAgentSaltFingerprint(prev, ps.session, ps.branch, distillInput, distillOpts)) {
+						if prev != ps.fingerprint && len(prevCache.Chunks[cacheKey]) > 0 {
+							// The entry is being rewritten under the current
+							// salt; rewrite its chunk record too, or that record
+							// stays keyed by the legacy salt forever and dies
+							// with the next preprocessing-version bump. A
+							// cached session has every chunk extracted, so the
+							// full current chunk list IS its record.
+							ps.chunkHashes = distillChunkHashes(chunkTranscript(distillInput, distillOpts.maxChunkBytes), distillOpts.cacheSalt)
+						}
 						releaseWork()
 						ps.cached = true
 						f <- ps
@@ -643,6 +652,40 @@ func distillChunkHash(salt, text string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
+// distillEmptyFingerprintPrefix marks a session whose every dispatched chunk
+// returned zero records. The entry records that the content was seen, but it
+// is NOT a cache hit: no fingerprint comparison ever equals it, so the next
+// run re-distills the session once and writes the plain fingerprint only if
+// the result is empty again. Nor is it "distilled" for status: nothing stops
+// a re-run from spending on it. See the write site in runDistillForBrain.
+const distillEmptyFingerprintPrefix = "empty:"
+
+func distillEmptyFingerprint(fingerprint string) string {
+	return distillEmptyFingerprintPrefix + fingerprint
+}
+
+func isDistillEmptyFingerprint(fingerprint string) bool {
+	return strings.HasPrefix(fingerprint, distillEmptyFingerprintPrefix)
+}
+
+// distillChunkHashesExcept returns hashes without the excluded ones, in order.
+func distillChunkHashesExcept(hashes, exclude []string) []string {
+	if len(exclude) == 0 {
+		return hashes
+	}
+	drop := make(map[string]bool, len(exclude))
+	for _, h := range exclude {
+		drop[h] = true
+	}
+	kept := make([]string, 0, len(hashes))
+	for _, h := range hashes {
+		if !drop[h] {
+			kept = append(kept, h)
+		}
+	}
+	return kept
+}
+
 // distillChunkDoneUnderLegacySalt reports whether an older binary already
 // extracted this exact chunk text under one of the agent-bearing salts, so a
 // grown transcript re-sends only its genuinely new chunks across the salt
@@ -841,10 +884,12 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 			return err
 		}
 	}
-	// Resolve the agent BEFORE the dry-run branch: the cache salt hashes the
-	// agent name, so a dry-run salted with the literal "auto" while real runs
-	// salt with the resolved agent would predict every cached session as
-	// to-distill — defeating the dry-run's whole purpose of matching the run.
+	// Resolve the agent BEFORE the dry-run branch. The cache salt no longer
+	// hashes the agent, but the legacy agent-bearing salts the dry run
+	// enumerates include this run's own configuration, and the report names
+	// the agent it would use. No older binary ever salted with the literal
+	// "auto", so resolving here keeps the dry run's prediction and the real
+	// run's behaviour derived from the same resolved agent.
 	if distillOpts.agent == "auto" {
 		// Announced on stderr, and silent under --json so a machine reader's
 		// stdout document is never shadowed by a human line.
@@ -1431,12 +1476,25 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			cacheHits++
 			cachedKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
 			newCache.Sessions[cachedKey] = ps.fingerprint // unchanged; retain in cache and keep existing facts
-			carryDistillChunks(&newCache, prevCache, cachedKey, cachedKey)
+			if len(ps.chunkHashes) > 0 {
+				// Grandfathered under a legacy salt: the prefetch re-hashed
+				// the chunk record under the current one.
+				if newCache.Chunks == nil {
+					newCache.Chunks = make(map[string][]string)
+				}
+				newCache.Chunks[cachedKey] = ps.chunkHashes
+			} else {
+				carryDistillChunks(&newCache, prevCache, cachedKey, cachedKey)
+			}
 			reportProgress()
 			continue
 		}
 
 		sessionFailed := false
+		// sessionRecords and emptyChunks decide whether the session's cache
+		// entry is final or tentative (see the write below).
+		sessionRecords := 0
+		var emptyChunks []string
 		for chunkIdx, chunk := range ps.chunks {
 			chunksScanned++
 			anchor := factAnchor{
@@ -1479,9 +1537,11 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			records = entities.ApplyProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
+				emptyChunks = append(emptyChunks, distillChunkHash(distillOpts.cacheSalt, chunk.Text))
 				maybeFlush()
 				continue
 			}
+			sessionRecords += len(records)
 			factsFound += len(records)
 			chunksDistilled++
 			// Stage, don't adjudicate: candidates are persisted with
@@ -1505,11 +1565,31 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// than being silently treated as done.
 		if !sessionFailed {
 			doneKey := distillSessionCacheKeyFor(branch, session, duplicateKeys)
-			newCache.Sessions[doneKey] = ps.fingerprint
 			if newCache.Chunks == nil {
 				newCache.Chunks = make(map[string][]string)
 			}
-			newCache.Chunks[doneKey] = ps.chunkHashes
+			prev, _ := cachedDistillFingerprintForKey(prevCache, doneKey)
+			if sessionRecords > 0 || len(ps.chunks) == 0 || prev == distillEmptyFingerprint(ps.fingerprint) {
+				newCache.Sessions[doneKey] = ps.fingerprint
+				newCache.Chunks[doneKey] = ps.chunkHashes
+			} else {
+				// Every chunk this run dispatched came back with zero records.
+				// That is what a working agent says about a trivial session,
+				// and also exactly what a refusal, a rate-limit body or
+				// malformed output looks like when the agent exits 0. The salt
+				// no longer tells producers apart, so caching this as done
+				// would make the empty result final for every later agent,
+				// model and effort, with a branch-wide --force the only way
+				// out. Record it as tentative instead: the next run
+				// re-distills the session once, and only a second empty
+				// result (prev matched above) is accepted as the answer. The
+				// chunk record keeps only chunks the cache had already seen
+				// succeed, so the retry re-sends the empty ones.
+				newCache.Sessions[doneKey] = distillEmptyFingerprint(ps.fingerprint)
+				if kept := distillChunkHashesExcept(ps.chunkHashes, emptyChunks); len(kept) > 0 {
+					newCache.Chunks[doneKey] = kept
+				}
+			}
 		}
 		reportProgress()
 	}
@@ -2295,13 +2375,24 @@ func chunkLines(content string, maxBytes int, numberLines bool) []transcriptChun
 // corpus for free. Identity is (session id, checkpoint, resolved branch,
 // configuration salt, preprocessed content).
 func distillSessionFingerprint(session exportSession, branch, content, cacheSalt string) string {
-	contentSum := sha256.Sum256([]byte(content))
+	return distillSessionFingerprintForContentSum(session, branch, distillContentSum(content), cacheSalt)
+}
+
+// distillContentSum is the content half of a session fingerprint, hashed once
+// so a caller trying several salts (grandfathering) does not re-hash a
+// multi-megabyte transcript per candidate.
+func distillContentSum(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
+}
+
+func distillSessionFingerprintForContentSum(session exportSession, branch, contentSum, cacheSalt string) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{
 		session.SessionID,
 		session.LatestCheckpoint,
 		branch,
 		cacheSalt,
-		hex.EncodeToString(contentSum[:]),
+		contentSum,
 	}, "\x00")))
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
@@ -2381,14 +2472,6 @@ func distillSaltInputsForBrain(brainDir string, distillOpts distillCommandOption
 	return prompt, reconcilePrompt(), distillConfidenceThreshold(distillOpts), nil
 }
 
-func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
-	prompt, reconcilePromptText, threshold, err := distillSaltInputsForBrain(brainDir, distillOpts, now)
-	if err != nil {
-		return "", err
-	}
-	return distillCacheSalt(prompt, reconcilePromptText, threshold, distillOpts), nil
-}
-
 // Bump whenever transcript preprocessing changes what the extractor sees.
 const distillPreprocessingVersion = 1
 
@@ -2400,6 +2483,12 @@ func distillFingerprintForSessionWithSalt(session exportSession, branch, content
 	if !opts.checkpointBacked || session.LatestCheckpoint == "" {
 		return distillSessionFingerprint(session, branch, content, cacheSalt)
 	}
+	return distillCheckpointFingerprint(session, branch, opts, cacheSalt)
+}
+
+// distillCheckpointFingerprint is the identity form: checkpoint-backed
+// sessions are fingerprinted by what they are, not by their content.
+func distillCheckpointFingerprint(session exportSession, branch string, opts distillCommandOptions, cacheSalt string) string {
 	sum := sha256.Sum256([]byte(strings.Join([]string{session.SessionID, session.LatestCheckpoint, strconv.Itoa(session.SessionIndex), branch, opts.transcriptMode, cacheSalt}, "\x00")))
 	return "checkpoint-sha256:" + hex.EncodeToString(sum[:])
 }
@@ -2429,13 +2518,12 @@ func cachedCheckpointDistill(cache distillCache, session exportSession, branch s
 
 // grandfatheredAgentSaltFingerprint reports whether a cache entry written by a
 // binary whose salt still carried agent/model/effort proves this session's
-// preprocessed content unchanged. It only matches when the current run uses
-// the same agent/model/effort the entry was produced with (the legacy salts
-// are derived from THIS run's options), which is exactly the case the
-// backfill hits; the caller then rewrites the entry under the
-// agent-independent salt so every later run, whatever its agent, shares it.
+// preprocessed content unchanged. The candidates are the enumerated known
+// producer salts (legacyAgentDistillCacheSalts), so the hook recognises what
+// the backfill wrote and vice versa; the caller then rewrites the entry under
+// the agent-independent salt so every later run, whatever its agent, shares it.
 func grandfatheredAgentSaltFingerprint(previous string, session exportSession, branch, content string, opts distillCommandOptions) bool {
-	if previous == "" {
+	if previous == "" || len(opts.legacyAgentCacheSalts) == 0 {
 		return false
 	}
 	// A file-era entry (content fingerprint) on a brain that has since become
@@ -2443,11 +2531,19 @@ func grandfatheredAgentSaltFingerprint(previous string, session exportSession, b
 	// handles for agent-independent salts; agent-bearing ones need the same
 	// content-form comparison, under the same preprocessing-version guard.
 	contentForm := opts.checkpointBacked && distillPreprocessingVersion == 1 && content != ""
+	identityForm := opts.checkpointBacked && session.LatestCheckpoint != ""
+	// Hash the transcript ONCE: with up to a few dozen candidate salts, hashing
+	// a multi-megabyte transcript per candidate dominated every cache miss.
+	contentSum := distillContentSum(content)
 	for _, salt := range opts.legacyAgentCacheSalts {
-		if previous == distillFingerprintForSessionWithSalt(session, branch, content, opts, salt) {
+		if identityForm {
+			if previous == distillCheckpointFingerprint(session, branch, opts, salt) {
+				return true
+			}
+		} else if previous == distillSessionFingerprintForContentSum(session, branch, contentSum, salt) {
 			return true
 		}
-		if contentForm && previous == distillSessionFingerprint(session, branch, content, salt) {
+		if contentForm && previous == distillSessionFingerprintForContentSum(session, branch, contentSum, salt) {
 			return true
 		}
 	}
@@ -2534,16 +2630,21 @@ func legacyAgentDistillCacheSalt(prompt, reconcilePromptText string, threshold f
 // plausibly wrote for this brain: this run's own configuration first, then
 // the KNOWN producers — the setup backfill (a resolved agent, effort low, an
 // optional model) and the session-end hook (a resolved agent, no effort, no
-// model) — across the agents whose names reached the salt (auto resolves to
-// a concrete agent BEFORE salting). Each comes in the pre-checkpoint formula
+// model) — across the agents auto can resolve to (auto resolves to a
+// concrete agent BEFORE salting). Each comes in the pre-checkpoint formula
 // (preprocessing version omitted) and, for a checkpoint-backed brain, the
 // versioned one. Enumerating producers rather than trusting the current
-// flags lets the hook migrate what the backfill wrote and vice versa, so no
-// human has to repeat the writer's exact flags once.
+// flags lets the hook migrate what the backfill wrote and vice versa for the
+// default configurations. The enumeration is deliberately bounded: efforts
+// other than low, models other than this run's, and the argv of an
+// `--agent command` wrapper are not guessed (ollama always carries a --model,
+// so its entries are honoured only by a run pinning the same model). Entries
+// outside the list re-pay the agent once and are then shared — the safe
+// direction.
 func legacyAgentDistillCacheSalts(prompt, reconcilePromptText string, threshold float64, distillOpts distillCommandOptions) []string {
 	// uniqueStrings drops blanks, so the "no effort" / "no model" producer is
 	// added back explicitly.
-	agents := uniqueStrings([]string{distillOpts.agent, "codex", "claude-code"})
+	agents := uniqueStrings([]string{distillOpts.agent, "codex", "claude-code", "ollama"})
 	efforts := append([]string{""}, uniqueStrings([]string{distillOpts.effort, "low"})...)
 	models := append([]string{""}, uniqueStrings([]string{distillOpts.model})...)
 	versions := []int{0}
@@ -2577,14 +2678,6 @@ func legacyAgentDistillCacheSalts(prompt, reconcilePromptText string, threshold 
 		}
 	}
 	return salts
-}
-
-func legacyAgentDistillCacheSaltsForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) ([]string, error) {
-	prompt, reconcilePromptText, threshold, err := distillSaltInputsForBrain(brainDir, distillOpts, now)
-	if err != nil {
-		return nil, err
-	}
-	return legacyAgentDistillCacheSalts(prompt, reconcilePromptText, threshold, distillOpts), nil
 }
 
 func distillSessionCacheKey(branch, sessionID string) string {

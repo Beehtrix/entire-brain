@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,15 +84,20 @@ func TestDistillGrandfathersAgentSaltedCacheEntries(t *testing.T) {
 	backfill := distillCommandOptions{agent: "codex", effort: "low", run: countRun, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute, concurrency: 1}
 
 	// Seed the cache exactly as the old binary left it after a codex/low
-	// backfill: current keys, agent-bearing salt for THAT configuration.
-	legacySalts, err := legacyAgentDistillCacheSaltsForBrain(brainDir, backfill, now)
+	// backfill: current keys, agent-bearing salt for THAT configuration, and
+	// a chunk record hashed under the same salt.
+	prompt, reconcileText, threshold, err := distillSaltInputsForBrain(brainDir, backfill, now)
 	if err != nil {
 		t.Fatal(err)
 	}
+	legacySalts := legacyAgentDistillCacheSalts(prompt, reconcileText, threshold, backfill)
 	input := preprocessTranscriptForDistill(transcript)
-	seeded := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
+	chunks := chunkTranscript(input, defaultDistillChunkSize)
+	seeded := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}, Chunks: map[string][]string{}}
 	for _, s := range sessions {
-		seeded.Sessions[distillSessionCacheKey("main", s.SessionID)] = distillSessionFingerprint(s, "main", input, legacySalts[0])
+		key := distillSessionCacheKey("main", s.SessionID)
+		seeded.Sessions[key] = distillSessionFingerprint(s, "main", input, legacySalts[0])
+		seeded.Chunks[key] = distillChunkHashes(chunks, legacySalts[0])
 	}
 	if err := saveDistillCache(brainDir, seeded); err != nil {
 		t.Fatal(err)
@@ -113,15 +119,19 @@ func TestDistillGrandfathersAgentSaltedCacheEntries(t *testing.T) {
 		t.Fatalf("grandfathered sessions must cost ZERO agent calls, got %d", calls)
 	}
 	migrated := loadDistillCache(brainDir)
-	newSalt, err := distillCacheSaltForBrain(brainDir, distillCommandOptions{}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
+	newSalt := distillCacheSalt(prompt, reconcileText, threshold, distillCommandOptions{})
+	wantChunks := distillChunkHashes(chunks, newSalt)
 	for _, s := range sessions {
 		key := distillSessionCacheKey("main", s.SessionID)
 		want := distillSessionFingerprint(s, "main", input, newSalt)
 		if got := migrated.Sessions[key]; got != want {
 			t.Errorf("%s: entry not rewritten under the agent-independent salt: got %q want %q (legacy %q)", s.SessionID, got, want, seeded.Sessions[key])
+		}
+		// The chunk record is rewritten too, not carried by reference: a
+		// legacy-salted record would be dead weight after the next
+		// preprocessing-version bump.
+		if got := migrated.Chunks[key]; strings.Join(got, ",") != strings.Join(wantChunks, ",") {
+			t.Errorf("%s: chunk record not rewritten under the agent-independent salt: got %v want %v", s.SessionID, got, wantChunks)
 		}
 	}
 
@@ -181,6 +191,8 @@ func TestLegacyAgentDistillCacheSaltsEnumerateKnownProducers(t *testing.T) {
 		"claude-code backfill":  {agent: "claude-code", effort: "low"},
 		"codex hook":            {agent: "codex"},
 		"claude-code hook":      {agent: "claude-code"},
+		"ollama backfill":       {agent: "ollama", effort: "low"},
+		"ollama hook":           {agent: "ollama"},
 		"own agent, effort low": {agent: "command", agentCommand: []string{"fake"}, effort: "low"},
 	}
 	have := map[string]bool{}
@@ -289,5 +301,157 @@ func TestDistillChunkDoneUnderLegacySalt(t *testing.T) {
 	}
 	if distillChunkDoneUnderLegacySalt(done, "old chunk", nil) {
 		t.Error("no legacy salts, no match")
+	}
+}
+
+// The chunk grandfathering CALL SITE, not just its helper: a transcript an
+// older agent-salted binary distilled in two chunks grows by one. The run
+// under the hook's configuration must dispatch only the new chunk (the two
+// old ones are recognised under the legacy producer salt) and rewrite the
+// whole chunk record under the agent-independent salt. Deleting the legacy
+// clause at the call site dispatches all three.
+func TestDistillChunkReuseSurvivesSaltChangeEndToEnd(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	old := "turn one\nturn two\n"
+	brainDir := writeSingleSessionFixture(t, now, old)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := manifest.Sources.Sessions.Sessions[0]
+	key := distillSessionCacheKey("main", session.SessionID)
+
+	var calls int
+	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+		calls++
+		return "workflow.testing.rules\tRun go test before pushing.\n", nil
+	}
+	// maxChunkBytes=1 puts every line on its own chunk.
+	hook := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: 1, timeout: time.Minute}
+	prompt, reconcileText, threshold, err := distillSaltInputsForBrain(brainDir, hook, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySalt := legacyAgentDistillCacheSalt(prompt, reconcileText, threshold, distillCommandOptions{agent: "codex", effort: "low"}, 0)
+	oldInput := preprocessTranscriptForDistill(old)
+	oldChunks := chunkTranscript(oldInput, 1)
+	if len(oldChunks) != 2 {
+		t.Fatalf("fixture: want 2 chunks, got %d", len(oldChunks))
+	}
+	seeded := distillCache{
+		Version:  distillCacheVersion,
+		Sessions: map[string]string{key: distillSessionFingerprint(session, "main", oldInput, legacySalt)},
+		Chunks:   map[string][]string{key: distillChunkHashes(oldChunks, legacySalt)},
+	}
+	if err := saveDistillCache(brainDir, seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	grown := old + "a new turn\n"
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(session.TranscriptPath)), []byte(grown), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, hook, now); err != nil {
+		t.Fatalf("runDistillForBrain: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("only the new chunk should be dispatched across the salt change, got %d agent calls", calls)
+	}
+
+	newInput := preprocessTranscriptForDistill(grown)
+	newSalt := distillCacheSalt(prompt, reconcileText, threshold, hook)
+	cache := loadDistillCache(brainDir)
+	if got, want := cache.Sessions[key], distillSessionFingerprint(session, "main", newInput, newSalt); got != want {
+		t.Errorf("session entry: got %q want %q", got, want)
+	}
+	wantChunks := distillChunkHashes(chunkTranscript(newInput, 1), newSalt)
+	if got := cache.Chunks[key]; strings.Join(got, ",") != strings.Join(wantChunks, ",") {
+		t.Errorf("chunk record must cover all three chunks under the agent-independent salt: got %v want %v", got, wantChunks)
+	}
+}
+
+// With the agent out of the salt, a chunk whose agent call exits 0 with no
+// usable records (a refusal, a rate-limit body, the wrong format) would be
+// cached as distilled for EVERY later agent, model and effort, with a
+// branch-wide --force the only recovery. An all-empty extraction is recorded
+// as tentative instead: not cached, not distilled for status, re-derived once
+// by the next run, and accepted only when it comes back empty again.
+func TestDistillEmptyExtractionIsRetriedOnceAcrossProducers(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	brainDir := writeSingleSessionFixture(t, now, "turn one\nturn two\n")
+	key := distillSessionCacheKey("main", "s1")
+	runWith := func(output string) (calls, facts int) {
+		t.Helper()
+		run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+			calls++
+			return output, nil
+		}
+		opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, run: run, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute}
+		source, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
+		if err != nil {
+			t.Fatalf("runDistillForBrain: %v", err)
+		}
+		return calls, source.Facts
+	}
+
+	// Pass 1 (the backfill): the agent succeeds but yields nothing.
+	if calls, facts := runWith(""); calls != 1 || facts != 0 {
+		t.Fatalf("pass 1: calls=%d facts=%d", calls, facts)
+	}
+	cache := loadDistillCache(brainDir)
+	tentative := cache.Sessions[key]
+	if !isDistillEmptyFingerprint(tentative) {
+		t.Fatalf("an all-empty extraction must be recorded as tentative, got %q", tentative)
+	}
+	if len(cache.Chunks[key]) != 0 {
+		t.Fatalf("a tentative entry must not mark its empty chunks done: %v", cache.Chunks[key])
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 0 || status.Sessions != 1 {
+		t.Fatalf("a tentative session is not distilled for status: %+v", status)
+	}
+	report, err := buildDistillDryRunReport(brainDir, distillCommandOptions{agent: "codex", effort: "low"}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SessionsToDistill != 1 || report.CachedSessions != 0 {
+		t.Fatalf("dry run must predict the tentative session as to-distill: %+v", report)
+	}
+
+	// Pass 2 (the hook, another producer): re-derived once, facts land, final.
+	if calls, facts := runWith("preferences.coding.style\tThe user prefers concise commits.\n"); calls != 1 || facts != 1 {
+		t.Fatalf("pass 2 must re-dispatch the empty session: calls=%d facts=%d", calls, facts)
+	}
+	cache = loadDistillCache(brainDir)
+	if got, want := cache.Sessions[key], strings.TrimPrefix(tentative, distillEmptyFingerprintPrefix); got != want {
+		t.Fatalf("pass 2 must write the final fingerprint: got %q want %q", got, want)
+	}
+	if len(cache.Chunks[key]) != 1 {
+		t.Fatalf("final entry must record its chunk: %v", cache.Chunks[key])
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 1 {
+		t.Fatalf("final entry counts as distilled: %+v", status)
+	}
+	// Pass 3: cached, whatever the agent.
+	if calls, _ := runWith(""); calls != 0 {
+		t.Fatalf("pass 3 must be cached, got %d agent calls", calls)
+	}
+
+	// Two empty results in a row ARE the answer: a genuinely trivial session
+	// is retried once, not re-spent on forever.
+	brainDir = writeSingleSessionFixture(t, now, "hello\n")
+	if calls, _ := runWith(""); calls != 1 {
+		t.Fatalf("trivial session pass 1: got %d agent calls", calls)
+	}
+	if calls, _ := runWith(""); calls != 1 {
+		t.Fatalf("trivial session must be retried exactly once: got %d agent calls", calls)
+	}
+	if cache := loadDistillCache(brainDir); isDistillEmptyFingerprint(cache.Sessions[key]) || len(cache.Chunks[key]) != 1 {
+		t.Fatalf("second empty result must be accepted as final: %+v", cache)
+	}
+	if calls, _ := runWith(""); calls != 0 {
+		t.Fatalf("confirmed-empty session must be cached, got %d agent calls", calls)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 1 {
+		t.Fatalf("confirmed-empty session counts as distilled: %+v", status)
 	}
 }

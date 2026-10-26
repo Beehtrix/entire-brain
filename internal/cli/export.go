@@ -3103,11 +3103,18 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 }
 
 func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata) (map[string]selectedSession, []string, bool, error) {
+	return selectRoutedCheckpointSessionsWithBreaker(ctx, runner, repoDir, entireBinary, checkpoints, branchDestinations, progress, local, newCheckpointDetailBreaker())
+}
+
+// selectRoutedCheckpointSessionsWithBreaker is the seam tests inject a
+// fake-clock breaker through; production always enters via the wrapper above.
+func selectRoutedCheckpointSessionsWithBreaker(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata, breaker *checkpointDetailBreaker) (map[string]selectedSession, []string, bool, error) {
 	selected := make(map[string]selectedSession)
 	var warnings []string
 	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
+	breakerSkipped := 0
 
 	// Whatever the local store already accounts for is taken from it; the rest
 	// is asked of Entire below, checkpoint by checkpoint as before.
@@ -3120,7 +3127,7 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	// mature repository — and they are independent of one another. A runner
 	// that allows it reads them several at a time; the pass below still walks
 	// the list in order and takes every decision from it sequentially.
-	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress)
+	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress, breaker)
 	loopProgress := progress
 	if details != nil {
 		// Already reported while the details were read; reporting again here
@@ -3151,10 +3158,18 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		if i < len(details) && details[i].fetched {
 			detail, detailErr = details[i].detail, details[i].err
 		} else {
-			detail, detailErr = checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+			detail, detailErr = breaker.do(func() (checkpointExportEnvelope, error) {
+				return checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+			})
 		}
 		if detailErr != nil {
 			complete = false
+			// One slow host is one problem: the skips fold into a single
+			// counted warning after the loop, not a line per checkpoint.
+			if errors.Is(detailErr, errCheckpointDetailBreakerOpen) {
+				breakerSkipped++
+				continue
+			}
 			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
 			continue
 		}
@@ -3200,6 +3215,11 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	}
 	if details != nil {
 		reportExportProgress(progress, len(checkpoints), len(checkpoints), len(selected))
+	}
+	if breakerSkipped > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: skipped %d checkpoints without asking: %d consecutive `checkpoint explain` reads each ran over %s, the shape of the host CLI's remote metadata fetch timing out per checkpoint (entireio/cli#2902) — land that fetch once (the issue names the workaround), then re-run refresh to export the skipped sessions",
+			checkpointScopeIncompleteCode, breakerSkipped, checkpointDetailSlowTrip, checkpointDetailSlowRead))
 	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
 		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)

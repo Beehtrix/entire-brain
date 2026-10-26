@@ -2,9 +2,78 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"runtime"
 	"sync"
+	"time"
 )
+
+// checkpointDetailSlowRead is the duration at which one `checkpoint explain`
+// stops looking like a read and starts looking like the host CLI's remote
+// metadata fetch timing out: a warm read takes about a second, and the
+// pathological read observed in entireio/cli#2902 takes exactly the host's
+// 120s fetch deadline, burns it per checkpoint, and succeeds degraded — so a
+// 319-checkpoint export ran 2.7 hours with no error anywhere. 60s sits far
+// above any healthy read and safely below that deadline.
+const checkpointDetailSlowRead = 60 * time.Second
+
+// checkpointDetailSlowTrip is how many CONSECUTIVE slow reads indict the host
+// rather than one oversized checkpoint. Three keeps the worst pre-trip cost to
+// a few minutes even at the full fan-out width.
+const checkpointDetailSlowTrip = 3
+
+// errCheckpointDetailBreakerOpen marks a detail read that was skipped, not
+// attempted. The selection pass folds every skip into one counted warning; it
+// must never surface as a per-checkpoint "unreadable" line, which would read
+// as hundreds of distinct failures instead of one slow host.
+var errCheckpointDetailBreakerOpen = errors.New("routed checkpoint detail reads stopped: consecutive reads each ran as long as a host metadata-fetch timeout")
+
+// checkpointDetailBreaker stops asking a host that has shown it will spend a
+// full remote-fetch timeout on every single `checkpoint explain`. Without it,
+// per-checkpoint reads multiply one slow fetch into hours of silent stalling
+// (entireio/cli#2902); with it, the export degrades after a few minutes and
+// says so once. Reads that merely fail fast never trip it — failure is the
+// selection pass's business, slowness is this breaker's.
+type checkpointDetailBreaker struct {
+	// now is a seam for tests, which model a 120s read by advancing a fake
+	// clock instead of sleeping through five of them.
+	now  func() time.Time
+	mu   sync.Mutex
+	slow int
+	open bool
+}
+
+func newCheckpointDetailBreaker() *checkpointDetailBreaker {
+	return &checkpointDetailBreaker{now: time.Now}
+}
+
+// do runs one detail read through the breaker. A nil breaker passes reads
+// through untouched, so call sites need no guard.
+func (b *checkpointDetailBreaker) do(fetch func() (checkpointExportEnvelope, error)) (checkpointExportEnvelope, error) {
+	if b == nil {
+		return fetch()
+	}
+	b.mu.Lock()
+	open := b.open
+	b.mu.Unlock()
+	if open {
+		return checkpointExportEnvelope{}, errCheckpointDetailBreakerOpen
+	}
+	start := b.now()
+	detail, err := fetch()
+	elapsed := b.now().Sub(start)
+	b.mu.Lock()
+	if elapsed >= checkpointDetailSlowRead {
+		b.slow++
+		if b.slow >= checkpointDetailSlowTrip {
+			b.open = true
+		}
+	} else {
+		b.slow = 0
+	}
+	b.mu.Unlock()
+	return detail, err
+}
 
 // checkpointDetailFanoutLimit is the measured knee for `entire checkpoint
 // explain`, which spends its time reading git objects and parsing transcripts
@@ -63,7 +132,7 @@ type checkpointDetailResult struct {
 // detail. The fan-out only moves the reads, and every decision taken from them
 // — the warnings, the counters, which session wins a collision — still happens
 // in one sequential pass over the list.
-func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, local *localCheckpointMetadata, progress func(exportProgress)) []checkpointDetailResult {
+func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, local *localCheckpointMetadata, progress func(exportProgress), breaker *checkpointDetailBreaker) []checkpointDetailResult {
 	concurrent, ok := runner.(ConcurrentCommandRunner)
 	if !ok || !concurrent.ConcurrentRunAllowed() {
 		return nil
@@ -104,7 +173,9 @@ func prefetchCheckpointDetails(ctx context.Context, runner CommandRunner, repoDi
 		go func() {
 			defer done.Done()
 			for i := range positions {
-				detail, err := checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoints[i].CheckpointID)
+				detail, err := breaker.do(func() (checkpointExportEnvelope, error) {
+					return checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoints[i].CheckpointID)
+				})
 				// Each worker owns its own index, so the slice needs no lock.
 				results[i] = checkpointDetailResult{detail: detail, err: err, fetched: true}
 

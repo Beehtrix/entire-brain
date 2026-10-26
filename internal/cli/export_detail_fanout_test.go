@@ -213,14 +213,14 @@ func TestRoutedDetailFanoutSkipsARunnerThatHasNotOptedIn(t *testing.T) {
 
 	declined := newExplainFanoutRunner(details)
 	declined.concurrent = false
-	if got := prefetchCheckpointDetails(context.Background(), declined, "/repo", "entire-test", checkpoints, nil, nil); got != nil {
+	if got := prefetchCheckpointDetails(context.Background(), declined, "/repo", "entire-test", checkpoints, nil, nil, newCheckpointDetailBreaker()); got != nil {
 		t.Fatalf("a runner answering ConcurrentRunAllowed()=false was fanned out: %d results", len(got))
 	}
 
 	// runOnlyCommandRunner forwards nothing but Run, which is how a wrapper
 	// drops a capability it must not claim on the inner runner's behalf.
 	opaque := runOnlyCommandRunner{inner: &fakeCommandRunner{}}
-	if got := prefetchCheckpointDetails(context.Background(), opaque, "/repo", "entire-test", checkpoints, nil, nil); got != nil {
+	if got := prefetchCheckpointDetails(context.Background(), opaque, "/repo", "entire-test", checkpoints, nil, nil, newCheckpointDetailBreaker()); got != nil {
 		t.Fatalf("a runner with no concurrency capability was fanned out: %d results", len(got))
 	}
 }
@@ -238,7 +238,7 @@ func TestRoutedDetailFanoutDoesNotTreatAnUnreachedPositionAsRead(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	results := prefetchCheckpointDetails(ctx, runner, "/repo", "entire-test", checkpoints, nil, nil)
+	results := prefetchCheckpointDetails(ctx, runner, "/repo", "entire-test", checkpoints, nil, nil, newCheckpointDetailBreaker())
 	for i, result := range results {
 		if result.fetched && result.err == nil {
 			t.Fatalf("position %d reported a successful read under a cancelled context", i)

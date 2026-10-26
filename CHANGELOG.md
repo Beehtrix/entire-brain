@@ -34,6 +34,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- The sessions export no longer stalls for hours on a host CLI whose remote
+  metadata fetch times out per checkpoint (entireio/cli#2902: 319 routed
+  checkpoints × a 120s fetch deadline read as a `setup` hang). After three
+  consecutive `checkpoint explain` reads each over 60 seconds, a circuit
+  breaker stops asking, folds every skipped checkpoint into one counted
+  warning naming the cause and the remedy, and the export finishes degraded
+  in minutes. Validation tracked in COR-2277.
+
 - A first `setup` no longer ends on `freshness: degraded`. The agent wiring
   files setup itself writes — `AGENTS.md`, `CLAUDE.md`, and the PreToolUse
   entry in `.claude/settings.json` — no longer count as a dirty worktree in the

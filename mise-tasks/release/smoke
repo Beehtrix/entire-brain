@@ -58,8 +58,14 @@ export ENTIRE_TOKEN
 
 work=$(mktemp -d)
 smoke_branch="smoke-$stamp"
-scratch="$work/a"
-clone_b="$work/b"
+# Each repo lives BESIDE its machine's plugin dirs ($work/<m>/data etc.), never
+# inside them: the brain reads `git status` for its dirty gates and freshness
+# axes, so state dirs nested in the worktree flood it with the brain's own
+# writes — the seed then refuses to build and leg 1's release gate fails on a
+# mess the suite itself made. (hosted-sync-smoke.sh still nests; it asserts no
+# freshness, so it survives it.)
+scratch="$work/a/repo"
+clone_b="$work/b/repo"
 
 declare -a leg_names=(
   "1 setup: enable + brain setup healthy"
@@ -197,8 +203,15 @@ git -C "$scratch" checkout -qb "$smoke_branch"
 machine a "$scratch" entire enable --agent claude-code
 machine a "$scratch" sh -c "git add .entire .claude && git commit -qm 'chore: enable Entire'"
 brain_a setup --no-backfill --no-daemon .
-brain_a status --json --fail-on degraded >/dev/null ||
-  fail "entire brain status reports a degraded brain right after setup"
+# --fail-on release, not degraded: release requires an "ok" severity, so a
+# runner without the entire-graph provider fails loudly ("freshness is unset")
+# instead of passing a gate that assessed nothing. The 2026-10-22 validation
+# was green exactly that way — no graph installed, severity unset, degraded
+# gate vacuously satisfied — and installing the provider later turned the same
+# tree red. This suite exists to exercise the installed provider (see header),
+# so leg 1 asserts it was actually consulted.
+brain_a status --json --fail-on release >/dev/null ||
+  fail "entire brain status is not release-healthy right after setup"
 pass
 
 # -------------------------------------------------------------- leg 2: capture

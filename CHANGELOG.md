@@ -14,6 +14,29 @@ All notable changes to `entire-brain` are recorded here. The format follows
   back up and remove the brain directory and refresh to rebuild. Legacy vector
   detection remains in place for health and privacy checks.
 
+### Fixed
+
+- A first `setup` no longer ends on `freshness: degraded`. The agent wiring
+  files setup itself writes — `AGENTS.md`, `CLAUDE.md`, and the PreToolUse
+  entry in `.claude/settings.json` — no longer count as a dirty worktree in the
+  live state report, the same exemption the dirty-worktree gate already
+  applied. The files stay in the indexed corpus.
+
+- `status --fail-on degraded` and `--fail-on unsafe` no longer pass without
+  looking when the brain has no semantic assessment: a degraded or unsafe
+  retrieval freshness now trips the gate even when no graph provider is
+  installed. A healthy retrieval report still does not substitute for the
+  missing assessment, so `--fail-on release` keeps failing on unindexed brains.
+
+- `mise run release:smoke` leg 1 gates on `--fail-on release` instead of
+  `--fail-on degraded`, so a runner without the entire-graph provider fails
+  loudly ("freshness is unset") instead of passing a gate that assessed
+  nothing — which is how the gate silently weakened on machines without the
+  provider. The honest gate immediately caught a second suite bug: the
+  per-machine brain state dirs lived inside the scratch repo, so the brain's
+  own writes dirtied the tree and the seed never built; the state dirs now
+  live beside the repo.
+
 ## [0.2.0] - 2026-10-23
 
 ### Removed

@@ -382,6 +382,28 @@ func TestBrainStatusReleaseFreshnessRequiresSemanticAssessment(t *testing.T) {
 	}
 }
 
+// TestBrainStatusFreshnessSurfacesRetrievalProblemsWithoutSemantic: with no
+// semantic assessment the severity stays unset for a HEALTHY retrieval report
+// (retrieval is additive, not a substitute — the release gate must keep
+// failing), but a retrieval PROBLEM must not be discarded with it: a brain
+// without a graph provider still has seed/docs freshness worth gating on, and
+// dropping it made `--fail-on degraded` pass vacuously on a tree the brain
+// itself reported as dirty-unindexed.
+func TestBrainStatusFreshnessSurfacesRetrievalProblemsWithoutSemantic(t *testing.T) {
+	for _, severity := range []string{"degraded", "unsafe"} {
+		report := brainStatusReport{
+			Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: severity}},
+		}
+		if got := brainStatusFreshnessSeverity(report); got != severity {
+			t.Fatalf("retrieval %s without semantic = %q, want %s", severity, got, severity)
+		}
+		report.Semantic = &brainStatusSemantic{}
+		if got := brainStatusFreshnessSeverity(report); got != severity {
+			t.Fatalf("retrieval %s with unassessed semantic = %q, want %s", severity, got, severity)
+		}
+	}
+}
+
 func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	opts := statusGateFixtureOptions(t, t.TempDir(), nil)
 	storage, err := repoStoragePaths(context.Background(), opts.Runner, opts.Env, opts.Env.RepoRoot)

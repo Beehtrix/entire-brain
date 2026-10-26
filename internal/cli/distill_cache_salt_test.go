@@ -455,3 +455,82 @@ func TestDistillEmptyExtractionIsRetriedOnceAcrossProducers(t *testing.T) {
 		t.Fatalf("confirmed-empty session counts as distilled: %+v", status)
 	}
 }
+
+// The tentative-empty state and the pre-upgrade legacy-key fallback do not
+// interact: a legacy entry that proves content unchanged is honoured ahead of
+// any extraction and lands as a FINAL entry (no tentative detour), while a
+// legacy entry whose content is stale is dropped the moment the session is
+// visited, so it can never resurrect a session the new key says is tentative.
+func TestDistillTentativeEntryAndLegacyKeyDoNotInteract(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	transcript := "turn one\nturn two\n"
+	emptyAgent := func(calls *int) distillCommandOptions {
+		return distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, maxChunkBytes: defaultDistillChunkSize, timeout: time.Minute,
+			run: func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+				*calls++
+				return "", nil
+			}}
+	}
+	key := distillSessionCacheKey("main", "s1")
+
+	// Stale legacy entry: hashed against content the transcript no longer has.
+	brainDir := writeSingleSessionFixture(t, now, transcript)
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := manifest.Sources.Sessions.Sessions[0]
+	stale := distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"s1": legacyDistillSessionFingerprint(session, "main", session.TranscriptPath, preprocessTranscriptForDistill("turn one\n")),
+	}}
+	if err := saveDistillCache(brainDir, stale); err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, emptyAgent(&calls), now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("stale legacy entry must not be grandfathered: got %d agent calls", calls)
+	}
+	cache := loadDistillCache(brainDir)
+	if !isDistillEmptyFingerprint(cache.Sessions[key]) {
+		t.Fatalf("empty extraction must be tentative under the new key, got %q", cache.Sessions[key])
+	}
+	if _, ok := cache.Sessions["s1"]; ok {
+		t.Fatalf("legacy key must be dropped once the session is visited, so it cannot rescue the tentative entry: %v", cache.Sessions)
+	}
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, emptyAgent(&calls), now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("tentative session must be retried once, got %d agent calls", calls)
+	}
+	if cache := loadDistillCache(brainDir); isDistillEmptyFingerprint(cache.Sessions[key]) {
+		t.Fatalf("second empty result must finalise the entry, got %q", cache.Sessions[key])
+	}
+
+	// Matching legacy entry: grandfathered with zero calls, straight to final.
+	brainDir = writeSingleSessionFixture(t, now, transcript)
+	matching := distillCache{Version: distillCacheVersion, Sessions: map[string]string{
+		"s1": legacyDistillSessionFingerprint(session, "main", session.TranscriptPath, preprocessTranscriptForDistill(transcript)),
+	}}
+	if err := saveDistillCache(brainDir, matching); err != nil {
+		t.Fatal(err)
+	}
+	calls = 0
+	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, emptyAgent(&calls), now); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("matching legacy entry must cost zero agent calls, got %d", calls)
+	}
+	cache = loadDistillCache(brainDir)
+	if fp := cache.Sessions[key]; fp == "" || isDistillEmptyFingerprint(fp) {
+		t.Fatalf("grandfathering must write a FINAL entry under the new key, got %q", fp)
+	}
+	if status := factsBackfillStatusForBrain(brainDir); status.Distilled != 1 {
+		t.Fatalf("grandfathered session counts as distilled: %+v", status)
+	}
+}

@@ -588,6 +588,67 @@ func TestWatchTickLockRetryStopsOnContextCancel(t *testing.T) {
 	}
 }
 
+func TestWatchTickCancelledRetryIsNotLockContention(t *testing.T) {
+	// trail-review finding on #442: a shutdown during a retry wait came back
+	// as the last lock error, which the lost-lock case read as contention. With
+	// work pending, the tick reserved a spend window and ran seed/distill on a
+	// cancelled context; they failed at once and the window stayed consumed
+	// for up to --distill-every. The interrupted loop must surface the
+	// cancellation, and the tick must spend nothing.
+	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name          string
+		cancelIn      string // "sleep": cancel during the wait; "refresh": cancel before a losing attempt returns
+		wantAttempts  int
+		wantWaits     int
+		wantInterrupt string
+	}{
+		{name: "cancelled during the wait", cancelIn: "sleep", wantAttempts: 1, wantWaits: 1, wantInterrupt: "refresh retry interrupted after 1 lost attempt(s): context canceled"},
+		{name: "cancelled before the last losing attempt returned", cancelIn: "refresh", wantAttempts: 1, wantWaits: 0, wantInterrupt: "refresh retry interrupted after 1 lost attempt(s): context canceled"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cursorPath := filepath.Join(t.TempDir(), "watch.json")
+			if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck:old", LastRefreshAt: now.Add(-time.Hour), LastSuccessfulRefreshAt: now.Add(-time.Hour), PendingDistill: true}); err != nil {
+				t.Fatal(err)
+			}
+			var refreshed, distilled int
+			var waits []time.Duration
+			var order []string
+			steps := lockRetrySteps(now, "ck:new", 1<<30, &refreshed, &distilled, &waits, &order)
+			ctx, cancel := context.WithCancel(context.Background())
+			if tc.cancelIn == "refresh" {
+				inner := steps.refresh
+				steps.refresh = func(c context.Context) error { cancel(); return inner(c) }
+			}
+			steps.sleep = func(c context.Context, d time.Duration) error {
+				waits = append(waits, d)
+				cancel()
+				return c.Err()
+			}
+			steps.distill = func(c context.Context) error { distilled++; return c.Err() }
+			calls := 0
+			var out bytes.Buffer
+			watchTick(ctx, &out, watchCommandOptions{distill: true, seedAgent: "none", distillEvery: 24 * time.Hour}, cursorPath, steps, &calls)
+			if refreshed != tc.wantAttempts || len(waits) != tc.wantWaits {
+				t.Fatalf("attempts=%d waits=%v, want %d and %d", refreshed, waits, tc.wantAttempts, tc.wantWaits)
+			}
+			if distilled != 0 || calls != 0 {
+				t.Fatalf("a cancelled tick must not spend: distill=%d budget=%d\n%s", distilled, calls, out.String())
+			}
+			got := readWatchCursor(t, cursorPath)
+			if !got.LastAgentSpendAt.IsZero() || !got.PendingDistill || got.LastFingerprint != "ck:old" {
+				t.Fatalf("the window must not be reserved and the cursor must not move: %+v", got)
+			}
+			if !strings.Contains(out.String(), "[watch] refresh failed (skipping agent work this tick): "+tc.wantInterrupt) {
+				t.Fatalf("the tick must report the interruption, not lock contention:\n%s", out.String())
+			}
+			if strings.Contains(out.String(), "running pending agent work") {
+				t.Fatalf("a shutdown is not lock contention:\n%s", out.String())
+			}
+		})
+	}
+}
+
 func TestWatchTickRunsPendingDistillWhenRefreshKeepsLosingLock(t *testing.T) {
 	now := time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {

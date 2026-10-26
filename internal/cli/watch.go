@@ -620,8 +620,16 @@ func watchRefreshLockWait(w watchCommandOptions, attempt int) time.Duration {
 // watchRefreshWithLockRetry runs the free refresh, re-attempting it after a
 // bounded, growing wait when the only thing wrong was a held lock. Any other
 // failure returns at once. When every attempt lost, the last lock error is
-// returned so the caller can tell contention from a broken refresh; a context
-// cancelled during a wait returns that same error, so shutdown is prompt.
+// returned so the caller can tell contention from a broken refresh.
+//
+// A context cancelled during the loop — in a wait, or before a losing attempt
+// returned — ends it promptly, but with the CANCELLATION, never the lock
+// error: the caller's lost-lock path reads a lock error as "contention, run
+// the pending agent work", and a shutdown that arrived as a lock error made
+// it reserve a spend window and call seed/distill on a dead context, which
+// failed at once and left the window consumed for up to --distill-every
+// (trail-review finding on #442). The lock error is kept out of the message
+// so isBrainLockContention cannot match it.
 func watchRefreshWithLockRetry(ctx context.Context, out io.Writer, w watchCommandOptions, steps watchSteps) error {
 	sleep := steps.sleep
 	if sleep == nil {
@@ -629,16 +637,28 @@ func watchRefreshWithLockRetry(ctx context.Context, out io.Writer, w watchComman
 	}
 	for attempt := 0; ; attempt++ {
 		err := steps.refresh(ctx)
-		if err == nil || !isBrainLockContention(err) || attempt >= watchRefreshLockRetries {
+		if err == nil || !isBrainLockContention(err) {
+			return err
+		}
+		if ctx != nil && ctx.Err() != nil {
+			return watchRefreshInterrupted(attempt+1, ctx.Err())
+		}
+		if attempt >= watchRefreshLockRetries {
 			return err
 		}
 		wait := watchRefreshLockWait(w, attempt)
 		fmt.Fprintf(out, "[watch] refresh lost the brain write lock (attempt %d of %d); retrying in %s: %v\n",
 			attempt+1, watchRefreshLockRetries+1, wait, err)
 		if sleepErr := sleep(ctx, wait); sleepErr != nil {
-			return err
+			return watchRefreshInterrupted(attempt+1, sleepErr)
 		}
 	}
+}
+
+// watchRefreshInterrupted is the error a cancelled retry loop returns: the
+// cancellation, wrapped, with the attempt count and no lock text.
+func watchRefreshInterrupted(attempts int, cause error) error {
+	return fmt.Errorf("refresh retry interrupted after %d lost attempt(s): %w", attempts, cause)
 }
 
 // watchSleep is the production wait between refresh attempts.

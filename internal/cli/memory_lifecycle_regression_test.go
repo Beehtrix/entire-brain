@@ -98,9 +98,9 @@ func TestMemoryLifecycleMaintenanceConsumesExcludedHintAndRejectsStaleSnapshot(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["sess-live"] = sessionTombstone{At: now, Reason: "regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
@@ -131,7 +131,7 @@ func TestMemoryLifecycleProjectionFailureRetriesThenCompletes(t *testing.T) {
 			failures++
 			return os.ErrPermission
 		}
-		return writeBrainRelativeFileAtomic(dir, rel, data, mode)
+		return brainstore.WriteBrainRelativeFileAtomic(dir, rel, data, mode)
 	}
 	t.Cleanup(func() { historyProjectionWriteFile = originalWrite })
 	first, err := runMemoryProjectionLane(context.Background(), brainDir, now, "retry-owner")
@@ -503,9 +503,9 @@ func TestMemoryLifecycleReconcileDryRunExclusionRecordsTransitionWithoutWrite(t 
 		t.Fatal("fixture created no projection jobs")
 	}
 	target := jobs[0]
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[target.SessionID] = sessionTombstone{At: now, Reason: "regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -65,7 +66,7 @@ func TestManifestNewerRefusedWithRemedy(t *testing.T) {
 	if err == nil {
 		t.Fatal("newer manifest must be refused")
 	}
-	if !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("error code: %v", err)
 	}
 	if !strings.Contains(err.Error(), "upgrade entire-brain") {

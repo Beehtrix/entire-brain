@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"io/fs"
 	"net"
@@ -448,17 +449,17 @@ func (s *vizServer) requestSessionGuard(w http.ResponseWriter) (sessionReadGuard
 	s.guardMu.Lock()
 	defer s.guardMu.Unlock()
 
-	stones, state, err := loadSessionTombstonesChecked(s.brainDir)
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(s.brainDir)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusServiceUnavailable, map[string]any{
 			"error": commandErrorCode(err), "message": "session privacy state is unavailable",
 		})
 		return sessionReadGuard{}, false
 	}
-	if state.State == sessionTombstoneAbsent && s.guardObserved {
+	if state.State == brainstore.SessionTombstoneAbsent && s.guardObserved {
 		return s.guard, true
 	}
-	if state.State == sessionTombstoneCurrent {
+	if state.State == brainstore.SessionTombstoneCurrent {
 		s.guardObserved = true
 		if len(stones.Excluded) == 0 {
 			s.guard = sessionReadGuard{}

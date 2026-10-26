@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -310,7 +311,7 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	// declared index has to exist for these cases to describe freshness rather
 	// than availability.
 	brainDir := t.TempDir()
-	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
 		t.Fatalf("write doc index: %v", err)
 	}
 	tests := []struct {

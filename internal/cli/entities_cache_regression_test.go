@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestEntityWarmCacheHonorsPrivacyFailure(t *testing.T) {
 	f := newEntityIndexFixture(t)
 	f.writeSessionManifest(t)
 	f.run(t, "entities", "backfill", "--json")
-	p := filepath.Join(f.storage.BrainDir, filepath.FromSlash(sessionTombstonesPath))
+	p := filepath.Join(f.storage.BrainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
 		t.Fatal(err)
 	}

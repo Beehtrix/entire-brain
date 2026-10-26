@@ -101,12 +101,12 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 	go func() {
 		close(tombstoneAttempted)
 		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		})
 	}()
 	<-tombstoneAttempted
@@ -142,12 +142,12 @@ func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *te
 		t.Fatal(err)
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(brainDir)
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-		return saveSessionTombstones(brainDir, stones)
+		return brainstore.SaveSessionTombstones(brainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -393,7 +393,7 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 
 			err = action.run(brainDir)
 			var typed *patternCorpusPublicationLoadError
-			if !errors.As(err, &typed) || typed.Code != memoryErrUnsupportedVersion ||
+			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode ||
 				typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
@@ -573,8 +573,8 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = buildPatternCorpus(brainDir, now.Add(time.Minute))
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-		t.Fatalf("vNext manifest build error = %v, want %s", err, memoryErrUnsupportedVersion)
+	if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+		t.Fatalf("vNext manifest build error = %v, want %s", err, brainstore.UnsupportedVersionCode)
 	}
 	gotManifest, err := os.ReadFile(manifestPath)
 	if err != nil || !bytes.Equal(gotManifest, vNext) {
@@ -646,15 +646,15 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 	tombstoneDone := make(chan error, 1)
 	go func() {
 		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["s1"] = sessionTombstone{At: now.Add(2 * time.Minute)}
-			if err := saveSessionTombstones(brainDir, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 				return err
 			}
-			return removeBrainRelativeFile(brainDir, patterncore.CorpusPath)
+			return brainstore.RemoveBrainRelativeFile(brainDir, patterncore.CorpusPath)
 		})
 	}()
 	select {

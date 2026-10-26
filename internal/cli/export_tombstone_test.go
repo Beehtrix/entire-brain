@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"testing"
 	"time"
 )
@@ -16,11 +17,11 @@ func tombstoneSessionList() []exportSession {
 
 func seedTombstone(t *testing.T, brainDir string, ids ...string) {
 	t.Helper()
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	for _, id := range ids {
 		stones.Excluded[id] = sessionTombstone{At: time.Unix(10, 0), Reason: "mock fixture"}
 	}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -103,7 +104,7 @@ func TestValidationUnchangedWithoutTombstones(t *testing.T) {
 func TestUnreadableTombstonesAreReportedNotIgnored(t *testing.T) {
 	t.Parallel()
 	brainDir := t.TempDir()
-	if err := writeBrainRelativeFileAtomic(brainDir, sessionTombstonesPath, []byte("{ not json"), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, brainstore.SessionTombstonesPath, []byte("{ not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	validated, exempt, err := partitionTombstonedSessionsAt(brainDir, tombstoneSessionList())

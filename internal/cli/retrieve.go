@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"sort"
 	"strings"
@@ -839,7 +840,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			wantReview = true
 		case strings.HasPrefix(id, "history:"):
 			wantHistory = true
-		case strings.HasPrefix(id, conversationSessionIDPrefix):
+		case strings.HasPrefix(id, brainstore.ConversationSessionIDPrefix):
 			wantSession = true
 		case strings.HasPrefix(id, conversationIDPrefix):
 			wantConversation = true
@@ -1039,7 +1040,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				found = append(found, historyToUnified([]scoredHistoryRecord{{Record: r}})[0])
 				continue
 			}
-		case strings.HasPrefix(id, conversationSessionIDPrefix):
+		case strings.HasPrefix(id, brainstore.ConversationSessionIDPrefix):
 			if view, ok := sessionViews[id]; ok {
 				outline := conversationSessionOutline(view, gopts.AfterTurn, gopts.OutlineLimit)
 				outline.AbstractStatus, outline.Abstract = abstractResolver.status(view)

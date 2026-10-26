@@ -17,7 +17,7 @@ import (
 
 func TestHistorySessionInventoryDeterministic(t *testing.T) {
 	brainDir := t.TempDir()
-	mainDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	mainDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(mainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestHistorySessionInventoryDeterministic(t *testing.T) {
 
 func TestHistorySessionInventoryCancellation(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, exportSessionsDirectory), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.SessionsDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -81,7 +81,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 	if err := os.WriteFile(external, []byte(canary), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	alias := filepath.Join(brainDir, exportSessionsDirectory, "main", "external.jsonl")
+	alias := filepath.Join(brainDir, brainstore.SessionsDirName, "main", "external.jsonl")
 	if err := os.Symlink(external, alias); err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestShortTermDeltaMembershipRacePreservesOverlay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			racedPath := filepath.Join(brainDir, exportSessionsDirectory, "main", racedName)
+			racedPath := filepath.Join(brainDir, brainstore.SessionsDirName, "main", racedName)
 			originalHook := beforeHistoryShortTermInventoryRecheck
 			landed := false
 			beforeHistoryShortTermInventoryRecheck = func() {

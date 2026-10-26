@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,7 +70,7 @@ func TestMemoryMigrateRejectsUnsupportedSchemaWithoutWriting(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
 	oldDetect := detectMemoryMigrationsForAdmin
 	detectMemoryMigrationsForAdmin = func(string, *historySourceManifest) []memoryMigrationFinding {
-		return []memoryMigrationFinding{{Path: historyShortTermPath, State: memoryErrUnsupportedVersion, Action: "read-only"}}
+		return []memoryMigrationFinding{{Path: historyShortTermPath, State: brainstore.UnsupportedVersionCode, Action: "read-only"}}
 	}
 	t.Cleanup(func() { detectMemoryMigrationsForAdmin = oldDetect })
 	manifestPath := filepath.Join(brainDir, exportManifestFileName)
@@ -81,14 +82,14 @@ func TestMemoryMigrateRejectsUnsupportedSchemaWithoutWriting(t *testing.T) {
 	cmd := newMemoryMigrateCommand(opts)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	out, err := execute(t, cmd, "--json")
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("migrate accepted an unsupported schema: err=%v out=%q", err, out)
 	}
 	var receipt memoryOperationReceipt
 	if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil {
 		t.Fatalf("decode migrate failure receipt: %v\n%s", decodeErr, out)
 	}
-	if receipt.Operation != "migrate" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != memoryErrUnsupportedVersion {
+	if receipt.Operation != "migrate" || receipt.FinishedAt.IsZero() || receipt.ErrorCode != brainstore.UnsupportedVersionCode {
 		t.Fatalf("unexpected migrate failure receipt: %+v", receipt)
 	}
 	after, readErr := os.ReadFile(manifestPath)

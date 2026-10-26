@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -157,7 +158,7 @@ func TestHistorySingleReadPreservesIndexAndBriefPacket(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	now := fixture.opts.Now().UTC()
-	meaningful := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main", "20260716T235959Z-single-read.jsonl")
+	meaningful := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main", "20260716T235959Z-single-read.jsonl")
 	content := `{"type":"agent_message","message":"Decision: ALPHA_IDENTIFIER keeps transcript digests coupled to parsed records."}` + "\n" +
 		`{"type":"agent_message","message":"Validated ALPHA_IDENTIFIER history packets remain byte-identical."}` + "\n"
 	if err := os.WriteFile(meaningful, []byte(content), 0o600); err != nil {
@@ -328,7 +329,7 @@ func publishHistoryComparisonIndex(brainDir string, index historyIndex, source *
 	publishedSource.IndexBytes = int64(len(data))
 	publishedSource.IndexSHA256 = historyIndexBytesFingerprint(data)
 	publishedSource.RecordsFingerprint = historyRecordsFingerprint(index.Records)
-	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		return err
 	}
 	manifest, err := loadBrainManifest(brainDir)

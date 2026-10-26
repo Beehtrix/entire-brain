@@ -112,7 +112,7 @@ func TestConversationAPIErrorNarrativeIsNoise(t *testing.T) {
 func writeConversationFilterFixture(t *testing.T) string {
 	t.Helper()
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	mk := func(id, session, agent, branch, created, summary string, line int) historyRecord {
@@ -307,7 +307,7 @@ func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 func writeConversationWindowFixture(t *testing.T) string {
 	t.Helper()
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	records := make([]historyRecord, 0, 41)

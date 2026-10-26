@@ -168,9 +168,9 @@ func TestPrivacyVerifyRootCommandTextJSONAndViolationError(t *testing.T) {
 		t.Fatalf("clean JSON report = %#v, output=%q", clean, out)
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "regression test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	out, err = execute(t, NewRootCommand(opts), "privacy", "verify")
@@ -323,7 +323,7 @@ func TestPrivacyRetentionRootAppliesPurgeAndPreservesUnselectedSession(t *testin
 	if len(cleanBefore) == 0 {
 		t.Fatal("selected fixture transcript unexpectedly empty")
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	if stone, ok := stones.Excluded["clean-sess"]; !ok || stone.Reason != "purged" {
 		t.Fatalf("purge tombstone = %+v, present=%t", stone, ok)
 	}

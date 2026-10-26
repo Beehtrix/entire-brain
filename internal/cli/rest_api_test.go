@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -282,9 +283,9 @@ func TestRESTSearchSurvivesACleanPolicyMoveDuringRanking(t *testing.T) {
 		moved = true
 		// A session this brain never derived anything from: verification stays
 		// clean, so the only thing this exclusion changes is the identity.
-		stones := loadSessionTombstones(brainDir)
+		stones := brainstore.LoadSessionTombstones(brainDir)
 		stones.Excluded["session-never-indexed"] = sessionTombstone{At: opts.Now(), Reason: "clean policy move"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			panic(err)
 		}
 	}
@@ -425,9 +426,9 @@ func TestRESTWithholdsFactsFromExcludedSessions(t *testing.T) {
 		t.Fatalf("fixture never served the fact, so the exclusion proves nothing: %d %s", status, body)
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "privacy test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -489,9 +490,9 @@ func TestRESTRejectsExclusionBetweenFactFilteringAndDelivery(t *testing.T) {
 			called := false
 			afterRESTFactsPrivacyFilter = func() {
 				called = true
-				stones := loadSessionTombstones(brainDir)
+				stones := brainstore.LoadSessionTombstones(brainDir)
 				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "concurrent REST exclusion"}
-				if err := saveSessionTombstones(brainDir, stones); err != nil {
+				if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -546,9 +547,9 @@ func TestRESTUsesThePolicyThatFilteredFacts(t *testing.T) {
 			called := false
 			beforeRESTFactsPrivacyFilter = func() {
 				called = true
-				stones := loadSessionTombstones(brainDir)
+				stones := brainstore.LoadSessionTombstones(brainDir)
 				stones.Excluded["excluded-session"] = sessionTombstone{At: opts.Now(), Reason: "exclusion before filtering"}
-				if err := saveSessionTombstones(brainDir, stones); err != nil {
+				if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 					t.Fatal(err)
 				}
 			}

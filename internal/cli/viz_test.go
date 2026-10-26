@@ -322,16 +322,16 @@ func TestVizReloadsPrivacyStateForEveryRequest(t *testing.T) {
 	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), canary) {
 		t.Fatalf("pre-exclusion response = %d %s", before.Code, before.Body.String())
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["private"] = sessionTombstone{At: time.Now().UTC()}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	after := request()
 	if after.Code != http.StatusOK || strings.Contains(after.Body.String(), canary) || strings.Contains(after.Body.String(), "private") {
 		t.Fatalf("same server exposed a newly excluded session: %d %s", after.Code, after.Body.String())
 	}
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))); err != nil {
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))); err != nil {
 		t.Fatal(err)
 	}
 	disappeared := request()

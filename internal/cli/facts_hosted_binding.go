@@ -26,7 +26,7 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 		return err
 	}
 	return brainstore.WithBrainWriteLock(brainDir, func() error {
-		return writeBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(branch), append(data, '\n'), 0600)
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(branch), append(data, '\n'), 0600)
 	})
 }
 

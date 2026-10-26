@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"path/filepath"
 	"sort"
@@ -54,7 +55,7 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
 	deduped := dedupeProposals(proposals)
 	if len(deduped) == 0 {
-		return removeBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
+		return brainstore.RemoveBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
 	}
 	var buf strings.Builder
 	for _, p := range deduped {
@@ -65,7 +66,7 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
 }
 
 // dedupeProposals collapses identical queue entries, keyed on

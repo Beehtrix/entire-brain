@@ -206,7 +206,7 @@ func durablePrepassText(err error) string {
 }
 
 func errRetiredManifestField(err error) bool {
-	return isUnknownFieldError(err) || (err != nil &&
+	return brainstore.IsUnknownFieldError(err) || (err != nil &&
 		strings.Contains(err.Error(), brainstore.StateCorruptCode) &&
 		strings.Contains(err.Error(), "unknown field"))
 }
@@ -422,56 +422,14 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		data = append(data, '\n')
 		// Canonical manifest readers have no byte ceiling; retain every record
 		// and publish the complete document atomically.
-		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 		}
-		if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 			return fmt.Errorf("write brain readme: %w", err)
 		}
 		return nil
 	})
-}
-
-func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.FileMode) error {
-	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	clean, err := base.CleanBrainRelativePath(rel)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(clean)
-	if dir != "." {
-		if err := base.RejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
-			return err
-		}
-	}
-	abs := filepath.Join(brainDir, clean)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-		return err
-	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return err
-	}
-	return brainstore.WriteFileAtomic(abs, data, perm)
-}
-
-func removeBrainRelativeFile(brainDir, rel string) error {
-	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	clean, err := base.CleanBrainRelativePath(rel)
-	if err != nil {
-		return err
-	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return err
-	}
-	err = os.Remove(filepath.Join(brainDir, clean))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
 }
 
 // removeBrainRelativeFileExpected removes a file only when it is still the

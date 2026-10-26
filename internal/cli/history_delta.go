@@ -41,7 +41,7 @@ import (
 
 const (
 	historyShortTermFileName = "short-term.json"
-	historyShortTermPath     = historyDirName + "/" + historyShortTermFileName
+	historyShortTermPath     = brainstore.HistoryDirName + "/" + historyShortTermFileName
 	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
 	// descriptor-rooted content digest. Older size+mtime-only overlays are
 	// disposable and rebuild on the next delta.
@@ -205,7 +205,7 @@ func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600)
 }
 
 // clearHistoryShortTerm removes the overlay (called after a completed full
@@ -286,7 +286,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return stats, err
 	}

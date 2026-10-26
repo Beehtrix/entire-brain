@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -72,7 +73,7 @@ func TestMemoryStatusPlainRendererHasDeterministicJSONSectionParity(t *testing.T
 			t.Fatalf("section %q missing from one format\nplain:\n%s\njson:%s", section, plainOne, jsonOut)
 		}
 	}
-	if !strings.Contains(plainOne, "  state: \"unsupported\"") || !strings.Contains(plainOne, memoryErrUnsupportedVersion) {
+	if !strings.Contains(plainOne, "  state: \"unsupported\"") || !strings.Contains(plainOne, brainstore.UnsupportedVersionCode) {
 		t.Fatalf("forward-version health missing from plain output:\n%s", plainOne)
 	}
 	if after, err := os.ReadFile(manifestPath); err != nil || string(after) != string(future) {

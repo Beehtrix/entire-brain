@@ -693,7 +693,7 @@ func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	if err := appendBrainRelativeFile(f.brainDir, factsVitalityLogRelPath("main"), []byte("{not json\n")); err != nil {
 		t.Fatalf("seed corrupt log: %v", err)
 	}
-	if err := writeBrainRelativeFileAtomic(f.brainDir, factsVitalityRollupRelPath("main"), []byte("{corrupt"), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(f.brainDir, factsVitalityRollupRelPath("main"), []byte("{corrupt"), 0o600); err != nil {
 		t.Fatalf("seed corrupt rollup: %v", err)
 	}
 
@@ -759,7 +759,7 @@ func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 func TestVitalityNullRollupEntryDegradesWithoutPanic(t *testing.T) {
 	f := newVerifyFixture(t)
 	data := []byte(`{"schema_version":1,"facts":{"fact:null":null}}`)
-	if err := writeBrainRelativeFileAtomic(f.brainDir, factsVitalityRollupRelPath("main"), data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(f.brainDir, factsVitalityRollupRelPath("main"), data, 0o600); err != nil {
 		t.Fatalf("write null rollup: %v", err)
 	}
 

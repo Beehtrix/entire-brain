@@ -278,7 +278,7 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 			return nil, fmt.Errorf("encode episode: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsEpisodesPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsEpisodesPath, buf.Bytes(), 0o600); err != nil {
 		return nil, fmt.Errorf("write episodes: %w", err)
 	}
 
@@ -340,14 +340,14 @@ func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {
 		return false
 	}
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return false
 	}
 	if source.PrivacyIdentity == state.Identity {
 		return true
 	}
-	return source.PrivacyIdentity == "" && state.State == sessionTombstoneAbsent
+	return source.PrivacyIdentity == "" && state.State == brainstore.SessionTombstoneAbsent
 }
 
 // refreshPatternLayer rebuilds the pattern layer (episodes -> tasks, procedures,

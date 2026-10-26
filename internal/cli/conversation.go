@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"hash"
 	"io"
 	"os"
@@ -610,7 +611,7 @@ func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	if filepath.ToSlash(clean) != rel || filepath.IsAbs(clean) {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must be canonical and Brain-relative"}
 	}
-	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
+	if !strings.HasPrefix(rel, brainstore.SessionsDirName+"/") {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must remain under sessions/"}
 	}
 	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {

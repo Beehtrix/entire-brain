@@ -126,7 +126,7 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 
 			err := action.run(brainDir)
 			var typed *patternCorpusPublicationLoadError
-			if !errors.As(err, &typed) || typed.Code != memoryErrUnsupportedVersion || typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
+			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode || typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
 			requireForwardStateBytes(t, markerPath, future)

@@ -1533,7 +1533,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 // first path segment starting a known source prefix is the boundary.
 func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 	// conversation-session: must precede conversation: (prefix containment).
-	for _, prefix := range []string{"fact:", "review:", "history:", conversationSessionIDPrefix, "conversation:", "doc:", "pattern:", "theme:"} {
+	for _, prefix := range []string{"fact:", "review:", "history:", brainstore.ConversationSessionIDPrefix, "conversation:", "doc:", "pattern:", "theme:"} {
 		if strings.HasPrefix(qualified, prefix) {
 			return "", "", fmt.Errorf("id %q is missing its repo key (expected <repo-key>/%s…)", qualified, prefix)
 		}

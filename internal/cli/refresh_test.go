@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,7 +233,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 			TranscriptPath:   "sessions/main/session-one.jsonl",
 		}},
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatalf("create history dir: %v", err)
 	}
 	indexData := []byte(`{"records":[]}`)

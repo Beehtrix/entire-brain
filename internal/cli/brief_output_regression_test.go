@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -188,7 +189,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed tombstones fail closed before output", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(sessionTombstonesPath))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -205,9 +206,9 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("dirty privacy state blocks derived output", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		stones := loadSessionTombstones(fixture.brainDir)
+		stones := brainstore.LoadSessionTombstones(fixture.brainDir)
 		stones.Excluded["brief-evidence-1"] = sessionTombstone{At: fixture.opts.Now(), Reason: "brief regression"}
-		if err := saveSessionTombstones(fixture.brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(fixture.brainDir, stones); err != nil {
 			t.Fatal(err)
 		}
 		stdout, stderr, err := executeSplit(t, NewRootCommand(fixture.opts), "brief", "ValidateToken", "--json")
@@ -609,11 +610,11 @@ func newBrainBriefOutputFixture(t *testing.T) brainBriefProfileFixture {
 	if err := os.WriteFile(privatePath, []byte(briefOutputPrivateCanary), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sessionDir := filepath.Join(fixture.brainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(fixture.brainDir, brainstore.SessionsDirName, "main")
 	var exported []exportSession
 	for i := 1; i <= 4; i++ {
 		name := "brief-evidence-" + string(rune('0'+i)) + ".jsonl"
-		rel := filepath.ToSlash(filepath.Join(exportSessionsDirectory, "main", name))
+		rel := filepath.ToSlash(filepath.Join(brainstore.SessionsDirName, "main", name))
 		body := `{"type":"agent_message","message":"Decision: ValidateToken public history provenance ordering budget evidence ` + string(rune('0'+i)) + ` in src/history.go"}` + "\n"
 		if err := os.WriteFile(filepath.Join(sessionDir, name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)

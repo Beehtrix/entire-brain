@@ -111,6 +111,6 @@ func saveEntityIndexCache(brainDir string, cache entities.IndexCache) error {
 		return err
 	}
 	return brainstore.WithBrainWriteLock(brainDir, func() error {
-		return writeBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 	})
 }

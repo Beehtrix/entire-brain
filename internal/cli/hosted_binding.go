@@ -40,7 +40,7 @@ func writeHostedRepoBindingLocked(brainDir string, binding hostedRepoBinding) er
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
 }
 
 // setHostedOptOut records an explicit disconnect as one locked

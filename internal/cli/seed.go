@@ -886,25 +886,25 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 		return err
 	}
 	fileIndexData = append(fileIndexData, '\n')
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -1005,7 +1005,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			}
 			rendered := renderExtractedDocument(doc.Path, text)
 			doc.Bytes = int64(len(rendered))
-			if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
 				return err
 			}
 			continue
@@ -1023,7 +1023,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -1905,7 +1905,7 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 			return nil, fmt.Errorf("reject unsafe agent artifact path %q", name)
 		}
 		rel := filepath.Join(seedDirName, seedAgentDirName, clean)
-		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
 			return nil, err
 		}
 		written = append(written, filepath.ToSlash(rel))

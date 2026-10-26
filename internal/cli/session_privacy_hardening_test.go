@@ -18,9 +18,9 @@ import (
 
 func tombstonePrivacyFixture(t *testing.T, brainDir string) {
 	t.Helper()
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -210,7 +210,7 @@ func TestPrivacyDerivationBlocksDuplicateManifestTranscriptAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, episode := range episodes {
-		if normalizePrivacyTranscriptPath(episode.Source.Path) == secretPath {
+		if brainstore.NormalizePrivacyTranscriptPath(episode.Source.Path) == secretPath {
 			t.Fatalf("duplicate transcript alias produced an episode: %+v", episode)
 		}
 	}
@@ -410,10 +410,10 @@ func TestPrivacyVerifyRejectsCurrentCorruptSQLiteStore(t *testing.T) {
 
 func TestPrivacyTypedErrorCanBeUnwrapped(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName, sessionTombstonesFileName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName, brainstore.SessionTombstonesFileName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := loadSessionTombstonesChecked(brainDir)
+	_, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
 	if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode {
 		t.Fatalf("nonregular tombstone error = %v", err)

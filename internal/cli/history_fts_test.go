@@ -54,7 +54,7 @@ func writeDirectHistoryFTSFixture(t testing.TB, index historyIndex) (string, *hi
 		RecordsFingerprint: fingerprint,
 		Records:            len(index.Records),
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	index.recordsFingerprint = fingerprint
@@ -280,7 +280,7 @@ func TestHistoryFTSReadOnlyMissDoesNotCreateCache(t *testing.T) {
 		RecordsFingerprint: historyRecordsFingerprint(index.Records),
 		Records:            len(index.Records),
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(historyFTSDBPath(brainDir)); !os.IsNotExist(err) {

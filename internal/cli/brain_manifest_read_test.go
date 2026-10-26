@@ -158,14 +158,14 @@ func TestBrainManifestDecoderCompatibility(t *testing.T) {
 		{"truncated", `{"schema_version":3,"sessions":[`, brainstore.StateCorruptCode},
 		{"trailing-json", `{"schema_version":3} {}`, brainstore.StateCorruptCode},
 		{"trailing-garbage", `{"schema_version":3} garbage`, brainstore.StateCorruptCode},
-		{"missing-version", `{}`, memoryErrUnsupportedVersion},
+		{"missing-version", `{}`, brainstore.UnsupportedVersionCode},
 		{"v4", `{"schema_version":4}`, ""},
 		// Derived, not a literal: a hardcoded "newer" value stops meaning
 		// "newer than supported" the moment brainManifestSchemaVersion catches
 		// up to it, and silently starts testing the wrong thing instead of
 		// failing.
-		{"newer", fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1), memoryErrUnsupportedVersion},
-		{"older", `{"schema_version":-1}`, memoryErrUnsupportedVersion},
+		{"newer", fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1), brainstore.UnsupportedVersionCode},
+		{"older", `{"schema_version":-1}`, brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeTestManifest(t, tc.body)

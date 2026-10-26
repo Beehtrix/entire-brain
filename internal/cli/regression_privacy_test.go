@@ -167,13 +167,13 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				stones := loadSessionTombstones(f.BrainDir)
+				stones := brainstore.LoadSessionTombstones(f.BrainDir)
 				stones.Excluded[f.SessionID] = sessionTombstone{At: time.Now()}
-				if err := saveSessionTombstones(f.BrainDir, stones); err != nil {
+				if err := brainstore.SaveSessionTombstones(f.BrainDir, stones); err != nil {
 					t.Fatal(err)
 				}
 				// A malformed policy must never turn exclusion into an unguarded scan.
-				if err := os.WriteFile(filepath.Join(f.BrainDir, sessionTombstonesPath), []byte("{"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.BrainDir, brainstore.SessionTombstonesPath), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

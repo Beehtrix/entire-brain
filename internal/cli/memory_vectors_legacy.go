@@ -96,13 +96,13 @@ func decodeMemoryVectorProgress(data []byte) (memoryVectorProgress, error) {
 	}
 	if header.SchemaVersion > memoryVectorSchema {
 		return memoryVectorProgress{}, &memoryVectorProgressLoadError{
-			Code: memoryErrUnsupportedVersion, State: memoryVectorProgressUnsupported, Version: header.SchemaVersion,
+			Code: brainstore.UnsupportedVersionCode, State: memoryVectorProgressUnsupported, Version: header.SchemaVersion,
 			Err: fmt.Errorf("vector progress schema version %d is newer than supported version %d", header.SchemaVersion, memoryVectorSchema),
 		}
 	}
 	var progress memoryVectorProgress
-	if _, err := decodeVersionedJSONBody(data, &progress, false); err != nil {
-		if errors.Is(err, errTrailingJSONData) {
+	if _, err := brainstore.DecodeVersionedJSONBody(data, &progress, false); err != nil {
+		if errors.Is(err, brainstore.ErrTrailingJSONData) {
 			return memoryVectorProgress{}, newMemoryVectorProgressLoadError(fmt.Errorf("vector progress has trailing JSON data"), header.SchemaVersion)
 		}
 		return memoryVectorProgress{}, newMemoryVectorProgressLoadError(err, header.SchemaVersion)
@@ -134,6 +134,6 @@ func saveMemoryVectorProgress(brainDir string, progress memoryVectorProgress) er
 		if err != nil {
 			return err
 		}
-		return writeBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, data, 0o600)
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, data, 0o600)
 	})
 }

@@ -365,12 +365,12 @@ func TestMemoryInstallHealthUsesTypedReadOnlyEvidence(t *testing.T) {
 		t.Fatalf("health inspection mutated absent work directory: %v", err)
 	}
 
-	historyPath := filepath.Join(brainDir, historyDirName)
+	historyPath := filepath.Join(brainDir, brainstore.HistoryDirName)
 	if err := os.MkdirAll(historyPath, 0o500); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(historyPath, 0o700) })
-	history := inspectMemoryInstallDirectory(brainDir, historyDirName)
+	history := inspectMemoryInstallDirectory(brainDir, brainstore.HistoryDirName)
 	if history.State != "present_unproven" || !history.Exists || history.WritabilityProven {
 		t.Fatalf("read-only mode health = %+v", history)
 	}
@@ -393,7 +393,7 @@ func TestMemoryInstallHealthUsesTypedReadOnlyEvidence(t *testing.T) {
 	}
 
 	nonDirectoryBrain := t.TempDir()
-	nonDirectoryWork := filepath.Join(nonDirectoryBrain, historyDirName, "work")
+	nonDirectoryWork := filepath.Join(nonDirectoryBrain, brainstore.HistoryDirName, "work")
 	if err := os.MkdirAll(filepath.Dir(nonDirectoryWork), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 		data    []byte
 		symlink bool
 	}{
-		{name: "unknown newer", state: "unsupported", code: memoryErrUnsupportedVersion, version: brainManifestSchemaVersion + 1, data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"preserve\":true}}\n", brainManifestSchemaVersion+1))},
+		{name: "unknown newer", state: "unsupported", code: brainstore.UnsupportedVersionCode, version: brainManifestSchemaVersion + 1, data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"preserve\":true}}\n", brainManifestSchemaVersion+1))},
 		{name: "corrupt", state: "corrupt", code: brainstore.StateCorruptCode, data: []byte("{not-json\n")},
 		{name: "unsafe symlink", state: "unsafe", code: brainstore.StateUnsafeCode, symlink: true, data: []byte("{\"schema_version\":3}\n")},
 	} {
@@ -633,7 +633,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 			t.Fatalf("doctor check %q missing: %+v", name, report.Checks)
 		}
 	}
-	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, memoryErrUnsupportedVersion) {
+	if checks["manifest"].State != "error" || !strings.Contains(checks["manifest"].Detail, brainstore.UnsupportedVersionCode) {
 		t.Fatalf("manifest check = %+v", checks["manifest"])
 	}
 	// Not findings: both were string literals, so they are gone from the
@@ -654,7 +654,7 @@ func TestDoctorReportsC5HealthWithoutCreatingState(t *testing.T) {
 	if compiled["brain_manifest"] != float64(brainManifestSchemaVersion) {
 		t.Fatalf("compiled schema capabilities payload = %#v", compiled)
 	}
-	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, memoryErrUnsupportedVersion) || !strings.Contains(got.Detail, fmt.Sprintf("schema %d", brainManifestSchemaVersion+1)) {
+	if got := checks["memory_schemas"]; got.State != "error" || !strings.Contains(got.Detail, brainstore.UnsupportedVersionCode) || !strings.Contains(got.Detail, fmt.Sprintf("schema %d", brainManifestSchemaVersion+1)) {
 		t.Fatalf("observed schema health = %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(storage.BrainDir, memoryWorkDirRel)); !os.IsNotExist(err) {
@@ -695,14 +695,14 @@ func TestMemoryReadOnlyHealthReportsStaleCoordinatorProviderSchemasLocksAndLog(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, memoryCoordinatorStateRel, append(data, '\n'), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryCoordinatorStateRel, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, []byte(now.Add(-time.Hour).Format(time.RFC3339)+" event=worker_started owner=content\n"), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryWorkerLogRel, []byte(now.Add(-time.Hour).Format(time.RFC3339)+" event=worker_started owner=content\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	lockRel := filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, brainstore.BrainWriteLockName))
-	if err := writeBrainRelativeFileAtomic(brainDir, lockRel, nil, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, lockRel, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -758,7 +758,7 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 		wantVer   int
 	}{
 		{name: "current", data: []byte(fmt.Sprintf("{\"schema_version\":%d}\n", brainManifestSchemaVersion)), wantState: "ok", wantVer: brainManifestSchemaVersion},
-		{name: "newer", data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":true}\n", brainManifestSchemaVersion+1)), wantState: "error", wantCode: memoryErrUnsupportedVersion, wantVer: brainManifestSchemaVersion + 1},
+		{name: "newer", data: []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":true}\n", brainManifestSchemaVersion+1)), wantState: "error", wantCode: brainstore.UnsupportedVersionCode, wantVer: brainManifestSchemaVersion + 1},
 		{name: "corrupt", data: []byte("{broken\n"), wantState: "error", wantCode: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -812,7 +812,7 @@ func TestMemoryDoctorSchemaHealthSeparatesCompiledCapabilitiesFromObservedState(
 		schemas, _ := snapshot.Payload["schemas"].(map[string]any)
 		observed, _ := schemas["observed_health"].(map[string]any)
 		configObserved, _ := observed["abstract_config"].(map[string]any)
-		if configObserved["state"] != memoryConfigUnsupported || configObserved["schema_version"] != memoryConfigSchemaVersion+1 || configObserved["supported_schema_version"] != memoryConfigSchemaVersion || configObserved["error_code"] != memoryErrUnsupportedVersion {
+		if configObserved["state"] != memoryConfigUnsupported || configObserved["schema_version"] != memoryConfigSchemaVersion+1 || configObserved["supported_schema_version"] != memoryConfigSchemaVersion || configObserved["error_code"] != brainstore.UnsupportedVersionCode {
 			t.Fatalf("observed abstract config schema = %#v", configObserved)
 		}
 	})
@@ -971,7 +971,7 @@ func TestAManifestWithNoSchemaVersionIsNotCurrent(t *testing.T) {
 			}
 			found := false
 			for _, issue := range report.Issues {
-				if issue.Kind == "manifest" && issue.Code == memoryErrUnsupportedVersion {
+				if issue.Kind == "manifest" && issue.Code == brainstore.UnsupportedVersionCode {
 					found = true
 				}
 			}
@@ -995,8 +995,8 @@ func TestAManifestWithNoSchemaVersionIsNotCurrent(t *testing.T) {
 
 			// The strict loader every writer gates on must refuse it too, or a
 			// refresh would rewrite from a manifest it could not vouch for.
-			if _, _, err := readBrainManifest(storage.BrainDir, true); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-				t.Fatalf("strict loader error = %v, want %s", err, memoryErrUnsupportedVersion)
+			if _, _, err := readBrainManifest(storage.BrainDir, true); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+				t.Fatalf("strict loader error = %v, want %s", err, brainstore.UnsupportedVersionCode)
 			}
 		})
 	}

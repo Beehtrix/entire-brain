@@ -54,11 +54,11 @@ const (
 const historyFTSRelevanceCutoff = 0.30
 
 func historyFTSDBPath(brainDir string) string {
-	return filepath.Join(brainDir, historyDirName, historyFTSFileName)
+	return filepath.Join(brainDir, brainstore.HistoryDirName, historyFTSFileName)
 }
 
 func historyFTSDBRelPath() string {
-	return filepath.ToSlash(filepath.Join(historyDirName, historyFTSFileName))
+	return filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, historyFTSFileName))
 }
 
 // historyFTSContent is the searchable text for a record. It indexes two forms so

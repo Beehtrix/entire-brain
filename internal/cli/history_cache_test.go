@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ func TestHistoryIndexReusesScanCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
@@ -192,7 +193,7 @@ func TestHistoryScanCacheV6AnnotatedEntriesIgnored(t *testing.T) {
 		t.Fatalf("test guards the incompatible v6 -> v7 cache migration; any later version must also reject v6 entries (version = %d)", historyScanCacheVersion)
 	}
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	stale := historyScanCache{Version: 6, Files: map[string]historyScanCacheEntry{

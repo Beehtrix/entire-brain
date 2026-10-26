@@ -270,7 +270,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 		}
 		data = append(data, '\n')
 		legacy := &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records)}
-		if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: legacy}}); err != nil {

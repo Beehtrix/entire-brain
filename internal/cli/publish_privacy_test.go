@@ -164,7 +164,7 @@ func TestPublishPrivacyCorruptPolicyRefusesUpload(t *testing.T) {
 	dataDir := t.TempDir()
 	brainDir := publishBrainDir(dataDir)
 	writePublishBrainFixture(t, brainDir)
-	writePublishFile(t, filepath.Join(brainDir, sessionTombstonesPath), []byte("{broken"))
+	writePublishFile(t, filepath.Join(brainDir, brainstore.SessionTombstonesPath), []byte("{broken"))
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { t.Error("upload made with unreadable privacy policy") }))
 	defer srv.Close()
 	cmd := newPublishCmd(t, t.TempDir(), dataDir, newPublishFixtureRunner())

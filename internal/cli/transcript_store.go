@@ -267,7 +267,7 @@ func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
 
 	s.byRel = make(map[string]transcriptLocation, len(manifest.Sources.Sessions.Sessions))
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		rel := normalizePrivacyTranscriptPath(session.TranscriptPath)
+		rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath)
 		if rel == "" {
 			continue
 		}

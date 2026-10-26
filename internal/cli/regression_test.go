@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,7 +228,7 @@ func TestBrainReviewUsesRuntimeTraceForRankingAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}

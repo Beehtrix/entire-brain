@@ -62,7 +62,7 @@ func TestSessionPurgeRootDryRunApplyAndRetry(t *testing.T) {
 	if err != nil || string(cleanAfter) != string(cleanBefore) {
 		t.Fatalf("unrelated transcript changed: %q err=%v", cleanAfter, err)
 	}
-	if _, ok := loadSessionTombstones(brainDir).Excluded["secret-sess"]; !ok {
+	if _, ok := brainstore.LoadSessionTombstones(brainDir).Excluded["secret-sess"]; !ok {
 		t.Fatal("purge did not persist tombstone")
 	}
 	out, err = execute(t, NewRootCommand(opts), "privacy", "purge", "secret-sess")

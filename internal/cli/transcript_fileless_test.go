@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"os/exec"
@@ -90,7 +91,7 @@ func TestFilelessExportIndexesAndReadsWithoutSessionsTree(t *testing.T) {
 	if err != nil || string(data) != conversationClaudeFixture {
 		t.Fatalf("git read: %v %q", err, data)
 	}
-	index, _, _, err := buildBrainHistoryIndexSnapshotContext(context.Background(), brain, opts.Now(), nil, manifest, emptySessionTombstones())
+	index, _, _, err := buildBrainHistoryIndexSnapshotContext(context.Background(), brain, opts.Now(), nil, manifest, brainstore.EmptySessionTombstones())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,9 +320,9 @@ func TestFilelessDistillCacheSkipsReadsAndInvalidatesIdentity(t *testing.T) {
 			t.Fatalf("identity ignored %s", change)
 		}
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := saveSessionTombstones(brain, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath); err == nil || !strings.Contains(err.Error(), "tombstoned") {
@@ -379,9 +380,9 @@ func TestFilelessReadFinishRechecksTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := saveSessionTombstones(brain, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 		t.Fatal(err)
 	}
 	if err := finish(); err == nil || !strings.Contains(err.Error(), "tombstoned") {

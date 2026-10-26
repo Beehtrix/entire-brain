@@ -1730,9 +1730,9 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 
 	// Tombstoning the session moves its active job to excluded and the next
 	// worker pass consumes any hint for it.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["sess-live"] = sessionTombstone{At: now}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {

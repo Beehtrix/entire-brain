@@ -947,7 +947,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
 		}
 	}
-	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)", "refs/heads")
+	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)%00%(objectname)", "refs/heads")
 	if err != nil {
 		return fmt.Errorf("list local branches for semantic refresh: %w", err)
 	}
@@ -968,8 +968,8 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
 			continue
 		}
 		branch := strings.TrimSpace(parts[0])
@@ -984,7 +984,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
 		}
-		head := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+branch)))
+		head := strings.TrimSpace(parts[2])
 		if head == "" || head == defaultHead {
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue

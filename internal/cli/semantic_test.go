@@ -174,9 +174,8 @@ func TestSemanticRefreshAllBranchesWritesBoundedReport(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	now := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 	runner.responses[fakeCommandKey("git", "rev-parse", "refs/heads/main")] = fakeCommandResponse{stdout: "base111\n"}
-	runner.responses[fakeCommandKey("git", "rev-parse", "refs/heads/recent")] = fakeCommandResponse{stdout: "recent111\n"}
-	runner.responses[fakeCommandKey("git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)", "refs/heads")] = fakeCommandResponse{
-		stdout: "recent\x001779840000\nold\x001700000000\n",
+	runner.responses[fakeCommandKey("git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)%00%(objectname)", "refs/heads")] = fakeCommandResponse{
+		stdout: "recent\x001779840000\x00recent111\nold\x001700000000\x00old111\n",
 	}
 	opts := Options{Env: env, Runner: runner, Now: func() time.Time { return now }}
 	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {

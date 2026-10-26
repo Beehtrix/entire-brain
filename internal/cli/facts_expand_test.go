@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -201,7 +202,7 @@ func TestRecallExpandOllamaUsesLoopbackRunner(t *testing.T) {
 			t.Fatalf("recall must use loopback HTTP runner, not PATH ollama binary: %+v", call)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")); err != nil {
 		t.Fatalf("brain dir missing: %v", err)
 	}
 }

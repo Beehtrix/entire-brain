@@ -2,6 +2,7 @@ package cli
 
 import (
 	"database/sql"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,7 +48,7 @@ func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
 
 func TestWorkspacePatternStatusCountsMembersWithLegacyPatterns(t *testing.T) {
 	opts, env, manifest := workspaceCommandFixture(t)
-	memberDir, err := brainDirForKey(env, manifest.Repos[0].RepoKey)
+	memberDir, err := base.BrainDirForKey(env, manifest.Repos[0].RepoKey)
 	if err != nil {
 		t.Fatal(err)
 	}

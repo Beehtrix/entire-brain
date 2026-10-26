@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"slices"
@@ -267,7 +268,7 @@ func TestInitAgentsTombstone(t *testing.T) {
 	// brainInvocation renders the host-dispatched spelling ("entire brain
 	// setup") only when the plugin dispatcher's env var is set; pin that mode
 	// so the assertions below don't depend on ambient environment.
-	t.Setenv(envCLIVersion, "0.3.0")
+	t.Setenv(base.EnvCLIVersion, "0.3.0")
 
 	for _, args := range [][]string{
 		{"init-agents"},
@@ -320,10 +321,10 @@ func TestRefreshExposesBuildStageSubcommands(t *testing.T) {
 
 func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
-	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
-	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
-	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
+	t.Setenv(base.XDGConfigHome, filepath.Join(xdg, "config"))
+	t.Setenv(base.XDGDataHome, filepath.Join(xdg, "data"))
+	t.Setenv(base.XDGStateHome, filepath.Join(xdg, "state"))
+	t.Setenv(base.XDGCacheHome, filepath.Join(xdg, "cache"))
 
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
@@ -340,7 +341,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
 		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
+		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", base.PluginDataName),
 		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
 		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
@@ -453,7 +454,7 @@ func TestConfigInitAndShow(t *testing.T) {
 			t.Fatalf("directories.%s = %v, want %q", dir.key, dirs[dir.key], dir.want)
 		}
 	}
-	if want := filepath.Join(env.PluginDataDir, repoStoreDirName); report["brain_store"] != want {
+	if want := filepath.Join(env.PluginDataDir, base.RepoStoreDirName); report["brain_store"] != want {
 		t.Fatalf("brain_store = %v, want %q", report["brain_store"], want)
 	}
 	if report["repo_root"] != env.RepoRoot {

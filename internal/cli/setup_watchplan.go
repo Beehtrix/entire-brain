@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"sort"
@@ -86,7 +87,7 @@ func (p setupWatchPlan) entry(workspace string) (setupWatchPlanEntry, bool) {
 // STATE dir, the same directory as the machine-wide watcher log, so a plan and
 // the log of the process that reads it are found together.
 func setupWatchPlanPath(env EntireEnv) (string, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", fmt.Errorf("resolve plugin state dir: %w", err)
 	}

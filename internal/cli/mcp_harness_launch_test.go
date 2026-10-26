@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"io"
 	"path/filepath"
 	"strings"
@@ -44,11 +45,11 @@ func mcpPrintedServerEnvWithNotes(t *testing.T, opts Options) (map[string]string
 // here), which is why this only ever reproduced on two of the three harnesses.
 func prunedHostEnv(printed map[string]string) EntireEnv {
 	return EntireEnv{
-		RepoRoot:        printed[envRepoRoot],
-		PluginConfigDir: printed[envPluginConfigDir],
-		PluginDataDir:   printed[envPluginDataDir],
-		PluginStateDir:  printed[envPluginStateDir],
-		PluginCacheDir:  printed[envPluginCacheDir],
+		RepoRoot:        printed[base.EnvRepoRoot],
+		PluginConfigDir: printed[base.EnvPluginConfigDir],
+		PluginDataDir:   printed[base.EnvPluginDataDir],
+		PluginStateDir:  printed[base.EnvPluginStateDir],
+		PluginCacheDir:  printed[base.EnvPluginCacheDir],
 	}
 }
 
@@ -81,7 +82,7 @@ func TestPrintedMCPConfigCarriesTheStoreToAPrunedHost(t *testing.T) {
 	t.Run("XDG-configured store", func(t *testing.T) {
 		opts, boundDir, _ := workspaceSiblingFixture(t, "printed-store-xdg")
 		xdgData := t.TempDir()
-		t.Setenv(xdgDataHome, xdgData)
+		t.Setenv(base.XDGDataHome, xdgData)
 		opts.Env.PluginConfigDir = ""
 		opts.Env.PluginDataDir = ""
 		opts.Env.PluginStateDir = ""
@@ -89,10 +90,10 @@ func TestPrintedMCPConfigCarriesTheStoreToAPrunedHost(t *testing.T) {
 		assertPrintedEntryReachesTheSameBrain(t, opts, boundDir)
 
 		printed, _ := mcpPrintedServerEnvWithNotes(t, opts)
-		if data := printed[envPluginDataDir]; !strings.HasPrefix(data, xdgData) {
+		if data := printed[base.EnvPluginDataDir]; !strings.HasPrefix(data, xdgData) {
 			t.Errorf("printed %s = %q, want a path under the XDG data home %q; "+
 				"a host that drops XDG_DATA_HOME cannot re-derive it",
-				envPluginDataDir, data, xdgData)
+				base.EnvPluginDataDir, data, xdgData)
 		}
 	})
 }
@@ -103,7 +104,7 @@ func assertPrintedEntryReachesTheSameBrain(t *testing.T, opts Options, boundDir 
 	t.Helper()
 	ctx := context.Background()
 
-	want, err := resolvePluginDirs(opts.Env)
+	want, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		t.Fatalf("resolve the printing process's plugin dirs: %v", err)
 	}
@@ -115,7 +116,7 @@ func assertPrintedEntryReachesTheSameBrain(t *testing.T, opts Options, boundDir 
 	printed, _ := mcpPrintedServerEnvWithNotes(t, opts)
 	hostEnv := prunedHostEnv(printed)
 
-	got, err := resolvePluginDirs(hostEnv)
+	got, err := base.ResolvePluginDirs(hostEnv)
 	if err != nil {
 		t.Fatalf("a pruned host could not resolve the printed entry's plugin dirs: %v", err)
 	}
@@ -146,11 +147,11 @@ func TestPrintedMCPConfigPinsTheDefaultStoreExplicitly(t *testing.T) {
 	opts.Env.PluginCacheDir = ""
 
 	printed, _ := mcpPrintedServerEnvWithNotes(t, opts)
-	wantData := filepath.Join(home, ".local", "share", xdgRootDir, "plugins", "data", pluginDataName)
-	if got := printed[envPluginDataDir]; got != wantData {
-		t.Errorf("printed %s = %q, want %q", envPluginDataDir, got, wantData)
+	wantData := filepath.Join(home, ".local", "share", base.XDGRootDir, "plugins", "data", base.PluginDataName)
+	if got := printed[base.EnvPluginDataDir]; got != wantData {
+		t.Errorf("printed %s = %q, want %q", base.EnvPluginDataDir, got, wantData)
 	}
-	for _, name := range []string{envPluginConfigDir, envPluginStateDir, envPluginCacheDir} {
+	for _, name := range []string{base.EnvPluginConfigDir, base.EnvPluginStateDir, base.EnvPluginCacheDir} {
 		if printed[name] == "" {
 			t.Errorf("printed entry omits %s; a pruned host has nothing left to resolve it from", name)
 		}
@@ -209,7 +210,7 @@ func TestPrintMCPServerConfigNotesWhyItPrintedNoBinding(t *testing.T) {
 			Runner:  gitPresentNoRepoRunner{},
 		}
 		env, notes := mcpPrintedServerEnvWithNotes(t, opts)
-		if _, ok := env[envRepoRoot]; ok {
+		if _, ok := env[base.EnvRepoRoot]; ok {
 			t.Fatalf("a non-repository must print no binding, got %#v", env)
 		}
 		if !strings.Contains(notes, "not inside a git repository") {

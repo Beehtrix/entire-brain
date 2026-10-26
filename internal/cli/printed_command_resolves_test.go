@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"regexp"
 	"strings"
 	"testing"
@@ -80,9 +81,9 @@ func TestPrintedRepairCommandsResolveInBothDispatchModes(t *testing.T) {
 	} {
 		t.Run(mode.name, func(t *testing.T) {
 			if mode.cliVersion == "" {
-				t.Setenv(envCLIVersion, "")
+				t.Setenv(base.EnvCLIVersion, "")
 			} else {
-				t.Setenv(envCLIVersion, mode.cliVersion)
+				t.Setenv(base.EnvCLIVersion, mode.cliVersion)
 			}
 
 			checked := 0

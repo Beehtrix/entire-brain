@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -265,7 +266,7 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	rel := "sessions/feature/20260809T120000Z_privacy-race.jsonl"
 	transcript := strings.Join([]string{
 		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"How should the final privacy gate work?"}]}}`,

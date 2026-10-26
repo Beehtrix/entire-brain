@@ -134,7 +134,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifes
 
 	aggs := map[wsPatternKey]*wsAgg{}
 	for _, repo := range repos {
-		memberBrainDir, err := brainDirForKey(env, repo.RepoKey)
+		memberBrainDir, err := clibase.BrainDirForKey(env, repo.RepoKey)
 		if err != nil {
 			counts.Warnings = append(counts.Warnings, repo.RepoKey+": "+err.Error())
 			continue

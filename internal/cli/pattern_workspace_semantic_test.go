@@ -94,8 +94,8 @@ func releaseGroupingAgent(t *testing.T) base.DistillAgentRunner {
 func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bIntent string, bHeads []string) (EntireEnv, workspace.Manifest) {
 	t.Helper()
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, a)
-	bDir, _ := brainDirForKey(env, b)
+	aDir, _ := base.BrainDirForKey(env, a)
+	bDir, _ := base.BrainDirForKey(env, b)
 	seedPromotableMember(t, aDir, a, aIntent, aHeads...)
 	seedPromotableMember(t, bDir, b, bIntent, bHeads...)
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: a}, {RepoKey: b}}}
@@ -249,7 +249,7 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 		t.Fatalf("unchanged member evidence must reuse cache, calls=%d", calls)
 	}
 	// Mutate member A's task title (content), same repo + intent.
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
 	mdb, err := openPatternCorpusMutableDB(aDir)
 	if err != nil {
 		t.Fatal(err)

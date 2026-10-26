@@ -65,7 +65,7 @@ func redirectHomeDir(t *testing.T) string {
 func useDefaultStoreFallback(t *testing.T) string {
 	t.Helper()
 	home := redirectHomeDir(t)
-	for _, key := range []string{xdgConfigHome, xdgDataHome, xdgStateHome, xdgCacheHome} {
+	for _, key := range []string{base.XDGConfigHome, base.XDGDataHome, base.XDGStateHome, base.XDGCacheHome} {
 		t.Setenv(key, "")
 	}
 	return home
@@ -101,15 +101,15 @@ func TestDefaultStoreFallbackStaysInsideTheSandbox(t *testing.T) {
 	// the XDG pin cleared it falls through to the home directory. Every one of
 	// the four must land in the sandbox; on Windows before this helper, all
 	// four resolved under the CI runner's real profile.
-	dirs, err := resolvePluginDirs(EntireEnv{})
+	dirs, err := base.ResolvePluginDirs(EntireEnv{})
 	if err != nil {
 		t.Fatalf("resolve plugin dirs: %v", err)
 	}
 	for name, got := range map[string]string{
-		envPluginConfigDir: dirs.Config,
-		envPluginDataDir:   dirs.Data,
-		envPluginStateDir:  dirs.State,
-		envPluginCacheDir:  dirs.Cache,
+		base.EnvPluginConfigDir: dirs.Config,
+		base.EnvPluginDataDir:   dirs.Data,
+		base.EnvPluginStateDir:  dirs.State,
+		base.EnvPluginCacheDir:  dirs.Cache,
 	} {
 		if !base.PathInside(home, got) {
 			t.Errorf("%s resolved to %q, outside the redirected home %q", name, got, home)

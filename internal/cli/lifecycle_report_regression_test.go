@@ -85,7 +85,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 	env := semanticTestEnv(t, repo)
 	runner := semanticFixtureRunner(repo, "")
 	opts := Options{Env: env, Runner: runner, Now: func() time.Time { return time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC) }}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	transcriptRel := "sessions/main/session.jsonl"
 	if err := os.MkdirAll(filepath.Join(brainDir, filepath.Dir(transcriptRel)), 0o700); err != nil {
 		t.Fatal(err)

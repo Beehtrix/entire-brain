@@ -33,7 +33,6 @@ type StoreConfig struct {
 }
 
 const (
-	DirName          = "workspaces"
 	ManifestName     = "workspace.json"
 	ManifestLockName = "workspace-manifest.lock"
 	readmeName       = "README.md"
@@ -172,7 +171,7 @@ func (s StoreConfig) Dir(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	workspaceRoot := filepath.Join(dataDir, DirName)
+	workspaceRoot := filepath.Join(dataDir, base.WorkspacesDirName)
 	if err := s.Deps.RejectRootPath(workspaceRoot, name); err != nil {
 		return "", err
 	}
@@ -189,7 +188,7 @@ func (s StoreConfig) Dir(name string) (string, error) {
 // wins: it is the one current builds have been writing to).
 func (s StoreConfig) migrateLegacyDir(dataDir, name, newDir string) error {
 	legacyRoot := filepath.Join(dataDir, s.LegacyRepoDirName)
-	legacy := filepath.Join(legacyRoot, DirName, name)
+	legacy := filepath.Join(legacyRoot, base.WorkspacesDirName, name)
 	info, err := os.Lstat(legacy)
 	if err != nil || info.Mode()&os.ModeSymlink != 0 {
 		// Absent, unreadable, or a SYMLINK: never migrate. Renaming a symlink
@@ -197,7 +196,7 @@ func (s StoreConfig) migrateLegacyDir(dataDir, name, newDir string) error {
 		// workspace write flow through an attacker-placed target.
 		return nil
 	}
-	if s.Deps.RejectRootPath(legacyRoot, filepath.Join(DirName, name)) != nil {
+	if s.Deps.RejectRootPath(legacyRoot, filepath.Join(base.WorkspacesDirName, name)) != nil {
 		return nil // tampered legacy tree (symlinked root/components): leave it alone
 	}
 	if _, err := os.Stat(newDir); err == nil {

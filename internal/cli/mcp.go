@@ -198,7 +198,7 @@ func printMCPServerConfig(ctx context.Context, out, errOut io.Writer, opts Optio
 	}
 	env := map[string]string{}
 	if root := mcpConfigRepoRoot(ctx, opts); root != "" {
-		env[envRepoRoot] = root
+		env[base.EnvRepoRoot] = root
 	} else if errOut != nil {
 		// SAY SO. Without a binding the entry is still usable -- 31 of the 36
 		// tools resolve their target from the server's working directory -- but
@@ -208,7 +208,7 @@ func printMCPServerConfig(ctx context.Context, out, errOut io.Writer, opts Optio
 		fmt.Fprintf(errOut, "note: printed an entry with no %s binding: %s\n"+
 			"      brain_list_projects, brain_delete_project and the three brain_workspace_* tools "+
 			"refuse on a server that is neither bound nor started inside a repository.\n",
-			envRepoRoot, mcpConfigNoBindingReason(ctx, opts))
+			base.EnvRepoRoot, mcpConfigNoBindingReason(ctx, opts))
 	}
 	for name, dir := range mcpConfigStoreEnv(opts) {
 		env[name] = dir
@@ -245,15 +245,15 @@ func printMCPServerConfig(ctx context.Context, out, errOut io.Writer, opts Optio
 // entry with no store dirs -- and it is strictly better than writing a path this
 // process could not itself resolve.
 func mcpConfigStoreEnv(opts Options) map[string]string {
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return nil
 	}
 	return map[string]string{
-		envPluginConfigDir: dirs.Config,
-		envPluginDataDir:   dirs.Data,
-		envPluginStateDir:  dirs.State,
-		envPluginCacheDir:  dirs.Cache,
+		base.EnvPluginConfigDir: dirs.Config,
+		base.EnvPluginDataDir:   dirs.Data,
+		base.EnvPluginStateDir:  dirs.State,
+		base.EnvPluginCacheDir:  dirs.Cache,
 	}
 }
 
@@ -1809,7 +1809,7 @@ type mcpProjectSummary struct {
 }
 
 func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) error {
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
@@ -1817,7 +1817,7 @@ func runMCPListProjects(ctx context.Context, cmd *cobra.Command, opts Options) e
 	// the keys, brain paths, and index counts of every other repo on the machine.
 	// Scope the listing to the bound repo unless the operator opts out.
 	boundKey := ""
-	root := filepath.Join(dirs.Data, repoStoreDirName)
+	root := filepath.Join(dirs.Data, base.RepoStoreDirName)
 	if !mcpCrossRepoAllowed() {
 		storage, bound, storageErr := mcpRepoLocalStorage(ctx, opts)
 		if storageErr != nil {
@@ -1947,11 +1947,11 @@ func runMCPDeleteProject(ctx context.Context, cmd *cobra.Command, opts Options, 
 				return mcpCrossRepoRefusal("brain_delete_project", fmt.Sprintf("repo_key %q names a different project", repoKey), boundSet.Canonical.Key)
 			}
 		}
-		brainDir, dirErr := brainDirForKey(opts.Env, repoKey)
+		brainDir, dirErr := base.BrainDirForKey(opts.Env, repoKey)
 		if dirErr != nil {
 			return dirErr
 		}
-		headPath, headErr := headPathForKey(opts.Env, repoKey)
+		headPath, headErr := base.HeadPathForKey(opts.Env, repoKey)
 		if headErr != nil {
 			return headErr
 		}
@@ -2188,14 +2188,14 @@ func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
 				"(`entire-brain mcp --print-config` emits an entry that already does) and restart the server. "+
 				"%s=1 does not fix this: it is the separate opt-out for deliberately acting on repositories "+
 				"other than the bound one",
-			tool, detail, envRepoRoot, mcpAllowCrossRepoEnv,
+			tool, detail, base.EnvRepoRoot, mcpAllowCrossRepoEnv,
 		)
 	}
 	return fmt.Errorf(
 		"%s is scoped to the MCP server's bound repository (%s): %s; "+
 			"bind the server to the repository you mean with %s, "+
 			"or set %s=1 if acting across repositories is deliberate",
-		tool, boundKey, detail, envRepoRoot, mcpAllowCrossRepoEnv,
+		tool, boundKey, detail, base.EnvRepoRoot, mcpAllowCrossRepoEnv,
 	)
 }
 

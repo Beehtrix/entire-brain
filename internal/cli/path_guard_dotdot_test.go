@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ import (
 // yet. On a machine where the store has not been created, "" resolves one level
 // above the store root and the caller acts on it.
 //
-// The reachable consequence is brainDirForKey(env, ".."), whose result
+// The reachable consequence is base.BrainDirForKey(env, ".."), whose result
 // brain_delete_project hands to os.RemoveAll: the whole plugin data root,
 // workspaces and every other project's brain included.
 
@@ -42,17 +43,17 @@ func TestBrainDirForKeyRejectsDotDot(t *testing.T) {
 	dataDir := t.TempDir()
 	env := EntireEnv{PluginDataDir: dataDir}
 
-	dir, err := brainDirForKey(env, "..")
+	dir, err := base.BrainDirForKey(env, "..")
 	if err == nil {
 		t.Fatalf("brainDirForKey resolved repo key %q to %s — os.RemoveAll on that wipes the whole brain data root", "..", dir)
 	}
 
 	// A legitimate key must still resolve, under the store root.
-	good, err := brainDirForKey(env, "gh/example/repo")
+	good, err := base.BrainDirForKey(env, "gh/example/repo")
 	if err != nil {
 		t.Fatalf("legitimate repo key rejected: %v", err)
 	}
-	store := filepath.Join(dataDir, repoStoreDirName)
+	store := filepath.Join(dataDir, base.RepoStoreDirName)
 	if !strings.HasPrefix(good, store+string(filepath.Separator)) {
 		t.Fatalf("legitimate key resolved outside the store: %s (want under %s)", good, store)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,7 +85,7 @@ func TestSemanticBoundaryRootEmptyAndInvalidState(t *testing.T) {
 			t.Fatalf("invalid args %v succeeded: %q", args, out)
 		}
 	}
-	brainDir := filepath.Join(opts.Env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +97,7 @@ func TestSemanticBoundaryRootEmptyAndInvalidState(t *testing.T) {
 func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 	t.Run("missing semantic source", func(t *testing.T) {
 		opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
-		brainDir := filepath.Join(opts.Env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+		brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			t.Fatal(err)
@@ -122,7 +123,7 @@ func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 	})
 	t.Run("corrupt store cannot report an empty successful result", func(t *testing.T) {
 		opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
-		brainDir := filepath.Join(opts.Env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+		brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 		_ = brainDir
 		if err := os.WriteFile(opts.Runner.(*fakeCommandRunner).graphStoreFixtures[opts.Env.RepoRoot+"\x00full"].Path, []byte("not sqlite"), 0o600); err != nil {
 			t.Fatal(err)

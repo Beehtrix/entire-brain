@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	runner := semanticFixtureRunner(repo, semanticFixtureSnapshot("1.0"))
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	opts.Env.RepoRoot = repo
-	brainDir, err := brainDirForKey(env, key)
+	brainDir, err := base.BrainDirForKey(env, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	}
 	// The fake status resolver uses a fixed repo key. Mirror the brain there.
 	statusKey := "gh/example/repo"
-	statusBrain, err := brainDirForKey(env, statusKey)
+	statusBrain, err := base.BrainDirForKey(env, statusKey)
 	if err != nil {
 		t.Fatal(err)
 	}

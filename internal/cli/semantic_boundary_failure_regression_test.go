@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,7 +135,7 @@ func TestSemanticBoundaryPropagatesGetwdFailureInUnixChild(t *testing.T) {
 
 func TestSemanticBoundaryReportsMissingLocalRepoDuringFreshnessCheck(t *testing.T) {
 	opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
-	brainDir := filepath.Join(opts.Env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(opts.Env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	manifestPath := filepath.Join(brainDir, exportManifestFileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {

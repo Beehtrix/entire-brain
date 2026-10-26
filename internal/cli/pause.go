@@ -16,7 +16,7 @@ import (
 const backgroundPausedFile = "paused"
 
 func backgroundPausedPath(env EntireEnv) (string, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", fmt.Errorf("resolve plugin state dir: %w", err)
 	}

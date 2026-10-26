@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"testing"
 	"time"
 
@@ -78,7 +79,7 @@ func TestWorkspaceGraphRejectsChangedMemberGeneration(t *testing.T) {
 	if got, err := retrieveWorkspaceGraphCrossEdges(env, m.Name, "canary", 10); err != nil || len(got) != 1 {
 		t.Fatalf("fresh cache missing: %+v %v", got, err)
 	}
-	dir, err := brainDirForKey(env, "local/a")
+	dir, err := base.BrainDirForKey(env, "local/a")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
@@ -291,7 +292,7 @@ func TestInspectRegressionsCommandJSONAndLocationOnly(t *testing.T) {
 	if _, err := execute(t, mk(), "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -161,7 +161,7 @@ var memoryAbstractCancellationPollInterval = 5 * time.Second
 // queue. Windows environment keys are case-insensitive.
 func memoryWorkerChildEnvironment(environ []string, repoDir string) []string {
 	replacements := []struct{ key, value string }{
-		{key: envRepoRoot, value: repoDir},
+		{key: base.EnvRepoRoot, value: repoDir},
 		{key: memoryWorkerOriginEnv, value: "1"},
 	}
 	out := make([]string, 0, len(environ)+len(replacements))

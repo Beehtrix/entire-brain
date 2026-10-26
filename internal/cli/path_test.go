@@ -32,7 +32,7 @@ func TestPathPrintsBrainDirForRepoURL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v\n%s", err, out)
 	}
-	want := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli") + "\n"
+	want := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "entireio", "cli") + "\n"
 	if out != want {
 		t.Fatalf("path output = %q, want %q", out, want)
 	}
@@ -72,7 +72,7 @@ func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
 		t.Fatalf("mkdir repo: %v", err)
 	}
 	dataDir := filepath.Join(t.TempDir(), "data")
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "local", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "local", "repo")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestPathPrefersExistingLocalPathThatLooksLikeRepoRemote(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path: %v\n%s", err, out)
 	}
-	want := filepath.Join(dataDir, repoStoreDirName, "gh", "local", "repo") + "\n"
+	want := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "local", "repo") + "\n"
 	if out != want {
 		t.Fatalf("path output = %q, want %q", out, want)
 	}
@@ -170,12 +170,12 @@ func TestPathExplicitAliasRecoversLegacyLocalBrain(t *testing.T) {
 		PluginStateDir:  t.TempDir(),
 		PluginCacheDir:  t.TempDir(),
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
 	legacyKey := localRepoStorageKeyForSpelling(alias)
-	legacy := repoStorageForKey(dirs, legacyKey)
+	legacy := base.RepoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy brain: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestPathUsesExistingLocalBrainWithoutExport(t *testing.T) {
 	}
 
 	dataDir := filepath.Join(t.TempDir(), "data")
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "entireio", "cli")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("create brain dir: %v", err)
 	}
@@ -303,7 +303,7 @@ func TestPathBuildsNothingForRepoWithoutBrain(t *testing.T) {
 	dataDir := filepath.Join(root, "data")
 	stateDir := filepath.Join(root, "state")
 	cacheDir := filepath.Join(root, "cache")
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "entireio", "cli")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "entireio", "cli")
 
 	runner := pathBuildFixtureRunner(repoDir)
 	cmd := NewRootCommand(Options{
@@ -389,11 +389,11 @@ func TestPathPrintsStoredBrainWhenWorktreeLostItsGitDir(t *testing.T) {
 		PluginStateDir:  filepath.Join(root, "state"),
 		PluginCacheDir:  filepath.Join(root, "cache"),
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	storage := repoStorageForKey(dirs, testLocalRepoStorageKey(t, plainDir))
+	storage := base.RepoStorageForKey(dirs, testLocalRepoStorageKey(t, plainDir))
 	if err := os.MkdirAll(storage.BrainDir, 0o700); err != nil {
 		t.Fatalf("create stored brain: %v", err)
 	}

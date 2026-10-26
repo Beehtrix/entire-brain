@@ -204,12 +204,12 @@ func conflictedRepoFixture(t *testing.T) (env EntireEnv, logical string, canonic
 	t.Helper()
 	physical, logical := symlinkedRepoFixture(t)
 	env = repoIdentityTestEnv(t)
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	canonical = repoStorageForKey(dirs, testLocalRepoStorageKey(t, physical))
-	legacy = repoStorageForKey(dirs, localRepoStorageKeyForSpelling(logical))
+	canonical = base.RepoStorageForKey(dirs, testLocalRepoStorageKey(t, physical))
+	legacy = base.RepoStorageForKey(dirs, localRepoStorageKeyForSpelling(logical))
 	if canonical.Key == legacy.Key {
 		t.Skip("platform collapsed the two spellings; there is no conflict to build")
 	}

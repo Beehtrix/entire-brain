@@ -112,7 +112,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 		PluginStateDir:  t.TempDir(),
 		PluginCacheDir:  t.TempDir(),
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical := repoStorageForKey(dirs, physicalKey)
+	physical := base.RepoStorageForKey(dirs, physicalKey)
 	if err := os.MkdirAll(physical.BrainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 
 	// Both spellings populated is a refusal, never a silent pick.
 	lexicalKey := localRepoStorageKeyForSpelling(logicalRepoDir)
-	lexical := repoStorageForKey(dirs, lexicalKey)
+	lexical := base.RepoStorageForKey(dirs, lexicalKey)
 	if lexicalKey == physicalKey {
 		t.Skip("platform collapsed the two spellings; nothing to disambiguate")
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,7 +64,7 @@ func TestGlobalFactIsWrittenOutsideEveryRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(dir, repoStoreDirName+string(filepath.Separator)) {
+	if strings.Contains(dir, base.RepoStoreDirName+string(filepath.Separator)) {
 		t.Fatalf("the global store is inside the per-repo tree: %s", dir)
 	}
 	facts, err := loadGlobalFacts(opts.Env)

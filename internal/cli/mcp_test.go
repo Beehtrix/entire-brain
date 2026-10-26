@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"go/ast"
 	"go/parser"
@@ -224,7 +225,7 @@ func TestMCPProjectManagementTools(t *testing.T) {
 	if !strings.Contains(string(projectData), repoKey) || !strings.Contains(string(projectData), `"semantic":true`) {
 		t.Fatalf("brain_list_projects missing indexed project: %s", projectData)
 	}
-	brainDir, err := brainDirForKey(env, repoKey)
+	brainDir, err := base.BrainDirForKey(env, repoKey)
 	if err != nil {
 		t.Fatalf("brain dir: %v", err)
 	}
@@ -270,7 +271,7 @@ func TestMCPBrainRefreshReturnsFreshStatus(t *testing.T) {
 			t.Fatalf("default brain_refresh unexpectedly scanned sessions: %+v", runner.calls)
 		}
 	}
-	brainDir, err := brainDirForKey(opts.Env, "gh/example/repo")
+	brainDir, err := base.BrainDirForKey(opts.Env, "gh/example/repo")
 	if err != nil {
 		t.Fatalf("brain dir: %v", err)
 	}

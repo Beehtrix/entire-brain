@@ -129,7 +129,7 @@ are read where they are used and are not reported here.`,
 }
 
 func buildConfigReport(env EntireEnv) (configReport, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return configReport{}, err
 	}
@@ -160,7 +160,7 @@ func buildConfigReport(env EntireEnv) (configReport, error) {
 			State:  dirs.State,
 			Cache:  dirs.Cache,
 		},
-		BrainStore:     filepath.Join(dirs.Data, repoStoreDirName),
+		BrainStore:     filepath.Join(dirs.Data, base.RepoStoreDirName),
 		RepoRoot:       env.RepoRoot,
 		DomainSlugs:    slugs,
 		NoEgress:       base.BrainNoEgressMode(),
@@ -177,7 +177,7 @@ func configPath(env EntireEnv) (string, error) {
 }
 
 func requireConfigDir(env EntireEnv) (string, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", err
 	}

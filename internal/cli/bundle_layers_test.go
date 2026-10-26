@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
@@ -17,7 +18,7 @@ import (
 
 // bundleTestBrainDir is where semanticTestEnv's fixtures put the brain.
 func bundleTestBrainDir(env EntireEnv) string {
-	return filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	return filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 }
 
 func writeBundleTestFile(t *testing.T, path, content string) {

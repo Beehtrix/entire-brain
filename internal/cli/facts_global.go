@@ -50,7 +50,7 @@ const (
 // caller creates it on first write, so merely reading never materialises a
 // directory for somebody who has no global memories.
 func globalBrainDir(env EntireEnv) (string, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", err
 	}

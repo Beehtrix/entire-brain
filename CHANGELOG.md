@@ -5,6 +5,8 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
 ### Removed
 
 - The one-time migrations for Brain's old code stores. Refresh, code inspection,

@@ -93,18 +93,17 @@ func TestShortStatusGolden(t *testing.T) {
 	t.Parallel()
 	got := renderStatus(t, statusFixtureReport(t, 44), false)
 	const want = "\n" +
-		"Brain  gh/entireio/entire-brain\n" +
-		"  manifest: current\n" +
-		"  code index: 1179 files, 40781 symbols\n" +
-		"  memories: 375\n" +
+		"* Brain | gh/entireio/entire-brain\n" +
 		"\n" +
-		"Onboarding\n" +
-		"  memories  #............. 20/185 distilled  (backfill running, pid 4242)\n" +
-		"  daemon    - installed but not running (last watcher tick 17m0s ago)\n" +
-		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
+		"  Memories   | 375 (20/185 distilled, backfill running, pid 4242)\n" +
+		"  Daemon     | installed but not running (last watcher tick 17m0s ago)\n" +
+		"  Sources    | sessions, seed, docs, semantic | missing: history\n" +
+		"  Code index | 1,179 files, 40,781 symbols\n" +
+		"  Manifest   | current\n" +
 		"\n" +
-		"- freshness degraded -- run `entire-brain refresh --agent none`\n" +
-		"  semantic_completeness=degraded (44 partial failures)\n" +
+		"  ! freshness degraded | run `entire-brain refresh --agent none`\n" +
+		"    semantic_completeness=degraded (44 partial failures)\n" +
+		"\n" +
 		"  `entire-brain status --verbose` for the full report\n" +
 		"\n"
 	if got != want {
@@ -280,12 +279,12 @@ func TestStatusHealthCounts(t *testing.T) {
 	}
 }
 
-func TestStatusHealthWarningUsesSkippedMark(t *testing.T) {
+func TestStatusHealthWarningLeadsWithTheGlyph(t *testing.T) {
 	t.Parallel()
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
 	line := (statusHealth{Warnings: 1}).Line(render, base.SetupBrainBinaryName)
-	if !strings.HasPrefix(line, "- 1 warning") {
-		t.Fatalf("warning-only health rendered as a hard failure: %q", line)
+	if !strings.HasPrefix(line, "  ! 1 warning") {
+		t.Fatalf("warning-only health lost its warning glyph: %q", line)
 	}
 }
 

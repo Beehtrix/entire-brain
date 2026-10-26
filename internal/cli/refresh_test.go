@@ -65,9 +65,9 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 		// refresh closes with the SHORT status report: the phase lines above
 		// already said what was built, so repeating the full dump here was the
 		// wall this command's output is being rescued from.
-		"Brain  gh/example/repo",
-		"Onboarding",
-		"+ seed",
+		"Brain | gh/example/repo",
+		"  Memories",
+		"  Sources",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh output missing %q:\n%s", want, out)

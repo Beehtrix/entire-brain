@@ -147,8 +147,8 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guard.blocksFact(singleBlank) || !guard.blocksFact(singleMismatch) || guard.blocksFact(multi) {
-		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", guard.blocksFact(singleBlank), guard.blocksFact(singleMismatch), guard.blocksFact(multi))
+	if !guardBlocksFact(guard, singleBlank) || !guardBlocksFact(guard, singleMismatch) || guardBlocksFact(guard, multi) {
+		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", guardBlocksFact(guard, singleBlank), guardBlocksFact(guard, singleMismatch), guardBlocksFact(guard, multi))
 	}
 	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
 	if err != nil {

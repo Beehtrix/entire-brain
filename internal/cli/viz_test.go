@@ -282,7 +282,7 @@ func TestVizSessionEndpointsOmitExcludedSessionCanary(t *testing.T) {
 	}}}}
 	srv := &vizServer{
 		brainDir: t.TempDir(), branch: "main", manifest: manifest,
-		guard: sessionReadGuard{ids: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}},
+		guard: sessionReadGuard{IDs: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}},
 	}
 	rec := httptest.NewRecorder()
 	srv.handleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))

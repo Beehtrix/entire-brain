@@ -67,7 +67,7 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 	out := map[string][]string{}
 	add := func(checkpoint, id string) {
 		checkpoint, id = strings.TrimSpace(checkpoint), strings.TrimSpace(id)
-		if checkpoint == "" || id == "" || guard.blocksSession(id) {
+		if checkpoint == "" || id == "" || guard.BlocksSession(id) {
 			return
 		}
 		if !base.ContainsString(out[checkpoint], id) {

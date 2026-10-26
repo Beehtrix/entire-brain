@@ -231,7 +231,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		return nil, err
 	}
 	var guardPred func(historyRecord) bool
-	if !guard.empty() {
+	if !guard.Empty() {
 		// Path-based exclusion needs the manifest: blocksFactAnchor falls back
 		// to the transcript path when a record lost its session id, and that
 		// map is populated only from the manifest. Resolve it HERE, before the
@@ -248,7 +248,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if err != nil {
 			return nil, err
 		}
-		guardPred = func(r historyRecord) bool { return !guard.blocksRecord(r) }
+		guardPred = func(r historyRecord) bool { return !guardBlocksRecord(guard, r) }
 	}
 	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
@@ -540,9 +540,9 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	}
 	winners := fresh.duplicateRecordWinners()
 	var pred func(historyRecord) bool
-	if filtered || !guard.empty() || len(winners) > 0 {
+	if filtered || !guard.Empty() || len(winners) > 0 {
 		pred = func(r historyRecord) bool {
-			if guard.blocksRecord(r) {
+			if guardBlocksRecord(guard, r) {
 				return false
 			}
 			if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
@@ -592,7 +592,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
-		if guard.blocksRecord(s.Record) {
+		if guardBlocksRecord(guard, s.Record) {
 			continue
 		}
 		if conversationRecordMatchesFilters(s.Record, opts) {
@@ -877,7 +877,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	if err != nil {
 		return nil, nil, err
 	}
-	if !guard.empty() {
+	if !guard.Empty() {
 		// Resolve the manifest-derived transcript paths BEFORE the facts arm
 		// filters below, so a fact whose only anchor lost its session id blocks
 		// by path here too. The history arm's later re-resolution ran after
@@ -968,7 +968,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// newest-copy winner ranking uses, so get expands exactly the
 			// record search returned.
 			for _, r := range fresh.reconciledRecords() {
-				if guard.blocksRecord(r) {
+				if guardBlocksRecord(guard, r) {
 					continue
 				}
 				if r.Kind == conversationKind {

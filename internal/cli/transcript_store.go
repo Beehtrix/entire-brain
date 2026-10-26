@@ -158,7 +158,7 @@ func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
 		// transcripts back up.
 		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
 	}
-	if guard.empty() {
+	if guard.Empty() {
 		return guard, nil
 	}
 	manifest, err := loadBrainManifest(s.brainDir)
@@ -347,7 +347,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, purged := guard.paths[rel]; purged {
+	if _, purged := guard.Paths[rel]; purged {
 		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 	}
 	checkpointStorage, err := s.storageMode()
@@ -361,7 +361,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 				finishErr := finish()
 				guard, err := s.guardNow()
 				if err == nil {
-					if _, blocked := guard.paths[rel]; blocked {
+					if _, blocked := guard.Paths[rel]; blocked {
 						err = fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 					}
 				}
@@ -376,7 +376,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 	if err != nil {
 		return nil, nil, err
 	}
-	if guard.blocksSession(location.sessionID) {
+	if guard.BlocksSession(location.sessionID) {
 		return nil, nil, fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 	}
 	data, err := readSnapshotTranscriptFromSource(ctx, s.runner, snapshot, location.sourceKey, location.sourcePath)
@@ -391,8 +391,8 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 		if err != nil {
 			return err
 		}
-		_, blocked := guard.paths[rel]
-		if blocked || guard.blocksSession(location.sessionID) {
+		_, blocked := guard.Paths[rel]
+		if blocked || guard.BlocksSession(location.sessionID) {
 			return fmt.Errorf("%s: transcript %s is tombstoned", brainstore.StateUnsafeCode, rel)
 		}
 		return nil

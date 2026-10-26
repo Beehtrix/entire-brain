@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"net/http"
 	"os"
 	"strconv"
@@ -191,7 +192,7 @@ func restGuardedFacts(brainDir, branch string) ([]factRecord, retrievalPrivacyPo
 	}
 	facts = guardFactRecords(guard, facts)
 	afterRESTFactsPrivacyFilter()
-	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
+	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}, nil
 }
 
 func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -293,7 +294,7 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	// identity captured here deliberately does not govern the write: a clean
 	// exclusion landing during ranking legitimately moves it, and the rows are
 	// re-cleared against the fresh guard below.
-	if _, err := captureRetrievalPrivacyPolicy(brainDir); err != nil {
+	if _, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir); err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}

@@ -246,7 +246,7 @@ func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
 		}
 	}
 	filtered, _, err := revalidateRetrievalResponsePrivacy(brainDir, results)
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) || filtered != nil || !called {
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) || filtered != nil || !called {
 		t.Fatalf("late tombstone must fail before emission: called=%v results=%+v err=%v", called, filtered, err)
 	}
 }
@@ -333,8 +333,8 @@ func installLateRetrievalTombstone(t *testing.T, fixture retrievalEmissionPrivac
 
 func requireLatePrivacyEmissionFailure(t *testing.T, err error, out *bytes.Buffer, called *bool) {
 	t.Helper()
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("late tombstone error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("late tombstone error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if !*called {
 		t.Fatal("final privacy emission seam was not reached")
@@ -501,7 +501,7 @@ func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error 
 
 func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(fixture.BrainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +534,7 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guard.blocksSession(fixture.SessionID) {
+	if !guard.BlocksSession(fixture.SessionID) {
 		t.Fatal("tombstone did not commit after response linearization")
 	}
 }
@@ -695,8 +695,8 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("workspace dirty-member error=%v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("workspace dirty-member error=%v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("dirty workspace emitted stale bytes: %q", out.String())
@@ -739,8 +739,8 @@ func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *te
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
 			err := tc.run(cmd)
-			if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-				t.Fatalf("dirty pattern surface error = %v, want %s", err, memoryErrPrivacyDirty)
+			if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+				t.Fatalf("dirty pattern surface error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 			}
 			if stdout.Len() != 0 || stderr.Len() != 0 {
 				t.Fatalf("dirty pattern surface emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -817,7 +817,7 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	}
 	srv := &vizServer{
 		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	handler, err := srv.mux()
 	if err != nil {
@@ -861,7 +861,7 @@ func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
 	}
 	srv := &vizServer{
 		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	handler, err := srv.mux()
 	if err != nil {

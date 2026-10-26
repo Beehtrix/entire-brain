@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -386,7 +387,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
-		if _, excluded := guard.paths[relSlash]; excluded {
+		if _, excluded := guard.Paths[relSlash]; excluded {
 			return nil
 		}
 		f, openErr := os.Open(path)
@@ -1250,7 +1251,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
 	if err != nil {
 		return err
 	}
@@ -1482,7 +1483,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(status.Brain.Path)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(status.Brain.Path)
 	if err != nil {
 		return err
 	}

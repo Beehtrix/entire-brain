@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -43,14 +41,9 @@ var beforeRetrievalResponsePrivacyEmissionCheck = func() {}
 // linearize between the last privacy check and the first response byte.
 var beforeRetrievalResponseWrite = func() {}
 
-// retrievalPrivacyPolicy is the checked tombstone generation under which a
-// response was assembled. Keeping the brain path beside the identity lets the
-// same final writer cover single-repository, workspace, get, and brief output.
-type retrievalPrivacyPolicy struct {
-	BrainDir            string
-	Identity            string
-	RequireDerivedClean bool
-}
+// The retrieval privacy policy lives in brainstore; the alias keeps the
+// package-local name for the many existing readers and tests.
+type retrievalPrivacyPolicy = brainstore.RetrievalPrivacyPolicy
 
 // bufferRetrievalCommandOutput preserves each command's exact legacy bytes
 // while moving the authoritative privacy check to one shared final boundary.
@@ -83,14 +76,6 @@ func (w privacyLinearizedWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func captureRetrievalPrivacyPolicy(brainDir string) (retrievalPrivacyPolicy, error) {
-	guard, err := loadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return retrievalPrivacyPolicy{}, err
-	}
-	return retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
-}
-
 // writeRetrievalResponseBytes is the only final write boundary for retrieval,
 // get, brief, and workspace payloads. Callers must buffer the exact response
 // first. A policy change never produces a partial stale response: every checked
@@ -112,67 +97,15 @@ func writeRetrievalResponseBytes(out io.Writer, data []byte, policies ...retriev
 	})
 }
 
-// withLockedRetrievalPrivacyPolicies is the response linearization boundary.
-// Tombstone mutations use the same per-Brain write lock. Locks are acquired in
-// deterministic path order so a workspace response spanning several Brains
-// cannot deadlock with another workspace response containing the same members.
+// withLockedRetrievalPrivacyPolicies is the response linearization boundary
+// (brainstore owns the lock ordering and identity revalidation); the CLI
+// adapters bind the derived-read gate.
 func withLockedRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy, fn func() error) error {
-	unlock, err := acquireRetrievalPrivacyPolicies(policies)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return fn()
+	return brainstore.WithLockedRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead, fn)
 }
 
 func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(), error) {
-	byBrain := make(map[string]string, len(policies))
-	requireDerivedClean := make(map[string]bool, len(policies))
-	for _, policy := range policies {
-		if policy.BrainDir == "" {
-			continue
-		}
-		brainDir := filepath.Clean(policy.BrainDir)
-		if prior, exists := byBrain[brainDir]; exists && prior != policy.Identity {
-			return nil, fmt.Errorf("%s: response was assembled under conflicting privacy policies", memoryErrPrivacyDirty)
-		}
-		byBrain[brainDir] = policy.Identity
-		requireDerivedClean[brainDir] = requireDerivedClean[brainDir] || policy.RequireDerivedClean
-	}
-	brainDirs := make([]string, 0, len(byBrain))
-	for brainDir := range byBrain {
-		brainDirs = append(brainDirs, brainDir)
-	}
-	sort.Strings(brainDirs)
-	unlocks := make([]func(), 0, len(brainDirs))
-	for _, brainDir := range brainDirs {
-		unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
-		if err != nil {
-			for i := len(unlocks) - 1; i >= 0; i-- {
-				unlocks[i]()
-			}
-			return nil, err
-		}
-		unlocks = append(unlocks, unlock)
-	}
-	release := func() {
-		for i := len(unlocks) - 1; i >= 0; i-- {
-			unlocks[i]()
-		}
-	}
-	for _, brainDir := range brainDirs {
-		if err := requireRetrievalPrivacyPolicyIdentity(brainDir, byBrain[brainDir]); err != nil {
-			release()
-			return nil, err
-		}
-		if requireDerivedClean[brainDir] {
-			if err := requirePrivacyDerivedRead(brainDir); err != nil {
-				release()
-				return nil, err
-			}
-		}
-	}
-	return release, nil
+	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
 }
 
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
@@ -186,7 +119,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 		return nil, "", err
 	}
 	if !allowed {
-		return nil, "", fmt.Errorf("%s: retrieval state changed after ranking; retry after excluded-session cleanup verifies clean", memoryErrPrivacyDirty)
+		return nil, "", fmt.Errorf("%s: retrieval state changed after ranking; retry after excluded-session cleanup verifies clean", brainstore.PrivacyDirtyCode)
 	}
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -197,10 +130,10 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 		return nil, "", err
 	}
 	if len(results) == 0 {
-		return results, guard.policyIdentity, nil
+		return results, guard.PolicyIdentity, nil
 	}
-	if guard.empty() {
-		return results, guard.policyIdentity, nil
+	if guard.Empty() {
+		return results, guard.PolicyIdentity, nil
 	}
 
 	// A completed exclusion deliberately retains canonical transcripts, so a
@@ -223,7 +156,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	}
 	kept := make([]unifiedResult, 0, len(results))
 	for _, result := range results {
-		if guard.blocksSession(result.SessionID) || guard.blocksRecord(historyRecord{Path: result.Path}) {
+		if guard.BlocksSession(result.SessionID) || guardBlocksRecord(guard, historyRecord{Path: result.Path}) {
 			continue
 		}
 		if result.SessionRef != "" && !allowedRefs[result.SessionRef] {
@@ -248,18 +181,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 			kept = append(kept, result)
 		}
 	}
-	return kept, guard.policyIdentity, nil
-}
-
-func requireRetrievalPrivacyPolicyIdentity(brainDir, expected string) error {
-	guard, err := loadSessionReadGuard(brainDir, nil)
-	if err != nil {
-		return err
-	}
-	if guard.policyIdentity != expected {
-		return fmt.Errorf("%s: retrieval privacy policy changed during response assembly; retry the request", memoryErrPrivacyDirty)
-	}
-	return nil
+	return kept, guard.PolicyIdentity, nil
 }
 
 func jsonOutputBytes(value any) ([]byte, error) {

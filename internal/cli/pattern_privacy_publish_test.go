@@ -67,7 +67,7 @@ func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) strin
 func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistence(t *testing.T) {
 	t.Parallel()
 	brainDir := writePrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *testing.T) {
 	t.Parallel()
 	brainDir := writePrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +161,8 @@ func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *te
 		_, _ = cmd.OutOrStdout().Write([]byte("private"))
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("changed policy error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("changed policy error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if called || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("rejected mutation leaked work/output: called=%v stdout=%q stderr=%q", called, stdout.String(), stderr.String())

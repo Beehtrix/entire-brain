@@ -36,7 +36,6 @@ const (
 	memoryErrQueryTooBroad     = "memory_query_too_broad"
 	memoryErrInputTooLarge     = "memory_input_too_large"
 	memoryErrPrivacyExcluded   = "memory_privacy_excluded"
-	memoryErrPrivacyDirty      = "memory_privacy_dirty"
 
 	memoryErrIdentityAmbiguous = "memory_identity_ambiguous"
 	memoryErrProviderUnavail   = "memory_provider_unavailable"
@@ -484,7 +483,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(verifyErr)
 				}
 				if !postVerify.Clean {
-					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", memoryErrPrivacyDirty, len(postVerify.Findings)))
+					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", brainstore.PrivacyDirtyCode, len(postVerify.Findings)))
 				}
 				verify = postVerify
 				postManifest, manifestErr := loadBrainManifest(brainDir)

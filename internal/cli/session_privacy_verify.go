@@ -256,25 +256,13 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 // disable patterns: once the authoritative full verification is clean, reads
 // resume normally.
 func privacyDerivedReadGate(brainDir string) (bool, error) {
-	// The corpus is optional, but when present its main database and WAL must be
-	// ordinary Brain-owned files even when there are no tombstones. Without this
-	// unconditional check, best-effort pattern loaders could hide an unsafe alias
-	// as an empty result on status/get/skill surfaces.
-	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
-		return false, err
-	}
-	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return false, err
-	}
-	if len(stones.Excluded) == 0 {
-		return true, nil
-	}
-	report, err := verifySessionPrivacy(brainDir)
-	if err != nil {
-		return false, err
-	}
-	return report.Clean, nil
+	return patterncore.DerivedReadGate(brainDir, func(dir string) (bool, error) {
+		report, err := verifySessionPrivacy(dir)
+		if err != nil {
+			return false, err
+		}
+		return report.Clean, nil
+	})
 }
 
 func requirePrivacyDerivedRead(brainDir string) error {
@@ -283,7 +271,7 @@ func requirePrivacyDerivedRead(brainDir string) error {
 		return err
 	}
 	if !allowed {
-		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", memoryErrPrivacyDirty)
+		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", brainstore.PrivacyDirtyCode)
 	}
 	return nil
 }
@@ -359,13 +347,13 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			return report, err
 		}
 		for id := range stones.Excluded {
-			if !guard.blocksSession(id) {
+			if !guard.BlocksSession(id) {
 				report.Findings = append(report.Findings, privacyVerifyFinding{SessionID: id, Artifact: "transcript_read_gate", Detail: "tombstone is not enforced by transcript store"})
 			}
 		}
 		// Exercise the same gate used by actual reads. A random storage error
 		// is not evidence of privacy enforcement: require the tombstone refusal.
-		for rel, id := range guard.paths {
+		for rel, id := range guard.Paths {
 			_, finish, err := store.Open(context.Background(), rel)
 			if finish != nil {
 				_ = finish()
@@ -381,7 +369,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 			return report, err
 		}
 		if finalState.Identity != tombstoneState.Identity {
-			return report, fmt.Errorf("%s: session tombstones changed during privacy verification", memoryErrPrivacyDirty)
+			return report, fmt.Errorf("%s: session tombstones changed during privacy verification", brainstore.PrivacyDirtyCode)
 		}
 		report.Clean = len(report.Findings) == 0
 		return report, nil
@@ -788,7 +776,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		return report, err
 	}
 	if finalTombstoneState.Identity != tombstoneState.Identity {
-		return report, fmt.Errorf("%s: session tombstones changed during privacy verification", memoryErrPrivacyDirty)
+		return report, fmt.Errorf("%s: session tombstones changed during privacy verification", brainstore.PrivacyDirtyCode)
 	}
 	report.CheckedSessions = len(stones.Excluded)
 	report.Clean = len(report.Findings) == 0

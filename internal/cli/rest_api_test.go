@@ -207,7 +207,7 @@ func TestRESTRetrievalGoesThroughThePrivacyWriteBoundary(t *testing.T) {
 	source := string(data)
 
 	for _, required := range []string{
-		"captureRetrievalPrivacyPolicy(",
+		"brainstore.CaptureRetrievalPrivacyPolicy(",
 		"revalidateRetrievalResponsePrivacy(",
 		"writeRetrievalResponseBytes(",
 	} {

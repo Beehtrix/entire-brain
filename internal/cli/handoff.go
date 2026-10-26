@@ -81,7 +81,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
-		if guard.blocksRecord(r) {
+		if guardBlocksRecord(guard, r) {
 			continue
 		}
 		switch r.Kind {
@@ -204,7 +204,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		return err
 	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err

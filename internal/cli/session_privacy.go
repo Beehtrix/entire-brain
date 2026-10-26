@@ -219,111 +219,56 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 // excludedTranscriptPathsChecked extends the manifest with durable transaction
 // paths so refresh cannot reopen or reindex an excluded export it no longer names.
 func excludedTranscriptPathsChecked(brainDir string, manifest *exportManifest, stones sessionTombstones) (map[string]string, error) {
-	paths := excludedTranscriptPaths(manifest, stones)
-	for id := range stones.Excluded {
-		tx, _, err := brainstore.LoadPrivacyTransactionChecked(brainDir, id)
-		if err != nil {
-			return nil, err
-		}
-		durable, err := brainstore.PrivacyTransactionTranscriptPaths(tx)
-		if err != nil {
-			return nil, err
-		}
-		for _, rel := range durable {
-			paths[rel] = id
-		}
-	}
-	return paths, nil
+	return brainstore.DurableExcludedTranscriptPaths(brainDir, stones, excludedTranscriptPaths(manifest, stones))
 }
 
-// sessionReadGuard is the retrieval-time tombstone view: every
-// conversation/history/fact retrieval boundary consults it so an excluded
-// session becomes unreadable the moment its tombstone lands, without waiting
-// for the derived rebuild. Defense in depth, not a substitute for cleanup.
-type sessionReadGuard struct {
-	ids            map[string]sessionTombstone
-	paths          map[string]string // excluded transcript rel -> session id, from manifest and durable scope
-	policyIdentity string            // exact checked tombstone bytes used to build the guard
-}
+// The session read guard lives in brainstore; the alias keeps the
+// package-local name for the many existing readers and tests.
+type sessionReadGuard = brainstore.SessionReadGuard
 
-// loadSessionReadGuard builds the guard from tombstones, durable transaction
-// paths, and any supplied manifest. Records that lost their session id still
-// resolve by path. Invalid present state is a
-// typed error; serving must stop rather than silently restore excluded data.
+// loadSessionReadGuard builds the guard, resolving the manifest's excluded
+// transcript paths alongside brainstore's durable transaction scope.
 func loadSessionReadGuard(brainDir string, manifest *exportManifest) (sessionReadGuard, error) {
-	stones, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return sessionReadGuard{}, err
-	}
-	guard := sessionReadGuard{policyIdentity: state.Identity}
-	if len(stones.Excluded) == 0 {
-		return guard, nil
-	}
-	guard.ids = stones.Excluded
-	guard.paths, err = excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return sessionReadGuard{}, err
-	}
-	return guard, nil
+	return brainstore.LoadSessionReadGuard(brainDir, func(stones brainstore.SessionTombstones) map[string]string {
+		return excludedTranscriptPaths(manifest, stones)
+	})
 }
 
-func (g sessionReadGuard) empty() bool { return len(g.ids) == 0 }
-
-func (g sessionReadGuard) blocksSession(sessionID string) bool {
-	if g.empty() {
-		return false
-	}
-	_, ok := g.ids[strings.TrimSpace(sessionID)]
-	return ok
-}
-
-func (g sessionReadGuard) blocksExportSession(session exportSession) bool {
-	if g.blocksSession(session.SessionID) {
-		return true
-	}
-	_, blocked := g.paths[brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath)]
-	return blocked
+func guardBlocksExportSession(g sessionReadGuard, session exportSession) bool {
+	return g.BlocksSession(session.SessionID) || g.BlocksPath(session.TranscriptPath)
 }
 
 func guardExportSessions(guard sessionReadGuard, sessions []exportSession) []exportSession {
-	if guard.empty() || len(sessions) == 0 {
+	if guard.Empty() || len(sessions) == 0 {
 		return sessions
 	}
 	kept := make([]exportSession, 0, len(sessions))
 	for _, session := range sessions {
-		if !guard.blocksExportSession(session) {
+		if !guardBlocksExportSession(guard, session) {
 			kept = append(kept, session)
 		}
 	}
 	return kept
 }
 
-func (g sessionReadGuard) blocksRecord(r historyRecord) bool {
-	if g.blocksSession(r.SessionID) {
-		return true
-	}
-	_, ok := g.paths[brainstore.NormalizePrivacyTranscriptPath(r.Path)]
-	return ok
+func guardBlocksRecord(g sessionReadGuard, r historyRecord) bool {
+	return g.BlocksSession(r.SessionID) || g.BlocksPath(r.Path)
 }
 
-func (g sessionReadGuard) blocksFactAnchor(anchor factAnchor) bool {
-	if g.blocksSession(anchor.SessionID) {
-		return true
-	}
-	_, blocked := g.paths[brainstore.NormalizePrivacyTranscriptPath(anchor.Transcript)]
-	return blocked
+func guardBlocksFactAnchor(g sessionReadGuard, anchor factAnchor) bool {
+	return g.BlocksSession(anchor.SessionID) || g.BlocksPath(anchor.Transcript)
 }
 
-// blocksFact mirrors the purge rule at read time: a fact whose every
+// guardBlocksFact mirrors the purge rule at read time: a fact whose every
 // provenance anchor points at excluded sessions is unreadable; a fact still
 // corroborated by a non-excluded session (or with no session provenance at
 // all, e.g. seed-derived) stays visible.
-func (g sessionReadGuard) blocksFact(f factRecord) bool {
-	if g.empty() || len(f.Provenance) == 0 {
+func guardBlocksFact(g sessionReadGuard, f factRecord) bool {
+	if g.Empty() || len(f.Provenance) == 0 {
 		return false
 	}
 	for _, anchor := range f.Provenance {
-		if !g.blocksFactAnchor(anchor) {
+		if !guardBlocksFactAnchor(g, anchor) {
 			return false
 		}
 	}
@@ -333,22 +278,18 @@ func (g sessionReadGuard) blocksFact(f factRecord) bool {
 // guardFactRecords filters a fact slice through the exclusion guard,
 // returning the input unchanged when nothing is excluded.
 func guardFactRecords(guard sessionReadGuard, facts []factRecord) []factRecord {
-	if guard.empty() || len(facts) == 0 {
+	if guard.Empty() || len(facts) == 0 {
 		return facts
 	}
 	kept := make([]factRecord, 0, len(facts))
-	for _, f := range facts {
-		if guard.blocksFact(f) {
-			continue
+	for _, fact := range facts {
+		if !guardBlocksFact(guard, fact) {
+			kept = append(kept, fact)
 		}
-		kept = append(kept, f)
 	}
 	return kept
 }
 
-// filterTombstonedSessions drops excluded sessions from a derivation work
-// list: an excluded session must never produce new derived facts or
-// records, even though its canonical transcript may still exist.
 func filterTombstonedSessions(brainDir string, sessions []exportSession) ([]exportSession, error) {
 	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: sessions}}}
 	guard, err := loadSessionReadGuard(brainDir, manifest)

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"strings"
@@ -84,7 +85,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -153,7 +154,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		return err
 	}
 	brainDir := storage.BrainDir
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 	"unicode"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // A benchmark's failure mode is not crashing, it is reporting a number that
@@ -433,7 +435,7 @@ func TestSkipIndexRefusesARepositoryWithNoIndex(t *testing.T) {
 	}
 	// And it must say what to do about it, with a command that RUNS: this
 	// named `entire brain index`, a verb the binary has never had.
-	if !strings.Contains(err.Error(), brainInvocation(os.LookupEnv, semanticIndexVerb)) {
+	if !strings.Contains(err.Error(), base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)) {
 		t.Fatalf("the error does not name a runnable remedy: %v", err)
 	}
 }

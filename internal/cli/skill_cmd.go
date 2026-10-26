@@ -123,9 +123,9 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 		out := cmd.OutOrStdout()
 		if len(tasks) == 0 {
 			if corpusBacked {
-				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-check.")
+				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-check.")
 			} else {
-				fmt.Fprintln(out, "no task candidates (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+				fmt.Fprintln(out, "no task candidates (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			}
 			return nil
 		}
@@ -172,7 +172,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				return err
 			}
 			if !ok {
-				return fmt.Errorf("no accepted theme %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --themes` first", s.taskID)
+				return fmt.Errorf("no accepted theme %q: run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --themes` first", s.taskID)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title}
@@ -198,7 +198,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				if strings.HasPrefix(s.taskID, "convention:") {
 					channel = "--conventions"
 				}
-				return fmt.Errorf("no accepted proposal %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" %s` first", s.taskID, channel)
+				return fmt.Errorf("no accepted proposal %q: run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" %s` first", s.taskID, channel)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title, Support: in.rec.EvidenceEpisodes}
@@ -225,7 +225,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				deep = &in
 			} else {
 				return fmt.Errorf("needs deep verification first: %s has no accepted deep dossier.\n"+
-					"Run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
+					"Run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
 			}
 		} else {
 			// Legacy fallback for repos without a V2 corpus.
@@ -241,7 +241,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 			}
 		}
 		if cand == nil {
-			return fmt.Errorf("task candidate not found: %s (run `"+brainInvocation(os.LookupEnv, "patterns skills")+"`)", s.taskID)
+			return fmt.Errorf("task candidate not found: %s (run `"+base.BrainInvocation(os.LookupEnv, "patterns skills")+"`)", s.taskID)
 		}
 
 		agent := s.agent
@@ -261,7 +261,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
 // Exactly one synthesis source is used: an accepted workspace family (fam), then
 // an accepted deep dossier (deep), else the legacy shallow path.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *patterncore.WorkspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *patterncore.WorkspaceFamily, storeDir, repoDir, agent string, run base.DistillAgentRunner, s skillFormOptions, now time.Time) error {
 	var (
 		res skillSynthesisResult
 		err error

@@ -249,7 +249,7 @@ type outlineGenOptions struct {
 	budget       int // max agent calls per run (0 = unlimited)
 	minFacts     int // skip nodes whose subtree has fewer facts than this
 	force        bool
-	run          distillAgentRunner
+	run          clibase.DistillAgentRunner
 }
 
 // outlinePostOrder lists node keys children-before-parents, so a parent's
@@ -373,11 +373,11 @@ func generateFactOutline(ctx context.Context, repoDir, brainDir, branch string, 
 		if strings.TrimSpace(input) == "" {
 			continue
 		}
-		args, err := distillAgentCommandArgs(opts.agent, opts.agentCommand, outlineSummaryPrompt(n.Label))
+		args, err := clibase.DistillAgentCommandArgs(opts.agent, opts.agentCommand, outlineSummaryPrompt(n.Label))
 		if err != nil {
 			return tree, regenerated, err
 		}
-		args = injectAgentEffort(injectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
+		args = clibase.InjectAgentEffort(clibase.InjectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
 		out, runErr := run(ctx, repoDir, args, []byte(input), defaultDistillTimeout)
 		calls++
 		if runErr != nil {

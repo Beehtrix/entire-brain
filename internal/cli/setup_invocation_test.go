@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // TestSetupPrintsTheCommandTheReaderTyped: the brain ships as an external
@@ -18,15 +20,15 @@ func TestSetupPrintsTheCommandTheReaderTyped(t *testing.T) {
 	printed := runSetupForTest(t, f, defaultSetupOptions(), &recordedSetup{})
 
 	for _, want := range []string{
-		setupPluginCommand + " overview",
-		setupPluginCommand + ` brief "<task>"`,
-		setupPluginCommand + " status",
+		base.SetupPluginCommand + " overview",
+		base.SetupPluginCommand + ` brief "<task>"`,
+		base.SetupPluginCommand + " status",
 	} {
 		if !strings.Contains(printed, want) {
-			t.Fatalf("a reader who typed `%s setup` must be answered in that spelling; %q missing from:\n%s", setupPluginCommand, want, printed)
+			t.Fatalf("a reader who typed `%s setup` must be answered in that spelling; %q missing from:\n%s", base.SetupPluginCommand, want, printed)
 		}
 	}
-	if strings.Contains(printed, setupBrainBinaryName+" overview") {
+	if strings.Contains(printed, base.SetupBrainBinaryName+" overview") {
 		t.Fatalf("setup must not hand a plugin reader a command their shell cannot resolve:\n%s", printed)
 	}
 }
@@ -39,41 +41,11 @@ func TestSetupKeepsTheStandaloneSpellingWithoutTheHostSignal(t *testing.T) {
 	f := newSetupTestFixture(t)
 	printed := runSetupForTest(t, f, defaultSetupOptions(), &recordedSetup{})
 
-	if !strings.Contains(printed, setupBrainBinaryName+" overview") {
+	if !strings.Contains(printed, base.SetupBrainBinaryName+" overview") {
 		t.Fatalf("with no host signal setup must print its own name:\n%s", printed)
 	}
-	if strings.Contains(printed, setupPluginCommand+" overview") {
+	if strings.Contains(printed, base.SetupPluginCommand+" overview") {
 		t.Fatalf("setup must not invent a host CLI the reader may not have:\n%s", printed)
-	}
-}
-
-// TestSetupCommandPrefixIgnoresAnEmptyMarker: exporting NAME= to clear a
-// variable is how a reader turns a signal off, so a present-but-empty
-// ENTIRE_CLI_VERSION is not a plugin launch.
-func TestSetupCommandPrefixIgnoresAnEmptyMarker(t *testing.T) {
-	t.Parallel()
-	empty := func(string) (string, bool) { return "  ", true }
-	if got := setupCommandPrefix(empty); got != setupBrainBinaryName {
-		t.Fatalf("a blank marker is not a signal: got %q, want %q", got, setupBrainBinaryName)
-	}
-	set := func(string) (string, bool) { return "1.2.3", true }
-	if got := setupCommandPrefix(set); got != setupPluginCommand {
-		t.Fatalf("the host's unconditional marker is the signal: got %q, want %q", got, setupPluginCommand)
-	}
-	if got := setupCommandPrefix(nil); got != setupBrainBinaryName {
-		t.Fatalf("no lookup means no signal: got %q", got)
-	}
-}
-
-// TestBothSpellingsAreTheSameWidth: the summary and Next blocks are
-// column-aligned, and one of these strings is substituted into every one of
-// them. A future rename of the plugin verb must fail loudly here rather than
-// silently clipping a column.
-func TestBothSpellingsAreTheSameWidth(t *testing.T) {
-	t.Parallel()
-	if len(setupBrainBinaryName) != len(setupPluginCommand) {
-		t.Fatalf("the two spellings must stay the same width or every width budget in setup's output shifts: %q (%d) vs %q (%d)",
-			setupBrainBinaryName, len(setupBrainBinaryName), setupPluginCommand, len(setupPluginCommand))
 	}
 }
 
@@ -87,11 +59,11 @@ func TestSetupHintsFollowTheReadersSpelling(t *testing.T) {
 		"dirty worktree":    setupDirtyWorktreeHint,
 		"no sessions":       setupNoSessionsHint,
 	} {
-		text := hint(setupPluginCommand)
-		if strings.Contains(text, setupBrainBinaryName+" ") {
+		text := hint(base.SetupPluginCommand)
+		if strings.Contains(text, base.SetupBrainBinaryName+" ") {
 			t.Fatalf("the %s hint must not hard-code the standalone spelling: %s", name, text)
 		}
-		if !strings.Contains(text, setupPluginCommand+" ") {
+		if !strings.Contains(text, base.SetupPluginCommand+" ") {
 			t.Fatalf("the %s hint must name a command the reader can actually run: %s", name, text)
 		}
 	}
@@ -103,7 +75,7 @@ func TestSetupHintsFollowTheReadersSpelling(t *testing.T) {
 // fixed at ingest, so the advice must not linger.
 func TestRepoKeyMismatchHintNoLongerBlamesTheRepo(t *testing.T) {
 	t.Parallel()
-	hint := setupRepoKeyMismatchHint(setupBrainBinaryName)
+	hint := setupRepoKeyMismatchHint(base.SetupBrainBinaryName)
 	for _, dead := range []string{"no git remote", "git remote add origin", "upgrade the entire CLI"} {
 		if strings.Contains(hint, dead) {
 			t.Fatalf("obsolete advice %q still in the repo-key hint: %s", dead, hint)

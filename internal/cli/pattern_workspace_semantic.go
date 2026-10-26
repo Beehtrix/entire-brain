@@ -52,27 +52,27 @@ Use "accepted" only for a genuine cross-repo family spanning >=2 repos. Do not i
 
 // proposeWorkspaceFamilies runs the agent judgment layer over member-repo task
 // candidates and stores accepted cross-repo families as workspace dossiers.
-func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
 	var stats patterncore.VerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
 	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return stats, err
 	}
-	err = withPatternCorpusMutationLocked(wsBrainDir, func(db *sql.DB) error {
+	err = patterncore.WithCorpusMutationLocked(wsBrainDir, func(db *sql.DB) error {
 		var mutationErr error
 		stats, mutationErr = proposeWorkspaceFamiliesInDB(ctx, db, env, manifest, repoDir, agent, model, effort, run, now)
 		return mutationErr
-	})
+	}, decodePatternCorpusPublication)
 	if err != nil {
-		return stats, fmt.Errorf("workspace corpus not built (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`): %w", manifest.Name, err)
+		return stats, fmt.Errorf("workspace corpus not built (run `"+base.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`): %w", manifest.Name, err)
 	}
 	return stats, nil
 }
 
-func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
 	return patterncore.ProposeWorkspaceFamilies(db, manifest, func(repoKey string) ([]map[string]any, error) {
 		memberDir, err := brainDirForKey(env, repoKey)
 		if err != nil {
@@ -98,13 +98,13 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 		}
 		return list, nil
 	}, func(payload []byte) (string, error) {
-		args, err := distillAgentCommandArgs(agent, nil, workspaceFamilyProposeSystemPrompt)
+		args, err := base.DistillAgentCommandArgs(agent, nil, workspaceFamilyProposeSystemPrompt)
 		if err != nil {
 			return "", err
 		}
-		args = injectAgentModel(args, agent, model)
-		args = injectAgentEffort(args, agent, effort)
-		out, err := run(ctx, repoDir, args, payload, dossierVerifyTimeout)
+		args = base.InjectAgentModel(args, agent, model)
+		args = base.InjectAgentEffort(args, agent, effort)
+		out, err := run(ctx, repoDir, args, payload, patterncore.DossierVerifyTimeout)
 		if err != nil {
 			return "", fmt.Errorf("workspace family proposal agent: %w", err)
 		}
@@ -119,7 +119,7 @@ func loadAcceptedWorkspaceFamilies(wsBrainDir string) []patterncore.WorkspaceFam
 }
 
 func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]patterncore.WorkspaceFamily, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -162,13 +162,13 @@ Otherwise output ONLY a complete SKILL.md (no fences):
 - Body: a Workflow section (the common steps) and a "Per-repo variations" section naming each repo and its commands. Be concise; include only what the family supports.`
 
 // synthesizeWorkspaceSkill converts an accepted family into a SKILL.md.
-func synthesizeWorkspaceSkill(ctx context.Context, repoDir string, f patterncore.WorkspaceFamily, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
-	args, err := distillAgentCommandArgs(agent, nil, workspaceFamilySkillSystemPrompt)
+func synthesizeWorkspaceSkill(ctx context.Context, repoDir string, f patterncore.WorkspaceFamily, agent, model, effort string, run base.DistillAgentRunner) (skillSynthesisResult, error) {
+	args, err := base.DistillAgentCommandArgs(agent, nil, workspaceFamilySkillSystemPrompt)
 	if err != nil {
 		return skillSynthesisResult{}, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 	out, err := run(ctx, repoDir, args, []byte(buildWorkspaceFamilyEvidence(f)), skillSynthesisTimeout)
 	if err != nil {
 		return skillSynthesisResult{}, fmt.Errorf("workspace family synthesis agent: %w", err)

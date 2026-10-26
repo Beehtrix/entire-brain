@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
@@ -140,7 +140,7 @@ type shortTermFile struct {
 // falls back to exact long-term-only behavior.
 func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), base.DefaultMaxReadBytes)
+	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -185,7 +185,7 @@ func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortT
 // from this view.
 func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), base.DefaultMaxReadBytes)
+	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -998,7 +998,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
-		line += "; buffer full; run `" + brainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
+		line += "; buffer full; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil
@@ -1027,7 +1027,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		}
 	}
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return shortTermStats{}, err
 	}

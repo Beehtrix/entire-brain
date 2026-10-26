@@ -343,7 +343,7 @@ func candidatePathSet(candidates []factRecord) []string {
 // candidate is trivially `new` (no agent call); otherwise the agent decides.
 // An agent error leaves candidates staged for retry. It returns the actions
 // to apply plus any warnings.
-func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
+func reconcileChunkCandidates(ctx context.Context, run base.DistillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
 	existing, capped := activeFactsAtPaths(active, candidatePathSet(candidates))
 	if len(existing) == 0 {
 		actions := make([]factAction, len(candidates))

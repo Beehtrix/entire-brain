@@ -48,7 +48,7 @@ func prepareDistinctPatternCorpusPublication(t *testing.T, brainDir string) (str
 
 func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) string {
 	t.Helper()
-	db, err := openPatternCorpusReadDB(brainDir)
+	db, err := patterncore.OpenCorpusReadDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,9 +200,9 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantErr := errors.New("injected publication failure")
-	original := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error { return wantErr }
-	t.Cleanup(func() { beforePatternCorpusPublish = original })
+	original := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error { return wantErr }
+	t.Cleanup(func() { patterncore.BeforeCorpusPublish = original })
 	if err := buildPatternCorpus(brainDir, now.Add(time.Minute)); !errors.Is(err, wantErr) {
 		t.Fatalf("build error = %v, want injected failure", err)
 	}
@@ -322,7 +322,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				if _, err := os.Lstat(marker); err != nil {
 					t.Fatalf("transactional failure did not retain marker: %v", err)
 				}
-				if _, err := openPatternCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+				if _, err := patterncore.OpenCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 					t.Fatalf("marked corpus read error = %v, want %s", err, brainstore.StateUnsafeCode)
 				}
 				if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
@@ -632,13 +632,13 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 	}
 	reachedPublish := make(chan struct{})
 	releasePublish := make(chan struct{})
-	original := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error {
+	original := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error {
 		close(reachedPublish)
 		<-releasePublish
 		return nil
 	}
-	t.Cleanup(func() { beforePatternCorpusPublish = original })
+	t.Cleanup(func() { patterncore.BeforeCorpusPublish = original })
 	buildDone := make(chan error, 1)
 	go func() { buildDone <- buildPatternCorpus(brainDir, now.Add(time.Minute)) }()
 	<-reachedPublish

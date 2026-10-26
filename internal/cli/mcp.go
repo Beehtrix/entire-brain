@@ -2022,7 +2022,7 @@ const mcpAllowCrossRepoEnv = "ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO"
 
 // mcpCrossRepoAllowed reports whether the operator opted the MCP surface out of
 // bound-repo scoping.
-func mcpCrossRepoAllowed() bool { return envBool(mcpAllowCrossRepoEnv) }
+func mcpCrossRepoAllowed() bool { return base.EnvBool(mcpAllowCrossRepoEnv) }
 
 // mcpBoundRepoStorage resolves the storage identity (repo key + brain dir) of
 // the repository this MCP server is bound to. An empty EntireEnv.RepoRoot means
@@ -2477,7 +2477,7 @@ func mcpResolveIndexPath(env EntireEnv, path string) (resolved string, containRo
 		}
 		return trimmed, ""
 	}
-	if !envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+	if !base.EnvBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
 		containRoot = root
 	}
 	switch {
@@ -2523,7 +2523,7 @@ func mcpResolveTracePath(root string, tool, path string) (string, error) {
 		return "", mcpRequiredArg("path")
 	}
 	root = strings.TrimSpace(root)
-	if root == "" || envBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
+	if root == "" || base.EnvBool("ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH") {
 		return trimmed, nil
 	}
 	resolved := trimmed

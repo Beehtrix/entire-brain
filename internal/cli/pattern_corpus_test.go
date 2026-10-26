@@ -26,9 +26,9 @@ func openCorpus(t *testing.T, brainDir string) *sql.DB {
 // openCorpusReadSnapshot follows the production reader contract: each call
 // pins one immutable published generation. Tests that rebuild must close and
 // reopen it to observe the newly published generation.
-func openCorpusReadSnapshot(t *testing.T, brainDir string) *patternCorpusReadDB {
+func openCorpusReadSnapshot(t *testing.T, brainDir string) *patterncore.CorpusReadDB {
 	t.Helper()
-	db, err := openPatternCorpusReadDB(brainDir)
+	db, err := patterncore.OpenCorpusReadDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,10 +82,10 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 	// production; never write through the live SQLite pathname.
 	_ = db.Close()
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		return withPatternCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
+		return patterncore.WithCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
 			_, err := staged.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`)
 			return err
-		})
+		}, decodePatternCorpusPublication)
 	}); err != nil {
 		t.Fatal(err)
 	}

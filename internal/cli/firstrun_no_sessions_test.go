@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
@@ -167,7 +168,7 @@ func noCapturedSessionsHealth() statusHealth {
 			Name:   brainComponentSessions,
 			State:  "failed",
 			Detail: checkpointScopeIncompleteCode + ": Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory",
-			Hint:   setupNoSessionsHint(setupBrainBinaryName),
+			Hint:   setupNoSessionsHint(base.SetupBrainBinaryName),
 		}}},
 	})
 }
@@ -181,9 +182,9 @@ func TestNoCapturedSessionsGetsTheHintThatAlreadyExists(t *testing.T) {
 		t.Fatal("a failed session export with the no-sessions signature must be recognised as that state")
 	}
 	health.Severity = "degraded"
-	got := health.nextStepMessage(setupBrainBinaryName)
-	if got != setupNoSessionsHint(setupBrainBinaryName) {
-		t.Fatalf("next step is\n  %s\nwant the no-sessions guidance\n  %s", got, setupNoSessionsHint(setupBrainBinaryName))
+	got := health.nextStepMessage(base.SetupBrainBinaryName)
+	if got != setupNoSessionsHint(base.SetupBrainBinaryName) {
+		t.Fatalf("next step is\n  %s\nwant the no-sessions guidance\n  %s", got, setupNoSessionsHint(base.SetupBrainBinaryName))
 	}
 	if strings.Contains(got, statusRemedyRefresh) {
 		t.Fatalf("the next step still names the command whose first stage is the failure: %s", got)
@@ -196,12 +197,12 @@ func TestNoCapturedSessionsGetsTheHintThatAlreadyExists(t *testing.T) {
 func TestDirtyWorktreeHintStillFires(t *testing.T) {
 	t.Parallel()
 	dirty := statusHealth{Severity: "degraded", DirtyWorktree: true}
-	if got := dirty.nextStepMessage(setupBrainBinaryName); got != setupDirtyWorktreeHint(setupBrainBinaryName) {
+	if got := dirty.nextStepMessage(base.SetupBrainBinaryName); got != setupDirtyWorktreeHint(base.SetupBrainBinaryName) {
 		t.Fatalf("dirty worktree next step = %s", got)
 	}
 	// And a clean tree in that same state keeps the refresh it can run.
 	clean := statusHealth{Severity: "degraded"}
-	if got := clean.nextStepMessage(setupBrainBinaryName); got != "run `"+setupBrainBinaryName+" "+statusRemedyRefresh+"`" {
+	if got := clean.nextStepMessage(base.SetupBrainBinaryName); got != "run `"+base.SetupBrainBinaryName+" "+statusRemedyRefresh+"`" {
 		t.Fatalf("clean worktree, stale index next step = %s", got)
 	}
 }
@@ -224,7 +225,7 @@ func TestNoNextStepReEmitsItself(t *testing.T) {
 		"no captured sessions, corrupt store":      withSeverity(noCapturedSessionsHealth(), "unsafe"),
 		"no captured sessions on a dirty worktree": withDirty(noCapturedSessionsHealth()),
 	} {
-		first := health.nextStepMessage(setupBrainBinaryName)
+		first := health.nextStepMessage(base.SetupBrainBinaryName)
 		if !namesACommandThatRerunsTheSessionExport(first) {
 			continue
 		}
@@ -237,7 +238,7 @@ func TestNoNextStepReEmitsItself(t *testing.T) {
 // namesACommandThatRerunsTheSessionExport reports advice whose first action is
 // the stage that failed.
 func namesACommandThatRerunsTheSessionExport(nextStep string) bool {
-	return strings.Contains(nextStep, "`"+setupBrainBinaryName+" "+statusRemedyRefresh+"`")
+	return strings.Contains(nextStep, "`"+base.SetupBrainBinaryName+" "+statusRemedyRefresh+"`")
 }
 
 func withSeverity(health statusHealth, severity string) statusHealth {
@@ -264,36 +265,36 @@ func TestSetupAndDoctorDoNotReferToEachOther(t *testing.T) {
 	t.Parallel()
 	component := newSetupComponent(brainComponentSessions,
 		errors.New(checkpointScopeIncompleteCode+": Entire returned no readable checkpoint IDs from an incomplete persistent-store inventory"),
-		setupBrainBinaryName)
+		base.SetupBrainBinaryName)
 	if component.Hint == "" {
 		t.Fatal("precondition: this component is the one that carries a hint")
 	}
 	// What doctor prints for this component (doctor.go appends the hint).
 	doctorLine := component.Detail + "; " + component.Hint
-	if !strings.Contains(doctorLine, setupBrainBinaryName+" setup") {
+	if !strings.Contains(doctorLine, base.SetupBrainBinaryName+" setup") {
 		t.Fatalf("precondition: doctor's line for this component names setup:\n%s", doctorLine)
 	}
-	setupLine := setupComponentFailureLine(component, "--", setupBrainBinaryName)
+	setupLine := setupComponentFailureLine(component, "--", base.SetupBrainBinaryName)
 	if strings.Contains(setupLine, "doctor") {
 		t.Fatalf("setup sends the reader to doctor, which sends them back to setup:\n  setup:  %s\n  doctor: %s", setupLine, doctorLine)
 	}
 	// An UNdiagnosed component has nothing else to offer, so the referral to
 	// doctor stays: that one really is where the detail lives.
-	opaque := newSetupComponent(brainComponentSessions, errors.New("some unclassified failure"), setupBrainBinaryName)
+	opaque := newSetupComponent(brainComponentSessions, errors.New("some unclassified failure"), base.SetupBrainBinaryName)
 	if opaque.Hint != "" {
 		t.Fatalf("precondition: this component carries no hint: %+v", opaque)
 	}
-	if !strings.Contains(setupComponentFailureLine(opaque, "--", setupBrainBinaryName), "doctor") {
+	if !strings.Contains(setupComponentFailureLine(opaque, "--", base.SetupBrainBinaryName), "doctor") {
 		t.Fatal("a component with no hint still has to point somewhere")
 	}
 	// ...and so does a component whose hint names a DIFFERENT remedy. The
 	// repo-key skew sends the reader to `refresh index --force`, so nothing
 	// about going to doctor first sends them back here: no circle, no change.
-	skew := newSetupComponent(brainComponentSemantic, errors.New(`semantic snapshot repo_key "local/a" does not match current repo "local/b"`), setupBrainBinaryName)
+	skew := newSetupComponent(brainComponentSemantic, errors.New(`semantic snapshot repo_key "local/a" does not match current repo "local/b"`), base.SetupBrainBinaryName)
 	if skew.Hint == "" {
 		t.Fatalf("precondition: the repo-key skew carries a hint: %+v", skew)
 	}
-	if !strings.Contains(setupComponentFailureLine(skew, "--", setupBrainBinaryName), "doctor") {
+	if !strings.Contains(setupComponentFailureLine(skew, "--", base.SetupBrainBinaryName), "doctor") {
 		t.Fatal("only a hint that points back at `setup` closes the loop; the others keep their referral")
 	}
 }
@@ -318,7 +319,7 @@ func TestDoctorCaptureCheckDoesNotRecommendANoOp(t *testing.T) {
 	}
 	// The stage genuinely not having run still points at the stage.
 	never := captureCheckFor(t, false)
-	if never.State != "warn" || !strings.Contains(never.Detail, brainInvocation(os.LookupEnv, "refresh")) {
+	if never.State != "warn" || !strings.Contains(never.Detail, base.BrainInvocation(os.LookupEnv, "refresh")) {
 		t.Errorf("a sessions stage that never ran is still a refresh away: %+v", never)
 	}
 }
@@ -492,7 +493,7 @@ func assertNoEgressRailsUnset(t *testing.T) {
 			t.Fatalf("%s=%q: this test must run with egress allowed", name, value)
 		}
 	}
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		t.Fatal("no-egress mode is on; this test must run with egress allowed")
 	}
 }

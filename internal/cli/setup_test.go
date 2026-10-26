@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
@@ -397,7 +398,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		// The dash is ASCII here on purpose: the test buffer is not a terminal,
 		// so the renderer resolves to the plain, locale-independent glyph set.
 		"-- continuing; run 'entire-brain doctor' for detail",
-		setupRepoKeyMismatchHint(setupBrainBinaryName),
+		setupRepoKeyMismatchHint(base.SetupBrainBinaryName),
 		"the brain is queryable now",
 		"FAILED code index",
 		"Ready",
@@ -459,8 +460,8 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSessions, errors.New("export unavailable"), setupBrainBinaryName),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
+		newSetupComponent(brainComponentSessions, errors.New("export unavailable"), base.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), base.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
@@ -484,8 +485,8 @@ func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSeed, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
+		newSetupComponent(brainComponentSeed, nil, base.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), base.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.noDaemon = true

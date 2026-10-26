@@ -95,7 +95,7 @@ func (e *projectionStateLoadError) Error() string {
 // agent_surface.go read it -- these printers sit too deep in the health/error
 // path to be handed one.
 func projectionStateAction(state projectionStateReadState) string {
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := base.SetupCommandPrefix(os.LookupEnv)
 	switch state {
 	case projectionStateAbsent:
 		return "run `" + brainCmd + " memory repair` to rebuild the missing disposable receipt"

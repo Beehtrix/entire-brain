@@ -170,7 +170,7 @@ func webhookRepoIdentity(ctx context.Context, opts Options) string {
 // call site can do.
 func newFactWebhookEvent(name, repoName, branch string, record factRecord, now time.Time) webhookEvent {
 	fact := &webhookFact{ID: record.ID, Kind: record.Kind, Paths: record.Paths}
-	if envBool(webhookIncludeTextEnv) {
+	if base.EnvBool(webhookIncludeTextEnv) {
 		fact.Text = record.Text
 	}
 	return webhookEvent{
@@ -186,8 +186,8 @@ func newFactWebhookEvent(name, repoName, branch string, record factRecord, now t
 // there is none — `webhook status` prints the reason, so a webhook that is off
 // because of a typo is distinguishable from one that was never configured.
 func webhookEndpoint() (endpoint string, ok bool, reason string) {
-	if brainNoEgressMode() {
-		return "", false, "egress is disabled by " + noEgressToggleName()
+	if base.BrainNoEgressMode() {
+		return "", false, "egress is disabled by " + base.NoEgressToggleName()
 	}
 	raw := strings.TrimSpace(os.Getenv(webhookURLEnv))
 	if raw == "" {

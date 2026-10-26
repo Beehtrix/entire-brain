@@ -68,9 +68,9 @@ type proposedConvention struct {
 // group related facts into capability skills, and stores accepted ones as deep
 // dossiers (archetype "capability") under `convention:` ids. Egress-gated; cached
 // by the sample fingerprint; never from refresh.
-func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
 	var stats patterncore.VerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
 	sample, factText, sampleIDs := sampleCapabilityFacts(db, brainDir)
@@ -92,14 +92,14 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		return stats, nil // unchanged sample → reuse prior proposals
 	}
 
-	args, err := distillAgentCommandArgs(agent, nil, conventionProposeSystemPrompt)
+	args, err := base.DistillAgentCommandArgs(agent, nil, conventionProposeSystemPrompt)
 	if err != nil {
 		return stats, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), patterncore.DossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("convention proposal agent: %w", err)
 	}

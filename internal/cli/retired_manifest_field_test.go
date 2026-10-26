@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
@@ -152,7 +153,7 @@ func TestAMissingRepositoryIsDurable(t *testing.T) {
 		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
 	}
 	msg := durablePrepassMessage(err)
-	if !strings.Contains(msg, brainInvocation(os.LookupEnv, "reset")) {
+	if !strings.Contains(msg, base.BrainInvocation(os.LookupEnv, "reset")) {
 		t.Fatalf("the message names no way to clear the orphan: %s", msg)
 	}
 	if !strings.Contains(msg, "not a git repository") {
@@ -299,7 +300,7 @@ func TestADeletedRepositoryDirectoryIsDurable(t *testing.T) {
 	if !errDurablePrepassFailure(err) {
 		t.Fatalf("the worker asks the general classifier, so it must agree: %v", err)
 	}
-	if msg := durablePrepassMessage(err); !strings.Contains(msg, brainInvocation(os.LookupEnv, "reset")) {
+	if msg := durablePrepassMessage(err); !strings.Contains(msg, base.BrainInvocation(os.LookupEnv, "reset")) {
 		t.Fatalf("the message names no way to clear the orphan: %s", msg)
 	}
 

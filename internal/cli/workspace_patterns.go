@@ -97,7 +97,7 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := clibase.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
 	resolved := agent
@@ -196,7 +196,7 @@ func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatter
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: tasks: %v", repo.RepoKey, err))
 		}
 		if len(procs) == 0 && len(pracs) == 0 && len(tasks) == 0 {
-			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `"+brainInvocation(os.LookupEnv, "refresh")+"` in that repo)", repo.RepoKey))
+			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"` in that repo)", repo.RepoKey))
 		}
 		m.procsByRepo[repo.RepoKey] = procs
 		m.pracsByRepo[repo.RepoKey] = pracs
@@ -481,7 +481,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(wsDir)
@@ -490,7 +490,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	if !corpusBacked {
 		return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		})
 	}
@@ -514,7 +514,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
-			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, v := range filtered {
@@ -537,7 +537,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	procs, err := loadBrainProcedures(wsDir)
@@ -692,7 +692,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	families, err := loadAcceptedWorkspaceFamiliesChecked(wsDir)
@@ -708,7 +708,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 		}
 		out := cmd.OutOrStdout()
 		if len(families) == 0 {
-			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns verify")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, f := range families {
@@ -737,7 +737,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	agent := s.agent
@@ -756,7 +756,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("no accepted workspace family %q: run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s` (explicit, egress-gated), then `"+brainInvocation(os.LookupEnv, "workspace patterns skills")+" %s`", s.taskID, name, name)
+			return fmt.Errorf("no accepted workspace family %q: run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns verify")+" %s` (explicit, egress-gated), then `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns skills")+" %s`", s.taskID, name, name)
 		}
 		// A synthetic candidate carries id/name/scope + per-repo breakdown for
 		// the skill-memory record; synthesis itself runs from the family.

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
@@ -143,7 +143,7 @@ const (
 // they can no longer misreport damaged state as a disabled feature.
 func loadMemoryConfigChecked(brainDir string) (memoryConfig, memoryConfigReadState, error) {
 	empty := memoryConfig{SchemaVersion: memoryConfigSchemaVersion}
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
+	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", clibase.MaxManifestBytes)
 	if err != nil {
 		if strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			return empty, memoryConfigUnsafe, err
@@ -294,7 +294,7 @@ func decodeAbstractEgressReceipt(data []byte, version int, expectedRef string) (
 }
 
 func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expectedRef string, expected os.FileInfo) (abstractEgressReceiptFile, bool, error) {
-	data, present, err := readMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", base.MaxManifestBytes, expected)
+	data, present, err := readMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", clibase.MaxManifestBytes, expected)
 	if err != nil || !present {
 		return abstractEgressReceiptFile{}, present, err
 	}
@@ -817,7 +817,7 @@ type agentConversationAbstractor struct {
 	kind     string
 	provider string
 	model    string
-	run      distillAgentRunner
+	run      clibase.DistillAgentRunner
 }
 
 func newConfiguredConversationAbstractor(config memoryAbstractsConfig) (ConversationAbstractor, error) {
@@ -937,11 +937,11 @@ func (a *agentConversationAbstractor) call(ctx context.Context, repoDir, prompt 
 	if len(data) > abstractProviderInputMax {
 		return sessionAbstract{}, fmt.Errorf("%s: bounded abstract input exceeds %d bytes", memoryErrInputTooLarge, abstractProviderInputMax)
 	}
-	args, err := distillAgentCommandArgs(a.provider, nil, prompt)
+	args, err := clibase.DistillAgentCommandArgs(a.provider, nil, prompt)
 	if err != nil {
 		return sessionAbstract{}, err
 	}
-	args = injectAgentModel(args, a.provider, a.model)
+	args = clibase.InjectAgentModel(args, a.provider, a.model)
 	out, err := a.run(ctx, repoDir, args, data, abstractProviderTimeout)
 	if err != nil {
 		return sessionAbstract{}, fmt.Errorf("%s: abstract provider %s failed", memoryErrProviderUnavail, a.provider)
@@ -1814,7 +1814,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 // global local-only policy, only the explicitly local Ollama provider is
 // accepted; unknown identities are denied like hosted providers.
 func rejectAbstractProviderForGlobalNoEgress(kind, provider string) error {
-	if !brainNoEgressMode() {
+	if !clibase.BrainNoEgressMode() {
 		return nil
 	}
 	kind = strings.ToLower(strings.TrimSpace(kind))
@@ -1829,7 +1829,7 @@ func rejectAbstractProviderForGlobalNoEgress(kind, provider string) error {
 }
 
 func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
-	if !brainNoEgressMode() {
+	if !clibase.BrainNoEgressMode() {
 		return nil
 	}
 	provider = strings.ToLower(strings.TrimSpace(provider))
@@ -1847,7 +1847,7 @@ func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
 // unknown) abstracts cannot resolve a provider or create durable automatic
 // work while a process-wide local-only policy is active.
 func rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir string) error {
-	if !brainNoEgressMode() {
+	if !clibase.BrainNoEgressMode() {
 		return nil
 	}
 	config, _, err := loadMemoryConfigChecked(brainDir)
@@ -1865,7 +1865,7 @@ func rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir string) err
 // ownership, or heartbeat writes, so a policy refusal leaves the exact job
 // bytes untouched.
 func rejectMemoryAbstractJobForGlobalNoEgress(brainDir string, job memoryJob) error {
-	if !brainNoEgressMode() {
+	if !clibase.BrainNoEgressMode() {
 		return nil
 	}
 	config, _, err := loadMemoryConfigChecked(brainDir)
@@ -2539,7 +2539,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 			oneOff := strings.TrimSpace(provider) != "" || strings.TrimSpace(model) != "" || allowEgress
 			mutating := generate || oneOff || dryRun
 			target := agentSurfaceTarget(opts, nil)
-			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
+			repoDir, local, err := clibase.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
 			if err != nil {
 				return err
 			}

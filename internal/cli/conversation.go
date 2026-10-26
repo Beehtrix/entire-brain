@@ -73,7 +73,7 @@ func conversationSourceStaleCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceStale,
 		Message: "The source transcript is missing or changed since indexing; showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index, then fetch this id again.",
+		Action:  "Run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to re-index, then fetch this id again.",
 	}
 }
 
@@ -91,7 +91,7 @@ func conversationSourceUnreadableCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceUnreadable,
 		Message: "The source transcript could not be re-parsed (malformed or unreadable); showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index; if the state persists, inspect the transcript for corruption.",
+		Action:  "Run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to re-index; if the state persists, inspect the transcript for corruption.",
 	}
 }
 

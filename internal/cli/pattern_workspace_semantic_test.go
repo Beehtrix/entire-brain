@@ -55,7 +55,7 @@ func seedPromotableMember(t *testing.T, brainDir, repoKey, intentSig string, hea
 
 // releaseGroupingAgent groups repos whose task intent mentions "release" into one
 // cross-repo family (with each repo's actual commands); it rejects generic git.
-func releaseGroupingAgent(t *testing.T) distillAgentRunner {
+func releaseGroupingAgent(t *testing.T) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Repos map[string][]map[string]any `json:"repos"`
@@ -164,7 +164,7 @@ func TestWorkspaceFamilyRejectsGeneric(t *testing.T) {
 }
 
 // verdictFamilyAgent groups release tasks into one family and returns the given verdict.
-func verdictFamilyAgent(verdict string) distillAgentRunner {
+func verdictFamilyAgent(verdict string) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Repos map[string][]map[string]any `json:"repos"`

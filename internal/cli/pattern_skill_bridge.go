@@ -77,7 +77,7 @@ func loadKnowledgeSkillProposals(brainDir string) []taskCandidate {
 }
 
 func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,7 @@ func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error
 	defer db.Close()
 	// A corpus that predates the additive deep_dossiers table has no accepted
 	// dossiers, not a broken read.
-	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
 		return nil, err
 	}
 	rows, err := db.Query(`SELECT pattern_id, json_redacted FROM deep_dossiers
@@ -124,7 +124,7 @@ func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandi
 }
 
 func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -133,7 +133,7 @@ func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]ta
 	}
 	defer db.Close()
 
-	hasDeep, err := patternCorpusHasTable(db.DB, "deep_dossiers")
+	hasDeep, err := patterncore.CorpusHasTable(db.DB, "deep_dossiers")
 	if err != nil {
 		return nil, false, err
 	}

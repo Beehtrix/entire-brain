@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -206,7 +207,7 @@ func factStoreIDList(ids []string) string {
 // manifest alone would only re-baseline the loss, so the fact commands' own
 // wording — refresh, then re-distill — is what gets named.
 func factsRepairHint() string {
-	return "run `" + brainInvocation(os.LookupEnv, "refresh") + "` and re-distill"
+	return "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` and re-distill"
 }
 
 // Warning renders the single caller-facing line, or "" when the store is
@@ -249,7 +250,7 @@ func (r factStoreIntegrity) Warning() string {
 		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
-			"memory count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `"+brainInvocation(os.LookupEnv, "refresh")+"`",
+			"memory count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`",
 			r.Declared, r.Readable,
 		)
 	default:

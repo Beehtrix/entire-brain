@@ -40,7 +40,7 @@ type checkpointCommitResolver struct {
 // sharing them means threading a lookup through 7 call sites for a walk that
 // is noise next to distill's agent calls).
 func newCheckpointCommitResolver(ctx context.Context, opts Options, repoDir string) *checkpointCommitResolver {
-	stdout, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, brainNoEgressMode(),
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, base.BrainNoEgressMode(),
 		"log", "--all", "--format=%H%x00%cI%x00%B%x1e", "--grep", base.CheckpointTrailerKey+":")
 	if err != nil {
 		return nil

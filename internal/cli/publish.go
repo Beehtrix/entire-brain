@@ -21,7 +21,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/brainwire"
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
@@ -168,8 +168,8 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	// making a network call, so a refusal is guaranteed egress-free.
 
 	// The master kill switch always wins over the hosted opt-in.
-	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: hosted brain publish is disabled while %s is set; unset it to publish", noEgressToggleName())
+	if clibase.BrainNoEgressMode() {
+		return fmt.Errorf("no_egress: hosted brain publish is disabled while %s is set; unset it to publish", clibase.NoEgressToggleName())
 	}
 
 	// Locate the on-disk brain for this repo; the connected binding under it is
@@ -193,7 +193,7 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	}
 	repoID, baseURL, token := target.repoID, target.baseURL, target.token
 	if !brainExportExists(storage.BrainDir) {
-		return errors.New("publish: no brain found for this repo; run '" + brainInvocation(os.LookupEnv, "refresh") + "' first")
+		return errors.New("publish: no brain found for this repo; run '" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "' first")
 	}
 
 	// Exclusion and purge use the same boundary. Hold it from collection through
@@ -719,14 +719,14 @@ func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 		return nil, false, err
 	}
 	defer f.Close()
-	max := base.SemanticSnapshotMaxBytes()
+	max := clibase.SemanticSnapshotMaxBytes()
 	path := f.Name()
 	if info, err := f.Stat(); err != nil {
 		return nil, false, err
 	} else if info.Size() > max {
 		return nil, false, &readBoundExceededError{Source: path, Max: max}
 	}
-	data, err := base.SafeReadAll(f, max, path)
+	data, err := clibase.SafeReadAll(f, max, path)
 	if err != nil {
 		return nil, false, err
 	}

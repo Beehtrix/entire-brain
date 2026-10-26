@@ -304,7 +304,7 @@ func privacyDerivedReadGate(brainDir string) (bool, error) {
 	// ordinary Brain-owned files even when there are no tombstones. Without this
 	// unconditional check, best-effort pattern loaders could hide an unsafe alias
 	// as an empty result on status/get/skill surfaces.
-	if err := validatePatternCorpusReadSafety(brainDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(brainDir); err != nil {
 		return false, err
 	}
 	stones, _, err := loadSessionTombstonesChecked(brainDir)
@@ -327,7 +327,7 @@ func requirePrivacyDerivedRead(brainDir string) error {
 		return err
 	}
 	if !allowed {
-		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", memoryErrPrivacyDirty)
+		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", memoryErrPrivacyDirty)
 	}
 	return nil
 }
@@ -363,7 +363,7 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if !report.Clean {
-				return fmt.Errorf("privacy verify found %d violations; re-run `"+brainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` (idempotent) or `"+brainInvocation(os.LookupEnv, "refresh")+"` to rebuild", len(report.Findings))
+				return fmt.Errorf("privacy verify found %d violations; re-run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` (idempotent) or `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to rebuild", len(report.Findings))
 			}
 			return nil
 		},
@@ -394,7 +394,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		if inventory != nil {
 			defer inventory.Close()
 			for _, file := range inventory.files {
-				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run " + brainInvocation(os.LookupEnv, "refresh") + " sessions"})
+				report.Findings = append(report.Findings, privacyVerifyFinding{Artifact: "exported_transcript", Detail: "stray materialization in checkpoint-backed brain: " + file.Rel + "; run " + base.BrainInvocation(os.LookupEnv, "refresh") + " sessions"})
 			}
 		}
 		store := newTranscriptStore(ExecRunner{}, brainDir)

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // windowsCommandLineLen approximates the character count cmd.exe measures
@@ -53,12 +55,12 @@ func TestDistillAgentCommandArgsKeepsPromptOffArgv(t *testing.T) {
 	for _, agent := range []string{"codex", "claude-code"} {
 		t.Run(agent, func(t *testing.T) {
 			t.Parallel()
-			args, err := distillAgentCommandArgs(agent, nil, prompt)
+			args, err := base.DistillAgentCommandArgs(agent, nil, prompt)
 			if err != nil {
 				t.Fatalf("distillAgentCommandArgs(%s): %v", agent, err)
 			}
 			// distill always pins a model and an effort, so measure what really ships.
-			args = injectAgentEffort(injectAgentModel(args, agent, "claude-sonnet-4-5-20260514"), agent, "low")
+			args = base.InjectAgentEffort(base.InjectAgentModel(args, agent, "claude-sonnet-4-5-20260514"), agent, "low")
 
 			transcript := []byte("1| transcript line one\n2| transcript line two\n")
 			argv, stdin, cleanup, err := prepareAgentExec(args, transcript)
@@ -154,11 +156,11 @@ func TestPrepareAgentExecLeavesUnmarkedArgvAlone(t *testing.T) {
 // the marker string to the model as the system prompt.
 func TestDistillAgentCommandArgsOllamaKeepsPromptInline(t *testing.T) {
 	t.Parallel()
-	args, err := distillAgentCommandArgs("ollama", nil, "PROMPT")
+	args, err := base.DistillAgentCommandArgs("ollama", nil, "PROMPT")
 	if err != nil {
 		t.Fatalf("distillAgentCommandArgs(ollama): %v", err)
 	}
-	if _, _, ok := splitAgentPromptArg(args); ok {
+	if _, _, ok := base.SplitAgentPromptArg(args); ok {
 		t.Fatalf("ollama args gained the off-argv marker; teach execOllamaDistillAgent to split it: %v", args)
 	}
 	if len(args) != 3 || args[0] != "ollama" || args[2] != "PROMPT" {

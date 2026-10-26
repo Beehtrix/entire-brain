@@ -377,7 +377,7 @@ func (o semanticIndexOptions) reportPhase(phase string) {
 // spelling of this binary the reader actually reached, so it is runnable as
 // printed. TestEveryCommandPrintedInSourceResolves holds that.
 func semanticIndexMissingError() error {
-	return fmt.Errorf("code index missing; run `%s`", brainInvocation(os.LookupEnv, semanticIndexVerb))
+	return fmt.Errorf("code index missing; run `%s`", clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb))
 }
 
 type semanticResetOptions struct {
@@ -2303,7 +2303,7 @@ func brainBlindSpotsForRepo(ctx context.Context, opts Options, target string) ([
 	if unknownPaths > 0 {
 		spots = append(spots, brainBlindSpot{
 			Code:   "E_PATH_UNAVAILABLE",
-			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+brainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
+			Detail: fmt.Sprintf("%d partial failures without a recorded path; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"` to locate them", unknownPaths),
 		})
 	}
 	return spots, nil
@@ -2630,7 +2630,7 @@ func printSemanticNoSymbolMatch(cmd *cobra.Command, storePath, query string) {
 	}
 	total, distinctKinds, kinds := semanticIndexKindInventory(storePath)
 	if total == 0 {
-		fmt.Fprintln(cmd.OutOrStdout(), "note: the code index holds no symbols at all — run `"+brainInvocation(os.LookupEnv, semanticIndexVerb)+"`")
+		fmt.Fprintln(cmd.OutOrStdout(), "note: the code index holds no symbols at all — run `"+clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb)+"`")
 		return
 	}
 	shown := strings.Join(kinds, ", ")
@@ -3553,7 +3553,7 @@ func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManife
 	if source.graphStore != nil {
 		return source.StorePath, nil
 	}
-	return "", fmt.Errorf("%w; run `%s`", errSemanticStoreRetired, brainInvocation(os.LookupEnv, semanticIndexVerb))
+	return "", fmt.Errorf("%w; run `%s`", errSemanticStoreRetired, clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb))
 }
 
 type semanticPage struct {
@@ -4911,7 +4911,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	// worse than reusing it. output is a required flag, so its empty-input
 	// fallback is not reachable here.
 	fmt.Fprintf(out, "import it with: %s bundle import %s --sha256 %s\n",
-		setupBrainCommand(setupCommandPrefix(os.LookupEnv)), shellQuotedRepoDir(output), checksum)
+		clibase.SetupBrainCommand(clibase.SetupCommandPrefix(os.LookupEnv)), shellQuotedRepoDir(output), checksum)
 	fmt.Fprintf(out, "includes: %s\n", strings.Join(included, ", "))
 	if len(sessionFamily) > 0 {
 		sort.Strings(sessionFamily)

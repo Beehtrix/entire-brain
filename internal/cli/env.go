@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
@@ -154,8 +155,8 @@ func (e *localRepoIdentityConflictError) Error() string {
 		localRepoIdentityConflictCode,
 		e.Canonical.Key,
 		e.Legacy.Key,
-		setupCommandPrefix(os.LookupEnv),
-		setupCommandPrefix(os.LookupEnv),
+		clibase.SetupCommandPrefix(os.LookupEnv),
+		clibase.SetupCommandPrefix(os.LookupEnv),
 		e.Canonical.BrainDir,
 		e.Legacy.BrainDir,
 	)

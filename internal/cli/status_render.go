@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -391,7 +392,7 @@ func (h statusHealth) repairCommand() string {
 // nextStepMessage gives one actionable next step. Missing brain and blocked
 // repair take precedence; diagnosed faults outrank a missing-host advisory.
 func (h statusHealth) nextStepMessage(brainCmd string) string {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	command := "run `" + brainCmd + " " + h.repairCommand() + "`"
 	switch {
 	case h.BrainLayoutRemedy != "":
@@ -401,7 +402,7 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	case h.SemanticMissing && h.SemanticProviderAbsent:
 		// Refresh cannot build what no installed provider produces; naming it
 		// anyway sends the reader through an exit that changes nothing.
-		return "the graph provider is not installed, so code context queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + semanticIndexVerb + "`"
+		return "the graph provider is not installed, so code context queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + base.SemanticIndexVerb + "`"
 	case h.SemanticMissing && h.SemanticStoreUnsupported:
 		// Same shape as the provider-absent case above, and it must outrank
 		// the dirty-tree override below: neither refresh nor a commit builds
@@ -434,7 +435,7 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 
 // Line renders the verdict.
 func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	if h.Healthy() {
 		return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDone, "healthy")
 	}
@@ -505,7 +506,7 @@ const statusBarWidth = 14
 // renderBrainStatusShort is the DEFAULT report: who this brain is, how far
 // onboarding has got, and one line of verdict. Everything else is one flag away.
 func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	// The leading and trailing blank lines separate the report from the shell
 	// prompt on both sides. The path stays in --verbose; it is machine detail.
 	fmt.Fprintln(out)
@@ -567,7 +568,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 // stated is the remedy the verdict will print under this block; a component
 // hint identical to it is dropped rather than said twice.
 func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd, stated string) {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	onboarding := report.Onboarding
 	if onboarding == nil {
 		return
@@ -697,7 +698,7 @@ func renderStatusBlindSpotGroups(out io.Writer, render *tui.Renderer, indent str
 		}
 		line := group.Summary()
 		if group.DataFiles {
-			line += " " + render.Dash() + " `" + setupBrainCommand(brainCmd) + " doctor` lists them"
+			line += " " + render.Dash() + " `" + base.SetupBrainCommand(brainCmd) + " doctor` lists them"
 		}
 		fmt.Fprintf(out, "%s%s %s\n", indent, render.Mark(tui.MarkSkipped), render.PhasePaint(phase, line))
 		if !enumerate || group.DataFiles {

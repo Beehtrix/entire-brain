@@ -889,7 +889,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				}
 				if manifestErr != nil {
 					report.Warnings = append(report.Warnings, fmt.Sprintf(
-						"the memories were imported, but the source manifest could not be refreshed (%v); `memories status` and freshness will describe the brain as it was before this import until `"+brainInvocation(os.LookupEnv, "refresh")+"` runs",
+						"the memories were imported, but the source manifest could not be refreshed (%v); `memories status` and freshness will describe the brain as it was before this import until `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` runs",
 						manifestErr))
 					sort.Strings(report.Warnings)
 				}

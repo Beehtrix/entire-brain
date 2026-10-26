@@ -28,7 +28,7 @@ import (
 // carries its dossier state (current/stale + verifier verdict) and top anchor.
 // Rejected dossiers are suppressed. Graceful: nil when no corpus exists.
 func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]patternView, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -161,7 +161,7 @@ type loadedDossier struct {
 // loadCorpusDossiers reads every dossier joined to its pattern type. Graceful:
 // returns nil when the corpus is absent or unreadable.
 func loadCorpusDossiersChecked(brainDir string) ([]loadedDossier, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +404,7 @@ func loadReviewPatternContextChecked(brainDir string, files []string, limit int)
 	if len(files) == 0 || limit <= 0 {
 		return nil, nil
 	}
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +491,7 @@ func getCorpusConsolidation(brainDir, patternID string) (unifiedResult, bool) {
 }
 
 func getCorpusConsolidationChecked(brainDir, patternID string) (unifiedResult, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}

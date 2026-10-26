@@ -67,7 +67,7 @@ type hostedSyncOutcome struct {
 // keys off it). Callers that promise a sync to the user (connect) key their
 // report off PullSucceeded; background callers keep ignoring it.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)

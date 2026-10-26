@@ -75,7 +75,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-				return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+				return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			var tasks []evalTask
 			switch strings.TrimSpace(source) {
@@ -137,11 +137,11 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 	if resolved == "auto" {
 		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
-	judgeArgs, err := distillAgentCommandArgs(resolved, agentCommand, judgePrompt())
+	judgeArgs, err := base.DistillAgentCommandArgs(resolved, agentCommand, judgePrompt())
 	if err != nil {
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
-	judgeArgs = injectAgentModel(judgeArgs, resolved, model)
+	judgeArgs = base.InjectAgentModel(judgeArgs, resolved, model)
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return nil, err
@@ -380,7 +380,7 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 
 func generateSessionEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return nil, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	var tasks []evalTask
 	idCollisions := evalSessionIDCollisions(manifest, branch)

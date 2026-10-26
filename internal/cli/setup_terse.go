@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
 
@@ -45,7 +46,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 		Sessions:  report.Facts.Sessions,
 		Distilled: report.Facts.Distilled,
 		Queued:    report.Facts.Queued,
-		BrainCmd:  setupBrainCommand(brainCmd),
+		BrainCmd:  base.SetupBrainCommand(brainCmd),
 	}
 	if timings != nil {
 		out.Elapsed = timings.total()

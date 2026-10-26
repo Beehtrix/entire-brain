@@ -133,7 +133,7 @@ func globalFactsEnabled(noGlobalFlag bool) bool {
 	if noGlobalFlag {
 		return false
 	}
-	return !securityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
+	return !base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
 }
 
 // globalFactsForRead loads the global store for a read surface, honouring the

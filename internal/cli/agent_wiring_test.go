@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // agent_wiring_test.go covers the first-run defect that made a successful
@@ -324,10 +325,10 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 	// binary off PATH, and setupCommandPrefix detects that from an environment
 	// marker with no GOOS condition, so windows reaches it too. Only the
 	// interpreter differs -- cmd.exe cannot run the sh pipeline.
-	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupEntireBinaryName+" "+base.SetupBrainPluginVerb+" hook pre-edit") {
 		t.Fatalf("the wired command has no host-CLI fallback for a managed install: %s", command)
 	}
-	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Fatalf("the wired command never tries the brain binary directly: %s", command)
 	}
 	if runtime.GOOS == "windows" {
@@ -651,10 +652,10 @@ func TestAGivenFileIsNotWaitedOnByAnEventRead(t *testing.T) {
 // this test runs on.
 func assertPreEditHookCommand(t *testing.T, goos, command string) {
 	t.Helper()
-	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupEntireBinaryName+" "+base.SetupBrainPluginVerb+" hook pre-edit") {
 		t.Errorf("%s: no host-CLI fallback for a managed install: %s", goos, command)
 	}
-	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Errorf("%s: never tries the brain binary directly: %s", goos, command)
 	}
 	if !commandInvokesPreEditHook(command) {

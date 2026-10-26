@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -137,7 +138,7 @@ func TestSetupBuildPhaseGivesNoSubStepItsOwnLine(t *testing.T) {
 		brainComponentSemantic, brainComponentFacts, brainComponentPatterns,
 		brainComponentEntities, brainComponentMemory,
 	} {
-		components = append(components, newSetupComponent(name, nil, setupBrainBinaryName))
+		components = append(components, newSetupComponent(name, nil, clibase.SetupBrainBinaryName))
 	}
 	rec := &recordedSetup{instantComponents: components}
 	steps := rec.steps(f)
@@ -200,12 +201,12 @@ func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 	f := newSetupTestFixture(t)
 	dirty := errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content")
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentDocs, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentEntities, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentMemory, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentSeed, dirty, setupBrainBinaryName),
-		newSetupComponent(brainComponentSemantic, dirty, setupBrainBinaryName),
-		newSetupComponent(brainComponentHistory, dirty, setupBrainBinaryName),
+		newSetupComponent(brainComponentDocs, nil, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentEntities, nil, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentMemory, nil, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSeed, dirty, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, dirty, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentHistory, dirty, clibase.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.verbose = true // this file asserts the phase view, now behind --verbose
@@ -230,9 +231,9 @@ func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 func TestSetupExitsZeroWhenOnlyASupportingComponentFails(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSemantic, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentDocs, errors.New("doc index unavailable"), setupBrainBinaryName),
-		newSetupComponent(brainComponentEntities, errors.New("entity index unavailable"), setupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, nil, clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentDocs, errors.New("doc index unavailable"), clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentEntities, errors.New("entity index unavailable"), clibase.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.verbose = true // this file asserts the phase view, now behind --verbose
@@ -326,8 +327,8 @@ func TestSetupEmptyRepositoryReportsAPreconditionNotFailures(t *testing.T) {
 	f := newSetupTestFixture(t)
 	f.opts.Runner = unbornHeadRunner(f.repoDir)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSeed, errors.New("no commits"), setupBrainBinaryName),
-		newSetupComponent(brainComponentDocs, nil, setupBrainBinaryName),
+		newSetupComponent(brainComponentSeed, errors.New("no commits"), clibase.SetupBrainBinaryName),
+		newSetupComponent(brainComponentDocs, nil, clibase.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.verbose = true // this file asserts the phase view, now behind --verbose
@@ -368,7 +369,7 @@ func TestSetupComponentFailureDetailsAreOneLineEach(t *testing.T) {
 		Detail: "this repository has no commits yet: /repo\nentire-brain pins every source to a commit.\nmake at least one commit.",
 		Hint:   "first line\nsecond line",
 	}}
-	details := setupComponentFailureDetails(failed, "--", setupBrainBinaryName)
+	details := setupComponentFailureDetails(failed, "--", clibase.SetupBrainBinaryName)
 	if len(details) != 2 {
 		t.Fatalf("a failed component is allowed its reason and its hint, got %d: %q", len(details), details)
 	}

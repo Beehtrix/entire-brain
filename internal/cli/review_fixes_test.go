@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +81,7 @@ func TestSynthesisEvidenceRedactsSecrets(t *testing.T) {
 
 const stubSkillText = "---\nname: ship-it\ndescription: Use when shipping.\n---\n# Ship it\nstep"
 
-func stubRunner(out string) distillAgentRunner {
+func stubRunner(out string) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		return out, nil
 	}

@@ -44,7 +44,7 @@ type skillSynthesisResult struct {
 }
 
 // synthesizeSkill calls the agent to author (or reject) a skill for the task.
-func synthesizeSkill(ctx context.Context, repoDir, brainDir string, c taskCandidate, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
+func synthesizeSkill(ctx context.Context, repoDir, brainDir string, c taskCandidate, agent, model, effort string, run base.DistillAgentRunner) (skillSynthesisResult, error) {
 	evidence, err := buildSkillEvidenceChecked(brainDir, c)
 	if err != nil {
 		return skillSynthesisResult{}, err
@@ -52,13 +52,13 @@ func synthesizeSkill(ctx context.Context, repoDir, brainDir string, c taskCandid
 	return synthesizeSkillWithEvidence(ctx, repoDir, evidence, agent, model, effort, run)
 }
 
-func synthesizeSkillWithEvidence(ctx context.Context, repoDir, evidence, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
-	args, err := distillAgentCommandArgs(agent, nil, skillSynthesisSystemPrompt)
+func synthesizeSkillWithEvidence(ctx context.Context, repoDir, evidence, agent, model, effort string, run base.DistillAgentRunner) (skillSynthesisResult, error) {
+	args, err := base.DistillAgentCommandArgs(agent, nil, skillSynthesisSystemPrompt)
 	if err != nil {
 		return skillSynthesisResult{}, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 	out, err := run(ctx, repoDir, args, []byte(evidence), skillSynthesisTimeout)
 	if err != nil {
 		return skillSynthesisResult{}, fmt.Errorf("synthesis agent: %w", err)

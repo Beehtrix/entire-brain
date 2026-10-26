@@ -228,7 +228,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	// (remote-only, other stores). Short-circuiting there would turn a
 	// locally-empty clone into a false-empty export -- the exact failure the
 	// refusal below this exists to prevent.
-	if selected == nil && catalogProvenEmpty && brainNoEgressMode() {
+	if selected == nil && catalogProvenEmpty && clibase.BrainNoEgressMode() {
 		// A repository between `entire enable` and its first finished agent
 		// session. Exporting zero sessions is the correct answer here. The
 		// empty-export refusal below still protects a brain that already holds
@@ -237,11 +237,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		selected = map[string]selectedSession{}
 	}
 	if selected == nil {
-		if brainNoEgressMode() {
+		if clibase.BrainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
-				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export — unset " + noEgressToggleName() + " to allow it")
+				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export — unset " + clibase.NoEgressToggleName() + " to allow it")
 			}
-			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery — unset " + noEgressToggleName() + " to allow it")
+			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery — unset " + clibase.NoEgressToggleName() + " to allow it")
 		}
 		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
 		if err != nil {
@@ -906,7 +906,7 @@ func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner
 		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
 	}
 
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", clibase.CheckpointTrailerKey+":", defaultRef)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "log", "--format=%B", "--grep", clibase.CheckpointTrailerKey+":", defaultRef)
 	warnings := warningLines("default branch checkpoint reachability", stderr)
 	if err != nil {
 		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
@@ -937,7 +937,7 @@ func checkpointIDsFromCommitMessages(data []byte) map[string]struct{} {
 }
 
 func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", clibase.CheckpointTrailerKey+":")
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", clibase.CheckpointTrailerKey+":")
 	warnings := warningLines("checkpoint author index", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
@@ -1036,8 +1036,8 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
-		if brainNoEgressMode() {
-			return nil, []string{"no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while " + noEgressToggleName() + " is set"}, nil
+		if clibase.BrainNoEgressMode() {
+			return nil, []string{"no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while " + clibase.NoEgressToggleName() + " is set"}, nil
 		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
@@ -1046,8 +1046,8 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 	if err != nil {
 		return nil, nil, err
 	}
-	if brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while "+noEgressToggleName()+" is set")
+	if clibase.BrainNoEgressMode() {
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while "+clibase.NoEgressToggleName()+" is set")
 		return checkpoints, warnings, nil
 	}
 
@@ -1291,8 +1291,8 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 		ids[id] = struct{}{}
 	}
 	warnings = append(warnings, refWarnings...)
-	if len(ids) == 0 && brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped — no checkpoints are visible without local refs while "+noEgressToggleName()+" is set")
+	if len(ids) == 0 && clibase.BrainNoEgressMode() {
+		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped — no checkpoints are visible without local refs while "+clibase.NoEgressToggleName()+" is set")
 	}
 
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
@@ -1304,7 +1304,7 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 // the shard to match the checkpoint ID before passing an ID to the CLI.
 func listLocalPerCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string) (map[string]struct{}, []string) {
 	ids := make(map[string]struct{})
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
 	warnings := warningLines("checkpoint refs", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint ref namespace unavailable: "+err.Error())
@@ -1372,7 +1372,7 @@ func checkpointULIDTime(value string) (time.Time, bool) {
 //
 // Which remote-tracking refs those are is not fixed: see aggregateCheckpointRefs.
 func localCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string) []string {
-	return aggregateCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
+	return aggregateCheckpointRefs(ctx, runner, repoDir, clibase.BrainNoEgressMode())
 }
 
 // aggregateCheckpointRefs is the ordered set of git-branch checkpoint refs this
@@ -1596,7 +1596,7 @@ func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDi
 	var warnings []string
 
 	for _, ref := range refs {
-		stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", ref)
+		stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
 			refErrors = append(refErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
@@ -1755,18 +1755,18 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	// namespace. The routed --search-all list is the only complete inventory for
 	// that topology, so do not let a locally readable fast path hide remote-only
 	// checkpoints. No-egress mode intentionally reads the local catalog only.
-	if !brainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
+	if !clibase.BrainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
 	}
 
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, limit, branchDestinations, progress, cache, brainNoEgressMode())
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, limit, branchDestinations, progress, cache, clibase.BrainNoEgressMode())
 	if err == nil {
 		if snapshot.TranscriptMode == "raw" {
 			warnings = append(warnings, "exporting raw transcripts directly from complete local checkpoint store union")
 		}
 		return snapshot, warnings, nil
 	}
-	if brainNoEgressMode() {
+	if clibase.BrainNoEgressMode() {
 		// In no-egress mode the local catalog IS the catalog, so a clean empty
 		// enumeration proves emptiness — unless a configured checkpoint remote
 		// could hold checkpoints this mode deliberately refuses to fetch, in
@@ -1774,7 +1774,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 			return nil, warnings, err
 		}
-		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped while "+noEgressToggleName()+" is set")
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped while "+clibase.NoEgressToggleName()+" is set")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 	return nil, warnings, err
@@ -3420,7 +3420,7 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
 	}
 	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
-		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
+		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, clibase.BrainNoEgressMode())
 	})
 }
 

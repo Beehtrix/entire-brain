@@ -164,7 +164,7 @@ func checkPathTargetIsAddressable(ctx context.Context, opts Options, storage rep
 	if stored {
 		return nil
 	}
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := base.SetupCommandPrefix(os.LookupEnv)
 	return notARepositoryError(ctx, opts.Runner, repoDir,
 		brainCmd+" path reports where a repository's brain lives, and a repository's identity -- like every source its brain is built from -- comes from git.",
 		brainCmd+" path",
@@ -298,7 +298,7 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	if err == nil || runner == nil {
 		return err
 	}
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := base.SetupCommandPrefix(os.LookupEnv)
 	if _, ok := gitWorkTreeRoot(ctx, runner, repoDir); !ok {
 		if bare, bareErr := base.GitScalar(ctx, runner, repoDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(bare) == "true" {
 			return fmt.Errorf("bare repository has no working tree: %s\n"+

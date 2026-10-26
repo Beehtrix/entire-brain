@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -67,7 +68,7 @@ func newStopCommand(opts Options) *cobra.Command {
 			if err := setBackgroundPaused(opts.Env, true); err != nil {
 				return fmt.Errorf("pause background work: %w", err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "background brain work paused; passes already running finish first (`%s start` resumes)\n", setupCommandPrefix(os.LookupEnv))
+			fmt.Fprintf(cmd.OutOrStdout(), "background brain work paused; passes already running finish first (`%s start` resumes)\n", base.SetupCommandPrefix(os.LookupEnv))
 			return nil
 		},
 	}

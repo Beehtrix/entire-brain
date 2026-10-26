@@ -118,10 +118,10 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// The kill switch suppresses every sync this command is about to promise,
 	// so say that instead of "now syncing". The binding still gets recorded:
 	// the environment only subtracts, and unsetting it resumes syncing.
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		renderHostedBanner(cmd.OutOrStdout(),
-			"Connected: "+storage.Key+" — but nothing syncs while "+noEgressToggleName()+" is set",
-			"The binding is recorded and memories stay local. Unset "+noEgressToggleName()+" to start syncing.")
+			"Connected: "+storage.Key+" — but nothing syncs while "+base.NoEgressToggleName()+" is set",
+			"The binding is recorded and memories stay local. Unset "+base.NoEgressToggleName()+" to start syncing.")
 		return nil
 	}
 	// Connect doubles as the initial pull so a fresh clone receives team
@@ -138,7 +138,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 			verdict = "did not run"
 		}
 		return fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
-			storage.Key, verdict, brainInvocation(os.LookupEnv, "connect"))
+			storage.Key, verdict, base.BrainInvocation(os.LookupEnv, "connect"))
 	}
 	headline := "Connected: " + storage.Key + " is now syncing memories"
 	if already {

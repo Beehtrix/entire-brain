@@ -133,7 +133,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
 			if !patternsPresent {
-				fmt.Fprintln(out, "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+				fmt.Fprintln(out, "patterns: not built (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			} else {
 				fmt.Fprintln(out, "patterns: none detected yet")
 			}
@@ -439,12 +439,12 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err
 	}
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
 	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		run := defaultDistillAgentRunner(agent)
-		verify := verifyDossiers
+		verify := patterncore.VerifyDossiers
 		mode := "dossier"
 		switch {
 		case themes:
@@ -461,11 +461,11 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			mode = "deep dossier"
 		}
 		var stats patterncore.VerifyStats
-		if err := withPatternCorpusMutationLocked(brainDir, func(db *sql.DB) error {
+		if err := patterncore.WithCorpusMutationLocked(brainDir, func(db *sql.DB) error {
 			var verifyErr error
 			stats, verifyErr = verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
 			return verifyErr
-		}); err != nil {
+		}, decodePatternCorpusPublication); err != nil {
 			return err
 		}
 		if asJSON {
@@ -573,7 +573,7 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			return writeJSON(cmd, report)
 		}
 		if !report.Present {
-			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			return nil
 		}
 		out := cmd.OutOrStdout()

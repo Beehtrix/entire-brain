@@ -2,13 +2,10 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -249,96 +246,6 @@ func TestBrainBriefCompactV1FixtureByteDelta(t *testing.T) {
 	}
 	reduction := 100 * (1 - float64(len(compact))/float64(legacy.Len()))
 	t.Logf("compact_v1 fixture: %d bytes vs legacy JSON %d bytes (%.1f%% reduction)", len(compact), legacy.Len(), reduction)
-}
-
-func TestMCPBrainBriefPacketFormatSchemaAndValidation(t *testing.T) {
-	var brief map[string]any
-	for _, definition := range mcpToolDefinitions() {
-		if definition["name"] == "brain_brief" {
-			brief = definition
-			break
-		}
-	}
-	if brief == nil {
-		t.Fatal("brain_brief tool definition missing")
-	}
-	schema := brief["inputSchema"].(map[string]any)
-	properties := schema["properties"].(map[string]any)
-	format := properties["packet_format"].(map[string]any)
-	if got, want := format["enum"], []string{"legacy_json", "compact_v1", "compact_v2", "compact_v3"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("packet_format enum = %#v, want %#v", got, want)
-	}
-	if format["default"] != "legacy_json" {
-		t.Fatalf("packet_format default = %#v", format["default"])
-	}
-
-	for _, value := range []any{nil, "", "compact_v4", true} {
-		_, err := handleMCPToolCall(context.Background(), Options{}, mustMCPToolCallJSON(t, map[string]any{"task": "x", "packet_format": value}))
-		if err == nil || !strings.Contains(err.Error(), "packet_format") {
-			t.Errorf("packet_format %#v error = %v", value, err)
-		}
-	}
-}
-
-func TestMCPBrainBriefToolDefinitionGolden(t *testing.T) {
-	var brief map[string]any
-	for _, definition := range mcpToolDefinitions() {
-		if definition["name"] == "brain_brief" {
-			brief = definition
-			break
-		}
-	}
-	if brief == nil {
-		t.Fatal("brain_brief tool definition missing")
-	}
-	got, err := json.Marshal(brief)
-	if err != nil {
-		t.Fatalf("marshal brain_brief tool definition: %v", err)
-	}
-	want, err := os.ReadFile("testdata/mcp_brain_brief_tool.golden.json")
-	if err != nil {
-		t.Fatalf("read brain_brief tool definition golden: %v", err)
-	}
-	if !bytes.Equal(append(got, '\n'), want) {
-		t.Fatalf("brain_brief tool definition changed\n got: %s\nwant: %s", got, want)
-	}
-
-	// Pin serialized schema bytes; tokenizer measurements are not part of this test.
-	if len(got) != 1038 {
-		t.Fatalf("brain_brief tool definition bytes = %d, want 1038", len(got))
-	}
-}
-
-func TestMCPBrainBriefDefaultLegacyAndVersionedCompactPackets(t *testing.T) {
-	fixture := newBrainBriefProfileFixture(t)
-	task := "ValidateToken PRIVATE_TASK_PAYLOAD"
-	defaultText := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3})
-	legacyText := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "legacy_json"})
-	if defaultText != legacyText {
-		t.Fatal("omitted packet_format differs from explicit legacy_json")
-	}
-	var legacyPayload brainBriefReport
-	if err := json.Unmarshal([]byte(defaultText), &legacyPayload); err != nil {
-		t.Fatalf("default response is no longer legacy JSON: %v\n%s", err, defaultText)
-	}
-
-	compactText := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "compact_v1"})
-	if !strings.HasPrefix(compactText, brainBriefCompactV1Marker+"\n") {
-		t.Fatalf("compact response marker missing:\n%s", compactText)
-	}
-	parseCompactV1Records(t, compactText)
-
-	compactV2Text := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "compact_v2"})
-	if !strings.HasPrefix(compactV2Text, brainBriefCompactV2Marker+"\n") {
-		t.Fatalf("compact_v2 response marker missing:\n%s", compactV2Text)
-	}
-	parseCompactV2Records(t, compactV2Text)
-
-	compactV3Text := callMCPBrainBriefForTest(t, fixture.opts, map[string]any{"task": task, "limit": 3, "packet_format": "compact_v3"})
-	if !strings.HasPrefix(compactV3Text, brainBriefCompactV3Marker+"\n") {
-		t.Fatalf("compact_v3 response marker missing:\n%s", compactV3Text)
-	}
-	parseCompactV3Records(t, compactV3Text)
 }
 
 func comprehensiveCompactV1Report() brainBriefReport {
@@ -602,30 +509,4 @@ func renderBrainBriefCompactV1ForTest(t *testing.T, report brainBriefReport) str
 		t.Fatalf("render compact_v1: %v", err)
 	}
 	return out.String()
-}
-
-func mustMCPToolCallJSON(t *testing.T, args map[string]any) json.RawMessage {
-	t.Helper()
-	payload, err := json.Marshal(mcpToolCallParams{Name: "brain_brief", Arguments: args})
-	if err != nil {
-		t.Fatalf("marshal MCP tool call: %v", err)
-	}
-	return payload
-}
-
-func callMCPBrainBriefForTest(t *testing.T, opts Options, args map[string]any) string {
-	t.Helper()
-	result, err := handleMCPToolCall(context.Background(), opts, mustMCPToolCallJSON(t, args))
-	if err != nil {
-		t.Fatalf("brain_brief MCP call: %v", err)
-	}
-	content, ok := result["content"].([]map[string]any)
-	if !ok || len(content) != 1 {
-		t.Fatalf("brain_brief MCP content = %#v", result["content"])
-	}
-	text, ok := content[0]["text"].(string)
-	if !ok {
-		t.Fatalf("brain_brief MCP text = %#v", content[0]["text"])
-	}
-	return text
 }

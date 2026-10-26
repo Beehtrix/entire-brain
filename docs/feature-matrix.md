@@ -18,9 +18,9 @@ benchmarked. Every claim about another product cites a page in `Source`, and
 
 **We chose the rows.** The first version had 31 and Graph or Brain answered Yes
 to all of them, which is what happens when the people who build the product pick
-the questions. It now has 51, and **15 are rows where neither of ours answers
-Yes** — down from 20 after checking the original twelve REAL GAP rows against
-current source. Graph answers Yes to 19 of 51; Brain to 31, delegating
+the questions. It now has 51, and **18 are rows where neither of ours answers
+Yes** — the count rose from 15 when the MCP, REST, and SDK surfaces were
+removed. Graph answers Yes to 19 of 51; Brain to 27, delegating
 5 more to Graph — counted separately, because delegating is not having.
 
 ## Labels in the Notes column
@@ -40,8 +40,10 @@ Neither unmerged proposal is counted as shipped.
 
 ## What the gaps said, and what happened
 
-Five of those cells moved
-to Yes: global facts, recency, MCP fact writes, HTTP MCP, and REST and SDKs.
+Two of those cells moved
+to Yes: global facts and recency. MCP fact writes, HTTP MCP, and REST and SDKs
+shipped and were later removed with the MCP surface: the CLI is the agent
+surface.
 Document ingest remains Partial because images and OCR are unsupported.
 Plain-file memory is Partial because export can be searched but edits do not
 round-trip into the store. Webhooks and the two framework adapters are Partial

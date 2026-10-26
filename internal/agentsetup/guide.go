@@ -228,7 +228,7 @@ you do not already know about.
 // brainRetrieval names recall as the retrieval for prior decisions (issue #335): the
 // brief's memories section is a sample and query mixes memories with docs and
 // history, so an agent asked "was this decided before?" needs the command spelled
-// out. Over MCP the equivalent write is brain_remember, which requires path.
+// out.
 const brainRetrieval = `Questions about why something is the way it is, what was decided, or what was
 tried before are answered by durable memories. Retrieve them directly; the brief's
 memories section is a sample, not the search:
@@ -248,8 +248,7 @@ when you learn something durable that the code does not already state:
 
 Categories are architecture, constraints, preferences, project and workflow.
 Omitting --path classifies the memory for you, which requires a supported coding
-agent on PATH. Over MCP the same write is the brain_remember tool, which
-requires path. Retrieve with recall, and re-check anchors with verify.
+agent on PATH. Retrieve with recall, and re-check anchors with verify.
 
 Use Brain entities history to connect code changes to earlier checkpoints and
 sessions. Use Brain memory-informed review and workspace

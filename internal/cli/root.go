@@ -52,7 +52,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		// empty, so leaving it unset while carrying the value on Options meant
 		// `--version`, `-v` and `-V` all failed with "unknown flag" on a binary
 		// that knows perfectly well what it is. It is the same string the
-		// `version` subcommand and the MCP serverInfo already report.
+		// `version` subcommand already reports.
 		Version:       opts.Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -60,7 +60,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 
 It builds a local, inspectable repository brain from retained sessions, seed
 context, docs, history, code-index records, and durable memories, then exposes
-retrieval, verification, evaluation, and MCP surfaces for agents.`,
+retrieval, verification, and evaluation surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
 		},
@@ -101,7 +101,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addGrouped("setup", newSetupCommand(opts))
 	addGrouped("setup", newAddCommand(opts))
 	addGrouped("setup", newBrainGuideCommand(opts))
-	addGrouped("setup", newMCPCommand(opts))
 	addGrouped("setup", newWebhookCommand(opts))
 	addGrouped("setup", newConfigCommand(opts.Env))
 

@@ -24,9 +24,8 @@ docs, runtime traces, durable facts, and pattern evidence into a local
 repository brain.
 
 The result is a local memory system for humans and agents. Humans install,
-refresh, and curate the brain. Agents consume it through configured hooks, MCP
-tools, file-based intake instructions, or direct JSON commands when MCP is not
-available. The practical effect is that an agent can start work with retained
+refresh, and curate the brain. Agents consume it through configured hooks,
+file-based intake instructions, or direct JSON commands. The practical effect is that an agent can start work with retained
 context, freshness signals, semantic navigation, prior decisions, likely tests,
 and known failure modes instead of rediscovering them from scratch.
 
@@ -803,46 +802,35 @@ save a transcript, and the human does not paste context into the brain.
 If an agent is not seeing Entire context at all, check the base Entire
 integration first, not the brain (`entire status`, `entire agent`).
 
-### 1. MCP is the preferred agent tool surface
+### 1. The CLI is the agent tool surface
 
-For agents that support MCP, register `entire brain mcp` as a local stdio MCP
-server. It opens no network listener and wraps the local brain's JSON contracts
-as tools. Once MCP is available, an agent should call MCP tools instead of
-shelling out to the CLI. The normal first call is `brain_brief`, then targeted
-follow-ups:
+Agents use the brain through `entire brain ... --json` commands. The normal
+first call is `brief`, then targeted follow-ups:
 
-- `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` for a lightweight freshness/recorded-coverage overview; set
-  `details: true` for file classifications, not a deep audit
-- `brain_refresh` for a bounded seed/docs refresh when retrieval freshness is
-  unsafe. Its seed and docs include the current worktree by default, it never
-  exports checkpoint sessions, and it is capped at 60 seconds; set
-  `semantic: true` only for small repositories and use
-  `brain_index_repository` as the separate long-running semantic step for large
-  repositories. `worktree` covers seed and docs only -- the semantic index is
-  always built from committed HEAD, so a dirty semantic snapshot needs
-  `brain_index_repository` with `worktree: true`. Set `worktree: false` only
-  when seed and docs must come from committed
-  HEAD; use `entire brain refresh sessions` from the CLI for checkpoint history
-- retrieval tools such as `brain_query` and `brain_get` for facts, docs, history
-- semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
-  `brain_tests` for code navigation and validation planning
-- `brain_entity_history` for "which checkpoints and sessions changed this
+- `entire brain brief "<task>" --json` for task-shaped context, history hits,
+  likely files, and tests
+- `entire brain status --json` for a lightweight freshness/recorded-coverage
+  overview; `--details` adds file classifications, not a deep audit
+- `entire brain refresh` for a bounded seed/docs refresh when retrieval
+  freshness is unsafe; `refresh index` builds the semantic index, and
+  `refresh sessions` exports checkpoint history
+- retrieval commands such as `query` and `get` for facts, docs, history
+- semantic commands such as `inspect code`, `inspect context`,
+  `inspect impact`, and `inspect tests` for code navigation and validation
+  planning
+- `entities history` for "which checkpoints and sessions changed this
   function/class", answered from the persisted entity index rather than by
   re-reading history (build it once with `entire brain entities backfill`)
-- review, workspace, and pattern tools such as `brain_regressions`,
-  `brain_workspace_graph`, `brain_workspace_review`, and `brain_patterns` when
-  the task calls for them
+- review, workspace, and pattern commands such as `inspect regressions`,
+  `workspace inspect graph`, `workspace review`, and `patterns` when the task
+  calls for them
 
-Some MCP tools write local state (for example `brain_ingest_traces` persists
-runtime edges as `RUNTIME_TRACE` facts); pattern MCP tools are read-only. The
-MCP and CLI surfaces are intentionally close but not perfect mirrors — prefer the
-native surface your agent client has, then translate only when needed. See
-[docs/semantic_mcp_guide.md](semantic_mcp_guide.md) for the full tool surface.
+See [docs/semantic_features.md](semantic_features.md) for the full retrieval
+and semantic surface.
 
 ### 2. Intake instructions are the file-based fallback
 
-When MCP is not available, an agent can use the brain through the intake
+When the CLI is not available, an agent can use the brain through the intake
 instructions in `templates/`. The templates tell the agent to locate the brain
 with `entire brain path "$PWD"`, then read staged context instead of blindly
 opening everything: `README.md` and `manifest.json` in the brain directory, seed
@@ -850,16 +838,13 @@ files under `seed/agent/`, `seed/history-gaps.md` when present, and only
 task-relevant transcripts selected from the manifest. Treat gaps as uncertainty
 rather than inventing rationale.
 
-### 3. Direct CLI is a compatibility surface
+### 3. Direct CLI examples
 
-For clients without MCP, direct `entire brain ... --json` calls are the
-compatibility surface (humans and scripts use the same commands). Treat it like a
-tool API, not an invitation to run a long command tour:
+Treat the CLI like a tool API, not an invitation to run a long command tour:
 
 The provider naming migration is an intentional compatibility break. Direct CLI
 automation must use `entire graph`, `--graph-binary`, `--skip-graph`,
-`--graph-timeout`, and `--graph-inactivity-timeout`. MCP server deployments use
-`ENTIRE_BRAIN_GRAPH_BINARY` for the trusted provider-binary override. Aliases for
+`--graph-timeout`, and `--graph-inactivity-timeout`. Aliases for
 prior provider-facing names are not supported.
 
 ```sh
@@ -885,9 +870,8 @@ warnings, and live state. `--json` changes presentation, not inspection depth;
 `integrity: "not_checked"`; semantic artifact axes say `present`, not verified
 `ok`, and the provider identity is recorded rather than probed live. Deep
 `memory`, fact `verification`/content-integrity results, coverage histograms, and
-changed-symbol hints are no longer computed by status. MCP `brain_status` and
-`brain_index_status` use the same boundary; `details: true` includes file
-classifications only. Status does not fingerprint working-tree contents: dirty
+changed-symbol hints are no longer computed by status. Status does not
+fingerprint working-tree contents: dirty
 semantic and seed snapshots report `degraded` with content matching explicitly
 not verified, even after `refresh --worktree`. Known missing fingerprints, HEAD
 mismatches, and committed-only indexes still report their specific freshness
@@ -935,8 +919,7 @@ no stdout output, so it never breaks the agent workflow.
 
 ## Usage Scenarios
 
-The examples name the preferred MCP tool when there is one. Agent clients without
-MCP should use the equivalent `entire brain ... --json` command.
+The examples use `entire brain ... --json` commands.
 
 ### Orient an agent on a new task
 
@@ -1011,9 +994,6 @@ For example: `entire brain query --query "RetryPolicy" --json`.
 Workspace retrieval supports the same forms:
 `entire brain workspace query <workspace> --semantic --query "retry policy"`.
 The old `search` and `vsearch` commands remain hidden compatibility aliases.
-MCP agents should use `brain_query` with optional, mutually exclusive
-`keyword: true` or `semantic: true` arguments; `brain_search` and
-`brain_vsearch` remain compatibility tools.
 
 ### Recall prior conversations (experimental, opt-in)
 
@@ -1043,7 +1023,7 @@ the concepts live in different exchanges of the session. Results are
 sum, then session reference) with `evidence_ids` naming the exact supporting
 exchanges. Lexical mode enumerates the complete in-scope match set per
 concept up to a 10,000-candidate ceiling and returns `memory_query_too_broad`
-beyond it. MCP takes the same `concepts` array on all three retrieval tools.
+beyond it.
 
 Session navigation: every conversation result carries a `session_ref`
 (a virtual `conversation-session:` identity derived from repo, branch, and
@@ -1054,9 +1034,8 @@ under a 128 KiB packet cap. `get conversation-session:<id> [--after-turn N]
 [--limit N]` returns a bounded, paginated outline (request excerpts, ordinals,
 tool names; default 20 entries, max 50, 64 KiB per page) with a stable
 `next_turn` cursor that appends never shift. Navigation options are
-type-specific and error on any other id kind; MCP `brain_get` takes the same
-`context_before`/`context_after`/`after_turn`/`limit` fields, and
-`workspace get` accepts them for repo-qualified ids.
+type-specific and error on any other id kind; `workspace get` accepts them
+for repo-qualified ids.
 
 Exchanges are extracted deterministically and locally (no model calls) and
 never enter default retrieval or published bundles. Lexical BM25 is the
@@ -1159,8 +1138,8 @@ more than "what could call this?"
 ### Work across multiple repositories
 
 Use workspaces when behavior crosses repository boundaries. Humans create and
-refresh the workspace; agents consume it through MCP workspace tools or direct
-workspace CLI commands. The workspace brain keeps member repos local and builds
+refresh the workspace; agents consume it through the workspace CLI
+commands. The workspace brain keeps member repos local and builds
 cross-repo contracts and graph edges from their existing local brains.
 
 ```sh
@@ -1198,8 +1177,8 @@ Skill extraction forms skills only from accepted deep dossiers: verified evidenc
 that a pattern is non-obvious and useful to future agents (recurring task
 patterns, verified themes, corrected/failed episodes, durable gotchas and
 conventions, cross-repo families). A human or explicitly authorized automation
-runs the egress-gated verification and formation; refresh, watch, brief, query,
-MCP reads, and workspace reads do not silently call it.
+runs the egress-gated verification and formation; refresh, watch, brief,
+query, and workspace reads do not silently call it.
 
 ```sh
 entire brain patterns
@@ -1246,7 +1225,7 @@ Memory retrieval (facts, history, docs) is ranked by BM25 lexical scoring;
 there is no embedder or vector arm. Semantic (embedding) retrieval was removed
 after a 1,748-run agent eval measured BM25 matching or beating it end-to-end
 (see `docs/eval_ledger.md` and trail #278; the cgo dependency was stripped in
-#416). `query --semantic`, `vsearch`, MCP `brain_vsearch`, and
+#416). `query --semantic`, `vsearch`, and
 `recall --no-semantic` are accepted as no-op compatibility aliases that run
 the same BM25 ranking; a semantic-only conversation request returns a
 structured error naming the removal.
@@ -1265,16 +1244,6 @@ entire brain facts global --all --json
 entire brain facts retract <fact-id> --global
 ```
 
-An MCP-connected agent records one the same way, through `brain_remember`:
-
-```json
-{"name": "brain_remember", "arguments": {
-  "fact": "We deploy on Thursdays.",
-  "path": "project.deployment.convention",
-  "global": true
-}}
-```
-
 `global` cannot be combined with `branch`: a fact that applies everywhere has no
 branch to belong to.
 
@@ -1286,8 +1255,7 @@ retraction and garbage collection.
 ### How they surface
 
 Every read surface merges them into the repository's results: `recall`,
-`query`, `search`, `vsearch` and `brief` on the CLI, and `brain_query`,
-`brain_search`, `brain_vsearch` and `brain_brief` over MCP. `brief` surfaces
+`query`, `search`, `vsearch` and `brief`. `brief` surfaces
 them even in a repository that has no facts of its own — a repo that has never
 been told the statement is the case global facts exist for. They go through the
 same guard, filters and ranking as repository facts, and are labelled:
@@ -1315,8 +1283,7 @@ repository.
 
 ### Turning them off
 
-Use `--no-global` on a single `recall`, `search`, `query`, or `vsearch` request,
-or `no_global: true` with `brain_search`, `brain_query`, or `brain_vsearch` over MCP.
+Use `--no-global` on a single `recall`, `search`, `query`, or `vsearch` request.
 Set `ENTIRE_BRAIN_NO_GLOBAL_FACTS=1` for a
 machine where repository answers must not be influenced by anything outside the
 repository. The variable is fail-closed like the other guards: an unrecognised
@@ -1513,8 +1480,7 @@ over an empty key — which would verify for anyone who guessed the key was empt
 ## Privacy And Egress
 
 Default brain artifacts are local and inspectable. Deterministic refresh,
-semantic indexing, local history indexing, and MCP tool calls do not require a
-hosted model, and the MCP adapter is stdio-only.
+semantic indexing, and local history indexing do not require a hosted model.
 
 Some operations perform network egress, either by sending selected context to a
 model or by fetching over the network:
@@ -1613,9 +1579,6 @@ required for normal use.
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
 | `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish and hosted memories sync otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
-| `ENTIRE_BRAIN_MCP_DEBUG_LOG` | (unset) | Path the stdio MCP adapter appends frame-level debug lines to. Diagnostics only. |
-| `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` | (unset) | Lets the MCP `brain_index_repository` tool index a path outside the bound repository root (`ENTIRE_REPO_ROOT`). |
-| `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO` | (unset) | Lets MCP tools act outside the bound repository: `brain_delete_project` with a foreign `repo_key`, `brain_list_projects` returning every local project, and the `brain_workspace_*` tools on a workspace the bound repository is not a member of, or one whose repos live outside the bound repository's parent directory (so sibling checkouts under a common parent are in scope by default). Without the override, unbound servers refuse these operations, and workspace keys must match their local checkouts. Off by default — the MCP surface is driven by an agent whose context can be poisoned, and deleting a brain is irreversible. The plain CLI is unaffected. |
 
 ## Development
 
@@ -1654,6 +1617,6 @@ Windows.
 ## Further reading
 
 - [docs/operations.md](operations.md) — build targets, cgo, shared baseline
-- [docs/semantic_mcp_guide.md](semantic_mcp_guide.md) — the full MCP tool surface
+- [docs/semantic_features.md](semantic_features.md) — the full retrieval and semantic surface
 - [docs/diffless_review_seam.md](diffless_review_seam.md) — the diff-less review contract
 - [docs/durable_facts_plan.md](durable_facts_plan.md) — durable-facts design and eval

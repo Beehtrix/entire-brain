@@ -1104,7 +1104,7 @@ renderEdges();document.getElementById('filter').addEventListener('input',e=>rend
 }
 
 func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
-	// The trace path is caller-supplied (including via the brain_ingest_traces MCP
+	// The trace path is caller-supplied (including via the ingest-traces
 	// tool), so bound the whole-file read before decoding: a giant array would
 	// otherwise drive json.Decode to allocate an unbounded slice.
 	data, err := base.SafeReadFile(path, graphTraceMaxBytes)

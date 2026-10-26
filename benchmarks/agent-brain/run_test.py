@@ -7480,13 +7480,13 @@ class RadarEvidenceAuditScriptTests(unittest.TestCase):
                 for rel in audit_radar_tool_evidence.RADAR_TOOL_SOURCE_PATHS
             }
             manifest.write_text(json.dumps(data))
-            (root / "internal" / "cli" / "mcp.go").write_text("package cli\n// changed\n")
+            (root / "internal" / "cli" / "retrieve.go").write_text("package cli\n// changed\n")
 
             report = audit_radar_tool_evidence.audit_manifest(manifest, repo_root=root)
 
             self.assertFalse(report["ok"])
             self.assertIn("source file hashes are stale", " | ".join(report["errors"]))
-            self.assertEqual(report["source_drift_paths"], ["internal/cli/mcp.go"])
+            self.assertEqual(report["source_drift_paths"], ["internal/cli/retrieve.go"])
 
     def _write_release_matrix_fixture(self, root: pathlib.Path) -> pathlib.Path:
         (root / "reports").mkdir()

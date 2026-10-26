@@ -289,7 +289,6 @@ func TestFeatureMatrixShippedBrainCommandsExist(t *testing.T) {
 	}{
 		{[]string{"remember"}, "global"},
 		{[]string{"query"}, "recency-half-life"},
-		{[]string{"mcp"}, "http"},
 		{[]string{"facts", "files"}, ""},
 		{[]string{"bench", "scale"}, ""},
 		{[]string{"webhook", "events"}, ""},

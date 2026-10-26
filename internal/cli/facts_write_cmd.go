@@ -46,7 +46,7 @@ func newRememberCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// rememberSessionEnv lets agent/hook/MCP callers pass the session id through
+// rememberSessionEnv lets agent/hook callers pass the session id through
 // the environment when the --session flag is not plumbable.
 const rememberSessionEnv = "ENTIRE_BRAIN_SESSION_ID"
 

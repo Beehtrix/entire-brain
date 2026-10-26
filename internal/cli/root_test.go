@@ -72,7 +72,6 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"status",
 		"refresh",
 		"inspect",
-		"mcp",
 		"version",
 		"workspace",
 	} {
@@ -467,9 +466,6 @@ func TestConfigInitAndShow(t *testing.T) {
 	if report["no_egress"] != false {
 		t.Fatalf("no_egress = %v, want false", report["no_egress"])
 	}
-	if report["mcp_graph_binary"] != "entire" {
-		t.Fatalf("mcp_graph_binary = %v, want the default %q", report["mcp_graph_binary"], "entire")
-	}
 }
 
 // Every field `config show` prints must track the thing it names, or the report
@@ -477,7 +473,6 @@ func TestConfigInitAndShow(t *testing.T) {
 func TestConfigShowTracksLiveConfiguration(t *testing.T) {
 	env := configShowTestEnv(t)
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "1")
-	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "/opt/entire/bin/entire")
 
 	// No `config init`: the file is genuinely absent, and the report must say so
 	// rather than presenting defaults as if they were written.
@@ -496,10 +491,6 @@ func TestConfigShowTracksLiveConfiguration(t *testing.T) {
 	if report["no_egress"] != true {
 		t.Fatalf("no_egress = %v under ENTIRE_BRAIN_LOCAL_ONLY=1, want true", report["no_egress"])
 	}
-	if report["mcp_graph_binary"] != "/opt/entire/bin/entire" {
-		t.Fatalf("mcp_graph_binary = %v, want the ENTIRE_BRAIN_GRAPH_BINARY override", report["mcp_graph_binary"])
-	}
-
 	// A persisted host slug is the one real setting brain.json carries, and it
 	// is what a reader debugging a repo key needs to see.
 	if _, err := config.Update(env.PluginConfigDir, func(cfg *config.Config) error {

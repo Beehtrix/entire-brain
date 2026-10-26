@@ -364,51 +364,6 @@ func TestWriteTextStreamsAndShortCircuitsOnFailure(t *testing.T) {
 	}
 }
 
-func TestVitalityMCPSurfacesRecordReceipts(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
-	if err != nil {
-		t.Fatalf("storage: %v", err)
-	}
-	branch := "feature/mcp"
-	fact := vitalityTestFact("qmd retrieval alpha contract", branch, now)
-	if err := writeFacts(storage.BrainDir, branch, []factRecord{fact}); err != nil {
-		t.Fatalf("write facts: %v", err)
-	}
-
-	input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q,"branch":%q}}}`, fact.ID, branch))
-	var out bytes.Buffer
-	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
-		t.Fatalf("mcp: %v", err)
-	}
-	for i, response := range readMCPResponses(t, out.String()) {
-		if response["error"] != nil {
-			t.Fatalf("response %d returned error: %+v", i+1, response)
-		}
-	}
-
-	rollup := vitalityViewOrFatal(t, storage.BrainDir, branch)
-	entry := rollup.Facts[fact.ID]
-	if entry == nil || entry.Served != 2 {
-		t.Fatalf("mcp receipts = %+v", entry)
-	}
-	if entry.Surfaces["mcp:brain_search"] != 1 || entry.Surfaces["mcp:brain_get"] != 1 {
-		t.Fatalf("mcp surfaces = %+v", entry.Surfaces)
-	}
-	if entry.LastHead != "aaa111" {
-		t.Fatalf("mcp head = %q", entry.LastHead)
-	}
-	sidecar := string(vitalitySidecarBytes(t, storage.BrainDir, branch))
-	if strings.Contains(sidecar, "qmd retrieval alpha\"") || strings.Contains(sidecar, `"task":"`) {
-		t.Fatalf("raw query text persisted:\n%s", sidecar)
-	}
-}
-
 func TestVitalityConcurrentAppendsAreLossless(t *testing.T) {
 	brainDir := t.TempDir()
 	branch := "main"

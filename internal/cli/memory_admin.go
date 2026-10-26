@@ -1857,7 +1857,7 @@ func projectionReceiptHealth(brainDir string, source *historySourceManifest) (pr
 }
 
 // memoryAggregateHealth is the shared read-only status payload used by the
-// CLI status namespace and the MCP brain_status preflight.
+// CLI status namespace.
 func memoryAggregateHealth(brainDir string, source *historySourceManifest) map[string]any {
 	return memoryAggregateHealthAt(brainDir, source, time.Now().UTC())
 }

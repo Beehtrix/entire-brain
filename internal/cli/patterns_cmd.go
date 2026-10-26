@@ -401,7 +401,7 @@ func newPatternsVerifyCommand(opts Options) *cobra.Command {
 		Use:   "verify [path]",
 		Short: "Agent-audit promotable consolidation dossiers (explicit, egress-gated, cached)",
 		Long: "Run the optional consolidation verifier over promotable dossiers. This is the " +
-			"only surface that may invoke an agent for patterns; refresh/watch/brief/query/MCP " +
+			"only surface that may invoke an agent for patterns; refresh/watch/brief/query " +
 			"never do. Verdicts are cached by evidence fingerprint and re-used until the evidence " +
 			"changes. With --deep, each pattern is audited against a bounded evidence-deep export " +
 			"of its backing episodes (corrected/failed first; up to 40 anchors, the top 12 carrying " +

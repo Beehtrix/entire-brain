@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -19,7 +18,7 @@ func TestMultiConceptEmptyResultsRemainJSONArray(t *testing.T) {
 				query = strings.Repeat("q", conversationConceptResponseMaxBytes-150)
 				rows = []unifiedResult{{ID: "fact:a", Text: strings.Repeat("detail", 200)}}
 			}
-			payload, err := boundedRetrievalJSONPayload(context.Background(), query, "main", rows, retrievalTransportExtras{}, "query")
+			payload, err := boundedRetrievalJSONPayload(query, "main", rows, retrievalTransportExtras{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,20 +69,5 @@ func TestBriefRecognizesTestPathSegments(t *testing.T) {
 		if brainBriefLikelyTestFile(path) {
 			t.Errorf("implementation classified as test: %s", path)
 		}
-	}
-}
-
-func TestMCPBudgetInstructionsDescribeUnreducibleRefusal(t *testing.T) {
-	_, err := mcpToolTextResult(context.Background(), "brain_status", `{"blob":"`+strings.Repeat("x", mcpToolResponseMaxBytes*2)+`"}`)
-	if err == nil {
-		t.Fatal("unreducible response should fail")
-	}
-	for _, promise := range []string{"always returns an answer", "rather than failing", "Raise the limit to learn the real count"} {
-		if strings.Contains(mcpServerInstructions, promise) {
-			t.Errorf("instructions promise unsupported behavior: %q", promise)
-		}
-	}
-	if !strings.Contains(mcpServerInstructions, "cannot be reduced") {
-		t.Error("instructions omit unreducible-result refusal")
 	}
 }

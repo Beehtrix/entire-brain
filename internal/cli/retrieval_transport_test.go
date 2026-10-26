@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"net/http"
@@ -65,7 +64,7 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 	extras := largeRetrievalExtras(results)
 
 	t.Run("cli json", func(t *testing.T) {
-		payload, err := boundedRetrievalJSONPayload(context.Background(), strings.Repeat("query ", 80), strings.Repeat("branch", 80), results, extras, "query")
+		payload, err := boundedRetrievalJSONPayload(strings.Repeat("query ", 80), strings.Repeat("branch", 80), results, extras)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,27 +74,6 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 		}
 		if len(actual) > conversationConceptResponseMaxBytes || payload["response_truncated"] != true {
 			t.Fatalf("CLI JSON bytes=%d marker=%v", len(actual), payload["response_truncated"])
-		}
-	})
-
-	t.Run("mcp content-length frame", func(t *testing.T) {
-		id := strings.Repeat("request-id", 30)
-		ctx := context.WithValue(context.Background(), mcpResponseTransportContextKey{}, mcpResponseTransport{ID: id, FrameMode: mcpFrameContentLength})
-		payload, err := boundedRetrievalJSONPayload(ctx, strings.Repeat("escaped query ", 30), "main", results, extras, "mcp:brain_query")
-		if err != nil {
-			t.Fatal(err)
-		}
-		inner, err := jsonOutputBytes(payload)
-		if err != nil {
-			t.Fatal(err)
-		}
-		result := map[string]any{"content": []map[string]any{{"type": "text", "text": string(inner)}}}
-		var emitted bytes.Buffer
-		if err := writeMCPMessage(&emitted, mcpMessage{JSONRPC: "2.0", ID: id, Result: result}, mcpFrameContentLength); err != nil {
-			t.Fatal(err)
-		}
-		if emitted.Len() > conversationConceptResponseMaxBytes || payload["response_truncated"] != true {
-			t.Fatalf("MCP frame bytes=%d marker=%v", emitted.Len(), payload["response_truncated"])
 		}
 	})
 
@@ -149,20 +127,9 @@ func TestMultiConceptLimitContractAcrossSurfaces(t *testing.T) {
 	if err := runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 51, source: retrievalSourceConversation, concepts: []string{"second"}}, modeLexical, "missing", "first"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("workspace limit: %v", err)
 	}
-	raw := json.RawMessage(`{"name":"brain_query","arguments":{"query":"first","source":"conversation","concepts":["second"],"limit":51}}`)
-	if _, err := handleMCPToolCall(context.Background(), Options{}, raw); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
-		t.Fatalf("MCP limit: %v", err)
-	}
-
 	huge := make([]string, 1<<16)
 	if _, err := buildRetrievalOptions(retrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
 		t.Fatalf("oversized concept list: %v", err)
-	}
-	// Covers everything that ROUTES, hidden aliases included: an alias still
-	// answers, so this invariant still has to hold for it.
-	definitions, _ := json.Marshal(mcpAllToolDefinitions())
-	if !bytes.Contains(definitions, []byte(`"maximum":50`)) || !bytes.Contains(definitions, []byte(`"required":["concepts"]`)) {
-		t.Fatalf("MCP conditional multi-concept limit missing: %s", definitions)
 	}
 }
 
@@ -537,37 +504,6 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	}
 	if !guard.BlocksSession(fixture.SessionID) {
 		t.Fatal("tombstone did not commit after response linearization")
-	}
-}
-
-func TestMCPRetrievalRetainsPrivacyLockThroughOuterFrameWrite(t *testing.T) {
-	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	mutation := installConcurrentLockedTombstone(t, fixture)
-	out := &blockingRetrievalWriter{started: make(chan struct{}), release: make(chan struct{})}
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"final privacy gate","source":"conversation"}}}`)
-	runDone := make(chan error, 1)
-	finished := make(chan struct{})
-	unblock := retrievalWriterCleanup(t, out.release, finished)
-	go func() {
-		defer close(finished)
-		runDone <- runMCP(context.Background(), strings.NewReader(input), out, fixture.Options)
-	}()
-	awaitRetrievalSignal(t, "response write", out.started)
-	select {
-	case err := <-mutation:
-		t.Fatalf("tombstone linearized before the complete MCP frame write: %v", err)
-	default:
-	}
-	unblock()
-	if err := awaitRetrievalResult(t, "runDone", runDone); err != nil {
-		t.Fatal(err)
-	}
-	if err := awaitRetrievalResult(t, "mutation", mutation); err != nil {
-		t.Fatalf("tombstone after MCP response: %v", err)
-	}
-	responses := readMCPResponses(t, out.String())
-	if len(responses) != 1 || responses[0]["error"] != nil {
-		t.Fatalf("MCP response=%+v", responses)
 	}
 }
 

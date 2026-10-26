@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record retained deterministic MCP / Regression Radar tool evidence."""
+"""Record retained deterministic Regression Radar tool evidence."""
 
 from __future__ import annotations
 

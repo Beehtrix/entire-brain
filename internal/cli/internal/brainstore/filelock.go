@@ -207,7 +207,7 @@ const FileLockOwnerSuffix = ".owner"
 // "brain_locked: timed out acquiring lock at .../locks/write.lock" and stopped
 // there — naming the file the user already knew about and withholding the only
 // thing that identifies the culprit. On a machine running a background watcher,
-// a detached backfill, an MCP server and a terminal, that is the difference
+// a detached backfill, a watch loop and a terminal, that is the difference
 // between a diagnosable stall and a mystery.
 //
 // It is advisory and fails silently to the empty string: the message must never

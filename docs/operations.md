@@ -1,8 +1,8 @@
 # Operations
 
 `entire-brain` is a local Entire CLI plugin. It owns the persistent local brain,
-semantic SQLite stores, bundle import/export, graph query surfaces, MCP stdio
-tools, and benchmark/evidence commands.
+semantic SQLite stores, bundle import/export, graph query surfaces, and
+benchmark/evidence commands.
 
 ## Full Install
 

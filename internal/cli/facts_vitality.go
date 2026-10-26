@@ -305,7 +305,7 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 }
 
 // vitalityNow is the receipt clock: opts.Now when injected (tests, root
-// command), the wall clock otherwise. Nil-safe because hook/MCP commands are
+// command), the wall clock otherwise. Nil-safe because hook commands are
 // sometimes constructed with a bare Options in tests.
 func vitalityNow(opts Options) time.Time {
 	if opts.Now != nil {

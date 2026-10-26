@@ -253,38 +253,6 @@ func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 	}
 }
 
-func TestMemoryStartupNudgeIsSilentAndSkipsAbsentBrain(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 8, 9, 12, 30, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	oldLaunch := memoryWorkerLaunch
-	defer func() { memoryWorkerLaunch = oldLaunch }()
-	launches := 0
-	memoryWorkerLaunch = func(string) error { launches++; return nil }
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 0 {
-		t.Fatal("startup must not create or launch for an absent Brain")
-	}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
-		t.Fatal(err)
-	}
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 1 {
-		t.Fatalf("existing Brain startup launches = %d, want 1", launches)
-	}
-	t.Setenv(memoryWorkerOriginEnv, "1")
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 1 {
-		t.Fatal("worker-origin startup recursively launched another worker")
-	}
-}
-
 func TestMemoryWorkerPrepassFailurePreservesProgressAndSchedulesRetry(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)

@@ -644,99 +644,6 @@ func TestASupersededRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	}
 }
 
-// The three tests below exist because merging worked while no surface an agent
-// actually uses called it. mergeGlobalFacts had exactly one caller — the recall
-// command — so a fact recorded once reached the CLI and nothing else.
-
-func TestMCPRememberCanRecordAGlobalFact(t *testing.T) {
-	// brain_remember is how an MCP-connected agent writes memory. Without a
-	// global argument it could only ever write repository-scoped facts, so the
-	// primary consumer of the feature could not use it at all.
-	opts, _ := globalTestOptions(t)
-	params, err := json.Marshal(mcpToolCallParams{Name: "brain_remember", Arguments: map[string]any{
-		"fact":   "The staging cluster is in eu-west-1.",
-		"path":   "preferences.coding.style",
-		"global": true,
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
-	if response.Error != nil {
-		t.Fatalf("brain_remember global: %+v", response.Error)
-	}
-	global, loadErr := loadGlobalFacts(opts.Env)
-	if loadErr != nil {
-		t.Fatal(loadErr)
-	}
-	for _, fact := range global {
-		if strings.Contains(fact.Text, "eu-west-1") {
-			return
-		}
-	}
-	t.Fatalf("the fact was not written to the global store: %+v", global)
-}
-
-func TestMCPRememberStillDefaultsToThisRepository(t *testing.T) {
-	// The new argument must not change what an omitted argument does.
-	opts, _ := globalTestOptions(t)
-	params, err := json.Marshal(mcpToolCallParams{Name: "brain_remember", Arguments: map[string]any{
-		"fact": "Compaction runs above eight segments.",
-		"path": "preferences.coding.style",
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
-	if response.Error != nil {
-		t.Fatalf("brain_remember: %+v", response.Error)
-	}
-	global, loadErr := loadGlobalFacts(opts.Env)
-	if loadErr != nil {
-		t.Fatal(loadErr)
-	}
-	for _, fact := range global {
-		if strings.Contains(fact.Text, "Compaction") {
-			t.Fatalf("a repository fact was written to the global store: %+v", fact)
-		}
-	}
-}
-
-func TestBrainRememberAdvertisesGlobal(t *testing.T) {
-	// An argument the schema does not advertise is one no agent will send.
-	response := handleMCPMessage(context.Background(), Options{Version: "test"}, mcpMessage{
-		JSONRPC: "2.0", ID: 1, Method: "tools/list",
-	})
-	if response.Error != nil {
-		t.Fatalf("tools/list: %+v", response.Error)
-	}
-	encoded, err := json.Marshal(response.Result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var listing struct {
-		Tools []struct {
-			Name        string `json:"name"`
-			InputSchema struct {
-				Properties map[string]any `json:"properties"`
-			} `json:"inputSchema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(encoded, &listing); err != nil {
-		t.Fatal(err)
-	}
-	for _, tool := range listing.Tools {
-		if tool.Name != "brain_remember" {
-			continue
-		}
-		if _, ok := tool.InputSchema.Properties["global"]; !ok {
-			t.Fatalf("brain_remember does not advertise global: %v", tool.InputSchema.Properties)
-		}
-		return
-	}
-	t.Fatal("brain_remember is not in tools/list")
-}
-
 // retrievalSurfaceFixture is a repository brain holding one local fact, with a
 // global store holding one global fact. It is the shape every recall surface
 // sees in practice: a repo that has never been told the global statement.
@@ -962,35 +869,6 @@ func TestRetrievalCommandsCanExcludeGlobalFactsPerRequest(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-func TestMCPRetrievalCanExcludeGlobalFactsPerRequest(t *testing.T) {
-	opts, _ := retrievalSurfaceFixture(t)
-	for _, name := range []string{"brain_search", "brain_query", "brain_vsearch"} {
-		for _, noGlobal := range []bool{false, true} {
-			params, err := json.Marshal(mcpToolCallParams{Name: name, Arguments: map[string]any{
-				"query": "orion", "source": "fact", "branch": "feature", "no_global": noGlobal,
-			}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
-			if response.Error != nil {
-				t.Fatalf("%s: %+v", name, response.Error)
-			}
-			encoded, err := json.Marshal(response.Result)
-			if err != nil {
-				t.Fatal(err)
-			}
-			hasGlobal := strings.Contains(string(encoded), "global convention applies everywhere")
-			if hasGlobal == noGlobal || !strings.Contains(string(encoded), "local retrieval fact") {
-				t.Fatalf("%s no_global=%v: wrong scope: %s", name, noGlobal, encoded)
-			}
-		}
-	}
-	if _, err := mcpRetrievalOptions(map[string]any{"no_global": "true"}, "feature"); err == nil {
-		t.Fatal("no_global accepted a string instead of a boolean")
 	}
 }
 

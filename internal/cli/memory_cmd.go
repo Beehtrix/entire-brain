@@ -57,7 +57,7 @@ func newMemoryCommand(opts Options) *cobra.Command {
 // but holding it for the WHOLE wait froze the Brain: nextMemoryWorkerDelay
 // returns the time until the earliest pending job, a backed-off retry puts that
 // nearly two hours out, and for that whole window every watch tick, session hook
-// and MCP nudge got `already_active` and did nothing. A long wait is now served
+// and nudge got `already_active` and did nothing. A long wait is now served
 // WITHOUT the lease and only its last minute with it, so one backed-off job can
 // no longer block unrelated work.
 //
@@ -141,7 +141,7 @@ func launchDetachedSelf(repoDir string, args ...string) error {
 	// the Go-side handle but the process stays this process's child at the OS
 	// level, and the Go runtime installs no SIGCHLD reaper, so every launch
 	// left a <defunct> entry for the parent's whole lifetime. A long-lived
-	// `entire brain watch` or MCP server launches one worker per tick with changes
+	// `entire brain watch` launches one worker per tick with changes
 	// and accumulated a PID each time, up to RLIMIT_NPROC. Waiting in a
 	// goroutine keeps the launch non-blocking and does not tie the child's
 	// lifetime to ours: if this process exits first, the child is reparented
@@ -241,28 +241,6 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 		return created, "worker launch failed (reconciliation will repair): " + err.Error(), nil
 	}
 	return created, "", nil
-}
-
-func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
-	if memoryWorkerOrigin() {
-		return
-	}
-	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil || !local {
-		return
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return
-	}
-	if _, err := os.Stat(filepath.Join(storage.BrainDir, exportManifestFileName)); err != nil {
-		return
-	}
-	// Process start is non-blocking and the worker owns reconciliation. Do not
-	// hash transcripts on the MCP startup path; the launched worker performs the
-	// bounded prepass and precomputes reconciliation outside its write lock.
-	_ = memoryWorkerLaunch(repoDir)
 }
 
 func newMemoryNotifyCommand(opts Options) *cobra.Command {
@@ -1476,7 +1454,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// Checked after the unleased wait so a worker that went to sleep
 			// before `stop` still wakes into the pause, without touching
 			// coordinator state. No relaunch is scheduled: the durable hints
-			// remain for the next launch after `start` (a hook, MCP start or watch
+			// remain for the next launch after `start` (a hook or watch
 			// pass) to drain.
 			if backgroundPaused(opts.Env) {
 				return writeJSON(cmd, memoryWorkerStats{Paused: true})

@@ -28,7 +28,7 @@ import (
 // only speed; a failing key cools down rather than respawning per read.
 //
 // Children exit on stdin EOF, which the OS delivers when this process exits.
-// A long-lived parent (the MCP server) keeps at most one idle child per key,
+// A long-lived parent (a watch loop) keeps at most one idle child per key,
 // bounded by the handful of repositories it serves.
 
 // catFileBatchMaxBlobBytes bounds one blob read so a corrupt size header

@@ -2,7 +2,7 @@
 
 Entire Brain ingests data from sources it does not control: Entire session
 transcripts, the `entire-graph` snapshot stream, repository files, checkpoint
-history fetched over git, MCP requests, and on-disk derived artifacts. This
+history fetched over git, and on-disk derived artifacts. This
 document records the size/time ceilings and the defensive policies that keep a
 malformed or hostile input from crashing the process, exhausting memory, or
 escaping its intended scope.
@@ -15,7 +15,6 @@ behavior is described below.
 
 | Limit | Default | Where | Override |
 |---|---|---|---|
-| MCP frame | 4 MiB | `maxMCPFrameBytes` (`mcp.go`) | — |
 | Document transcript (full read) | 256 MiB | `maxDocumentTranscriptBytes` (`safe_read.go`) | — |
 | Conversation expansion (line transcript) | streamed; per-line 1 MiB, output 32 KiB | `expandConversationExchange` (`conversation.go`) | — |
 | Short-term overlay (`history/short-term.json`) | 64 MiB | `defaultMaxReadBytes` via `loadHistoryShortTermState` | — |
@@ -63,9 +62,7 @@ memory and filesystem performance.
 
 ## Resilience policies
 
-- **Panic isolation.** The long-lived MCP server recovers from any handler panic
-  and returns JSON-RPC `-32603` instead of tearing down the stdio session
-  (`handleMCPMessage`). Distill worker goroutines convert a panic into a
+- **Panic isolation.** Distill worker goroutines convert a panic into a
   per-chunk error so one bad chunk does not crash the whole run.
 - **Tolerant entire-graph ingest.** A stray malformed NDJSON record is skipped,
   counted, and surfaced as a `provider_malformed_record_dropped` warning rather
@@ -102,27 +99,10 @@ memory and filesystem performance.
   redirects to loopback, and re-resolve the dial target at connection time,
   rejecting any non-loopback IP. This defeats `localhost`-by-name trust, hostile
   `/etc/hosts`, and DNS rebinding.
-- The MCP `brain_index_repository` tool resolves its indexer binary from the
-  trusted server environment (`ENTIRE_BRAIN_GRAPH_BINARY`, default `entire`), never
-  from a client argument, and constrains the index path to the bound repo root
-  unless `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH` is set.
-- The MCP surface is scoped to the repository the server was bound to
-  (`ENTIRE_REPO_ROOT`): `brain_delete_project` refuses a foreign `repo_key`,
-  `brain_list_projects` returns only the bound project, and
-  `brain_workspace_graph`/`_regressions`/`_review` refuse a workspace the bound
-  repository is not a member of, or one whose repos live outside the bound
-  repository's parent directory — each unless the operator sets
-  `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`. Without that override, an unbound server
-  refuses these operations. Workspace tools validate each key against its local
-  checkout and execute the same manifest snapshot they validated. This closes the confused-deputy path where
-  an agent working in repo A irreversibly erases repo B's brain, or enumerates
-  every other project on the machine. The plain `entire brain ...` CLI keeps its
-  cross-repo verbs: a human at a terminal is not the confused deputy.
-
 ## Fuzzing
 
 `fuzz_test.go` provides panic-invariant fuzz harnesses for the untrusted parsers:
-MCP framing, the entire-graph NDJSON stream, the `embed_store` binary loader, the
+the entire-graph NDJSON stream, the `embed_store` binary loader, the
 distilled fact-line parser, and the document-conversation parser. Run e.g.:
 
 ```sh

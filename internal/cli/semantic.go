@@ -353,10 +353,8 @@ type semanticIndexOptions struct {
 	// nil simply means an indeterminate spinner.
 	progressCounts func(files, symbols, relations int)
 	// containRoot, when set, requires the resolved repository directory to stay
-	// inside it. The MCP server sets this to the bound repo root so an untrusted
-	// client cannot index a directory outside it — checked against the *resolved*
-	// git toplevel, not just the requested path, so a path that resolves upward
-	// still cannot escape.
+	// inside it — checked against the *resolved* git toplevel, not just the
+	// requested path, so a path that resolves upward still cannot escape.
 	containRoot string
 }
 
@@ -1105,7 +1103,7 @@ func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
 
 // semanticBuildCancelCheckEvery / semanticBuildCancelCheckEveryFile are how
 // often the store build asks whether its deadline has passed. Both are small
-// enough that a cancelled MCP index stops within a fraction of a second and
+// enough that a cancelled index stops within a fraction of a second and
 // large enough that the check itself is free.
 //
 // The two differ by two orders of magnitude because the loops do: a snapshot
@@ -2255,8 +2253,8 @@ type staleAxis struct {
 	// The dirty-worktree remedy used to live inside Detail. Moving it out
 	// stopped the short status printing it twice, and left the JSON carrying
 	// a cause with no way out: the text renderer re-attached it, and an agent
-	// or a script reading `status --json` -- which is how the MCP surface and
-	// every automated consumer read this -- got only the diagnosis. A field
+	// or a script reading `status --json` -- which is how every automated
+	// consumer reads this -- got only the diagnosis. A field
 	// is the fix rather than putting it back in Detail, because a renderer
 	// that wants the cause without the remedy can still have it, and the two
 	// surfaces now read the same value instead of one of them re-deriving it.
@@ -5519,9 +5517,8 @@ var semanticIntegrityMemo sync.Map
 // semanticIntegrityMemoCount tracks distinct keys so the memo can be bounded.
 // Keys embed file identity (size and mtime), so every reindex mints a fresh set
 // and the old ones are never looked up again. In a short CLI invocation that is
-// harmless, but the MCP server's serve loop is long-lived and fields calls
-// across many repos and reindex cycles, where an unbounded map grows for the
-// life of the process.
+// harmless, but a long-lived `watch` loop fields calls across many repos and
+// reindex cycles, where an unbounded map grows for the life of the process.
 //
 // Dropping the whole memo when it gets too large is safe and deliberately
 // simple: every entry is a pure function of a file version, so a miss costs one

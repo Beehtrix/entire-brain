@@ -142,7 +142,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 }
 
 // buildRetrievalOptions validates and assembles the shared retrieval-options
-// contract from CLI flags or MCP arguments. branch doubles as the conversation
+// contract from CLI flags. branch doubles as the conversation
 // branch filter; error text names bare flag words so the CLI can prefix "--".
 func buildRetrievalOptions(source, after, before, session, agent, branch string, concepts []string) (retrievalOptions, error) {
 	parsedSource, err := parseRetrievalSource(source)
@@ -186,13 +186,12 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 }
 
 // surface names the read surface for serve receipts ("search"/"vsearch"/
-// "query" from the CLI, "mcp:brain_*" from the MCP server). ropts carries the
+// "query"). ropts carries the
 // validated source selector and structured filters; branch (the raw flag)
 // still selects the facts branch via resolveFactsTarget.
 func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, ropts retrievalOptions, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
-	// `--limit 0` is an explicit error (matching the rest of the CLI surface). The
-	// MCP path passes a validated positive limit, so it's unaffected.
+	// `--limit 0` is an explicit error (matching the rest of the CLI surface).
 	if limit <= 0 {
 		return fmt.Errorf("--limit must be greater than 0")
 	}
@@ -356,7 +355,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	}
 	// Ranking may be slow enough for a concurrent exclusion to land after its
 	// first guard snapshot. Revalidate immediately before transport assembly;
-	// no JSON, text, or MCP bytes are emitted before this check succeeds.
+	// no JSON or text bytes are emitted before this check succeeds.
 	results, policyAfter, err := revalidateRetrievalResponsePrivacy(brainDir, results)
 	if err != nil {
 		return err
@@ -379,10 +378,10 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		extras.BlindSpot = emptyResultBlindSpotOnBranch(brainDir, resolvedBranch)
 	}
 	if jsonOut {
-		// Preserve the established JSON `text` field on both CLI and MCP
+		// Preserve the established JSON `text` field
 		// surfaces. Excerpt is additive; existing consumers must not be forced to
 		// switch to a second brain_get round trip.
-		out, err := boundedRetrievalJSONPayload(ctx, query, resolvedBranch, results, extras, surface)
+		out, err := boundedRetrievalJSONPayload(query, resolvedBranch, results, extras)
 		if err != nil {
 			return err
 		}
@@ -707,10 +706,9 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 }
 
 // runGet emits the requested items and REPORTS which ids were not found rather
-// than failing on them. The miss is a result, not an error: the MCP tools share
-// this body, and a JSON-RPC tool result has to keep carrying `missing` in its
-// payload. Turning a miss into an exit code is the CLI's job, one layer up --
-// see retrievalMissingFailure.
+// than failing on them. The miss is a result, not an error: the JSON payload
+// keeps carrying `missing`. Turning a miss into an exit code is the CLI's job,
+// one layer up -- see retrievalMissingFailure.
 func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, gopts getOptions, surface string) ([]string, error) {
 	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
 	if err != nil {
@@ -763,10 +761,9 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	// Computed BEFORE the output split, because both surfaces need it.
 	//
 	// These notes lived only in the text block, so `get --json` never carried
-	// them -- and mcp.go:1323,1333 call runGet with jsonOut=true for brain_get
-	// and brain_multi_get. The agent surface, the one most likely to act on a
-	// "--branch" hint, was the one surface that could not see it. The
-	// integrity note had the same gap before this change and inherits the fix.
+	// them. The agent surface, the one most likely to act on a "--branch" hint,
+	// was the one surface that could not see it. The integrity note had the
+	// same gap before this change and inherits the fix.
 	missNote := getMissNote(brainDir, resolvedBranch, missing)
 	if jsonOut {
 		payload := map[string]any{"branch": resolvedBranch, "results": found, "missing": missing}
@@ -953,9 +950,8 @@ func missingFactIDs(ids []string) bool {
 // getMissNote is the one note a miss carries, computed once for both output
 // formats.
 //
-// It lived inside the text block, so `get --json` carried neither this nor the
-// integrity warning -- and mcp.go calls runGet with jsonOut=true for brain_get
-// and brain_multi_get, making the agent surface the one consumer that could
+// It lived inside the text block, so `get --json` carried neither this nor
+// the integrity warning, making the agent surface the one consumer that could
 // not see it.
 //
 // INTEGRITY WINS. A store that cannot produce what its manifest declares must

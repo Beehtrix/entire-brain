@@ -28,16 +28,16 @@ OPERATION,Zero LLM tokens to build the index,Yes,Yes,Partial,No,No,No,Yes,mem0 m
 OPERATION,No network calls on the default build,Yes,Yes,No,No,No,No,Yes,Brain: `doctor` reports memory_provider_egress,verified: capabilities --json
 OPERATION,No API key required,Yes,Yes,No,No,No,No,Yes,,
 OPERATION,Pure-Go binary (no toolchain for the user),No,Yes,No,No,No,No,No,Graph needs CGO for tree-sitter; Brain default build is pure Go,verified: capabilities --json
-OPERATION,Agent can author a durable fact at runtime (MCP),No,Yes,Unknown,Yes,Yes,Yes,Yes,"Was REAL GAP. `brain_remember` writes a durable fact from MCP, with agent=none so the tool call spends no model tokens.",https://docs.letta.com/guides/agents/memory-blocks/
+OPERATION,Agent can author a durable fact at runtime (MCP),No,No,Unknown,Yes,Yes,Yes,Yes,"The MCP surface was removed; `entire brain remember` writes a durable fact from the CLI.",https://docs.letta.com/guides/agents/memory-blocks/
 OPERATION,"Team-wide index built once, server-side",No,No,No,Yes,Unknown,Yes,No,"TRADE-OFF — Real cost though: every developer rebuilds, and workspaces need a local clone and local build per repo, so org-scale is impractical.",https://docs.github.com/en/enterprise-cloud@latest/copilot/concepts/context/repository-indexing
 OPERATION,Hosted / managed offering,No,No,No,Yes,Yes,Yes,No,"TRADE-OFF — the deliberate opposite of our pitch, and the reason several rows above read No.",https://supermemory.ai/docs/concepts/container-tags
-INTERFACE,MCP server,Yes,Yes,Yes,Yes,Yes,Yes,Yes,,
+INTERFACE,MCP server,Yes,No,Yes,Yes,Yes,Yes,Yes,"Removed: the CLI is the agent surface.",
 INTERFACE,CLI,Yes,Yes,Yes,Partial,Yes,Partial,Yes,,
 INTERFACE,Installs agent instructions into the repo,Yes,Yes,Yes,No,No,No,No,setup writes AGENTS.md / CLAUDE.md managed blocks,verified: capabilities --json
 INTERFACE,Visual graph explorer,No,Yes,Yes,No,Yes,No,No,cognee offers 4 views including an embedding projection,https://docs.cognee.ai/guides/graph-visualization
 INTERFACE,Terminal dashboard,No,Yes,No,No,No,No,No,`entire brain dash`,verified: capabilities --json
-INTERFACE,Remote MCP over HTTP or SSE,No,Yes,Unknown,Yes,Yes,Yes,Unknown,"Was REAL GAP. `brain mcp --http` serves the same tools over HTTP, loopback by default and bearer-token authenticated; remote binding is explicit.",https://mem0.ai/blog/introducing-openmemory-mcp
-INTERFACE,REST/HTTP API and client SDKs,No,Yes,Unknown,Yes,Yes,Yes,No,"Was REAL GAP. /v1 REST on the same listener and auth as MCP, with stdlib-only Python and TypeScript clients.",https://github.com/pieces-app/pieces-os-client-sdk-for-python
+INTERFACE,Remote MCP over HTTP or SSE,No,No,Unknown,Yes,Yes,Yes,Unknown,"Removed with the MCP surface.",https://mem0.ai/blog/introducing-openmemory-mcp
+INTERFACE,REST/HTTP API and client SDKs,No,No,Unknown,Yes,Yes,Yes,No,"Removed with the MCP surface; the local brain is CLI-only.",https://github.com/pieces-app/pieces-os-client-sdk-for-python
 INTERFACE,Framework integrations and webhooks,No,Partial,Unknown,Yes,Unknown,Yes,No,"Was REAL GAP. Signed webhooks for fact.recorded, fact.retracted and brain.refreshed; off until configured, with fact text withheld by default. Python LangChain and LlamaIndex adapters use the REST API. Coverage is limited to these adapters and events; see sdk/python/README.md and `entire brain webhook events`.",https://docs.mem0.ai/integrations
 INTERFACE,Memory as plain files you can grep and edit,No,Partial,Unknown,No,Unknown,Yes,Unknown,"Was REAL GAP. `entire brain facts files` exports one Markdown file per fact by taxonomy path, reconciled against a manifest. You can grep the export, but edits are not imported: the store remains authoritative, so the full round-trip capability is Partial.",https://github.com/supermemoryai/smfs
 TRUST,Answers cite their supporting evidence,Yes,Yes,Partial,No,Partial,No,Partial,,

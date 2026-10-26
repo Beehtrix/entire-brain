@@ -15,7 +15,7 @@ import (
 // A dossier is the reusable internal consolidation of one promotable pattern:
 // trigger, workflow, variants, verification, failure modes, relevant facts, and
 // exact source anchors. It is assembled DETERMINISTICALLY and token-free from the
-// corpus on every refresh (so `refresh`/`watch`/`brief`/`query`/MCP never call an
+// corpus on every refresh (so `refresh`/`watch`/`brief`/`query` never call an
 // agent), then optionally verified by an explicit, egress-gated, cached agent
 // pass (pattern_verify.go). The deterministic draft is the cheap part and is
 // rebuilt each time; the agent verdict is the expensive part and is cached by

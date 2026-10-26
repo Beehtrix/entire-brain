@@ -66,8 +66,7 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 	return repoDir, storage.BrainDir, branch, nil
 }
 
-// recallMaxK bounds recall's -k. The MCP surface clamps to it rather than
-// advertising a ceiling the command would refuse.
+// recallMaxK bounds recall's -k.
 const recallMaxK = 128
 
 func newRecallCommand(opts Options) *cobra.Command {

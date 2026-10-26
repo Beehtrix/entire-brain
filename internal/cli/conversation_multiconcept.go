@@ -17,7 +17,7 @@ const (
 	conversationConceptsMaxTotal = 5
 	conversationConceptMaxBytes  = 512
 	// conversationConceptResultMax is shared by the core, CLI, workspace,
-	// and MCP transports. It bounds candidate/result allocations before any
+	// transports. It bounds candidate/result allocations before any
 	// ranking work starts; transport byte budgets are enforced separately on
 	// the exact serialized response shape.
 	conversationConceptResultMax = 50

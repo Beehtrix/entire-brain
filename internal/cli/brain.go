@@ -59,7 +59,7 @@ type sessionSourceManifest struct {
 }
 
 // loadBrainManifest reads the manifest for the callers that only consume it —
-// status, doctor, the MCP surface, the memory worker, distillation, search.
+// status, doctor, the memory worker, distillation, search.
 //
 // It tolerates fields it does not declare. Manifest fields are added and retired
 // without a schema bump (history_coverage.checkpointed_unexported_commits was

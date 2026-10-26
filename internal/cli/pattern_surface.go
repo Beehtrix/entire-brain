@@ -87,7 +87,7 @@ func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]p
 		return nil, nil, true, rows.Err()
 	}
 	// Attach the per-repo breakdown to workspace-scope patterns.
-	breakdown, err := loadWorkspaceRepoBreakdownChecked(db.DB)
+	breakdown, err := patterncore.LoadWorkspaceRepoBreakdownChecked(db.DB)
 	if err != nil {
 		return nil, nil, true, err
 	}

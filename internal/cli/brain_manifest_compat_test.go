@@ -190,7 +190,7 @@ func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
 		Name:          "sweep-fixture",
 		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 

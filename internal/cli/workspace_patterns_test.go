@@ -1,6 +1,10 @@
 package cli
 
-import "testing"
+import (
+	"testing"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+)
 
 func TestBuildWorkspaceProcedures(t *testing.T) {
 	byRepo := map[string][]procedureRecord{
@@ -59,13 +63,13 @@ func TestBuildWorkspacePractices(t *testing.T) {
 }
 
 func TestRepoBreadthScore(t *testing.T) {
-	if s := repoBreadthScore(3, 3); s != 1.0 {
+	if s := patterncore.RepoBreadthScore(3, 3); s != 1.0 {
 		t.Errorf("all members = %v, want 1.0", s)
 	}
-	if s := repoBreadthScore(2, 5); s >= 1.0 || s <= 0 {
+	if s := patterncore.RepoBreadthScore(2, 5); s >= 1.0 || s <= 0 {
 		t.Errorf("2 of 5 = %v, want in (0,1)", s)
 	}
-	if s := repoBreadthScore(2, 1); s != 1.0 {
+	if s := patterncore.RepoBreadthScore(2, 1); s != 1.0 {
 		t.Errorf("degenerate single-member denom = %v, want 1.0", s)
 	}
 }

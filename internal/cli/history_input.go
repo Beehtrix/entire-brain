@@ -16,7 +16,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
-const historySessionInventoryErrorCode = memoryErrSessionInventory
+const historySessionInventoryErrorCode = brainstore.SessionInventoryCode
 
 // historySessionInventoryMaxEntries bounds the complete sessions-tree
 // inventory, including directories and files with unsupported extensions. A
@@ -44,7 +44,7 @@ var beforeCanonicalHistoryTranscriptFinish = func() {}
 
 // errHistorySessionInventoryDegraded is the stable typed refusal returned when
 // the canonical transcript inventory cannot be proven complete and safe.
-var errHistorySessionInventoryDegraded = errors.New(memoryErrSessionInventory)
+var errHistorySessionInventoryDegraded = errors.New(brainstore.SessionInventoryCode)
 
 // errHistorySessionsRootMissing reports that the Brain has no sessions/
 // directory at all: a fresh Brain, or an export that selected zero sessions
@@ -77,7 +77,7 @@ func (e *historySessionInventoryError) Error() string {
 	if e.Err != nil {
 		detail += ": " + e.Err.Error()
 	}
-	return memoryErrSessionInventory + ": " + brainstore.StateUnsafeCode + ": " + detail
+	return brainstore.SessionInventoryCode + ": " + brainstore.StateUnsafeCode + ": " + detail
 }
 
 func (e *historySessionInventoryError) Unwrap() error { return e.Err }
@@ -239,7 +239,7 @@ func (i *historySessionInventory) walkDirectory(ctx context.Context, rel string,
 		return &historySessionInventoryError{Path: rel, Reason: "transcript directory changed after enumeration"}
 	}
 	if expected != nil && !sameHistoryTreeEntryMetadata(expected, before) {
-		return fmt.Errorf("%s: transcript directory changed after enumeration: %s", memoryErrSourceStale, rel)
+		return fmt.Errorf("%s: transcript directory changed after enumeration: %s", brainstore.SourceStaleCode, rel)
 	}
 	i.entries = append(i.entries, newHistorySessionTreeEntry(rel, before))
 	dir, err := i.root.OpenFile(rel, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
@@ -297,7 +297,7 @@ func (i *historySessionInventory) walkDirectory(ctx context.Context, rel string,
 		return &historySessionInventoryError{Path: rel, Reason: "transcript directory changed during enumeration", Err: err}
 	}
 	if !sameHistoryTreeEntryMetadata(before, after) {
-		return fmt.Errorf("%s: transcript directory membership changed during enumeration: %s", memoryErrSourceStale, rel)
+		return fmt.Errorf("%s: transcript directory membership changed during enumeration: %s", brainstore.SourceStaleCode, rel)
 	}
 	return nil
 }
@@ -349,7 +349,7 @@ func (i *historySessionInventory) open(ctx context.Context, file historySessionF
 		return nil, &historySessionInventoryError{Path: file.Rel, Reason: "transcript changed or became unsafe after enumeration"}
 	}
 	if !sameHistoryFileMetadata(file, before) {
-		return nil, fmt.Errorf("%s: transcript changed after inventory: %s", memoryErrSourceStale, file.Rel)
+		return nil, fmt.Errorf("%s: transcript changed after inventory: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	beforeHistorySessionDescriptorOpen(file.Rel)
 	f, err := i.root.OpenFile(file.Rel, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
@@ -367,7 +367,7 @@ func (i *historySessionInventory) open(ctx context.Context, file historySessionF
 	}
 	if !sameHistoryFileMetadata(file, opened) {
 		_ = f.Close()
-		return nil, fmt.Errorf("%s: transcript changed while opening: %s", memoryErrSourceStale, file.Rel)
+		return nil, fmt.Errorf("%s: transcript changed while opening: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	after, err := i.root.Lstat(file.Rel)
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(opened, after) {
@@ -376,7 +376,7 @@ func (i *historySessionInventory) open(ctx context.Context, file historySessionF
 	}
 	if !sameHistoryFileMetadata(file, after) {
 		_ = f.Close()
-		return nil, fmt.Errorf("%s: transcript changed while opening: %s", memoryErrSourceStale, file.Rel)
+		return nil, fmt.Errorf("%s: transcript changed while opening: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	return f, nil
 }
@@ -387,14 +387,14 @@ func (i *historySessionInventory) validateAfterRead(file historySessionFile, f *
 		return &historySessionInventoryError{Path: file.Rel, Reason: "transcript changed while reading", Err: err}
 	}
 	if !sameHistoryFileMetadata(file, opened) {
-		return fmt.Errorf("%s: transcript changed while reading: %s", memoryErrSourceStale, file.Rel)
+		return fmt.Errorf("%s: transcript changed while reading: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	after, err := i.root.Lstat(file.Rel)
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(opened, after) {
 		return &historySessionInventoryError{Path: file.Rel, Reason: "transcript path changed while reading", Err: err}
 	}
 	if !sameHistoryFileMetadata(file, after) {
-		return fmt.Errorf("%s: transcript changed while reading: %s", memoryErrSourceStale, file.Rel)
+		return fmt.Errorf("%s: transcript changed while reading: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	return nil
 }
@@ -427,7 +427,7 @@ func (i *historySessionInventory) validateFileMembership(ctx context.Context, fi
 			return err
 		}
 		if !checkpointBackedSessions(manifest) || sessionSourceFingerprint(manifest.Sources.Sessions) != i.manifestIdentity {
-			return fmt.Errorf("%s: session manifest changed during read", memoryErrSourceStale)
+			return fmt.Errorf("%s: session manifest changed during read", brainstore.SourceStaleCode)
 		}
 		return nil
 	}
@@ -442,7 +442,7 @@ func (i *historySessionInventory) validateFileMembership(ctx context.Context, fi
 		return &historySessionInventoryError{Path: file.Rel, Reason: "transcript membership changed or became unsafe", Err: err}
 	}
 	if !sameHistoryFileMetadata(file, current) {
-		return fmt.Errorf("%s: transcript metadata changed after inventory: %s", memoryErrSourceStale, file.Rel)
+		return fmt.Errorf("%s: transcript metadata changed after inventory: %s", brainstore.SourceStaleCode, file.Rel)
 	}
 	return nil
 }

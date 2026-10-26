@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,8 +43,8 @@ func TestUnsafeSkillEvidenceStopsBeforeProviderOutputAndPersistence(t *testing.T
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
 	err := synthesizeAndForm(context.Background(), cmd, candidate, nil, nil, brainDir, t.TempDir(), "codex", run, skillFormOptions{draftOnly: true}, time.Now())
-	if err == nil || !strings.Contains(err.Error(), memoryErrSessionInventory) {
-		t.Fatalf("unsafe evidence error = %v, want %s", err, memoryErrSessionInventory)
+	if err == nil || !strings.Contains(err.Error(), brainstore.SessionInventoryCode) {
+		t.Fatalf("unsafe evidence error = %v, want %s", err, brainstore.SessionInventoryCode)
 	}
 	if providerCalled || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("unsafe evidence escaped preflight: provider=%v stdout=%q stderr=%q", providerCalled, stdout.String(), stderr.String())

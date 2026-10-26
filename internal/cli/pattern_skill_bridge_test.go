@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"testing"
 	"time"
@@ -23,7 +25,7 @@ func findDeployCand(t *testing.T, cands []taskCandidate) *taskCandidate {
 
 func TestCorpusTaskCandidatesAdapter(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	cands, ok := loadCorpusTaskCandidates(brainDir)
+	cands, ok := patterncore.LoadCorpusTaskCandidates(brainDir)
 	if !ok {
 		t.Fatal("expected corpus-backed task candidates")
 	}
@@ -42,7 +44,7 @@ func TestCorpusTaskCandidatesAdapter(t *testing.T) {
 func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 	repoDir := t.TempDir()
-	cands, _ := loadCorpusTaskCandidates(brainDir)
+	cands, _ := patterncore.LoadCorpusTaskCandidates(brainDir)
 	cand := findDeployCand(t, cands)
 
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -101,7 +103,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 // a proposal; only an accepted deep dossier makes it formable.
 func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +160,7 @@ func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 
 func TestSkillFilterDeclinedAndReconsider(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	cands, _ := loadCorpusTaskCandidates(brainDir)
+	cands, _ := patterncore.LoadCorpusTaskCandidates(brainDir)
 	cand := findDeployCand(t, cands)
 
 	// Declined + unchanged evidence → suppressed from the listing.

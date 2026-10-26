@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"math"
 	"os"
 	"sort"
@@ -55,34 +56,10 @@ func nonTaskSignature(sig string) bool {
 	return nonTaskLeadWords[head]
 }
 
-// taskProcedure is a command shape (n-gram) that co-occurs within a task's
-// episodes, with its corpus specificity — the "non-obvious operational evidence"
-// that distinguishes a real task from a generic one.
-type taskProcedure struct {
-	Commands    []string `json:"commands"`
-	Count       int      `json:"count"`
-	Specificity float64  `json:"specificity"`
-}
-
-type taskCandidate struct {
-	ID              string              `json:"id"`
-	RepoKey         string              `json:"repo_key,omitempty"`
-	IntentSignature string              `json:"intent_signature"`
-	Label           string              `json:"label"`
-	Support         int                 `json:"support"`
-	WithCommands    int                 `json:"with_commands"`
-	Reinforcement   reinforcementCounts `json:"reinforcement"`
-	Commands        []string            `json:"commands,omitempty"`
-	Procedures      []taskProcedure     `json:"procedures,omitempty"`     // co-occurring procedure evidence
-	MatchingFacts   []string            `json:"matching_facts,omitempty"` // repo-specific durable facts
-	SampleIntents   []string            `json:"sample_intents,omitempty"`
-	Examples        []episodeAnchor     `json:"examples,omitempty"`
-	Workspace       string              `json:"workspace,omitempty"`      // workspace scope
-	Repos           int                 `json:"repos,omitempty"`          // workspace scope
-	RepoBreakdown   []patternRepoStat   `json:"repo_breakdown,omitempty"` // workspace scope
-	Strength        float64             `json:"strength"`
-	StrengthLabel   string              `json:"strength_label"`
-}
+type (
+	taskProcedure = patterncore.TaskProcedure
+	taskCandidate = patterncore.TaskCandidate
+)
 
 func taskCandidateID(repoKey, signature string) string {
 	sum := sha256.Sum256([]byte(repoKey + "\x00" + signature))

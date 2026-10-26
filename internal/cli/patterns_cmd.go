@@ -466,7 +466,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			var verifyErr error
 			stats, verifyErr = verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
 			return verifyErr
-		}, decodePatternCorpusPublication); err != nil {
+		}, patterncore.DecodeCorpusPublication); err != nil {
 			return err
 		}
 		if asJSON {
@@ -549,7 +549,7 @@ type patternsStatusReport struct {
 	AcceptedSkills   int                  `json:"accepted_skills"`
 	DeclinedPatterns int                  `json:"declined_patterns"`
 	UpdatesAvailable int                  `json:"updates_available"`
-	LastRun          *patternRun          `json:"last_run,omitempty"` // what the last corpus build produced
+	LastRun          *patterncore.Run     `json:"last_run,omitempty"` // what the last corpus build produced
 }
 
 func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, target string, asJSON bool) error {
@@ -612,7 +612,7 @@ func buildPatternsStatusReportChecked(brainDir string) (patternsStatusReport, er
 	if err != nil {
 		return patternsStatusReport{}, err
 	}
-	lastRun, hasLastRun, err := lastPatternRunChecked(brainDir)
+	lastRun, hasLastRun, err := patterncore.LastRunChecked(brainDir)
 	if err != nil {
 		return patternsStatusReport{}, err
 	}

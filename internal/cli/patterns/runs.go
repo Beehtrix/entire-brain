@@ -1,4 +1,4 @@
-package cli
+package patterns
 
 import (
 	"bufio"
@@ -18,11 +18,16 @@ import (
 // (patterns/runs.ndjson) — it is operational telemetry about the rebuildable
 // layer, not user-state — and is surfaced through `patterns status`.
 
-const patternRunsRelPath = "patterns/runs.ndjson"
+// IndexerVersion identifies the corpus indexer that produced a build; bump it
+// when extraction/classification output changes so consumers can detect stale
+// corpora.
+const IndexerVersion = 9
+
+const RunsRelPath = "patterns/runs.ndjson"
 const patternRunsKeep = 50
 const patternRunsMaxBytes int64 = 4 << 20
 
-type patternRun struct {
+type Run struct {
 	At             string `json:"at"`
 	IndexerVersion int    `json:"indexer_version"`
 	Episodes       int    `json:"episodes"`
@@ -37,14 +42,14 @@ type patternRun struct {
 	Synapses       int    `json:"synapses"`
 }
 
-// patternRunFromStaging snapshots counts while the complete private staging
+// RunFromStaging snapshots counts while the complete private staging
 // database is still writable/open. The run is persisted only after successful
 // corpus publication, so a failed commit cannot describe data that never became
 // live and no post-publication SQLite connection is required.
-func patternRunFromStaging(db *sql.DB, now time.Time) (patternRun, error) {
-	run := patternRun{
+func RunFromStaging(db *sql.DB, now time.Time) (Run, error) {
+	run := Run{
 		At:             now.UTC().Format(time.RFC3339),
-		IndexerVersion: patternIndexerVersion,
+		IndexerVersion: IndexerVersion,
 	}
 	counts := []struct {
 		target *int
@@ -63,16 +68,16 @@ func patternRunFromStaging(db *sql.DB, now time.Time) (patternRun, error) {
 	}
 	for _, count := range counts {
 		if err := db.QueryRow(`SELECT COUNT(*) FROM ` + count.table).Scan(count.target); err != nil {
-			return patternRun{}, fmt.Errorf("snapshot staged pattern run count %s: %w", count.table, err)
+			return Run{}, fmt.Errorf("snapshot staged pattern run count %s: %w", count.table, err)
 		}
 	}
 	return run, nil
 }
 
-func appendPatternRun(brainDir string, run patternRun) error {
-	runs, err := loadPatternRunsChecked(brainDir)
+func AppendRun(brainDir string, run Run) error {
+	runs, err := LoadRunsChecked(brainDir)
 	if err != nil {
-		// A corrupt run log must not be permanent. appendPatternRun is the ONLY
+		// A corrupt run log must not be permanent. AppendRun is the ONLY
 		// writer and it rewrites the file wholesale, so returning here left the
 		// file unrepairable: `patterns status` and `patterns list` failed
 		// forever, and the `patterns refresh` that is supposed to repair them
@@ -82,7 +87,7 @@ func appendPatternRun(brainDir string, run patternRun) error {
 		// source of truth, so recover by starting a fresh log. An UNSAFE path
 		// (alias, symlink, irregular file) is not content corruption and still
 		// fails closed.
-		if memoryErrorCode(err) != brainstore.StateCorruptCode {
+		if brainstore.MemoryErrorCode(err) != brainstore.StateCorruptCode {
 			return err
 		}
 		runs = nil
@@ -98,21 +103,21 @@ func appendPatternRun(brainDir string, run patternRun) error {
 			return err
 		}
 	}
-	return brainstore.WriteBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, RunsRelPath, []byte(b.String()), 0o600)
 }
 
-// loadPatternRunsChecked returns recorded runs oldest-first. A genuinely absent
+// LoadRunsChecked returns recorded runs oldest-first. A genuinely absent
 // log is the one optional state; aliases, I/O failures, oversized data, invalid
 // JSON, and scanner failures are typed state errors rather than an empty log.
-func loadPatternRunsChecked(brainDir string) ([]patternRun, error) {
-	data, present, err := readMemoryStateFile(brainDir, patternRunsRelPath, "pattern run history", patternRunsMaxBytes)
+func LoadRunsChecked(brainDir string) ([]Run, error) {
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, RunsRelPath, "pattern run history", patternRunsMaxBytes)
 	if err != nil {
 		return nil, err
 	}
 	if !present {
 		return nil, nil
 	}
-	var runs []patternRun
+	var runs []Run
 	sc := bufio.NewScanner(bytes.NewReader(data))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	lineNumber := 0
@@ -122,7 +127,7 @@ func loadPatternRunsChecked(brainDir string) ([]patternRun, error) {
 		if line == "" {
 			continue
 		}
-		var r patternRun
+		var r Run
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
 			return nil, fmt.Errorf("%s: parse pattern run history line %d: %w", brainstore.StateCorruptCode, lineNumber, err)
 		}
@@ -134,26 +139,26 @@ func loadPatternRunsChecked(brainDir string) ([]patternRun, error) {
 	return runs, nil
 }
 
-// loadPatternRuns retains the historical best-effort helper for internal tests.
-// Production response surfaces use loadPatternRunsChecked.
-func loadPatternRuns(brainDir string) []patternRun {
-	runs, _ := loadPatternRunsChecked(brainDir)
+// LoadRuns retains the historical best-effort helper for internal tests.
+// Production response surfaces use LoadRunsChecked.
+func LoadRuns(brainDir string) []Run {
+	runs, _ := LoadRunsChecked(brainDir)
 	return runs
 }
 
-// lastPatternRun returns the most recent run, if any.
-func lastPatternRun(brainDir string) (patternRun, bool) {
-	run, ok, _ := lastPatternRunChecked(brainDir)
+// LastRun returns the most recent run, if any.
+func LastRun(brainDir string) (Run, bool) {
+	run, ok, _ := LastRunChecked(brainDir)
 	return run, ok
 }
 
-func lastPatternRunChecked(brainDir string) (patternRun, bool, error) {
-	runs, err := loadPatternRunsChecked(brainDir)
+func LastRunChecked(brainDir string) (Run, bool, error) {
+	runs, err := LoadRunsChecked(brainDir)
 	if err != nil {
-		return patternRun{}, false, err
+		return Run{}, false, err
 	}
 	if len(runs) == 0 {
-		return patternRun{}, false, nil
+		return Run{}, false, nil
 	}
 	return runs[len(runs)-1], true, nil
 }

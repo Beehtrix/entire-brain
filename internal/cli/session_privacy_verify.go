@@ -256,24 +256,11 @@ func inspectPrivacyPatternCorpus(snapshotPath string, stones sessionTombstones, 
 // disable patterns: once the authoritative full verification is clean, reads
 // resume normally.
 func privacyDerivedReadGate(brainDir string) (bool, error) {
-	return patterncore.DerivedReadGate(brainDir, func(dir string) (bool, error) {
-		report, err := verifySessionPrivacy(dir)
-		if err != nil {
-			return false, err
-		}
-		return report.Clean, nil
-	})
+	return patterncore.DerivedReadGate(brainDir, verifyDerivedClean)
 }
 
 func requirePrivacyDerivedRead(brainDir string) error {
-	allowed, err := privacyDerivedReadGate(brainDir)
-	if err != nil {
-		return err
-	}
-	if !allowed {
-		return fmt.Errorf("%s: derived pattern state is unavailable until excluded-session cleanup verifies clean; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>`", brainstore.PrivacyDirtyCode)
-	}
-	return nil
+	return patterncore.RequireDerivedRead(brainDir, verifyDerivedClean)
 }
 
 func newPrivacyVerifyCommand(opts Options) *cobra.Command {
@@ -594,13 +581,13 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		case rel == patterncore.CorpusPublicationMarkerPath:
 			add(newestID, "pattern_corpus_publication", rel+" records an interrupted publication; privacy cleanup must remove the classified marker and candidate")
 			continue
-		case isPatternCorpusRollbackJournalRel(rel):
+		case patterncore.IsCorpusRollbackJournalRel(rel):
 			// A rollback journal may retain pre-tombstone pages and cannot be
 			// proven clean by the main database's row-level snapshot. Its mtime
 			// is therefore never evidence of a successful privacy rebuild.
 			add(newestID, "pattern_corpus_rollback_journal", rel+" is opaque content-bearing rollback state; privacy cleanup must remove it")
 			continue
-		case isPatternCorpusStagingArtifactRel(rel):
+		case patterncore.IsCorpusStagingArtifactRel(rel):
 			add(newestID, "pattern_corpus_staging", rel+" is an unpublished content-bearing corpus generation; privacy cleanup must remove it")
 			continue
 		}
@@ -616,7 +603,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		// content-bearing formats before treating that mtime as proof: corrupt
 		// or opaque state can never make the read gate return clean.
 		switch rel {
-		case patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath:
+		case patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patterncore.RunsRelPath:
 			if err := validatePrivacyJSONLines(brainDir, rel); err != nil {
 				return report, err
 			}

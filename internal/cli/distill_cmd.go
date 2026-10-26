@@ -2531,7 +2531,7 @@ func cachedDistillFingerprintForKey(cache distillCache, key string) (string, boo
 // session transcripts. It shares the hardened state reader and an explicit
 // whole-file bound so derived JSON cannot revive the legacy unbounded read.
 func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", base.DefaultMaxReadBytes)
 	if err != nil {
 		return "", err
 	}
@@ -2546,7 +2546,7 @@ func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
 // run simply re-distills everything.
 func loadDistillCache(brainDir string) distillCache {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", base.DefaultMaxReadBytes)
+	data, _, err := brainstore.ReadMemoryStateFile(brainDir, distillCachePath, "distill cache", base.DefaultMaxReadBytes)
 	if err != nil {
 		return empty
 	}

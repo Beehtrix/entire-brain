@@ -64,7 +64,7 @@ func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
 
 func readHostedRepoBinding(brainDir string) (hostedRepoBinding, bool, error) {
 	var binding hostedRepoBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}

@@ -118,11 +118,11 @@ func TestProjectionStateCheckedClassifiesFailures(t *testing.T) {
 		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 			t.Fatal(err)
 		}
-		if _, state, err := loadProjectionStateChecked(brainDir, source); state != projectionStateStale || err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if _, state, err := loadProjectionStateChecked(brainDir, source); state != projectionStateStale || err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			t.Fatalf("state=%s err=%v", state, err)
 		}
 		_, health := projectionReceiptHealth(brainDir, source)
-		if health["state"] != projectionStateStale || health["current"] != false || health["error_code"] != memoryErrSourceStale || health["action"] == "" {
+		if health["state"] != projectionStateStale || health["current"] != false || health["error_code"] != brainstore.SourceStaleCode || health["action"] == "" {
 			t.Fatalf("stale health=%+v", health)
 		}
 	})
@@ -357,7 +357,7 @@ func TestAbstractResolverScansInventoryOncePerGet(t *testing.T) {
 	original := sessionAbstractReadDirectory
 	defer func() { sessionAbstractReadDirectory = original }()
 	scans := 0
-	sessionAbstractReadDirectory = func(brainDir string) (memoryStateDirectory, error) {
+	sessionAbstractReadDirectory = func(brainDir string) (brainstore.MemoryStateDirectory, error) {
 		scans++
 		return original(brainDir)
 	}

@@ -257,7 +257,7 @@ func shortTermCanonicalInputRefusal(err error) bool {
 	if errors.Is(err, errHistorySessionInventoryDegraded) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) ||
-		strings.Contains(err.Error(), memoryErrSourceStale) {
+		strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 		return true
 	}
 	// The substring check below still refuses every OTHER bound breach,
@@ -265,7 +265,7 @@ func shortTermCanonicalInputRefusal(err error) bool {
 	if errors.Is(err, errHistoryTranscriptTooLarge) {
 		return false
 	}
-	return strings.Contains(err.Error(), memoryErrInputTooLarge)
+	return strings.Contains(err.Error(), brainstore.InputTooLargeCode)
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript
@@ -432,7 +432,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	membershipUnchanged := inventory.sameMembership(currentInventory)
 	_ = currentInventory.Close()
 	if !membershipUnchanged {
-		return stats, fmt.Errorf("%s: canonical transcript membership changed before short-term publication", memoryErrSourceStale)
+		return stats, fmt.Errorf("%s: canonical transcript membership changed before short-term publication", brainstore.SourceStaleCode)
 	}
 	// An overlay that holds no records but DID fail or drop something must
 	// stay on disk: deleting it would erase the very state that proves

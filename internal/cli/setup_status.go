@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"io"
 	"os"
 	"os/exec"
@@ -202,7 +203,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 // behaviour, which errs toward still reporting the failure.
 func componentRunTimes(brainDir string) map[string]time.Time {
 	runs := map[string]time.Time{}
-	if run, ok, err := lastPatternRunChecked(brainDir); err == nil && ok {
+	if run, ok, err := patterncore.LastRunChecked(brainDir); err == nil && ok {
 		if at, parseErr := time.Parse(time.RFC3339, run.At); parseErr == nil {
 			runs[brainComponentPatterns] = at.UTC()
 		}

@@ -4646,7 +4646,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	var graphStatusWarning string
 	if layoutErr := checkLegacyBrainLayout(storage.BrainDir, manifest); layoutErr != nil {
 		graphStatusWarning = layoutErr.Error()
-		code := memoryErrorCode(layoutErr)
+		code := brainstore.MemoryErrorCode(layoutErr)
 		if errors.Is(layoutErr, errLegacyBrainLayout) {
 			code = brainstore.UnsupportedVersionCode
 		}

@@ -714,7 +714,7 @@ func semanticSourceOf(manifest *exportManifest) *semanticSourceManifest {
 // in every component and validating the opened regular-file descriptor. Missing
 // files remain optional; unsafe files fail the bundle instead of being omitted.
 func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
-	f, present, err := openMemoryStateFileExpected(brainDir, rel, "publish artifact", nil)
+	f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, rel, "publish artifact", nil)
 	if err != nil || !present {
 		return nil, false, err
 	}

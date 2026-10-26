@@ -145,8 +145,8 @@ func TestHistoryProjectionSameMetadataReplacementBeforeCommitPublishesNothing(t 
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
-		t.Fatalf("publish error = %v, want %s", err, memoryErrSourceStale)
+	if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
+		t.Fatalf("publish error = %v, want %s", err, brainstore.SourceStaleCode)
 	}
 	current, currentIndex := activeHistoryProjection(t, brainDir)
 	if current.IndexPath != previous.IndexPath || current.ProjectionStatePath != previous.ProjectionStatePath {

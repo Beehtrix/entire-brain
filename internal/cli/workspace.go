@@ -201,7 +201,7 @@ func newWorkspaceCreateCommand(opts Options) *cobra.Command {
 		Short: "Create a local workspace brain",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			dir, err := workspaceStore(opts.Env).Dir(args[0])
+			dir, err := workspace.DefaultStore(opts.Env).Dir(args[0])
 			if err != nil {
 				return err
 			}
@@ -211,7 +211,7 @@ func newWorkspaceCreateCommand(opts Options) *cobra.Command {
 				return err
 			}
 			manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: args[0]}
-			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+			if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 				return err
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), dir)
@@ -448,7 +448,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return nil
 		}
 		pass++
-		manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+		manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 		if err != nil {
 			return err
 		}
@@ -630,7 +630,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 		return err
 	}
 	key := storage.Key
-	result, err := workspaceStore(opts.Env).AddRepoLocked(workspaceName, workspace.Repo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir})
+	result, err := workspace.DefaultStore(opts.Env).AddRepoLocked(workspaceName, workspace.Repo{RepoKey: key, Name: addOpts.name, LocalPathHint: repoDir})
 	if err != nil {
 		return err
 	}
@@ -659,7 +659,7 @@ func runWorkspaceAdd(ctx context.Context, cmd *cobra.Command, opts Options, addO
 }
 
 func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, workspaceName string, full bool) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -684,7 +684,7 @@ func runWorkspaceRefresh(ctx context.Context, cmd *cobra.Command, opts Options, 
 	if err != nil {
 		return err
 	}
-	if err := workspaceStore(opts.Env).MergeRefreshResult(workspaceName, freshness, opts.Now().UTC()); err != nil {
+	if err := workspace.DefaultStore(opts.Env).MergeRefreshResult(workspaceName, freshness, opts.Now().UTC()); err != nil {
 		return err
 	}
 	if full {
@@ -704,7 +704,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 	if contextOpts.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -762,7 +762,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 	if impactOpts.depth <= 0 {
 		return errors.New("--depth must be greater than zero")
 	}
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -816,7 +816,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 }
 
 func runWorkspaceGraph(cmd *cobra.Command, opts Options, graphOpts workspaceGraphOptions, workspaceName string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -985,7 +985,7 @@ func writeWorkspaceGraphSnapshot(ctx context.Context, opts Options, manifest wor
 }
 
 func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (string, error) {
-	dir, err := workspaceStore(env).Dir(payload.Workspace)
+	dir, err := workspace.DefaultStore(env).Dir(payload.Workspace)
 	if err != nil {
 		return "", err
 	}
@@ -1031,11 +1031,11 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if ropts.hasConversationOnlyFilters() && ropts.Source != retrievalSourceConversation {
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
-	privacyPolicies, policyByRepo, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	privacyPolicies, policyByRepo, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
@@ -1183,68 +1183,24 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	return writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicies...)
 }
 
-func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspace.Manifest) ([]retrievalPrivacyPolicy, map[string]string, error) {
-	policies := make([]retrievalPrivacyPolicy, 0, len(manifest.Repos))
-	byRepo := make(map[string]string, len(manifest.Repos))
-	for _, repo := range manifest.Repos {
-		if _, exists := byRepo[repo.RepoKey]; exists {
-			continue
-		}
-		brainDir, err := base.BrainDirForKey(env, repo.RepoKey)
-		if err != nil {
-			return nil, nil, err
-		}
-		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-		if err != nil {
-			return nil, nil, err
-		}
-		policies = append(policies, policy)
-		byRepo[repo.RepoKey] = policy.Identity
+// verifyDerivedClean binds the CLI's full derived-projection verifier for the
+// patterns-side privacy gates.
+func verifyDerivedClean(brainDir string) (bool, error) {
+	report, err := verifySessionPrivacy(brainDir)
+	if err != nil {
+		return false, err
 	}
-	return policies, byRepo, nil
+	return report.Clean, nil
 }
 
-// captureWorkspaceDerivedReadPolicies additionally proves every member's
-// transcript-derived projections are clean before a workspace aggregate is
-// read. Policy capture alone only proves the tombstone file did not change; it
-// cannot make a corpus built before an already-present tombstone safe.
+// captureWorkspaceDerivedReadPolicies binds the CLI verifier to the shared
+// workspace derived-read capture.
 func captureWorkspaceDerivedReadPolicies(env EntireEnv, manifest workspace.Manifest) ([]retrievalPrivacyPolicy, error) {
-	policies, _, err := captureWorkspaceRetrievalPrivacyPolicies(env, manifest)
-	if err != nil {
-		return nil, err
-	}
-	for i := range policies {
-		policy := &policies[i]
-		policy.RequireDerivedClean = true
-		allowed, gateErr := privacyDerivedReadGate(policy.BrainDir)
-		if gateErr != nil {
-			return nil, gateErr
-		}
-		if !allowed {
-			return nil, fmt.Errorf("%s: workspace member has unverified transcript-derived projections: %s", brainstore.PrivacyDirtyCode, policy.BrainDir)
-		}
-	}
-	// Workspace pattern/theme/family rows live in their own aggregate corpus.
-	// Give that Brain the same final-emission proof as every member so a corpus
-	// alias or replacement after assembly cannot be collapsed into empty output.
-	wsDir, err := workspaceStore(env).Dir(manifest.Name)
-	if err != nil {
-		return nil, err
-	}
-	wsPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(wsDir)
-	if err != nil {
-		return nil, err
-	}
-	wsPolicy.RequireDerivedClean = true
-	if err := requirePrivacyDerivedRead(wsDir); err != nil {
-		return nil, err
-	}
-	policies = append(policies, wsPolicy)
-	return policies, nil
+	return patterncore.CaptureWorkspaceDerivedReadPolicies(env, manifest, verifyDerivedClean)
 }
 
 func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qualifiedIDs []string, branchOverride string, jsonOut bool, gopts getOptions) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -1260,13 +1216,13 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	if derivedAggregate {
 		privacyPolicies, err = captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	} else {
-		privacyPolicies, _, err = captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+		privacyPolicies, _, err = patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
 	}
 	if err != nil {
 		return err
 	}
 	if derivedAggregate {
-		wsDir, dirErr := workspaceStore(opts.Env).Dir(workspaceName)
+		wsDir, dirErr := workspace.DefaultStore(opts.Env).Dir(workspaceName)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -1459,7 +1415,7 @@ func getWorkspaceLevelRecord(env EntireEnv, workspaceName, id string) (unifiedRe
 }
 
 func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGraphPayload, error) {
-	dir, err := workspaceStore(env).Dir(workspaceName)
+	dir, err := workspace.DefaultStore(env).Dir(workspaceName)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -1471,7 +1427,7 @@ func loadWorkspaceGraphPayload(env EntireEnv, workspaceName string) (workspaceGr
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return workspaceGraphPayload{}, err
 	}
-	manifest, err := workspaceStore(env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(env).LoadManifest(workspaceName)
 	if err != nil {
 		return workspaceGraphPayload{}, err
 	}
@@ -1807,7 +1763,7 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	}
 	var summaries []workspace.Summary
 	for name := range names {
-		manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+		manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 		if err != nil {
 			// Skip directories that are not valid workspaces (unreadable, bad name, schema drift).
 			continue
@@ -1847,7 +1803,7 @@ func newWorkspaceRemoveCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey string) error {
-	lock, err := workspaceStore(opts.Env).AcquireManifestLock(workspaceName)
+	lock, err := workspace.DefaultStore(opts.Env).AcquireManifestLock(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -1855,7 +1811,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 
 	if repoKey == "" {
 		// workspaceDir validates the name and rejects symlinked paths, so RemoveAll stays inside the store.
-		dir, err := workspaceStore(opts.Env).Dir(workspaceName)
+		dir, err := workspace.DefaultStore(opts.Env).Dir(workspaceName)
 		if err != nil {
 			return err
 		}
@@ -1871,7 +1827,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 		fmt.Fprintf(cmd.OutOrStdout(), "removed workspace %s\n", workspaceName)
 		return nil
 	}
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -1889,7 +1845,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 	}
 	manifest.Repos = kept
 	manifest.Freshness = nil
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		return err
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "removed %s from %s\n", repoKey, workspaceName)
@@ -2032,7 +1988,7 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 }
 
 func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -2043,7 +1999,7 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
-	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
@@ -2180,7 +2136,7 @@ func workspaceReviewSummary(checked bool, filesScanned int, historyTruncated boo
 }
 
 func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, workspaceName, query string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return err
 	}
@@ -2191,7 +2147,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	if ro.limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
-	privacyPolicies, _, err := captureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
+	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}

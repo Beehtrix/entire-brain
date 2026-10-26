@@ -400,7 +400,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := writeRetrievalEmissionPrivacyFixture(t)
 			workspaceName := "privacy-race"
-			if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}}}); err != nil {
+			if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}}}); err != nil {
 				t.Fatal(err)
 			}
 			called := installLateRetrievalTombstone(t, fixture)
@@ -621,7 +621,7 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-race"
-		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+		if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
 			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
@@ -658,7 +658,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-late"
-		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+		if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
 			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
@@ -676,7 +676,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	const workspaceName = "privacy-dirty-member"
-	if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+	if err := workspace.DefaultStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
 		Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 	}); err != nil {
 		t.Fatal(err)
@@ -774,8 +774,8 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
 			err := tc.run(cmd)
-			if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
-				t.Fatalf("missing requested corpus error = %v, want %s", err, memoryErrSourceStale)
+			if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
+				t.Fatalf("missing requested corpus error = %v, want %s", err, brainstore.SourceStaleCode)
 			}
 			if stdout.Len() != 0 || stderr.Len() != 0 {
 				t.Fatalf("missing requested corpus emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())

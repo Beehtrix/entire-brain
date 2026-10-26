@@ -1,6 +1,7 @@
 package cli
 
 import (
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,7 +160,7 @@ func TestPatternsRefreshMigratesVersionEightEvidence(t *testing.T) {
 	if err := db.QueryRow(`SELECT parser_version FROM indexed_sessions WHERE session_id='session-1'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != patternIndexerVersion || version <= 8 {
+	if version != patterncore.IndexerVersion || version <= 8 {
 		t.Fatalf("version8 cache retained: %d", version)
 	}
 }

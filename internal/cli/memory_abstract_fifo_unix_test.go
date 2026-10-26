@@ -29,9 +29,9 @@ func TestAbstractPrivacyCleanupRejectsRegularToFIFOSwapWithoutBlocking(t *testin
 	}
 	writeAbstractBytesForTest(t, brainDir, digest, append(data, '\n'))
 	target := filepath.Join(brainDir, filepath.FromSlash(abstractRel(digest)))
-	originalOpen := memoryStateOpenFile
+	originalOpen := brainstore.MemoryStateOpenFile
 	swapped := false
-	memoryStateOpenFile = func(path string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.MemoryStateOpenFile = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if path == target && !swapped {
 			swapped = true
 			if err := os.Remove(target); err != nil {
@@ -43,7 +43,7 @@ func TestAbstractPrivacyCleanupRejectsRegularToFIFOSwapWithoutBlocking(t *testin
 		}
 		return originalOpen(path, flag, perm)
 	}
-	t.Cleanup(func() { memoryStateOpenFile = originalOpen })
+	t.Cleanup(func() { brainstore.MemoryStateOpenFile = originalOpen })
 	done := make(chan error, 1)
 	go func() { done <- purgeSessionAbstracts(brainDir, manifest, "nav-sess") }()
 	select {

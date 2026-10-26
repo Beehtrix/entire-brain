@@ -147,7 +147,7 @@ func TestFailedWorkspaceRegistrationPreservesSharedTuning(t *testing.T) {
 	if _, err := recordSetupWatchPlan(f.env, daemonDefaultName, setupWatchPlanEntry{Workspace: setupDefaultWorkspace, Interval: "1h"}); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := workspaceStore(f.env).Dir(setupDefaultWorkspace)
+	dir, err := workspace.DefaultStore(f.env).Dir(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}

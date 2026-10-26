@@ -205,7 +205,7 @@ func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing
 		install, _ := snapshot.Payload["install"].(map[string]any)
 		abstracts, _ := install["abstracts"].(map[string]any)
 		egress, _ := abstracts["hosted_egress"].(map[string]any)
-		if egress["state"] != memoryErrMigrationRequired || egress["schema_version"] != abstractEgressLegacyVersion || !reflect.DeepEqual(egress["schema_versions_observed"], []int{abstractEgressLegacyVersion}) {
+		if egress["state"] != brainstore.MigrationRequiredCode || egress["schema_version"] != abstractEgressLegacyVersion || !reflect.DeepEqual(egress["schema_versions_observed"], []int{abstractEgressLegacyVersion}) {
 			t.Fatalf("legacy egress health = %#v", egress)
 		}
 	})

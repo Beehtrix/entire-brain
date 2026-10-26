@@ -77,7 +77,7 @@ func TestConfiguredProviderReportsMissingExecutable(t *testing.T) {
 	if err := saveMemoryConfig(brainDir, memoryConfig{Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "codex"}}); err != nil {
 		t.Fatal(err)
 	}
-	if summary := memoryAbstractProviderSummary(brainDir); !strings.Contains(summary, memoryErrProviderUnavail) || !strings.Contains(summary, "executable") {
+	if summary := memoryAbstractProviderSummary(brainDir); !strings.Contains(summary, brainstore.ProviderUnavailCode) || !strings.Contains(summary, "executable") {
 		t.Fatalf("provider health summary = %q", summary)
 	}
 }
@@ -170,9 +170,9 @@ func TestAbstractGuardPreventsCommit(t *testing.T) {
 	guardCalled := false
 	_, err := generateSessionAbstractContextGuarded(context.Background(), t.TempDir(), brainDir, view, config, time.Now(), func() error {
 		guardCalled = true
-		return errors.New(memoryErrCancelled)
+		return errors.New(brainstore.CancelledCode)
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrCancelled) || !guardCalled {
+	if err == nil || !strings.Contains(err.Error(), brainstore.CancelledCode) || !guardCalled {
 		t.Fatalf("guard err=%v called=%v", err, guardCalled)
 	}
 	if _, ok := loadSessionAbstract(brainDir, sessionViewDigest(view)); ok {
@@ -347,7 +347,7 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 	if err := saveMemoryConfig(brainDir, config); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := generateSessionAbstract(brainDir, view, config, now); err == nil || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
+	if _, err := generateSessionAbstract(brainDir, view, config, now); err == nil || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
 		t.Fatalf("no-provider generation must be provider_unavailable: %v", err)
 	}
 	if status, _ := sessionAbstractStatus(brainDir, view); status != abstractStatusUnavailable {
@@ -490,7 +490,7 @@ func TestMemoryMigrateDetectsAndRepairsOldOverlay(t *testing.T) {
 	findings := detectMemoryMigrations(brainDir, manifest.Sources.History)
 	foundOverlay := false
 	for _, finding := range findings {
-		if finding.Path == historyShortTermPath && finding.State == memoryErrMigrationRequired {
+		if finding.Path == historyShortTermPath && finding.State == brainstore.MigrationRequiredCode {
 			foundOverlay = true
 		}
 	}
@@ -636,7 +636,7 @@ func TestMemoryMigrationRewritesLegacyJobs(t *testing.T) {
 	findings := detectMemoryMigrations(brainDir, nil)
 	found := false
 	for _, finding := range findings {
-		if finding.Path == memoryJobRel(job.JobID) && finding.State == memoryErrMigrationRequired {
+		if finding.Path == memoryJobRel(job.JobID) && finding.State == brainstore.MigrationRequiredCode {
 			found = true
 		}
 	}

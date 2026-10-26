@@ -2202,7 +2202,7 @@ func mcpCrossRepoRefusal(tool, detail, boundKey string) error {
 // mcpWorkspaceManifest loads once so execution uses exactly the members checked
 // at the MCP boundary. CLI callers continue to load their own unrestricted manifest.
 func mcpWorkspaceManifest(ctx context.Context, opts Options, tool, workspaceName string) (workspacelib.Manifest, []workspacelib.RepoFreshness, error) {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(workspaceName)
+	manifest, err := workspacelib.DefaultStore(opts.Env).LoadManifest(workspaceName)
 	if err != nil {
 		return workspacelib.Manifest{}, nil, err
 	}

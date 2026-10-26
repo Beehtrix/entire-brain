@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,9 +54,9 @@ func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "external.ndjson")
 	writePublishFile(t, target, []byte("local"))
 	writePublishFile(t, outside, []byte("outside-secret"))
-	original := memoryStateOpenFile
+	original := brainstore.MemoryStateOpenFile
 	swapped := false
-	memoryStateOpenFile = func(path string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.MemoryStateOpenFile = func(path string, flag int, perm os.FileMode) (*os.File, error) {
 		if path == target && !swapped {
 			swapped = true
 			if err := os.Remove(target); err != nil {
@@ -67,7 +68,7 @@ func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 		}
 		return original(path, flag, perm)
 	}
-	t.Cleanup(func() { memoryStateOpenFile = original })
+	t.Cleanup(func() { brainstore.MemoryStateOpenFile = original })
 	data, ok, err := readBrainBlob(brainDir, rel)
 	if !swapped || err == nil || ok || len(data) != 0 {
 		t.Fatalf("leaf swap returned data=%q, ok=%v, err=%v, swapped=%v", data, ok, err, swapped)

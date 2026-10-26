@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 func patternCorpusIndexedSHAs(t *testing.T, brainDir string) map[string]string {
 	t.Helper()
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatalf("open corpus: %v", err)
 	}

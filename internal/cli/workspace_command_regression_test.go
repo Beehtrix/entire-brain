@@ -24,7 +24,7 @@ func workspaceCommandFixture(t *testing.T) (Options, EntireEnv, workspace.Manife
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	return Options{
@@ -115,7 +115,7 @@ func TestWorkspaceCommandLifecycleThroughRootRoutes(t *testing.T) {
 	if err != nil || !strings.Contains(out, `"would_write"`) || !strings.Contains(out, `"name": "deploy-release"`) {
 		t.Fatalf("preview form: %v\n%s", err, out)
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestWorkspaceCommandLifecycleThroughRootRoutes(t *testing.T) {
 
 func TestWorkspaceCommandEmptyAndNoEgressRoutes(t *testing.T) {
 	opts, _, manifest := workspaceCommandFixture(t)
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestWorkspaceCommandListEmptyFilterAndMalformedSkillStore(t *testing.T) {
 	if err != nil || !strings.Contains(out, "no cross-repo patterns") {
 		t.Fatalf("empty filter: %v\n%s", err, out)
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestWorkspaceCommandRejectedFamilyStaysUnavailable(t *testing.T) {
 func TestWorkspaceCommandVerifyWithOneContributingMemberNeedsNoProvider(t *testing.T) {
 	opts, env, manifest := workspaceCommandFixture(t)
 	manifest.Repos = manifest.Repos[:1]
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	fakeCodexProvider(t, "not JSON")
@@ -275,7 +275,7 @@ func TestWorkspaceCommandVerifierProviderFailureAndAutoResolution(t *testing.T) 
 func TestWorkspaceCommandMalformedManifestErrorsAtEveryRoute(t *testing.T) {
 	opts, _, _ := workspaceCommandFixture(t)
 	const name = "broken"
-	dir, err := workspaceStore(opts.Env).Dir(name)
+	dir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +364,7 @@ func TestWorkspaceCommandOutputFailuresPropagate(t *testing.T) {
 
 func TestWorkspaceCommandUnsafePublicationArtifactFailsClosed(t *testing.T) {
 	opts, _, manifest := workspaceCommandFixture(t)
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -422,7 +422,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 	t.Run("missing member is reported while healthy members refresh", func(t *testing.T) {
 		opts, env, manifest := workspaceCommandFixture(t)
 		manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: "gh/acme/missing"})
-		if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+		if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 			t.Fatal(err)
 		}
 		out, stderr, err := executeSplit(t, NewRootCommand(opts), "workspace", "patterns", "refresh", manifest.Name)
@@ -450,7 +450,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 			t.Fatal(err)
 		}
 		manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: badKey})
-		if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+		if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 			t.Fatal(err)
 		}
 		out, err := execute(t, NewRootCommand(opts), "workspace", "patterns", "refresh", manifest.Name)
@@ -462,7 +462,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 
 func TestWorkspaceSkillsFormRejectsWithoutWrites(t *testing.T) {
 	opts, _, manifest := workspaceCommandFixture(t)
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}

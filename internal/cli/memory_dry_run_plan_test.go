@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,8 +109,8 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 		rebuildCalls := 0
 		detectMemoryMigrationsForAdmin = func(string, *historySourceManifest) []memoryMigrationFinding {
 			return []memoryMigrationFinding{
-				{Path: projectionStateRel, State: memoryErrMigrationRequired, Action: "rebuild"},
-				{Path: memoryJobsDirRel + "/legacy.json", State: memoryErrMigrationRequired, Action: "rewrite"},
+				{Path: projectionStateRel, State: brainstore.MigrationRequiredCode, Action: "rebuild"},
+				{Path: memoryJobsDirRel + "/legacy.json", State: brainstore.MigrationRequiredCode, Action: "rewrite"},
 			}
 		}
 		rebuildMemoryProjection = func(string, time.Time) error { rebuildCalls++; return nil }
@@ -130,7 +131,7 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 			t.Fatalf("migrate dry-run payload=%+v err=%v\n%s", payload, err, out)
 		}
 		for _, artifact := range payload.Receipt.Artifacts {
-			if artifact.PriorState != memoryErrMigrationRequired || artifact.NewState != "would_be_current" {
+			if artifact.PriorState != brainstore.MigrationRequiredCode || artifact.NewState != "would_be_current" {
 				t.Fatalf("untruthful planned migration artifact: %+v", artifact)
 			}
 		}

@@ -17,7 +17,7 @@ import (
 // Rewinding this descriptor (never reopening the path) preserves schema-first
 // checks and tolerant reads versus strict rewrites, including unknown fields.
 func readBrainManifestFile(brainDir string, tolerateUnknown bool) (*exportManifest, int, bool, bool, error) {
-	f, present, err := openMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", nil)
+	f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", nil)
 	if err != nil {
 		return nil, 0, false, present, fmt.Errorf("read brain manifest: %w", err)
 	}

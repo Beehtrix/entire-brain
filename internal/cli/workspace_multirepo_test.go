@@ -43,7 +43,7 @@ func TestMCPWorkspaceToolsSurviveOneDeadMember(t *testing.T) {
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, boundDir, siblingKey := workspaceSiblingFixture(t, "dead")
-			manifest, err := workspaceStore(opts.Env).LoadManifest("dead")
+			manifest, err := workspace.DefaultStore(opts.Env).LoadManifest("dead")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,7 +54,7 @@ func TestMCPWorkspaceToolsSurviveOneDeadMember(t *testing.T) {
 			deadKey := testLocalRepoStorageKey(t, deadDir)
 			writeScopeTestBrain(t, opts.Env, deadKey)
 			manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: deadKey, Name: "deleted-sibling", LocalPathHint: deadDir})
-			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+			if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 				t.Fatal(err)
 			}
 
@@ -91,7 +91,7 @@ func TestMCPWorkspaceExcludesForgedMemberInsteadOfReadingItsBrain(t *testing.T) 
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, _, siblingKey := workspaceSiblingFixture(t, "forgery")
-			manifest, err := workspaceStore(opts.Env).LoadManifest("forgery")
+			manifest, err := workspace.DefaultStore(opts.Env).LoadManifest("forgery")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +104,7 @@ func TestMCPWorkspaceExcludesForgedMemberInsteadOfReadingItsBrain(t *testing.T) 
 					manifest.Repos[i].RepoKey = foreignKey
 				}
 			}
-			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+			if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 				t.Fatal(err)
 			}
 
@@ -139,14 +139,14 @@ func TestMCPWorkspaceStillRefusesAMemberResolvingOutOfScope(t *testing.T) {
 	if err := os.Symlink(outside, escapeDir); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	manifest, err := workspaceStore(opts.Env).LoadManifest("escape")
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest("escape")
 	if err != nil {
 		t.Fatal(err)
 	}
 	escapeKey := testLocalRepoStorageKey(t, outside)
 	writeScopeTestBrain(t, opts.Env, escapeKey)
 	manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: escapeKey, LocalPathHint: escapeDir})
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, "brain_workspace_graph", scopeToolArgs("brain_workspace_graph", "escape")))
@@ -177,7 +177,7 @@ func workspaceCoverageFixture(t *testing.T, name string) (EntireEnv, *cobra.Comm
 			{RepoKey: deadKey, Name: "never-cloned", LocalPathHint: deadDir},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -299,7 +299,7 @@ func TestWorkspaceAddReportsAnExistingMemberRatherThanClaimingItAdded(t *testing
 	if !strings.Contains(out, second) {
 		t.Fatalf("the rebound checkout, which every later scan uses, was not named: %s", out)
 	}
-	manifest, err := workspaceStore(env).LoadManifest("dup")
+	manifest, err := workspace.DefaultStore(env).LoadManifest("dup")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestWorkspaceReviewWillNotCallATreeCleanWithoutComparingIt(t *testing.T) {
 		Name:          "unscanned",
 		Repos:         []workspace.Repo{{RepoKey: key, Name: "quiet", LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "review", "unscanned", "scopeBaseRef base scope", "--json")
@@ -420,7 +420,7 @@ func TestWorkspaceReviewStillReportsAGenuinelyCleanTree(t *testing.T) {
 		Name:          "scanned",
 		Repos:         []workspace.Repo{{RepoKey: key, Name: "clean", LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "review", "scanned", "fix scopeBaseRef base scope", "--json")
@@ -483,7 +483,7 @@ func TestWorkspaceRegressionsHeadlineWillNotCallAWorkspaceCleanWithoutScanningIt
 			{RepoKey: kB, Name: "b", LocalPathHint: rB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "allquiet", "scopeBaseRef base scope")

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"testing"
 	"time"
 )
@@ -49,7 +50,7 @@ func TestPatternsListFromCorpus(t *testing.T) {
 
 func TestPatternsListSuppressesRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

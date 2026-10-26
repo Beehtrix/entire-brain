@@ -116,7 +116,7 @@ func TestMemoryLifecycleMaintenanceConsumesExcludedHintAndRejectsStaleSnapshot(t
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot); err == nil || memoryErrorCode(err) != memoryErrSourceStale {
+	if _, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot); err == nil || brainstore.MemoryErrorCode(err) != brainstore.SourceStaleCode {
 		t.Fatalf("stale snapshot error=%v", err)
 	}
 }
@@ -688,10 +688,10 @@ func TestMemoryLifecycleStatsMergeAndSelectors(t *testing.T) {
 	if _, err := memoryJobsForSelector(brainDir, "", ""); err == nil {
 		t.Fatal("empty selector unexpectedly succeeded")
 	}
-	if _, err := memoryJobsForSelector(brainDir, "job:missing", ""); err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+	if _, err := memoryJobsForSelector(brainDir, "job:missing", ""); err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 		t.Fatalf("missing exact selector error=%v", err)
 	}
-	if _, err := memoryJobsForSelector(brainDir, "", "conversation-session:missing"); err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+	if _, err := memoryJobsForSelector(brainDir, "", "conversation-session:missing"); err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 		t.Fatalf("missing session selector error=%v", err)
 	}
 }

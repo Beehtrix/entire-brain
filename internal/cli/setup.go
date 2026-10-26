@@ -1853,7 +1853,7 @@ func daemonEnv(env EntireEnv) map[string]string {
 // of the two registrations.
 func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	result, err := workspaceStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
+	result, err := workspace.DefaultStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
 		return state, err
 	}

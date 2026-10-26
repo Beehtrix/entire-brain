@@ -73,7 +73,7 @@ func newMemoryVectorProgressLoadError(err error, version int) *memoryVectorProgr
 }
 
 func loadMemoryVectorProgress(brainDir string) (memoryVectorProgress, bool, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryVectorProgressRel, "vector progress", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryVectorProgressRel, "vector progress", base.MaxManifestBytes)
 	if err != nil {
 		return memoryVectorProgress{}, present, newMemoryVectorProgressLoadError(err, 0)
 	}

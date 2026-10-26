@@ -54,7 +54,6 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 9
 )
 
 func requirePatternCorpusAvailable(brainDir string) error {
@@ -66,7 +65,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
+		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`", brainstore.SourceStaleCode)
 	}
 	return nil
 }
@@ -111,7 +110,7 @@ func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGr
 }
 
 func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
-	if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
+	if err := patterncore.RecoverCorpusPublicationLocked(brainDir, patterncore.DecodeCorpusPublication); err != nil {
 		return err
 	}
 	manifest, err := loadPatternCorpusManifest(brainDir)
@@ -149,7 +148,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 
 	// Indexer-version bump forces a full re-index (parser/extractor changed).
-	if stored := patterncore.CorpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patternIndexerVersion) {
+	if stored := patterncore.CorpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patterncore.IndexerVersion) {
 		if _, err := db.Exec(`DELETE FROM episodes`); err != nil { // cascades children
 			return err
 		}
@@ -290,7 +289,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err := classifyEpisodeShapes(db, now); err != nil {
 		return err
 	}
-	if err := buildSynapses(db, now); err != nil {
+	if err := patterncore.BuildSynapses(db, now); err != nil {
 		return err
 	}
 	_, finalPolicy, err := brainstore.LoadSessionTombstonesChecked(brainDir)
@@ -323,7 +322,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 	if err := setCorpusMeta(db, map[string]string{
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
-		"pattern_indexer_version": strconv.Itoa(patternIndexerVersion),
+		"pattern_indexer_version": strconv.Itoa(patterncore.IndexerVersion),
 		"facts_fingerprint":       factFingerprint,
 		"privacy_policy_identity": guard.PolicyIdentity,
 		"repo_key":                repoKey,
@@ -337,18 +336,18 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}); err != nil {
 		return err
 	}
-	run, err := patternRunFromStaging(db, now)
+	run, err := patterncore.RunFromStaging(db, now)
 	if err != nil {
 		return err
 	}
-	if err := patterncore.FinalizeCorpusStagingLocked(brainDir, path, db, decodePatternCorpusPublication); err != nil {
+	if err := patterncore.FinalizeCorpusStagingLocked(brainDir, path, db, patterncore.DecodeCorpusPublication); err != nil {
 		return err
 	}
 	closed = true
 	// Operational run history describes only successfully published corpora.
 	// A failed staging build or commit must leave both the old corpus and its
 	// last-run report intact.
-	_ = appendPatternRun(brainDir, run)
+	_ = patterncore.AppendRun(brainDir, run)
 	return nil
 }
 
@@ -379,7 +378,7 @@ func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string
 	if err != nil {
 		return false
 	}
-	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patternIndexerVersion
+	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion
 }
 
 func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
@@ -504,7 +503,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 	if _, err := tx.Exec(`INSERT INTO indexed_sessions
 		(id, repo_key, session_id, checkpoint_id, transcript_path, branch, author_name, agent, created_at, size, mtime_unix_nano, content_sha, parser_version, episodes)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, repoKey, s.SessionID, s.LatestCheckpoint, filepath.ToSlash(rel), s.Branch, author, s.Agent, createdAt, size, mtime, sha, patternIndexerVersion, episodeCount,
+		id, repoKey, s.SessionID, s.LatestCheckpoint, filepath.ToSlash(rel), s.Branch, author, s.Agent, createdAt, size, mtime, sha, patterncore.IndexerVersion, episodeCount,
 	); err != nil {
 		return err
 	}

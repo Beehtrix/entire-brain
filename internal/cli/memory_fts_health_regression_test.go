@@ -2,6 +2,7 @@ package cli
 
 import (
 	"database/sql"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestMemoryHistoryFTSHealthClassifiesSchemaAndReadOnlyStates(t *testing.T) {
 		source                          *historySourceManifest
 	}{
 		{"missing fingerprint", historyFTSSchema, "", "corrupt", nil},
-		{"older schema", "0", "old", memoryErrMigrationRequired, nil},
+		{"older schema", "0", "old", brainstore.MigrationRequiredCode, nil},
 		{"newer schema", "999", "new", "unsupported", nil},
 		{"current without source is stale", historyFTSSchema, "current", "stale", nil},
 	} {
@@ -89,12 +90,12 @@ func TestMemoryHistoryFTSHealthComparesCanonicalHistoryFingerprint(t *testing.T)
 		t.Fatalf("current health=%#v", health)
 	}
 	write("different")
-	if health := memoryHistoryFTSHealth(brainDir, manifest.Sources.History); health["state"] != "stale" || health["error_code"] != memoryErrSourceStale {
+	if health := memoryHistoryFTSHealth(brainDir, manifest.Sources.History); health["state"] != "stale" || health["error_code"] != brainstore.SourceStaleCode {
 		t.Fatalf("stale health=%#v", health)
 	}
 	bad := *manifest.Sources.History
 	bad.IndexPath = "history/missing.json"
-	if health := memoryHistoryFTSHealth(brainDir, &bad); health["state"] != "stale" || health["error_code"] != memoryErrSourceStale {
+	if health := memoryHistoryFTSHealth(brainDir, &bad); health["state"] != "stale" || health["error_code"] != brainstore.SourceStaleCode {
 		t.Fatalf("unreadable source health=%#v", health)
 	}
 }

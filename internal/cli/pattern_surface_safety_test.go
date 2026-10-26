@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func TestStrongestPatternsCheckedRejectsUnsafeLegacyState(t *testing.T) {
 
 func TestBriefConsolidationsCheckedRejectsMalformedDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

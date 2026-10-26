@@ -1,4 +1,4 @@
-package cli
+package patterns_test
 
 import (
 	"context"
@@ -91,18 +91,18 @@ func releaseGroupingAgent(t *testing.T) base.DistillAgentRunner {
 	}
 }
 
-func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bIntent string, bHeads []string) (EntireEnv, workspace.Manifest) {
+func twoRepoWorkspace(t *testing.T, a, aIntent string, aHeads []string, b, bIntent string, bHeads []string) (base.EntireEnv, workspace.Manifest) {
 	t.Helper()
-	env := EntireEnv{PluginDataDir: t.TempDir()}
+	env := base.EntireEnv{PluginDataDir: t.TempDir()}
 	aDir, _ := base.BrainDirForKey(env, a)
 	bDir, _ := base.BrainDirForKey(env, b)
 	seedPromotableMember(t, aDir, a, aIntent, aHeads...)
 	seedPromotableMember(t, bDir, b, bIntent, bHeads...)
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: a}, {RepoKey: b}}}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	return env, manifest
@@ -116,15 +116,15 @@ func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
 
-	stats, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now())
+	stats, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if stats.Verified != 1 {
 		t.Fatalf("expected 1 accepted family, got %+v", stats)
 	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	fams := loadAcceptedWorkspaceFamilies(wsDir)
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+	fams := patterncore.AcceptedFamilies(wsDir)
 	if len(fams) != 1 {
 		t.Fatalf("expected 1 family, got %d", len(fams))
 	}
@@ -140,7 +140,7 @@ func TestWorkspaceFamilyMergesEquivalentWorkflows(t *testing.T) {
 		t.Errorf("family must keep each repo's actual commands, got %v", cmds)
 	}
 	// And the synthesis evidence surfaces the per-repo variations.
-	ev := buildWorkspaceFamilyEvidence(fams[0])
+	ev := patterncore.BuildWorkspaceFamilyEvidence(fams[0])
 	if !strings.Contains(ev, "Per-repo variations") || !strings.Contains(ev, "mise deploy") || !strings.Contains(ev, "make release") {
 		t.Errorf("workspace family evidence missing per-repo variations:\n%s", ev)
 	}
@@ -154,11 +154,11 @@ func TestWorkspaceFamilyRejectsGeneric(t *testing.T) {
 		"gh/acme/a", "commit:push", []string{"git add", "git push"},
 		"gh/acme/b", "commit:push", []string{"git add", "git push"})
 
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	if fams := loadAcceptedWorkspaceFamilies(wsDir); len(fams) != 0 {
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+	if fams := patterncore.AcceptedFamilies(wsDir); len(fams) != 0 {
 		t.Errorf("generic git workflows must not produce an accepted workspace family, got %d", len(fams))
 	}
 }
@@ -194,22 +194,22 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 	env, manifest := twoRepoWorkspace(t,
 		"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 		"gh/acme/b", "release:ship", []string{"make build", "make release"})
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	if len(loadAcceptedWorkspaceFamilies(wsDir)) != 1 {
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+	if len(patterncore.AcceptedFamilies(wsDir)) != 1 {
 		t.Fatal("setup: expected 1 accepted family before refresh")
 	}
 	// Rebuild the workspace corpus with unchanged member corpora.
-	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, manifest, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if got := len(loadAcceptedWorkspaceFamilies(wsDir)); got != 1 {
+	if got := len(patterncore.AcceptedFamilies(wsDir)); got != 1 {
 		t.Fatalf("workspace refresh must preserve accepted families, got %d", got)
 	}
 	// `workspace patterns skills` still lists it.
-	fams := loadAcceptedWorkspaceFamilies(wsDir)
+	fams := patterncore.AcceptedFamilies(wsDir)
 	if len(fams) != 1 || fams[0].RepoCount() != 2 {
 		t.Fatalf("family must still span 2 repos after refresh, got %+v", fams)
 	}
@@ -218,7 +218,7 @@ func TestWorkspaceFamilyPreservedAcrossRefresh(t *testing.T) {
 		t.Fatal("agent must not re-run when member evidence is unchanged after refresh")
 		return "", nil
 	}
-	stats, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", failIfCalled, time.Now())
+	stats, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", failIfCalled, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,10 +239,10 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 		calls++
 		return releaseGroupingAgent(t)(ctx, dir, args, input, timeout)
 	}
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 {
@@ -250,7 +250,7 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 	}
 	// Mutate member A's task title (content), same repo + intent.
 	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
-	mdb, err := openPatternCorpusMutableDB(aDir)
+	mdb, err := patterntest.OpenCorpusMutableDB(aDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestWorkspaceFamilyCacheInvalidatesOnContentChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	mdb.Close()
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 {
@@ -274,15 +274,15 @@ func TestWorkspaceFamilyUnknownVerdictNotAccepted(t *testing.T) {
 		env, manifest := twoRepoWorkspace(t,
 			"gh/acme/a", "release:build", []string{"mise build", "mise deploy"},
 			"gh/acme/b", "release:ship", []string{"make build", "make release"})
-		stats, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", verdictFamilyAgent(v), time.Now())
+		stats, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", verdictFamilyAgent(v), time.Now())
 		if err != nil {
 			t.Fatalf("verdict %q: %v", v, err)
 		}
 		if stats.Verified != 0 {
 			t.Errorf("verdict %q must not count as Verified, got %+v", v, stats)
 		}
-		wsDir, _ := workspaceStore(env).Dir("plat")
-		if n := len(loadAcceptedWorkspaceFamilies(wsDir)); n != 0 {
+		wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+		if n := len(patterncore.AcceptedFamilies(wsDir)); n != 0 {
 			t.Errorf("verdict %q must not surface as an accepted family, got %d", v, n)
 		}
 	}
@@ -298,7 +298,7 @@ func TestWorkspaceFamilyNoEgressRejected(t *testing.T) {
 		called = true
 		return "", nil
 	}
-	_, err := proposeWorkspaceFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now())
+	_, err := patterncore.ProposeFamilies(context.Background(), env, manifest, t.TempDir(), "codex", "", "", run, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "no_egress") {
 		t.Fatalf("expected no_egress rejection, got %v", err)
 	}

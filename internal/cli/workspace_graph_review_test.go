@@ -79,7 +79,7 @@ func TestWorkspaceGraphDegradedMemberKeepsHealthyEdges(t *testing.T) {
 			}
 		}
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	payload, err := buildWorkspaceGraphPayload(context.Background(), opts, manifest, 20)

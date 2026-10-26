@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 
 	"github.com/entireio/entire-brain/internal/tui"
@@ -162,7 +163,7 @@ func sweepTranscriptCache(ctx context.Context, inventory *historySessionInventor
 	unchanged := inventory.sameMembership(current)
 	_ = current.Close()
 	if !unchanged {
-		return fmt.Errorf("%s: transcript cache changed before migration sweep", memoryErrSourceStale)
+		return fmt.Errorf("%s: transcript cache changed before migration sweep", brainstore.SourceStaleCode)
 	}
 	if err := inventory.validateAll(ctx); err != nil {
 		return err

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -243,7 +242,7 @@ func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	unrewritable := false
 	err := brainstore.WithBrainManifestWriteLock(brainDir, func() error {
 		return removeCheckedMemoryStateFileValidated(brainDir, exportManifestFileName, "brain manifest", func(before os.FileInfo) (bool, error) {
-			f, present, err := openMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", before)
+			f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", before)
 			if err != nil || !present {
 				return present, err
 			}
@@ -430,41 +429,6 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		}
 		return nil
 	})
-}
-
-// removeBrainRelativeFileExpected removes a file only when it is still the
-// exact inode/file identity observed by a descriptor-bound inventory. Privacy
-// cleanup uses this after validating content so a raced replacement is never
-// unlinked under the authority of the original file.
-func removeBrainRelativeFileExpected(brainDir, rel string, expected os.FileInfo) error {
-	if expected == nil {
-		return fmt.Errorf("memory_state_unsafe: missing expected file identity for %s", rel)
-	}
-	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	clean, err := base.CleanBrainRelativePath(rel)
-	if err != nil {
-		return err
-	}
-	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return err
-	}
-	path := filepath.Join(brainDir, clean)
-	current, err := memoryStateLstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("memory_state_unsafe: expected file disappeared before removal: %s", filepath.ToSlash(clean))
-		}
-		return err
-	}
-	if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || !os.SameFile(expected, current) {
-		return fmt.Errorf("memory_state_unsafe: file changed before removal: %s", filepath.ToSlash(clean))
-	}
-	if err := os.Remove(path); err != nil {
-		return err
-	}
-	return nil
 }
 
 func renderBrainReadme(manifest exportManifest) string {

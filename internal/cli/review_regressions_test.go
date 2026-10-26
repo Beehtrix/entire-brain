@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -205,27 +206,27 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 // line is reachable on any existing brain.
 func TestPatternRunHistoryRepairsCorruptLog(t *testing.T) {
 	brainDir := t.TempDir()
-	full := filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))
+	full := filepath.Join(brainDir, filepath.FromSlash(patterncore.RunsRelPath))
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(full, []byte(`{"at":"2026-08-01T00:00:00Z","indexer_version":1}`+"\n"+`{"at":"2026-08-0`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadPatternRunsChecked(brainDir); err == nil {
+	if _, err := patterncore.LoadRunsChecked(brainDir); err == nil {
 		t.Fatal("a truncated line must still read as corrupt")
 	}
-	if err := appendPatternRun(brainDir, patternRun{At: "2026-08-09T00:00:00Z", IndexerVersion: patternIndexerVersion}); err != nil {
+	if err := patterncore.AppendRun(brainDir, patterncore.Run{At: "2026-08-09T00:00:00Z", IndexerVersion: patterncore.IndexerVersion}); err != nil {
 		t.Fatalf("refresh must be able to repair a corrupt run log: %v", err)
 	}
-	runs, err := loadPatternRunsChecked(brainDir)
+	runs, err := patterncore.LoadRunsChecked(brainDir)
 	if err != nil {
 		t.Fatalf("run log still unreadable after repair: %v", err)
 	}
 	if len(runs) != 1 || runs[0].At != "2026-08-09T00:00:00Z" {
 		t.Fatalf("repaired log = %+v", runs)
 	}
-	if _, ok, err := lastPatternRunChecked(brainDir); err != nil || !ok {
+	if _, ok, err := patterncore.LastRunChecked(brainDir); err != nil || !ok {
 		t.Fatalf("patterns status must work after repair: ok=%v err=%v", ok, err)
 	}
 }
@@ -298,13 +299,13 @@ func TestAbstractWindowTurnFitsEncodedCeiling(t *testing.T) {
 }
 
 // TestAbstractEgressIssueAlwaysCarriesACode locks the taxonomy contract. Several
-// call sites pass memoryErrorCode(readErr) on branches reachable with a nil
+// call sites pass brainstore.MemoryErrorCode(readErr) on branches reachable with a nil
 // error, and memoryReadOnlyHealth's recordIssue silently DROPS an empty-coded
 // issue without counting it as hidden, so the finding vanished from the reported
 // issues array while the state still read corrupt.
 func TestAbstractEgressIssueAlwaysCarriesACode(t *testing.T) {
 	var inventory abstractEgressInventory
-	inventory.issue("history/work/v1/abstract-egress/x.json", memoryErrorCode(nil))
+	inventory.issue("history/work/v1/abstract-egress/x.json", brainstore.MemoryErrorCode(nil))
 	if len(inventory.Issues) != 1 {
 		t.Fatalf("issue not recorded: %+v", inventory.Issues)
 	}
@@ -496,7 +497,7 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
 	}
-	if code := memoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
+	if code := brainstore.MemoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
 		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
 	}
 }

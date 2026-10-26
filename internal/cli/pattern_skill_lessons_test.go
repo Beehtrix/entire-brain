@@ -41,7 +41,7 @@ func newCorpusAtDir(t *testing.T, brainDir string) {
 func seedCorrectedEpisodes(t *testing.T, brainDir, intentSig, failingCmd string, n int, now time.Time) {
 	t.Helper()
 	newCorpusAtDir(t, brainDir)
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestProposeSkillLessonsRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
 
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestLessonDossierCarriesSourceAnchors(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestProposeSkillLessonsCacheInvalidatesOnContentChange(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestProposeSkillLessonsRejectsGeneric(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "commit:flow", "git push", 2, now)
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestProposeSkillLessonsEgressGated(t *testing.T) {
 	now := time.Now()
 	brainDir := t.TempDir()
 	seedCorrectedEpisodes(t, brainDir, "radar:evidence", "mise run release-evidence", 2, now)
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -98,7 +99,7 @@ func TestWorkerLogWithoutAReasonIsUnchanged(t *testing.T) {
 
 func readWorkerLogLine(t *testing.T, brainDir string) string {
 	t.Helper()
-	data, present, err := readMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes)
 	if err != nil {
 		t.Fatalf("read worker log: %v", err)
 	}

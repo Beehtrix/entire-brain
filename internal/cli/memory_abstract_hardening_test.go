@@ -139,7 +139,7 @@ func TestAbstractResolverCompletenessOrdering(t *testing.T) {
 	}
 	delete(resolver.inventory.ByDigest, digest)
 	resolver.inventory.BySessionRef[view.Ref] = []string{"sha256:" + strings.Repeat("a", 64)}
-	resolver.inventory.Issues = []memoryStateIssue{{Kind: "abstract", Code: memoryErrQueryTooBroad}}
+	resolver.inventory.Issues = []memoryStateIssue{{Kind: "abstract", Code: brainstore.QueryTooBroadCode}}
 	if status, exposed := resolver.status(view); status != abstractStatusDegraded || exposed != nil {
 		t.Fatalf("incomplete stale inference status=%s exposed=%+v", status, exposed)
 	}
@@ -316,7 +316,7 @@ func TestConcurrentManualGenerationUsesOneDurableJobAndProviderCall(t *testing.T
 	if !equalMemoryAbstractJobOverride(concurrent.AbstractOverride, &override) {
 		t.Fatalf("running provider selection changed: %+v", concurrent.AbstractOverride)
 	}
-	if _, created, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "claude-code", Model: "other"}, now.Add(2*time.Second)); err == nil || !strings.Contains(err.Error(), memoryErrLockBusy) || created {
+	if _, created, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "claude-code", Model: "other"}, now.Add(2*time.Second)); err == nil || !strings.Contains(err.Error(), brainstore.LockBusyCode) || created {
 		t.Fatalf("different concurrent provider selection created=%v err=%v, want typed conflict", created, err)
 	}
 	close(provider.release)
@@ -716,7 +716,7 @@ func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T
 	if len(inventory.Migrations) != 1 || len(inventory.Issues) != 0 || !inventory.Receipts[0].Legacy {
 		t.Fatalf("legacy inventory=%+v", inventory)
 	}
-	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrMigrationRequired) || len(receipts) != 1 {
+	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.MigrationRequiredCode) || len(receipts) != 1 {
 		t.Fatalf("checked receipts=%+v err=%v", receipts, err)
 	}
 	files, err := abstractEgressReceiptsForSessionRefsChecked(brainDir, map[string]bool{ref: true})
@@ -987,10 +987,10 @@ func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 	if err := os.WriteFile(replacement, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldLstat := memoryStateLstat
-	defer func() { memoryStateLstat = oldLstat }()
+	oldLstat := brainstore.MemoryStateLstat
+	defer func() { brainstore.MemoryStateLstat = oldLstat }()
 	observations := 0
-	memoryStateLstat = func(path string) (os.FileInfo, error) {
+	brainstore.MemoryStateLstat = func(path string) (os.FileInfo, error) {
 		if path == target {
 			observations++
 			if observations == 3 {

@@ -32,7 +32,7 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 			{RepoKey: "gh/example/repoc", LocalPathHint: "/nonexistent/repoc-xyz"}, // unresolvable -> skipped
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -178,7 +178,7 @@ func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 			{RepoKey: "gh/example/repoa", LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -337,7 +337,7 @@ func TestWorkspaceRefreshRejectsMismatchedLocalPathHintRepoKey(t *testing.T) {
 		Name:          "payments-platform",
 		Repos:         []workspacelib.Repo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
@@ -413,7 +413,7 @@ func TestWorkspaceAddStoresResolvedRepoRootForRelativeHint(t *testing.T) {
 	if !strings.Contains(out, "gh/example/repo ok") {
 		t.Fatalf("refresh output = %q", out)
 	}
-	manifest, err := workspaceStore(env).LoadManifest("payments-platform")
+	manifest, err := workspacelib.DefaultStore(env).LoadManifest("payments-platform")
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestWorkspaceCreateDoesNotOverwriteExistingWorkspace(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err == nil {
 		t.Fatalf("workspace create overwrote existing workspace")
 	}
-	manifest, err := workspaceStore(env).LoadManifest("payments-platform")
+	manifest, err := workspacelib.DefaultStore(env).LoadManifest("payments-platform")
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestWorkspaceCreateDoesNotOverwriteExistingWorkspace(t *testing.T) {
 
 func TestWorkspacePropagatesPluginDirErrors(t *testing.T) {
 	env := EntireEnv{PluginDataDir: "relative-data"}
-	if _, err := workspaceStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), base.EnvPluginDataDir) {
+	if _, err := workspacelib.DefaultStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), base.EnvPluginDataDir) {
 		t.Fatalf("load workspace err = %v", err)
 	}
 }
@@ -467,7 +467,7 @@ func TestWorkspaceRejectsDotNamesBeforePathResolution(t *testing.T) {
 
 func TestWorkspaceRejectsUnsafeRepoKey(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	dir, err := workspaceStore(env).Dir("payments-platform")
+	dir, err := workspacelib.DefaultStore(env).Dir("payments-platform")
 	if err != nil {
 		t.Fatalf("workspace dir: %v", err)
 	}
@@ -478,7 +478,7 @@ func TestWorkspaceRejectsUnsafeRepoKey(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, workspacelib.ManifestName), data, 0o600); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
-	if _, err := workspaceStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), "repo_key") {
+	if _, err := workspacelib.DefaultStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), "repo_key") {
 		t.Fatalf("load workspace err = %v", err)
 	}
 }
@@ -544,7 +544,7 @@ func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	loaded, err := workspaceStore(env).LoadManifest("payments-platform")
+	loaded, err := workspacelib.DefaultStore(env).LoadManifest("payments-platform")
 	if err != nil {
 		t.Fatalf("legacy workspace must load (and migrate): %v", err)
 	}
@@ -589,7 +589,7 @@ func TestWorkspaceGraphReportsPerRepoTrust(t *testing.T) {
 		Name:          "graph",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, LocalPathHint: repoA}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -628,7 +628,7 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -683,7 +683,7 @@ func TestWorkspaceGraphReportsCrossRepoImportCandidates(t *testing.T) {
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -727,7 +727,7 @@ func TestWorkspaceGraphReportsCrossRepoRouteCalls(t *testing.T) {
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -773,7 +773,7 @@ func TestWorkspaceGraphReportsExactExternalSymbolEdges(t *testing.T) {
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -818,7 +818,7 @@ func TestWorkspaceGraphMatchesRepoPrefixedExternalSymbols(t *testing.T) {
 			{RepoKey: keyB, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -989,7 +989,7 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 			{RepoKey: keyB, Name: "b", LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1050,7 +1050,7 @@ func TestWorkspaceReviewTextOutputRendersFindingsAndFreshness(t *testing.T) {
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1091,7 +1091,7 @@ func TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain(t *testing.T) {
 			{RepoKey: missingKey, Name: "missing", LocalPathHint: missingTree},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1134,7 +1134,7 @@ func TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci(t *testing.T
 	session := `{"text":"pkg/resolve.go must set state.TranscriptPath = resolved so later reads work"}`
 	body := "package x\nfunc missOne(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\nfunc missTwo(state *State) string {\n\tresolved := compute()\n\t_ = state.TranscriptPath\n\treturn resolved\n}\n"
 	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/resolve.go", body)
-	if err := workspaceStore(env).WriteManifest(workspacelib.Manifest{
+	if err := workspacelib.DefaultStore(env).WriteManifest(workspacelib.Manifest{
 		SchemaVersion: workspacelib.SchemaVersion,
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
@@ -1216,7 +1216,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	// Flip the remote so the hint's repo_key no longer matches the registered key -> unsafe.
@@ -1286,7 +1286,7 @@ func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	runner.responses[fakeCommandKey("git", "remote", "get-url", "origin")] = fakeCommandResponse{stdout: "git@github.com:other/repo.git\n"}
@@ -1339,7 +1339,7 @@ func TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint(t *testing.T) {
 		[]byte("package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := workspaceStore(env).WriteManifest(workspacelib.Manifest{
+	if err := workspacelib.DefaultStore(env).WriteManifest(workspacelib.Manifest{
 		SchemaVersion: workspacelib.SchemaVersion,
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: "gh/example/repo", Name: "api", LocalPathHint: repoDir}},
@@ -1398,7 +1398,7 @@ func TestWorkspaceListAndRemove(t *testing.T) {
 			{RepoKey: keyB, Name: "b", LocalPathHint: repoA},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1413,7 +1413,7 @@ func TestWorkspaceListAndRemove(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "remove", "related", keyB); err != nil {
 		t.Fatalf("workspace remove repo: %v", err)
 	}
-	reloaded, err := workspaceStore(env).LoadManifest("related")
+	reloaded, err := workspacelib.DefaultStore(env).LoadManifest("related")
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -1430,7 +1430,7 @@ func TestWorkspaceListAndRemove(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "remove", "related"); err != nil {
 		t.Fatalf("workspace remove all: %v", err)
 	}
-	if _, err := workspaceStore(env).LoadManifest("related"); err == nil {
+	if _, err := workspacelib.DefaultStore(env).LoadManifest("related"); err == nil {
 		t.Fatalf("workspace should be gone")
 	}
 }
@@ -1442,7 +1442,7 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 		Name:          "payments-platform",
 		Repos:         []workspacelib.Repo{{RepoKey: "gh/example/missing", Name: "missing"}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}, Now: time.Now})
@@ -1485,7 +1485,7 @@ func TestWorkspaceSearchAndGetFanOutWithQualifiedIDs(t *testing.T) {
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "a"}, {RepoKey: keyB, Name: "b"}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -1573,7 +1573,7 @@ func TestWorkspaceSearchAndGetIncludesPersistedGraphEdges(t *testing.T) {
 		Name:          "related",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "client"}, {RepoKey: keyB, Name: "api"}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	edge := workspacelib.CrossEdge{
@@ -1769,7 +1769,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 		Name:          "convspace",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "a"}, {RepoKey: keyB, Name: "b"}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1900,7 +1900,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 		Name:          "isospace",
 		Repos:         []workspacelib.Repo{{RepoKey: keyA, Name: "a"}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	// A persisted graph edge whose text matches the same query terms.
@@ -2121,7 +2121,7 @@ func TestWorkspaceWatchStampsEveryLineWithClockAndRepo(t *testing.T) {
 			{RepoKey: repoBKey, LocalPathHint: repoB},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspacelib.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 

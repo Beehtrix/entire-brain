@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ func TestRootCommandPatternsSkillsFormRoutesAcceptedKnowledgeSources(t *testing.
 	newCorpusAtDir(t, brainDir)
 	lessonID, conventionID := seedRoutingKnowledge(t, brainDir)
 
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +64,7 @@ func TestRootCommandPatternsSkillsFormRejectsMissingProposalAndAgentNoneWithoutW
 	newCorpusAtDir(t, brainDir)
 	lessonID, _ := seedRoutingKnowledge(t, brainDir)
 
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +159,7 @@ func seedRoutingKnowledge(t *testing.T, brainDir string) (string, string) {
 		{ID: "fact:pinned", Kind: "convention", Branch: "main", Status: "active", Text: "radar source files are hash-pinned", Locus: []string{"mcp.go"}},
 		{ID: "fact:audit", Kind: "gotcha", Branch: "main", Status: "active", Text: "audit also diffs committed reports", Locus: []string{"reports/"}},
 	})
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

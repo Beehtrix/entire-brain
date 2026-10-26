@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"strconv"
 	"strings"
@@ -155,12 +156,12 @@ func TestFailedPrepassRecordsADegradedOutcomeAndSurfacesIt(t *testing.T) {
 	if !ok {
 		t.Fatalf("no coordinator health section: %+v", health.Payload)
 	}
-	if code, _ := coordinator["error_code"].(string); code != memoryErrWorkerDegraded {
+	if code, _ := coordinator["error_code"].(string); code != brainstore.WorkerDegradedCode {
 		t.Fatalf("coordinator health hides the degraded pass: %+v", coordinator)
 	}
 	found := false
 	for _, issue := range health.Issues {
-		if issue.Code == memoryErrWorkerDegraded {
+		if issue.Code == brainstore.WorkerDegradedCode {
 			found = true
 		}
 	}

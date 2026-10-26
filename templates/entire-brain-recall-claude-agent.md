@@ -60,5 +60,5 @@ request before acting on it.
 ## If the conversation source is empty
 
 An empty result is honest: the question may predate capture. Fall back to the
-classified layers (`brain_query` without a source) and current-code
+classified layers (`entire brain query` without `--source`) and current-code
 inspection; do not loop on rephrasing more than once.

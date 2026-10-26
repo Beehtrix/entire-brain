@@ -3,7 +3,7 @@
     {
       "kind": "go_test_json",
       "path": "go-test-internal-cli-radar.jsonl",
-      "sha256": "sha256:51a6452ed80e009be8e5a1cc1a32ce0edd55c1b382fc56ecff91f1d08ffd27e0"
+      "sha256": "sha256:6d80dc07c8a5bc27282aefe9fd3f5744b06100f99a69a01a87bd572f80bf0fc0"
     }
   ],
   "claim_scope": "mcp_radar_tool_contract",
@@ -18,7 +18,7 @@
   "commands": [
     "go test -json ./internal/cli -run '^(TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract|TestQMDOutputFormatAlias|TestQMDAliasesAcrossRetrievalVerbs|TestQMDBranchOverrideAcrossRetrievalVerbs|TestQMDLimitAliasesAndPrecedence|TestQMDHelpContractsForRetrievalVerbs|TestQMDTopLevelHelpListsRetrievalVerbs|TestQMDFormatCLIOverridesJSONAndReportsMissingIDs|TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs|TestRegressionDetectsChangedOperand|TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer|TestRegressionChangedOperandReportsEachRegressedHintedFile|TestInspectRegressionsCommandJSONAndLocationOnly|TestRegressionDeletionIsOptIn|TestRegressionDeletionRanksCallLocusWithHistoryFileHint|TestRegressionDeletionReportsEachMissingAnchoredCallSite|TestRegressionAssignmentDeletionReportsMissingHintedFileDespiteIntactPeer|TestRegressionAssignmentDeletionReportsEachMissingHintedSymbol|TestRegressionAssignmentDeletionRelatedLocationsStayOnSameInvariant|TestRegressionAssignmentDeletionRelatedLocationsDistinguishSameIdentifierDifferentRHS|TestRegressionAssignmentDeletionDoesNotLetIntactSiblingMaskRHSOnlySite|TestRegressionAssignmentDeletionReportsSameNameReceiverMethods|TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction|TestRegressionDedupeRankPrefersBoostedCallDeletion|TestRegressionScanHistoryClosesFilesDuringLargeWalk|TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain|TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci|TestWorkspaceRegressionsSkipsUnsafeRepo|TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo|TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint)$' > benchmarks/agent-brain/evidence/radar-tool/go-test-internal-cli-radar.jsonl"
   ],
-  "generated_at": "2026-10-26T03:50:17Z",
+  "generated_at": "2026-10-26T23:07:29Z",
   "limitations": [
     "Tool-contract proof only; this is not agent lift proof.",
     "Radar agent-lift proof/no-claim status is retained separately under benchmarks/agent-brain/evidence/release and checked by mise run radar:agent-evidence.",
@@ -60,14 +60,14 @@
   "source_files": {
     "benchmarks/agent-brain/audit_radar_tool_evidence.py": "sha256:9a12c9c4d24c74026abe8316ec6a5c8f91008d41875c54ead6ad8899c92a1a20",
     "benchmarks/agent-brain/record_radar_tool_evidence.py": "sha256:5a7757823684d5aa8f018baa7c3b880fe96fc3a0a961fad54c2d1af786251852",
-    "internal/cli/regression.go": "sha256:d3590fea1ef7f3a74899eeb1cf95dd23f7fca81a6560b30fb021e164f07cfb2a",
-    "internal/cli/regression_test.go": "sha256:58038561a4ff8277c204178ea236cbb7d732ae04c6e5d2df393ff09f9951b252",
+    "internal/cli/regression.go": "sha256:2ce13c73e1835d7a2bc7e47e59e1c9d42a9c9ef120a097dc87ef77bb3466ad00",
+    "internal/cli/regression_test.go": "sha256:73f8c9e6d6e210f3f14dcda1aa40d5122fbe0af746682fb5b555f61153afdf9a",
     "internal/cli/regression_unix_test.go": "sha256:ce954f538620c98e28eac5112a3b1b018ef37d66401f82220f550635f7486683",
-    "internal/cli/retrieve.go": "sha256:d961805c97077cc5fb7ec582032973bf67070cc73146589c80cdb54dd8834190",
-    "internal/cli/retrieve_cmd.go": "sha256:8f3b1c01db8e9b4d3967a736846c597d242d5cfad67520ce690c75c0f3979e11",
+    "internal/cli/retrieve.go": "sha256:63fbece91ea27ed177c9ba88808bbc9ee58126719d5be2bc5f4f57b83612cb88",
+    "internal/cli/retrieve_cmd.go": "sha256:93185eebc937246cf94178aa98d696b5a057f40db6b64cfc1c337b8d6cac56bd",
     "internal/cli/retrieve_test.go": "sha256:e62a21335241fc5e64b01b9e9936a764d049a04d2eb7f9fc6c3fdc6f2e31cd1d",
-    "internal/cli/workspace.go": "sha256:cb85b439c7547a55e3d7073b47abd1ae44edb35a337abdc0733fdbfcb89fa70d",
-    "internal/cli/workspace_test.go": "sha256:a3a0152b2d666ce37a88d93928035d37a5a2b067febf135dba6e97aad0bea81e"
+    "internal/cli/workspace.go": "sha256:fb6a6979edb47c675ebdb612c87e652e1c4f86971a43d2aa96449fca22f87492",
+    "internal/cli/workspace_test.go": "sha256:534a4a8c528337e204c5d825a80ebe5d34198c622d7c8d4fc146669a70fbb520"
   },
-  "source_head": "d4d12b9f786d503a910304e73853188b7692971f"
+  "source_head": "5cf5b465f99b71db6bec07d4f6f081c807d6deb1"
 }

@@ -15,7 +15,18 @@ import (
 // source must never turn migration into loss of the only readable copy.
 // Unlisted files are stale exports. Exclusion is reversible, so excluded
 // sessions need the same recovery proof as every other legacy cached session.
-func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDir, repoDir string) (*historySessionInventory, error) {
+//
+// retainSkipped names the cached addresses of the sessions THIS export is
+// dropping from the manifest because their checkpoint bytes are not available
+// locally. Liveness is read from the manifest on disk, so such a session is
+// still listed during the export that drops it and only becomes unlisted on
+// the next one -- at which point an unlisted file is swept as a stale export,
+// and for a destroyed checkpoint that cached file is the last copy of the
+// bytes. Those addresses are therefore retained without a recovery proof,
+// which the vanished source cannot supply anyway. The set is deliberately
+// narrow: a session removed by `privacy exclude` or a tombstone is NOT in it
+// and keeps being proved and swept like any other legacy cached session.
+func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDir, repoDir string, retainSkipped map[string]bool) (*historySessionInventory, error) {
 	if _, err := os.Lstat(brainDir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -54,6 +65,15 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		retained[rel] = true
 	}
 	for _, file := range inventory.files {
+		if retainSkipped[file.Rel] {
+			// The session behind this file is being dropped from the manifest
+			// for want of local checkpoint bytes, so the cached copy is the
+			// only one left and no recovery proof can succeed. Retaining it
+			// here is what keeps the next export -- which no longer finds the
+			// session listed -- from sweeping it as a stale export.
+			retain(file.Rel, "the session was skipped because its checkpoint transcript is unavailable")
+			continue
+		}
 		if _, live := sessions[file.Rel]; !live {
 			continue
 		}
@@ -93,7 +113,26 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 			// A divergent override of a checkpoint-backed session is an
 			// untrusted stray; sweeping it is the established cleanup.
 		default:
-			return nil, fmt.Errorf("retain transcript cache: checkpoint bytes differ from %s", file.Rel)
+			// Divergent, and nothing proves which copy is whole: neither is a
+			// prefix of the other, and this brain is not checkpoint-backed, so
+			// the cached file may hold bytes the checkpoint never saw.
+			//
+			// This used to return an error, which aborted the WHOLE delta
+			// export over one stray file -- and never self-healed, because
+			// nothing in the export path reconciles a divergence. Observed:
+			// one session file froze a real brain's manifest at 2026-10-11 for
+			// thirteen days, and because the source never advanced, the memory
+			// worker's receipt digest never matched its job digest, so it
+			// failed `memory_source_stale` and relaunched on backoff forever.
+			// Every symptom was two layers away from this line.
+			//
+			// Retaining is both safer and unblocking: the file is kept either
+			// way (the error path deleted nothing), so refusing to sweep it
+			// loses no bytes, while the export goes on and every other session
+			// gets through. It is exactly what the newer-than-its-checkpoint
+			// case above already does, for the reason stated there -- "instead
+			// of blocking every future export".
+			retain(file.Rel, "checkpoint bytes differ")
 		}
 	}
 	if len(retained) > 0 {

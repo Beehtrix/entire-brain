@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // queryExpansionPrompt instructs the agent to rewrite a task into retrieval
@@ -31,14 +34,14 @@ func parseExpansion(output string) string {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		return truncateString(strings.Join(strings.Fields(line), " "), 240)
+		return base.TruncateString(strings.Join(strings.Fields(line), " "), 240)
 	}
 	return ""
 }
 
 // expandQuery returns extra retrieval terms for a query, consulting the cache
 // first so repeated evals are deterministic and cheap.
-func expandQuery(ctx context.Context, run distillAgentRunner, args []string, repoDir, query string, cache *expansionCache) (string, error) {
+func expandQuery(ctx context.Context, run base.DistillAgentRunner, args []string, repoDir, query string, cache *expansionCache) (string, error) {
 	if v, ok := cache.get(query); ok {
 		return v, nil
 	}
@@ -105,5 +108,5 @@ func (c *expansionCache) save() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(c.path, append(data, '\n'), 0o600)
 }

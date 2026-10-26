@@ -2,8 +2,9 @@ package cli
 
 import (
 	"context"
-	"github.com/spf13/cobra"
 	"io"
+
+	"github.com/spf13/cobra"
 )
 
 // Phase adapters return operation errors. Rendering and failure policy stay in runRefresh.

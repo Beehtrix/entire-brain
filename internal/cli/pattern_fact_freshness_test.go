@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
@@ -16,7 +18,7 @@ func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := openCorpus(t, d)
-	before := corpusCount(t, db, "episode_facts")
+	before := patterntest.CorpusCount(t, db, "episode_facts")
 	db.Close()
 	if before == 0 {
 		t.Fatal("fixture has no links")
@@ -30,7 +32,7 @@ func TestPatternFactLinksRefreshWithoutTranscriptChanges(t *testing.T) {
 	}
 	db = openCorpus(t, d)
 	defer db.Close()
-	after := corpusCount(t, db, "episode_facts")
+	after := patterntest.CorpusCount(t, db, "episode_facts")
 	if after != 0 {
 		t.Fatalf("regression %d %d", before, after)
 	}

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -155,7 +156,7 @@ func webhookRepoName(repoDir string) string {
 // The git toplevel is the one that is stable under both, and it falls back to
 // the configured root when git cannot answer.
 func webhookRepoIdentity(ctx context.Context, opts Options) string {
-	if top, err := gitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
+	if top, err := base.GitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
 		if name := webhookRepoName(strings.TrimSpace(top)); name != "" {
 			return name
 		}
@@ -169,7 +170,7 @@ func webhookRepoIdentity(ctx context.Context, opts Options) string {
 // call site can do.
 func newFactWebhookEvent(name, repoName, branch string, record factRecord, now time.Time) webhookEvent {
 	fact := &webhookFact{ID: record.ID, Kind: record.Kind, Paths: record.Paths}
-	if envBool(webhookIncludeTextEnv) {
+	if base.EnvBool(webhookIncludeTextEnv) {
 		fact.Text = record.Text
 	}
 	return webhookEvent{
@@ -185,8 +186,8 @@ func newFactWebhookEvent(name, repoName, branch string, record factRecord, now t
 // there is none — `webhook status` prints the reason, so a webhook that is off
 // because of a typo is distinguishable from one that was never configured.
 func webhookEndpoint() (endpoint string, ok bool, reason string) {
-	if brainNoEgressMode() {
-		return "", false, "egress is disabled by " + noEgressToggleName()
+	if base.BrainNoEgressMode() {
+		return "", false, "egress is disabled by " + base.NoEgressToggleName()
 	}
 	raw := strings.TrimSpace(os.Getenv(webhookURLEnv))
 	if raw == "" {

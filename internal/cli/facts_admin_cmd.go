@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -74,7 +76,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// Seeded with the id so the event is still identifiable if the
 			// record cannot be re-read after the mutation.
 			retracted := factRecord{ID: factID}
-			if err := withBrainWriteLock(brainDir, func() error {
+			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 				facts, err := loadFacts(brainDir, resolvedBranch)
 				if err != nil {
 					return err
@@ -227,7 +229,7 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 	}
 
 	resolved, remaining, deferred := 0, 0, 0
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		proposals, err := loadFactProposals(brainDir, branch)
 		if err != nil {
 			return err
@@ -351,7 +353,7 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 			}
 			target := into
 			if strings.TrimSpace(target) == "" {
-				if current, gitErr := gitScalar(cmd.Context(), opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+				if current, gitErr := base.GitScalar(cmd.Context(), opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 					target = strings.TrimSpace(current)
 				}
 			}
@@ -417,7 +419,7 @@ func validateFactsPromoteEndpoints(ctx context.Context, opts Options, repoDir, b
 func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, strategy string, jsonOut bool) error {
 	now := opts.Now().UTC()
 	var promoted, proposalCount int
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		source, err := loadFacts(brainDir, from)
 		if err != nil {
 			return err
@@ -531,7 +533,7 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 	// store outside it and writing the mutated copy back is a lost update: a
 	// concurrent writer that commits between this read and this write is
 	// silently overwritten, and its facts disappear.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		loaded, err := loadFacts(brainDir, branch)
 		if err != nil {
 			return err
@@ -708,7 +710,7 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 		"applied":   force,
 	}
 	if force {
-		if err := withBrainWriteLock(brainDir, func() error {
+		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 			facts, err := loadFacts(brainDir, branch)
 			if err != nil {
 				return err

@@ -35,6 +35,7 @@ p	docs/order.md
 p	docs/other.md
 p	docs/order.md
 p	docs/other.md
+staleness ancestor_commit="ancestor1" commits_behind=2 changed_files=["internal/a.go","internal/b.go"] unreliable=["internal/a.go"] excluded_records=12
 @y=symbol(id,kind,name,short_name,file,start,end,path,signature,language,score,confidence,reason,warning_codes)
 y	sym:validate	function	pkg.Validate	Validate	internal/a.go	10	20	~	"func Validate(token string) error"	go	9	0.95	"task term match"	[partial]
 y	^	^	^	^	^	^	^	~	"func Validate(token string) error"	^	9	^	"task term match"	^
@@ -90,4 +91,4 @@ g	"Inspect dirty files before trusting the snapshot."
 !	^	"live warning"
 !	brief	"brief warning"
 !	^	"brief warning"
-end	65	ce335e0e3105cf4b3c21cc8608b5bd9df01a7820800656c604448f5a93d45388
+end	66	5925191912dbb9ad642b1160a9e7af43e0c23495177512de0aef8fc267c9735f

@@ -7,6 +7,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Pattern corpus surface integration (V2, Phase 5).
@@ -24,7 +28,7 @@ import (
 // carries its dossier state (current/stale + verifier verdict) and top anchor.
 // Rejected dossiers are suppressed. Graceful: nil when no corpus exists.
 func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]patternView, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, nil, false, err
 	}
@@ -68,7 +72,7 @@ func loadCorpusPatternViewsChecked(brainDir string) ([]patternView, map[string]p
 		}
 		v.Kind = metaID
 		v.Workspace = workspace
-		v.Title = redactText(v.Title)
+		v.Title = base.RedactText(v.Title)
 		v.DossierStatus = dossierStatus
 		v.Verdict = verdict
 		rc := reinforcementCounts{Success: succ, Corrected: corr, Neutral: neutral}
@@ -125,7 +129,7 @@ func topAnchorByPatternChecked(db *sql.DB) (map[string]episodeAnchor, error) {
 		if err := rows.Scan(&id, &path, &line); err != nil {
 			return nil, err
 		}
-		out[id] = episodeAnchor{Path: redactText(path), Line: line}
+		out[id] = episodeAnchor{Path: base.RedactText(path), Line: line}
 	}
 	return out, rows.Err()
 }
@@ -134,21 +138,21 @@ func topAnchorByPatternChecked(db *sql.DB) (map[string]episodeAnchor, error) {
 // brief carries: enough to act (trigger, workflow, verification, failure modes)
 // plus one anchor and the trust signals (confidence, verdict, staleness).
 type briefConsolidation struct {
-	PatternID    string         `json:"pattern_id"`
-	Type         string         `json:"type"`
-	Title        string         `json:"title"`
-	Trigger      string         `json:"trigger"`
-	Confidence   float64        `json:"confidence"`
-	Status       string         `json:"status"`
-	Verdict      string         `json:"verdict,omitempty"`
-	Workflow     []string       `json:"workflow,omitempty"`
-	Verification []string       `json:"verification,omitempty"`
-	FailureModes []string       `json:"failure_modes,omitempty"`
-	Anchor       *dossierAnchor `json:"anchor,omitempty"`
+	PatternID    string                     `json:"pattern_id"`
+	Type         string                     `json:"type"`
+	Title        string                     `json:"title"`
+	Trigger      string                     `json:"trigger"`
+	Confidence   float64                    `json:"confidence"`
+	Status       string                     `json:"status"`
+	Verdict      string                     `json:"verdict,omitempty"`
+	Workflow     []string                   `json:"workflow,omitempty"`
+	Verification []string                   `json:"verification,omitempty"`
+	FailureModes []string                   `json:"failure_modes,omitempty"`
+	Anchor       *patterncore.DossierAnchor `json:"anchor,omitempty"`
 }
 
 type loadedDossier struct {
-	rec     dossierRecord
+	rec     patterncore.DossierRecord
 	typ     string
 	status  string
 	verdict string
@@ -157,7 +161,7 @@ type loadedDossier struct {
 // loadCorpusDossiers reads every dossier joined to its pattern type. Graceful:
 // returns nil when the corpus is absent or unreadable.
 func loadCorpusDossiersChecked(brainDir string) ([]loadedDossier, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -177,9 +181,9 @@ func loadCorpusDossiersChecked(brainDir string) ([]loadedDossier, error) {
 		if err := rows.Scan(&blob, &typ, &status, &verdict); err != nil {
 			return out, err
 		}
-		var rec dossierRecord
+		var rec patterncore.DossierRecord
 		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
-			return nil, fmt.Errorf("%s: parse corpus dossier for pattern surface: %w", memoryErrStateCorrupt, err)
+			return nil, fmt.Errorf("%s: parse corpus dossier for pattern surface: %w", brainstore.StateCorruptCode, err)
 		}
 		out = append(out, loadedDossier{rec: rec, typ: typ, status: status, verdict: verdict})
 	}
@@ -400,7 +404,7 @@ func loadReviewPatternContextChecked(brainDir string, files []string, limit int)
 	if len(files) == 0 || limit <= 0 {
 		return nil, nil
 	}
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -444,7 +448,7 @@ func loadReviewPatternContextChecked(brainDir string, files []string, limit int)
 		if len(out) >= limit {
 			break
 		}
-		out = append(out, reviewPatternRef{File: redactText(path), Type: typ, Title: redactText(title), ID: id})
+		out = append(out, reviewPatternRef{File: base.RedactText(path), Type: typ, Title: base.RedactText(title), ID: id})
 	}
 	return out, rows.Err()
 }
@@ -487,7 +491,7 @@ func getCorpusConsolidation(brainDir, patternID string) (unifiedResult, bool) {
 }
 
 func getCorpusConsolidationChecked(brainDir, patternID string) (unifiedResult, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}
@@ -504,7 +508,7 @@ func getCorpusConsolidationChecked(brainDir, patternID string) (unifiedResult, b
 		}
 		return unifiedResult{}, false, err
 	}
-	var rec dossierRecord
+	var rec patterncore.DossierRecord
 	if json.Unmarshal([]byte(blob), &rec) != nil {
 		return unifiedResult{}, false, nil
 	}
@@ -515,7 +519,7 @@ func getCorpusConsolidationChecked(brainDir, patternID string) (unifiedResult, b
 	}, true, nil
 }
 
-func renderConsolidationText(rec dossierRecord, status, verdict string) string {
+func renderConsolidationText(rec patterncore.DossierRecord, status, verdict string) string {
 	var b strings.Builder
 	b.WriteString(rec.Title)
 	b.WriteString("\n")
@@ -542,5 +546,5 @@ func renderConsolidationText(rec dossierRecord, status, verdict string) string {
 	b.WriteString(strconv.FormatFloat(rec.Confidence, 'g', -1, 64))
 	b.WriteString(" (" + state + ")")
 	// Already redacted at rest; defensive redaction on egress.
-	return redactText(b.String())
+	return base.RedactText(b.String())
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -300,7 +301,7 @@ func movedPushHookCandidates(hooksDir string) []string {
 // random temp name can never collide with a concurrent installer or match
 // movedPushHookCandidates' glob.
 func writePushHookFile(path, content string) error {
-	return writeFileAtomic(path, []byte(content), 0o755) //nolint:gosec // git hooks must be executable
+	return brainstore.WriteFileAtomic(path, []byte(content), 0o755) //nolint:gosec // git hooks must be executable
 }
 
 // gitHooksDir is realGitHooksDir (git_harden.go — the resolver lives beside

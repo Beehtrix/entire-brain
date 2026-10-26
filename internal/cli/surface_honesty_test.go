@@ -283,7 +283,7 @@ func TestDashPlainAndJSONAgree(t *testing.T) {
 
 	// The counts line must match the model's own list lengths — the same numbers
 	// the dashboard's tab bar shows.
-	wantCounts := fmt.Sprintf("Facts (%d) · Sessions (%d) · History (%d) · Semantic (%d)",
+	wantCounts := fmt.Sprintf("Facts (%d) · Sessions (%d) · History (%d) · Code (%d)",
 		len(snap.Facts), len(snap.Sessions), len(snap.History), len(snap.Semantic))
 	if !strings.Contains(plain, wantCounts) {
 		t.Errorf("--plain counts disagree with --json; want %q in:\n%s", wantCounts, plain)

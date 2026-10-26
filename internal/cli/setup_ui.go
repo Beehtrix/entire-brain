@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mattn/go-isatty"
-
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/mattn/go-isatty"
 )
 
 // setup_ui.go is the seam between setup's orchestration and the seven-phase
@@ -194,7 +194,7 @@ func setupShortBuildLabel(label string) string {
 		{"seed baseline", "scanning repository files"},
 		{"history index", "indexing session history"},
 		{"doc index", "indexing documentation"},
-		{"semantic index", "indexing code"},
+		{"code index", "indexing code"},
 		{"reclassify facts", "organizing existing memories"},
 		{"pattern layer", "finding patterns in past sessions"},
 		{"entity index", "indexing code changes"},
@@ -446,10 +446,10 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if dirty, err := worktreeDirty(ctx, runner, repoDir); err == nil {
 		facts.Dirty = dirty
 	}
-	branch, branchErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	branch, branchErr := clibase.GitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
 	branch = strings.TrimSpace(branch)
 
-	count, err := gitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
+	count, err := clibase.GitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
 	if err == nil {
 		if parsed, convErr := strconv.Atoi(strings.TrimSpace(count)); convErr == nil && parsed >= 0 {
 			facts.Commits = parsed
@@ -470,7 +470,7 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if branchErr != nil || branch == "" {
 		return facts, false
 	}
-	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
+	if _, resolved := clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
 		facts.Commits = 0
 		return facts, true
 	}
@@ -532,7 +532,7 @@ func entityRevisionDetail(revision string) string {
 // is reported as unbound with the read error as its note: claiming a binding
 // this command could not read is the one answer that could cost someone data.
 func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
-	facts := setupui.HostedFacts{Remedy: setupBrainCommand(brainCmd) + " connect"}
+	facts := setupui.HostedFacts{Remedy: clibase.SetupBrainCommand(brainCmd) + " connect"}
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
@@ -540,13 +540,10 @@ func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
 	case !present:
 		// setupui's own default names the ticket that owns the gap.
 	case binding.OptedOut:
-		facts.Note = "disconnected by `" + setupBrainCommand(brainCmd) + " disconnect`"
+		facts.Note = "disconnected by `" + clibase.SetupBrainCommand(brainCmd) + " disconnect`"
 	default:
 		facts.Bound = true
-		facts.Target = binding.RepoID
-		if binding.BaseURL != "" {
-			facts.Target += " at " + binding.BaseURL
-		}
+		facts.Target = binding.BaseURL
 	}
 	return facts
 }
@@ -564,7 +561,7 @@ func detectSetupFacts(ctx context.Context, opts Options, setupOpts setupCommandO
 	detected.Agent = setupui.AgentFacts{
 		Model:  strings.TrimSpace(setupOpts.model),
 		Effort: strings.TrimSpace(setupOpts.effort),
-		Remedy: "install codex or claude, then re-run `" + setupBrainCommand(brainCmd) + " setup`",
+		Remedy: "install codex or claude, then re-run `" + clibase.SetupBrainCommand(brainCmd) + " setup`",
 	}
 	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "none" && agent != "auto" {
 		detected.Agent.Name = agent
@@ -661,7 +658,7 @@ func setupOffersConnect(brainPath string) bool {
 }
 
 func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect, agentsWired bool) []setupui.NextStep {
-	cmd := setupBrainCommand(brainCmd)
+	cmd := clibase.SetupBrainCommand(brainCmd)
 	next := []setupui.NextStep{}
 	// FIRST when the wiring did not land. Every other step below assumes an
 	// agent can find this brain; until the agent instructions land, nothing

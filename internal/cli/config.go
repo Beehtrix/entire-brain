@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -162,7 +163,7 @@ func buildConfigReport(env EntireEnv) (configReport, error) {
 		BrainStore:     filepath.Join(dirs.Data, repoStoreDirName),
 		RepoRoot:       env.RepoRoot,
 		DomainSlugs:    slugs,
-		NoEgress:       brainNoEgressMode(),
+		NoEgress:       base.BrainNoEgressMode(),
 		MCPGraphBinary: mcpGraphBinary(),
 	}, nil
 }

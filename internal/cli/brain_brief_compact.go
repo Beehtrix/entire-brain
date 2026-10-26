@@ -193,6 +193,28 @@ func emitBrainBriefCompactV1(cmd *cobra.Command, report brainBriefReport) error 
 		compactV1Record(&out, "likely_file", compactV1StringAlways("path", path))
 	}
 
+	// Emitted ahead of the records it qualifies, not after them: agents cap the
+	// bytes they read from a tool call, and a caveat that arrives after the
+	// symbols is a caveat the reader may never see. Omitted entirely for an
+	// exact answer, so an unstale packet is byte-identical to before.
+	//
+	// excluded_records uses the always-emitted form deliberately. Unreliable can
+	// only name paths this answer returned records for, and an ancestor store has
+	// already dropped the records for changed files -- so an absent unreliable
+	// list is the common case even when the answer is incomplete, and on its own
+	// it reads as "nothing to worry about". The count is what separates the two,
+	// and a count omitted at zero would be indistinguishable from a renderer that
+	// does not report it at all.
+	if staleness := report.Semantic.Staleness; staleness != nil {
+		compactV1Record(&out, "staleness",
+			compactV1StringAlways("ancestor_commit", staleness.AncestorCommit),
+			compactV1IntAlways("commits_behind", staleness.CommitsBehind),
+			compactV1Strings("changed_files", staleness.ChangedFiles),
+			compactV1Strings("unreliable", staleness.Unreliable),
+			compactV1IntAlways("excluded_records", staleness.ExcludedRecords),
+		)
+	}
+
 	for _, symbol := range report.Semantic.Context.Symbols {
 		compactV1SemanticSymbol(&out, "symbol", symbol)
 	}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const (
@@ -229,7 +231,7 @@ func writeBrainBriefProfile(path string, profile brainBriefProfile) error {
 		return fmt.Errorf("encode brief profile: %w", err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write brief profile: %w", err)
 	}
 	return nil

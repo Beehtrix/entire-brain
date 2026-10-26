@@ -57,7 +57,7 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 		}
 		for number, line := range strings.Split(string(data), "\n") {
 			scanned++
-			helperSites += strings.Count(line, "brainInvocation(")
+			helperSites += strings.Count(line, "BrainInvocation(")
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "//") || !hardcodedBrainVerb.MatchString(line) {
 				continue
@@ -70,7 +70,7 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 				}
 			}
 			if !ok {
-				t.Errorf("%s:%d hardcodes `entire brain <verb>`; render it with brainInvocation(os.LookupEnv, verb) "+
+				t.Errorf("%s:%d hardcodes `entire brain <verb>`; render it with base.BrainInvocation(os.LookupEnv, verb) "+
 					"or add a reasoned entry to deliberatelyHardcoded: %s", name, number+1, trimmed)
 			}
 		}
@@ -81,7 +81,7 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 		t.Fatalf("scanned only %d lines; the walk is broken", scanned)
 	}
 	if helperSites < 90 {
-		t.Fatalf("found only %d brainInvocation call sites; the scan is matching nothing", helperSites)
+		t.Fatalf("found only %d BrainInvocation call sites; the scan is matching nothing", helperSites)
 	}
 	if allowed < len(deliberatelyHardcoded) {
 		t.Fatalf("only %d of %d allowlist entries matched a line; stale allowlist or broken matcher", allowed, len(deliberatelyHardcoded))

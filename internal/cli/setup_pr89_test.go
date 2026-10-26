@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -425,7 +427,7 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 	held := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- withDistillPassLock(f.storage.BrainDir, func() { t.Error("the test must be the one holding the lock") }, func() error {
+		done <- brainstore.WithDistillPassLock(f.storage.BrainDir, func() { t.Error("the test must be the one holding the lock") }, func() error {
 			close(held)
 			<-done // released below, after watchDistill has tried
 			return nil
@@ -455,13 +457,13 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 func TestWorkspaceRegistrationKeepsAMemberName(t *testing.T) {
 	f := newSetupTestFixture(t)
 	const key = "aaaaaaaaaaaaaaaa"
-	if _, err := addWorkspaceRepoLocked(f.env, setupDefaultWorkspace, workspaceRepo{RepoKey: key, Name: "the-api", LocalPathHint: f.repoDir}); err != nil {
+	if _, err := workspaceStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: key, Name: "the-api", LocalPathHint: f.repoDir}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
 	if _, err := registerRepoInWorkspace(context.Background(), nil, f.opts, setupDefaultWorkspace, f.repoDir, key); err != nil {
 		t.Fatalf("re-register: %v", err)
 	}
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -475,21 +477,21 @@ func TestWorkspaceRegistrationKeepsAMemberName(t *testing.T) {
 // error named neither the file nor a way out.
 func TestCorruptWorkspaceManifestNamesTheFileToFix(t *testing.T) {
 	f := newSetupTestFixture(t)
-	dir, err := workspaceDir(f.env, setupDefaultWorkspace)
+	dir, err := workspaceStore(f.env).Dir(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, workspaceManifestName), []byte("{not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, workspace.ManifestName), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, addErr := addWorkspaceRepoLocked(f.env, setupDefaultWorkspace, workspaceRepo{RepoKey: "bbbbbbbbbbbbbbbb", LocalPathHint: f.repoDir})
+	_, addErr := workspaceStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: "bbbbbbbbbbbbbbbb", LocalPathHint: f.repoDir})
 	if addErr == nil {
 		t.Fatal("a corrupt manifest must not be silently replaced: the other members would be dropped")
 	}
-	if !strings.Contains(addErr.Error(), workspaceManifestName) {
+	if !strings.Contains(addErr.Error(), workspace.ManifestName) {
 		t.Fatalf("the error must name the file that wedged the workspace, got %v", addErr)
 	}
 }

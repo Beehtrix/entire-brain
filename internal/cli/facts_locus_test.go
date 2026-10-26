@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestFactScope(t *testing.T) {
@@ -29,7 +31,7 @@ func TestFactScope(t *testing.T) {
 
 func TestFactLocus(t *testing.T) {
 	text := "Use `MirrorCommittedMetadataRef` from internal/cli/strategy when reading entire/checkpoints/v1; settings.Load honors WithWorktreeRoot."
-	locus := factLocus(text)
+	locus := base.FactLocus(text)
 	loc := map[string]bool{}
 	for _, l := range locus {
 		loc[l] = true
@@ -40,13 +42,13 @@ func TestFactLocus(t *testing.T) {
 		}
 	}
 	// Plain prose yields no identifiers.
-	if got := factLocus("This sentence has only ordinary words in it."); len(got) != 0 {
+	if got := base.FactLocus("This sentence has only ordinary words in it."); len(got) != 0 {
 		t.Errorf("prose should yield no locus, got %v", got)
 	}
 }
 
 func TestLocusOverlap(t *testing.T) {
-	q := factLocus("where is MirrorCommittedMetadataRef defined")
+	q := base.FactLocus("where is MirrorCommittedMetadataRef defined")
 	if locusOverlap(q, "`MirrorCommittedMetadataRef` is best-effort") < 1 {
 		t.Errorf("expected overlap on the shared symbol")
 	}
@@ -279,7 +281,7 @@ func TestFactLocusKeepsHyphenatedPaths(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := factLocus(c.text)
+			got := base.FactLocus(c.text)
 			loc := map[string]bool{}
 			for _, l := range got {
 				loc[l] = true
@@ -311,7 +313,7 @@ func TestFactLocusHyphenWideningStaysOffProse(t *testing.T) {
 		"we did a before-and-after comparison last week",
 		"This sentence has only ordinary words in it.",
 	} {
-		if got := factLocus(text); len(got) != 0 {
+		if got := base.FactLocus(text); len(got) != 0 {
 			t.Errorf("prose %q should yield no locus, got %v", text, got)
 		}
 	}

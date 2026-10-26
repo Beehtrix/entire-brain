@@ -95,7 +95,7 @@ func TestSemanticBoundaryCommandsResolveExternalNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workflows text: %v", err)
 	}
-	if !strings.Contains(out, "no workflows found in the semantic index") {
+	if !strings.Contains(out, "no workflows found in the code index") {
 		t.Fatalf("workflows empty-state message missing:\n%s", out)
 	}
 }

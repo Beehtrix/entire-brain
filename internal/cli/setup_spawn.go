@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // spawnDetached starts the background backfill and returns immediately with the
@@ -107,7 +109,7 @@ func stopDetachedProcess(pid int) error {
 // arrives second skip its pass — and it is a far smaller cost than the failure
 // it replaces, which is permanent and silent.
 func backfillRunning(brainDir string, pid int) bool {
-	if !processAlive(pid) {
+	if !brainstore.ProcessAlive(pid) {
 		return false
 	}
 	if strings.TrimSpace(brainDir) == "" {
@@ -115,9 +117,9 @@ func backfillRunning(brainDir string, pid int) bool {
 		// claiming a backfill is dead on no evidence.
 		return true
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName), "distill_pass_locked", 0)
 	if err != nil {
-		if errors.Is(err, errFileLockTimeout) {
+		if errors.Is(err, brainstore.ErrFileLockTimeout) {
 			// Contended: a distill pass IS running. That it might be the watch
 			// daemon's pass rather than our child does not change the answer a
 			// caller needs — spawning another backfill now would only produce a

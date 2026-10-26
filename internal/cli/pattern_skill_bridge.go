@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Skill-formation bridge (Pattern Consolidation v2, Priority 7).
@@ -73,7 +77,7 @@ func loadKnowledgeSkillProposals(brainDir string) []taskCandidate {
 }
 
 func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +87,7 @@ func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error
 	defer db.Close()
 	// A corpus that predates the additive deep_dossiers table has no accepted
 	// dossiers, not a broken read.
-	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
 		return nil, err
 	}
 	rows, err := db.Query(`SELECT pattern_id, json_redacted FROM deep_dossiers
@@ -101,13 +105,13 @@ func loadKnowledgeSkillProposalsChecked(brainDir string) ([]taskCandidate, error
 		}
 		var rec deepDossierRecord
 		if err := json.Unmarshal([]byte(blob), &rec); err != nil {
-			return nil, fmt.Errorf("%s: parse accepted knowledge skill proposal: %w", memoryErrStateCorrupt, err)
+			return nil, fmt.Errorf("%s: parse accepted knowledge skill proposal: %w", brainstore.StateCorruptCode, err)
 		}
 		support := rec.EvidenceEpisodes
-		strength := supportScoreV2(support)
+		strength := patterncore.SupportScoreV2(support)
 		out = append(out, taskCandidate{
 			ID: id, Label: rec.Title, Support: support, WithCommands: 0,
-			Strength: strength, StrengthLabel: strengthLabelV2(strength),
+			Strength: strength, StrengthLabel: patterncore.StrengthLabelV2(strength),
 			SampleIntents: []string{rec.Trigger},
 		})
 	}
@@ -120,7 +124,7 @@ func queryTaskCandidates(brainDir string, requireAcceptedDeep bool) ([]taskCandi
 }
 
 func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]taskCandidate, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -129,7 +133,7 @@ func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]ta
 	}
 	defer db.Close()
 
-	hasDeep, err := patternCorpusHasTable(db.DB, "deep_dossiers")
+	hasDeep, err := patterncore.CorpusHasTable(db.DB, "deep_dossiers")
 	if err != nil {
 		return nil, false, err
 	}
@@ -174,7 +178,7 @@ func queryTaskCandidatesChecked(brainDir string, requireAcceptedDeep bool) ([]ta
 			ID: id, RepoKey: repoKey, IntentSignature: intentSig, Label: title,
 			Support: support, WithCommands: support,
 			Reinforcement: reinforcementCounts{Success: succ, Corrected: corr, Neutral: neut},
-			Commands:      splitGramHeads(gram),
+			Commands:      patterncore.SplitGramHeads(gram),
 			Strength:      strength, StrengthLabel: strengthLabel,
 		}
 		enrichCandidateFromCorpus(db.DB, &c, id)
@@ -204,16 +208,16 @@ func enrichCandidateFromCorpus(db *sql.DB, c *taskCandidate, patternID string) {
 			}
 			if intent != "" && !seen[intent] {
 				seen[intent] = true
-				c.SampleIntents = append(c.SampleIntents, redactText(intent))
+				c.SampleIntents = append(c.SampleIntents, base.RedactText(intent))
 			}
-			c.Examples = append(c.Examples, episodeAnchor{Path: redactText(path), Line: line})
+			c.Examples = append(c.Examples, episodeAnchor{Path: base.RedactText(path), Line: line})
 		}
 		rows.Close()
 	}
 	// Facts from the dossier (already redacted at rest).
 	var blob string
 	if db.QueryRow(`SELECT json_redacted FROM dossiers WHERE pattern_id=?`, patternID).Scan(&blob) == nil {
-		var rec dossierRecord
+		var rec patterncore.DossierRecord
 		if json.Unmarshal([]byte(blob), &rec) == nil {
 			c.MatchingFacts = append(c.MatchingFacts, rec.Facts...)
 		}

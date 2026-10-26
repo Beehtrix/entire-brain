@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestCustomDistillMarkerHelper(t *testing.T) {
@@ -33,8 +35,8 @@ func TestCustomDistillCommandPreservesPromptMarkerArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := []string{self, "-test.run=^TestCustomDistillMarkerHelper$", "--", distillAgentPromptMarker, "custom-value"}
-	args, err := distillAgentCommandArgs("command", command, "private system prompt")
+	command := []string{self, "-test.run=^TestCustomDistillMarkerHelper$", "--", base.DistillAgentPromptMarker, "custom-value"}
+	args, err := base.DistillAgentCommandArgs("command", command, "private system prompt")
 	if err != nil {
 		t.Fatal(err)
 	}

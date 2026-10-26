@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,22 +9,14 @@ import (
 	"unicode/utf8"
 
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const (
 	distillTemplateName   = "templates/entire-brain-distill.md"
 	distillTaxonomyMarker = "${TAXONOMY_BLOCK}"
 	distillMaxOutputBytes = 256 * 1024
-	// distillAgentPromptMarker separates the agent's real argv from its system
-	// prompt inside the slice distillAgentCommandArgs returns. The prompt is
-	// deliberately NOT a process argument: on Windows `claude`/`codex` installed
-	// from npm resolve to `.cmd` shims, which Go runs through cmd.exe, and
-	// cmd.exe caps the whole command line at 8191 characters.
-	// templates/entire-brain-distill.md alone is ~7.5 KiB, so a prompt on argv
-	// made `brain distill` fail unconditionally there with "The command line is
-	// too long" (issue #322). prepareAgentExec strips this marker and the prompt
-	// that follows it and delivers the prompt out of band instead.
-	distillAgentPromptMarker = "--entire-brain-agent-prompt-off-argv"
+
 	// Ollama /api/generate echoes the prompt back as a `context` token array the
 	// distiller never reads. Measured at ~3x the prompt bytes for dense ASCII;
 	// 8x leaves headroom for tokenizers that split finer, while keeping the read
@@ -128,104 +119,6 @@ func factTaxonomyBlock(taxonomy factTaxonomy) string {
 	return b.String()
 }
 
-// distillAgentCommandArgs builds the argv that runs the seed agent with the
-// rendered distillation prompt. The prompt stays OFF the command line: it is
-// appended behind distillAgentPromptMarker and prepareAgentExec moves it to a
-// 0600 temp file (claude, via --system-prompt-file) or onto stdin (codex)
-// before the process is spawned — see distillAgentPromptMarker for why. The
-// transcript chunk is supplied on stdin. The no-agent mode ("none") has no
-// command — distillation is agent-required.
-func distillAgentCommandArgs(agent string, agentCommand []string, prompt string) ([]string, error) {
-	if err := rejectAgentForNoEgress(agent); err != nil {
-		return nil, err
-	}
-	switch agent {
-	case "command":
-		if len(agentCommand) == 0 {
-			return nil, errors.New("--agent-command is required when --agent command")
-		}
-		return append([]string(nil), agentCommand...), nil
-	case "codex":
-		return []string{"codex", "exec", "--json", "--skip-git-repo-check", "--ephemeral", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only", distillAgentPromptMarker, prompt}, nil
-	case "claude-code":
-		return []string{"claude", "--print", "--output-format", "json", "--no-session-persistence", "--setting-sources", "user", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--disable-slash-commands", "--permission-mode", "dontAsk", "--tools", "", distillAgentPromptMarker, prompt}, nil
-	case "ollama":
-		// No marker: the ollama runner never spawns a process. It POSTs to a
-		// loopback /api/generate endpoint and sends this element as the JSON
-		// `system` field, so no command line is ever built and no OS argv limit
-		// applies.
-		return []string{"ollama", "", prompt}, nil
-	case "none", "":
-		return nil, errors.New("distillation requires an agent; --agent none has nothing to run")
-	default:
-		return nil, fmt.Errorf("unsupported --agent %q", agent)
-	}
-}
-
-// splitAgentPromptArg separates the agent argv from the system prompt that
-// distillAgentCommandArgs parked behind distillAgentPromptMarker. The returned
-// argv is a copy, so callers may append their own flags without aliasing the
-// builder's slice. Agents whose builder output carries no marker (the `command`
-// agent, which never received the prompt, and `ollama`, which spawns no
-// process) come back unchanged with ok=false.
-func splitAgentPromptArg(args []string) (argv []string, prompt string, ok bool) {
-	n := len(args)
-	if n < 2 || args[n-2] != distillAgentPromptMarker {
-		return args, "", false
-	}
-	return append([]string(nil), args[:n-2]...), args[n-1], true
-}
-
-// injectAgentModel inserts a `--model <model>` flag into a codex/claude-code argv
-// so the distill run can pin a specific model (e.g. gpt-5.3-codex-spark). It is a
-// no-op for an empty model or any other agent (the `command` agent carries its
-// own argv). The flag is inserted early — after `codex exec` / after `claude` —
-// where both CLIs accept it, ahead of the trailing prompt argument.
-func injectAgentModel(args []string, agent, model string) []string {
-	if model == "" {
-		return args
-	}
-	switch agent {
-	case "codex":
-		if len(args) >= 2 && args[0] == "codex" && args[1] == "exec" {
-			return append(args[:2:2], append([]string{"--model", model}, args[2:]...)...)
-		}
-	case "claude-code":
-		if len(args) >= 1 && args[0] == "claude" {
-			return append(args[:1:1], append([]string{"--model", model}, args[1:]...)...)
-		}
-	case "ollama":
-		if len(args) >= 3 && args[0] == "ollama" {
-			out := append([]string(nil), args...)
-			out[1] = model
-			return out
-		}
-	}
-	return args
-}
-
-// injectAgentEffort pins the reasoning effort for a codex/claude-code argv built by
-// distillAgentCommandArgs/seedAgentCommandArgs — codex via `--config model_reasoning_effort=<e>`,
-// claude-code via `--effort <e>` (the same forms the benchmark harness uses). It mirrors
-// injectAgentModel: a no-op for an empty effort, the `command` agent, or an unrecognized shape,
-// and inserts early so the trailing prompt argument stays last.
-func injectAgentEffort(args []string, agent, effort string) []string {
-	if effort == "" {
-		return args
-	}
-	switch agent {
-	case "codex":
-		if len(args) >= 2 && args[0] == "codex" && args[1] == "exec" {
-			return append(args[:2:2], append([]string{"--config", "model_reasoning_effort=" + effort}, args[2:]...)...)
-		}
-	case "claude-code":
-		if len(args) >= 1 && args[0] == "claude" {
-			return append(args[:1:1], append([]string{"--effort", effort}, args[1:]...)...)
-		}
-	}
-	return args
-}
-
 // distilledFactsFromOutput parses the agent's line-based output for one
 // transcript chunk into fact records. Each emitted line is
 // `[kind<TAB>]path[,path]<TAB>fact` — the leading KIND column is optional and
@@ -286,7 +179,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			capped = true
 			continue
 		}
-		text = truncateString(text, distillFactMaxTextSize)
+		text = base.TruncateString(text, distillFactMaxTextSize)
 		// The model is an extractor, not an authority: its text is printed
 		// verbatim by recall/search/tree/get/brief and the MCP surfaces, so a
 		// control byte it emits is a control byte the reader's terminal
@@ -307,7 +200,7 @@ func distilledFactsFromOutput(output string, taxonomy factTaxonomy, anchor factA
 			ID:         factRecordID(text, paths),
 			Paths:      paths,
 			Kind:       kind,
-			Locus:      factLocus(text),
+			Locus:      base.FactLocus(text),
 			Text:       text,
 			Branch:     branch,
 			Origin:     factOriginDistilled,
@@ -520,5 +413,5 @@ func sanitizeDistilledFactText(text string) (string, bool) {
 // first, then bound the length.
 func distillUntrustedExcerpt(text string) string {
 	cleaned, _ := sanitizeDistilledFactText(text)
-	return truncateString(strings.TrimSpace(cleaned), 120)
+	return base.TruncateString(strings.TrimSpace(cleaned), 120)
 }

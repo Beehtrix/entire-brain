@@ -1227,7 +1227,7 @@ the right surface before claiming a quality lift.
 entire brain facts eval-gen > facts-tasks.json
 entire brain facts eval --tasks facts-tasks.json --retriever facts --json > facts-eval.json
 entire brain facts eval-compare --a <before.json> --b <after.json>
-entire brain bench semantic .
+entire brain bench index .
 entire brain status --json --details
 ```
 
@@ -1643,14 +1643,13 @@ mise run fmt         # gofmt -s -w .
 mise run lint        # go vet, gofmt check, go mod tidy check, shellcheck
 mise run test        # go test ./...
 mise run test:ci     # go test -race ./...
-mise run test:phase1 # deterministic Phase 1 semantic suite
 mise run build       # build ./entire-brain
 mise run build-all   # cross-build common targets
-mise run check       # lint, race tests, Phase 1 tests, and cross-builds
+mise run check       # lint, race tests, and cross-builds
 ```
 
-GitHub Actions runs generic tests and the deterministic Phase 1 semantic suite on
-Linux, macOS, and Windows.
+GitHub Actions runs the full race-enabled test suite on Linux, macOS, and
+Windows.
 
 ## Further reading
 

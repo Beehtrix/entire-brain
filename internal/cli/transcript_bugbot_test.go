@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -33,7 +34,7 @@ func TestFilelessBundleOmitsExcludedSessions(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, opts, cmd, _, brain := bundleTestIndexedBrain(t)
-			if err := os.RemoveAll(filepath.Join(brain, historyDirName, "privacy")); err != nil {
+			if err := os.RemoveAll(filepath.Join(brain, brainstore.HistoryDirName, "privacy")); err != nil {
 				t.Fatal(err)
 			}
 			manifest, err := loadBrainManifest(brain)
@@ -114,9 +115,9 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			stones := emptySessionTombstones()
+			stones := brainstore.EmptySessionTombstones()
 			stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-			if err := saveSessionTombstones(brain, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 				t.Fatal(err)
 			}
 			before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
@@ -126,7 +127,18 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 			cmd := &cobra.Command{}
 			cmd.SetOut(io.Discard)
 			err = runExport(context.Background(), cmd, opts, exportCommandOptions{scope: exportScopeAll, entireBinary: "entire", rawTranscript: true})
-			if err == nil || !strings.Contains(err.Error(), "retain transcript cache") {
+			// The two variants diverge here on purpose, and the difference is
+			// the fix: an UNREADABLE checkpoint still refuses the migration,
+			// because nothing can prove what the cached file is; DIVERGENT
+			// bytes do not, because one stray file must not abort the whole
+			// export. Blocking on divergence froze a real brain's manifest for
+			// thirteen days and left the memory worker relaunching forever.
+			// Either way the cached copy below must survive.
+			if variant == "different-checkpoint-bytes" {
+				if err != nil {
+					t.Fatalf("divergent bytes must retain the file, not abort the export: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "retain transcript cache") {
 				t.Fatalf("migration error = %v", err)
 			}
 			got, err := os.ReadFile(cachedPath)
@@ -134,8 +146,15 @@ func TestFilelessMigrationPreservesUnrecoverableExcludedCache(t *testing.T) {
 				t.Fatalf("cache lost: %q %v", got, err)
 			}
 			after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
-			if err != nil || string(before) != string(after) {
-				t.Fatalf("migration changed manifest: %v", err)
+			if err != nil {
+				t.Fatalf("read manifest: %v", err)
+			}
+			// A refused migration must leave the manifest exactly as it was. A
+			// retained one is allowed to rewrite it -- that is the export
+			// completing, which is the entire point -- so asserting it
+			// unchanged there would be asserting the bug.
+			if variant != "different-checkpoint-bytes" && string(before) != string(after) {
+				t.Fatal("refused migration changed the manifest")
 			}
 		})
 	}
@@ -150,14 +169,14 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 			historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
 				if !checked && strings.HasPrefix(rel, historyStagingDir+"/") {
 					checked = true
-					unlock, err := acquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
+					unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
 					if err != nil {
 						t.Fatalf("history preparation holds the brain write lock: %v", err)
 					}
 					if changePrivacy {
-						stones := emptySessionTombstones()
+						stones := brainstore.EmptySessionTombstones()
 						stones.Excluded["session-one"] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-						err = saveSessionTombstones(brain, stones)
+						err = brainstore.SaveSessionTombstones(brain, stones)
 					}
 					unlock()
 					if err != nil {
@@ -199,9 +218,9 @@ func TestFilelessMigrationRecoversExcludedSessionAfterInclude(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := manifest.Sources.Sessions.Sessions[0]
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "excluded"}
-	if err := saveSessionTombstones(brain, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 		t.Fatal(err)
 	}
 	runFilelessExport(t, opts, "", false)
@@ -211,7 +230,7 @@ func TestFilelessMigrationRecoversExcludedSessionAfterInclude(t *testing.T) {
 	if _, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath); err == nil {
 		t.Fatal("migration bypassed exclusion")
 	}
-	if err := withBrainWriteLock(brain, func() error { return includeSessionLocked(brain, session.SessionID, opts.Now()) }); err != nil {
+	if err := brainstore.WithBrainWriteLock(brain, func() error { return includeSessionLocked(brain, session.SessionID, opts.Now()) }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := readCanonicalHistoryTranscript(context.Background(), brain, session.TranscriptPath)

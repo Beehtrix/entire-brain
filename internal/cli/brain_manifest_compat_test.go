@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -64,7 +66,7 @@ func TestManifestNewerRefusedWithRemedy(t *testing.T) {
 	if err == nil {
 		t.Fatal("newer manifest must be refused")
 	}
-	if !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("error code: %v", err)
 	}
 	if !strings.Contains(err.Error(), "upgrade entire-brain") {
@@ -142,7 +144,7 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 	// manifest exists yet to make it fatal), while the SECOND direct refresh
 	// call below has a manifest by then and the identical failure turns fatal
 	// -- hiding what this test means to exercise behind an unrelated fixture gap.
-	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+	opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
 
 	// Establish the persistent brain the way the real daemon's first-ever tick
 	// does (the first refresh always runs).
@@ -176,19 +178,19 @@ func TestWatchConsolidationRefreshSkipsTranscriptSweep(t *testing.T) {
 // `refresh`, `path --ensure`, `export`, and `setup`.
 func TestWorkspaceFullRefreshSweepsTranscriptCache(t *testing.T) {
 	opts, repoDir, storage, _ := watchCommandFixture(t)
-	opts.Runner.(*fakeCommandRunner).responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: `[]`}
+	opts.Runner.(*fakeCommandRunner).responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: `[]`}
 
 	// Establish the persistent brain the same way a real first refresh does.
 	if out, err := execute(t, NewRootCommand(opts), "watch", repoDir, "--once"); err != nil {
 		t.Fatalf("watch once: %v\n%s", err, out)
 	}
 
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "sweep-fixture",
-		Repos:         []workspaceRepo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 

@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -73,7 +75,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				return err
 			}
 			if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-				return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+				return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 			}
 			var tasks []evalTask
 			switch strings.TrimSpace(source) {
@@ -105,7 +107,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 				_, err = cmd.OutOrStdout().Write(data)
 				return err
 			}
-			if err := writeFileAtomic(out, data, 0o600); err != nil {
+			if err := brainstore.WriteFileAtomic(out, data, 0o600); err != nil {
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "wrote %d tasks to %s\n", len(tasks), out)
@@ -135,11 +137,11 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 	if resolved == "auto" {
 		resolved = defaultRefreshAgent(ctx, opts.Runner, repoDir)
 	}
-	judgeArgs, err := distillAgentCommandArgs(resolved, agentCommand, judgePrompt())
+	judgeArgs, err := base.DistillAgentCommandArgs(resolved, agentCommand, judgePrompt())
 	if err != nil {
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
-	judgeArgs = injectAgentModel(judgeArgs, resolved, model)
+	judgeArgs = base.InjectAgentModel(judgeArgs, resolved, model)
 	byBranch, err := loadAllFactBranches(brainDir)
 	if err != nil {
 		return nil, err
@@ -378,7 +380,7 @@ func generateSessionEvalTasks(brainDir string, manifest *exportManifest, branch 
 
 func generateSessionEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, limit int) ([]evalTask, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return nil, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	var tasks []evalTask
 	idCollisions := evalSessionIDCollisions(manifest, branch)
@@ -453,7 +455,7 @@ func evalTaskDedupeKey(t evalTask) string {
 // truncated so near-identical prompts that differ only in a trailing clause
 // collapse together.
 func normalizeTaskText(task string) string {
-	return truncateString(strings.ToLower(strings.Join(strings.Fields(task), " ")), 160)
+	return base.TruncateString(strings.ToLower(strings.Join(strings.Fields(task), " ")), 160)
 }
 
 // sampleAcrossStrata caps tasks to n, taking them round-robin across query
@@ -567,7 +569,7 @@ func firstUserRequest(transcript string) string {
 			if message.Role != "user" || message.Text == "" || isWrapperRequest(message.Text) {
 				continue
 			}
-			return truncateString(message.Text, 280)
+			return base.TruncateString(message.Text, 280)
 		}
 		return ""
 	}
@@ -584,7 +586,7 @@ func firstUserRequest(transcript string) string {
 		if text == "" || isWrapperRequest(text) {
 			continue
 		}
-		return truncateString(strings.Join(strings.Fields(text), " "), 280)
+		return base.TruncateString(strings.Join(strings.Fields(text), " "), 280)
 	}
 	return ""
 }

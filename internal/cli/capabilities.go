@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -44,7 +45,7 @@ type brainCapabilities struct {
 func compiledBrainCapabilities(version string) brainCapabilities {
 	var c brainCapabilities
 	c.SchemaVersion, c.Version, c.Scope = 1, version, "compiled; not repository readiness"
-	c.Build.BrainCGO, c.Build.SQLiteDriver = brainCGOBuild, sqliteDriverName
+	c.Build.BrainCGO, c.Build.SQLiteDriver = brainCGOBuild, sqlitedriver.Name
 	// Semantic retrieval was removed (trail #278: BM25 lexical matched or beat
 	// the embedder stack end-to-end). The "semantic" mode and the per-source
 	// semantic fields stay in the schema reporting unavailable, so committed

@@ -14,13 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
 func largeCoverageResults(count int) []unifiedResult {
 	results := make([]unifiedResult, count)
 	for i := range results {
-		sessionRef := conversationSessionIDPrefix + strings.Repeat("s", 64) + string(rune('a'+i%20))
+		sessionRef := brainstore.ConversationSessionIDPrefix + strings.Repeat("s", 64) + string(rune('a'+i%20))
 		concepts := make([]string, conversationConceptsMaxTotal)
 		matches := make([]conceptMatch, conversationConceptsMaxTotal)
 		evidenceIDs := make([]string, conversationConceptsMaxTotal)
@@ -237,14 +239,14 @@ func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
 			return
 		}
 		called = true
-		stones := loadSessionTombstones(brainDir)
+		stones := brainstore.LoadSessionTombstones(brainDir)
 		stones.Excluded["sess-one"] = sessionTombstone{At: time.Now().UTC(), Reason: "race regression"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			panic(err)
 		}
 	}
 	filtered, _, err := revalidateRetrievalResponsePrivacy(brainDir, results)
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) || filtered != nil || !called {
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) || filtered != nil || !called {
 		t.Fatalf("late tombstone must fail before emission: called=%v results=%+v err=%v", called, filtered, err)
 	}
 }
@@ -319,9 +321,9 @@ func installLateRetrievalTombstone(t *testing.T, fixture retrievalEmissionPrivac
 			return
 		}
 		called = true
-		stones := loadSessionTombstones(fixture.BrainDir)
+		stones := brainstore.LoadSessionTombstones(fixture.BrainDir)
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "late emission race"}
-		if err := saveSessionTombstones(fixture.BrainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(fixture.BrainDir, stones); err != nil {
 			panic(err)
 		}
 	}
@@ -331,8 +333,8 @@ func installLateRetrievalTombstone(t *testing.T, fixture retrievalEmissionPrivac
 
 func requireLatePrivacyEmissionFailure(t *testing.T, err error, out *bytes.Buffer, called *bool) {
 	t.Helper()
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("late tombstone error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("late tombstone error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if !*called {
 		t.Fatal("final privacy emission seam was not reached")
@@ -397,7 +399,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fixture := writeRetrievalEmissionPrivacyFixture(t)
 			workspaceName := "privacy-race"
-			if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}}}); err != nil {
+			if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}}}); err != nil {
 				t.Fatal(err)
 			}
 			called := installLateRetrievalTombstone(t, fixture)
@@ -444,13 +446,13 @@ func installConcurrentLockedTombstone(t *testing.T, fixture retrievalEmissionPri
 		called = true
 		go func() {
 			defer close(result)
-			result <- withBrainWriteLock(fixture.BrainDir, func() error {
-				stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+			result <- brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
+				stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 				if err != nil {
 					return err
 				}
 				stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "linearization race"}
-				return saveSessionTombstones(fixture.BrainDir, stones)
+				return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 			})
 		}()
 	}
@@ -499,7 +501,7 @@ func awaitRetrievalResult(t *testing.T, name string, result <-chan error) error 
 
 func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(fixture.BrainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +534,7 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guard.blocksSession(fixture.SessionID) {
+	if !guard.BlocksSession(fixture.SessionID) {
 		t.Fatal("tombstone did not commit after response linearization")
 	}
 }
@@ -618,8 +620,8 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-race"
-		if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-			Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -655,8 +657,8 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 	t.Run("workspace aggregate", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		const workspaceName = "privacy-aggregate-late"
-		if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-			Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+		if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+			Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -673,18 +675,18 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
 	const workspaceName = "privacy-dirty-member"
-	if err := writeWorkspaceManifest(fixture.Options.Env, workspaceManifest{
-		Name: workspaceName, Repos: []workspaceRepo{{RepoKey: fixture.RepoKey}},
+	if err := workspaceStore(fixture.Options.Env).WriteManifest(workspace.Manifest{
+		Name: workspaceName, Repos: []workspace.Repo{{RepoKey: fixture.RepoKey}},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return saveSessionTombstones(fixture.BrainDir, stones)
+		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -693,8 +695,8 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
 	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("workspace dirty-member error=%v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("workspace dirty-member error=%v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("dirty workspace emitted stale bytes: %q", out.String())
@@ -703,13 +705,13 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 
 func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	if err := withBrainWriteLock(fixture.BrainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(fixture.BrainDir)
+	if err := brainstore.WithBrainWriteLock(fixture.BrainDir, func() error {
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(fixture.BrainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded[fixture.SessionID] = sessionTombstone{At: time.Now().UTC(), Reason: "already dirty"}
-		return saveSessionTombstones(fixture.BrainDir, stones)
+		return brainstore.SaveSessionTombstones(fixture.BrainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -737,8 +739,8 @@ func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *te
 			cmd.SetOut(&stdout)
 			cmd.SetErr(&stderr)
 			err := tc.run(cmd)
-			if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-				t.Fatalf("dirty pattern surface error = %v, want %s", err, memoryErrPrivacyDirty)
+			if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+				t.Fatalf("dirty pattern surface error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 			}
 			if stdout.Len() != 0 || stderr.Len() != 0 {
 				t.Fatalf("dirty pattern surface emitted output: stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -815,7 +817,7 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	}
 	srv := &vizServer{
 		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	handler, err := srv.mux()
 	if err != nil {
@@ -859,7 +861,7 @@ func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
 	}
 	srv := &vizServer{
 		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	handler, err := srv.mux()
 	if err != nil {

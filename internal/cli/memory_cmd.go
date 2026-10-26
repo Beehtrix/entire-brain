@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -205,7 +207,7 @@ var memoryWorkerPrepass = func(ctx context.Context, opts Options, repoDir string
 // launch failure can never lose work or fail the host lifecycle operation.
 func recordMemoryLifecycleAndLaunch(brainDir, repoDir, repoKey, sessionID, branch, event string, now time.Time) (memoryLifecycleHint, string, error) {
 	var hint memoryLifecycleHint
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var writeErr error
 		hint, writeErr = writeMemoryHint(brainDir, repoKey, sessionID, strings.TrimSpace(branch), event, now)
 		return writeErr
@@ -246,7 +248,7 @@ func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
 		return
 	}
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		return
 	}
@@ -282,7 +284,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil {
 				return err
 			}
@@ -417,7 +419,7 @@ func reconcileMemoryJobsForAdmin(ctx context.Context, brainDir, trigger string, 
 		if dryRun {
 			err = apply()
 		} else {
-			err = withBrainWriteLock(brainDir, apply)
+			err = brainstore.WithBrainWriteLock(brainDir, apply)
 		}
 		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
 			return created, err
@@ -450,7 +452,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return 0, receiptErr
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -802,20 +804,8 @@ type memoryWorkerStats struct {
 	// itself. The condition is durable, so the honest answer is to stop rather
 	// than keep a failing pass running once a minute for a day.
 	PrepassGaveUp  bool     `json:"prepass_gave_up,omitempty"`
-	VectorPending  bool     `json:"vector_pending,omitempty"`
 	HealthDegraded bool     `json:"health_degraded,omitempty"`
 	HealthIssues   []string `json:"health_issues,omitempty"`
-	// VectorContinue reports that vector work remains AND the pass ended in a
-	// state worth continuing immediately: either it completed a batch or it hit
-	// the deliberate lane deadline. It is deliberately narrower than
-	// VectorPending, which is also true after a FAILED sync. The fast relaunch
-	// exists to keep embedding batches after a lane yield, never as a retry
-	// mechanism: retrying a permanent failure (embed server down, corrupt
-	// progress leaf, privacy-epoch mismatch) at that cadence re-spawns the
-	// worker about ten times a second for as long as the failure lasts. Real
-	// retries come from the next trigger (watch tick, lifecycle hint, job
-	// schedule), which are all rate-limited.
-	VectorContinue bool `json:"-"`
 }
 
 func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) bool {
@@ -843,7 +833,7 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 	if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
 		return stats, receiptErr
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return stats, err
 	}
@@ -920,7 +910,7 @@ func runMemoryMaintenance(brainDir string, now time.Time) (memoryWorkerStats, er
 			return memoryWorkerStats{}, err
 		}
 		var stats memoryWorkerStats
-		err = withBrainWriteLock(brainDir, func() error {
+		err = brainstore.WithBrainWriteLock(brainDir, func() error {
 			var applyErr error
 			stats, applyErr = maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
 			return applyErr
@@ -958,7 +948,7 @@ var memoryProjectionClaimsPerPass = 64
 
 func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 		return stats, err
 	}
 	reconcileSnapshot, err := prepareMemoryReconcileSnapshot(ctx, brainDir)
@@ -967,7 +957,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	}
 	var claimed []memoryJob
 	claimAt := memoryClockNow(clock)
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		inventory := loadMemoryJobInventory(brainDir)
 		if err := memoryJobEnumerationError(inventory.Issues); err != nil {
 			return err
@@ -1059,11 +1049,11 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if prepareErr != nil || publishAttempted {
 			return
 		}
-		_ = withBrainWriteLock(brainDir, func() error {
+		_ = brainstore.WithBrainWriteLock(brainDir, func() error {
 			return discardPreparedHistoryProjection(brainDir, prepared)
 		})
 	}()
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		cancelled := map[string]*memoryCancellationRequest{}
 		for _, job := range claimed {
 			request, err := loadMemoryCancellationRequest(brainDir, job.JobID)
@@ -1100,7 +1090,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
 		}
-		stones, _, err := loadSessionTombstonesChecked(brainDir)
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return err
 		}
@@ -1200,31 +1190,18 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 	return stats, err
 }
 
-func runMemoryVectorLane(ctx context.Context, brainDir string, now time.Time, owner string) memoryWorkerStats {
-	var stats memoryWorkerStats
-	if strings.TrimSpace(os.Getenv("ENTIRE_BRAIN_EMBEDDER")) == "" {
-		return stats
-	}
-	// Semantic retrieval was removed (trail #278); the vector lane is a no-op
-	// kept only so lane sequencing and worker logs stay shaped as before.
-	if logErr := appendMemoryWorkerLog(brainDir, now, "vector_sync_complete", owner); logErr != nil {
-		stats.addHealthIssue("memory_worker_log_write_failed")
-	}
-	return stats
-}
-
 func runMemoryAbstractLane(ctx context.Context, repoDir, brainDir string, now time.Time, owner string) (memoryWorkerStats, error) {
 	return runMemoryAbstractLaneWithClock(ctx, repoDir, brainDir, fixedMemoryClock(now), owner)
 }
 
 func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir string, clock memoryClock, owner string) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+	if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 		return stats, err
 	}
 	var claimed *memoryJob
 	claimAt := memoryClockNow(clock)
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		created, err := reconcileAbstractJobsLocked(brainDir, "worker", claimAt)
 		if err != nil {
 			return err
@@ -1294,7 +1271,7 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 				return err
 			}
 			if current.State != memoryJobStateRunning || current.OwnerToken != owner || !equalMemoryAbstractJobOverride(current.AbstractOverride, claimed.AbstractOverride) {
-				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", memoryErrStateCorrupt)
+				return fmt.Errorf("%s: abstract job ownership or provider selection changed before publication", brainstore.StateCorruptCode)
 			}
 			request, err := loadMemoryCancellationRequest(brainDir, claimed.JobID)
 			if err != nil {
@@ -1362,8 +1339,8 @@ func runMemoryAbstractLaneWithClock(ctx context.Context, repoDir, brainDir strin
 	// run, it cancelled the provider first, so runErr is itself non-nil and the
 	// retryable path still fires.
 	settleErr := runErr
-	err = withBrainWriteLock(brainDir, func() error {
-		if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
+		if _, _, err := brainstore.LoadSessionTombstonesChecked(brainDir); err != nil {
 			return err
 		}
 		settledAt := memoryClockNow(clock)
@@ -1465,7 +1442,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, agentSurfaceTarget(opts, nil))
 			if err != nil {
 				return err
 			}
@@ -1475,7 +1452,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// Privacy policy is an input to every worker lane, including the
 			// export/delta prepass. Validate it before coordinator metadata or
 			// any derived state can be written.
-			if _, _, err := loadSessionTombstonesChecked(storage.BrainDir); err != nil {
+			if _, _, err := brainstore.LoadSessionTombstonesChecked(storage.BrainDir); err != nil {
 				return err
 			}
 			// Wait out everything beyond the last minute BEFORE taking the
@@ -1569,7 +1546,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				// storm with no cause attached to any of it.
 				// `entire memory worker --json` is pasted into issues, so the
 				// same redaction the durable log applies is applied here.
-				stats.PrepassError = redactText(err.Error())
+				stats.PrepassError = base.RedactText(err.Error())
 				_ = appendMemoryWorkerLogReason(storage.BrainDir, opts.Now().UTC(), "prepass_failed", coordinator.token, err.Error())
 				failures := prepassFailures + 1
 				// Some failures are durable: no retry changes the bytes on
@@ -1610,11 +1587,6 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				return err
 			}
 			stats.add(abstractStats)
-			stats.add(runMemoryVectorLane(cmd.Context(), storage.BrainDir, opts.Now().UTC(), coordinator.token))
-			if stats.VectorContinue {
-				vectorDelay := 100 * time.Millisecond
-				relaunchDelay = &vectorDelay
-			}
 			if next, ok, err := nextMemoryWorkerDelay(storage.BrainDir, opts.Now().UTC()); err != nil {
 				outcome = "failed"
 				return err
@@ -1656,8 +1628,6 @@ func (s *memoryWorkerStats) add(other memoryWorkerStats) {
 	s.AlreadyActive = s.AlreadyActive || other.AlreadyActive
 	s.PrepassFailed = s.PrepassFailed || other.PrepassFailed
 	s.PrepassGaveUp = s.PrepassGaveUp || other.PrepassGaveUp
-	s.VectorPending = s.VectorPending || other.VectorPending
-	s.VectorContinue = s.VectorContinue || other.VectorContinue
 	s.HealthDegraded = s.HealthDegraded || other.HealthDegraded
 	for _, issue := range other.HealthIssues {
 		s.addHealthIssue(issue)
@@ -1969,7 +1939,7 @@ func memoryJobByID(brainDir, jobID string) (memoryJob, error) {
 }
 
 func requestRunningMemoryJobCancellationVerified(brainDir string, observed memoryJob, now time.Time) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		current, err := memoryJobByID(brainDir, observed.JobID)
 		if err != nil {
 			return err
@@ -2070,7 +2040,7 @@ func newMemoryRetryCommand(opts Options) *cobra.Command {
 			if dryRun {
 				err = retry()
 			} else {
-				err = withBrainWriteLock(storage.BrainDir, retry)
+				err = brainstore.WithBrainWriteLock(storage.BrainDir, retry)
 			}
 			if err != nil {
 				return fail(err)
@@ -2212,7 +2182,7 @@ func newMemoryCancelCommand(opts Options) *cobra.Command {
 			if dryRun {
 				err = cancel()
 			} else {
-				err = withBrainWriteLock(storage.BrainDir, cancel)
+				err = brainstore.WithBrainWriteLock(storage.BrainDir, cancel)
 			}
 			if err != nil {
 				return fail(err)

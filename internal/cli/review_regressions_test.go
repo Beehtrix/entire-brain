@@ -4,19 +4,22 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"testing/iotest"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // This file locks the defects found reviewing this branch. Every case below
 // was an untested path: the full suite passed with each bug present.
 
 // TestInspectRawTextFailsClosedOnUnreadableManifest locks the raw-scan
-// exclusion guard. rawGuard.paths is the ONLY exclusion mechanism in the raw
+// exclusion guard. rawGuard.Paths is the ONLY exclusion mechanism in the raw
 // file walk (a bare file carries no session id to match), and it is populated
 // only from the manifest, so swallowing the manifest load error emptied the
 // guard and scanned tombstoned transcripts. `brain brief` merges these raw
@@ -24,9 +27,9 @@ import (
 func TestInspectRawTextFailsClosedOnUnreadableManifest(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,37 +192,8 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 
 	// The long-term build keeps its actionable guidance.
 	if _, _, err := buildBrainHistoryIndex(brainDir, now, nil); err == nil ||
-		!strings.Contains(err.Error(), "run `"+brainInvocation(os.LookupEnv, "refresh sessions")+"` first") {
+		!strings.Contains(err.Error(), "run `"+base.BrainInvocation(os.LookupEnv, "refresh sessions")+"` first") {
 		t.Fatalf("history build guidance = %v", err)
-	}
-}
-
-// TestFailedVectorStatsDoNotRequestRelaunch locks the worker status contract.
-// A failed sync remains pending without setting the fast relaunch flag, while a
-// deliberate lane-deadline yield still requests continuation.
-func TestFailedVectorStatsDoNotRequestRelaunch(t *testing.T) {
-	var stats memoryWorkerStats
-	stats.VectorPending = true
-	// add() must preserve both flags independently, so one lane's clean yield
-	// is not attributed to another lane's failure.
-	var combined memoryWorkerStats
-	combined.add(stats)
-	if !combined.VectorPending || combined.VectorContinue {
-		t.Fatalf("add lost the pending/continue distinction: %+v", combined)
-	}
-	yielded := memoryWorkerStats{VectorPending: true, VectorContinue: true}
-	combined.add(yielded)
-	if !combined.VectorContinue {
-		t.Fatalf("a yielded lane must still request the relaunch: %+v", combined)
-	}
-	// VectorContinue is an internal scheduling signal, never part of the
-	// worker's JSON contract.
-	encoded, err := json.Marshal(combined)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), "VectorContinue") || strings.Contains(string(encoded), "vector_continue") {
-		t.Fatalf("relaunch signal leaked into the worker JSON contract: %s", encoded)
 	}
 }
 
@@ -468,9 +442,9 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 		t.Fatalf("fact must be retrievable before exclusion: err=%v found=%d", err, len(pre))
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -522,7 +496,7 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
 	}
-	if code := memoryErrorCode(err); code != memoryErrUnsupportedVersion {
+	if code := memoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
 		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
 	}
 }
@@ -557,9 +531,9 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 		t.Fatalf("fixture invalid: the canary must be reachable before exclusion: %+v", pre)
 	}
 
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	post, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20)
@@ -593,9 +567,9 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	// The mid-cleanup window: the tombstone is live, but derived stores still
@@ -651,7 +625,7 @@ func TestBriefRawScanSkipsDerivedStores(t *testing.T) {
 // violation, which is the one thing this surface promises not to do.
 func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
 	// A genuine bound violation is still reported as one.
-	if _, err := safeReadAll(strings.NewReader(strings.Repeat("x", 64)), 8, "probe"); err == nil {
+	if _, err := base.SafeReadAll(strings.NewReader(strings.Repeat("x", 64)), 8, "probe"); err == nil {
 		t.Fatal("oversized read must fail")
 	} else {
 		var bound *readBoundExceededError
@@ -664,7 +638,7 @@ func TestDocumentExpansionSeparatesReadFailureFromSizeBound(t *testing.T) {
 	}
 	// An I/O failure must NOT be classified as a bound violation.
 	injected := errors.New("injected device failure")
-	_, err := safeReadAll(iotest.ErrReader(injected), 1<<20, "probe")
+	_, err := base.SafeReadAll(iotest.ErrReader(injected), 1<<20, "probe")
 	if !errors.Is(err, injected) {
 		t.Fatalf("read failure = %v, want the underlying error", err)
 	}
@@ -705,10 +679,10 @@ func TestLineTranscriptExpansionIsNotBoundedByTheDocumentCap(t *testing.T) {
 		Line: 1, EndLine: 2, Summary: "stored projection", ContentRole: conversationContentRole,
 		SourceDigest: conversationDigest(raw),
 	}
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 1024 // far below the transcript size
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
-	if int64(len(raw)) <= maxDocumentTranscriptBytes {
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 1024 // far below the transcript size
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
+	if int64(len(raw)) <= base.MaxDocumentTranscriptBytes {
 		t.Fatalf("fixture invalid: transcript must exceed the document cap (%d bytes)", len(raw))
 	}
 

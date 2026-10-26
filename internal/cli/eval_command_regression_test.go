@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -39,7 +40,7 @@ func evalCommandFixture(t *testing.T) (Options, string) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(storage.BrainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(storage.BrainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	indexBytes, err := json.MarshalIndent(index, "", "  ")

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // readBrainManifestFile decodes the canonical manifest without a byte ceiling.
@@ -39,7 +41,7 @@ func decodeManifestPass(f *os.File, out any, strict bool) error {
 		return err
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errTrailingJSONData
+		return brainstore.ErrTrailingJSONData
 	}
 	return nil
 }
@@ -49,16 +51,16 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 		SchemaVersion int `json:"schema_version"`
 	}
 	if err := decodeManifestPass(f, &header, false); err != nil {
-		return nil, 0, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+		return nil, 0, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", brainstore.StateCorruptCode, err)
 	}
 	version := header.SchemaVersion
 	if version > brainManifestSchemaVersion {
-		return nil, version, false, fmt.Errorf("%s: brain manifest schema version %d is newer than supported version %d; upgrade entire-brain to read it", memoryErrUnsupportedVersion, version, brainManifestSchemaVersion)
+		return nil, version, false, fmt.Errorf("%s: brain manifest schema version %d is newer than supported version %d; upgrade entire-brain to read it", brainstore.UnsupportedVersionCode, version, brainManifestSchemaVersion)
 	}
 	var manifest exportManifest
 	err := decodeManifestPass(f, &manifest, true)
 	dropped := false
-	if tolerateUnknown && isUnknownFieldError(err) {
+	if tolerateUnknown && brainstore.IsUnknownFieldError(err) {
 		manifest = exportManifest{}
 		err = decodeManifestPass(f, &manifest, false)
 		dropped = err == nil
@@ -78,17 +80,17 @@ func decodeBrainManifestFile(f *os.File, tolerateUnknown bool) (*exportManifest,
 		// the maintenance taxonomy with many consumers, so retyping this case
 		// is a contract change for a human to make, not a side effect of
 		// improving a sentence.
-		if !tolerateUnknown && isUnknownFieldError(err) {
+		if !tolerateUnknown && brainstore.IsUnknownFieldError(err) {
 			return nil, version, false, fmt.Errorf(
 				"parse brain manifest: %s: brain manifest carries a field this build does not know (%w); "+
 					"the file is readable and is NOT damaged, but a writer will not rewrite it and silently drop that field. "+
 					"Use a build that knows the field, or let a read-only command run instead",
-				memoryErrStateCorrupt, err)
+				brainstore.StateCorruptCode, err)
 		}
-		return nil, version, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", memoryErrStateCorrupt, err)
+		return nil, version, false, fmt.Errorf("parse brain manifest: %s: brain manifest cannot be parsed: %w", brainstore.StateCorruptCode, err)
 	}
 	if version < brainManifestMinSchemaVersion {
-		return nil, version, false, fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", memoryErrUnsupportedVersion, version, brainManifestMinSchemaVersion)
+		return nil, version, false, fmt.Errorf("%s: brain manifest declares schema version %d, older than the first supported version %d", brainstore.UnsupportedVersionCode, version, brainManifestMinSchemaVersion)
 	}
 	normalizeBrainManifest(&manifest)
 	return &manifest, version, dropped, nil

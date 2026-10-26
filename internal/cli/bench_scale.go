@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +21,7 @@ import (
 //
 // Both of Brain's cells in the "scales to large codebases" comparison read
 // Unknown, and they read Unknown because nothing measured them. The existing
-// `bench semantic` times indexing and reports symbol counts, which answers a
+// `bench index` times indexing and reports symbol counts, which answers a
 // different question: the claims competitors publish are about the size of the
 // index on disk and the latency of a query — "100M lines in 250MB", "sub-200ms
 // search", "sub-50ms over ~2GB". We could not answer either at any scale.
@@ -163,7 +164,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if benchOpts.repeats < 1 {
 		return fmt.Errorf("--repeats must be at least 1")
 	}
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -180,7 +181,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	if len(report.Queries) == 0 {
 		report.Queries = defaultScaleQueries()
 	}
-	if commit, cerr := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); cerr == nil {
+	if commit, cerr := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"); cerr == nil {
 		report.Commit = strings.TrimSpace(commit)
 	}
 
@@ -267,8 +268,8 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		// brain instead of the absence of one, which is the confusion this
 		// whole command exists to avoid.
 		return fmt.Errorf(
-			"--skip-index found no semantic index for %s; run `%s` first, or drop --skip-index to build one",
-			repoDir, brainInvocation(os.LookupEnv, semanticIndexVerb))
+			"--skip-index found no code index for %s; run `%s` first, or drop --skip-index to build one",
+			repoDir, base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb))
 	}
 
 	// Size on disk, which is the figure the comparison is actually about.
@@ -286,7 +287,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	}
 
 	branch := distillDefaultBranch
-	if current, berr := gitScalar(ctx, benchRun.Runner, repoDir, "branch", "--show-current"); berr == nil && strings.TrimSpace(current) != "" {
+	if current, berr := base.GitScalar(ctx, benchRun.Runner, repoDir, "branch", "--show-current"); berr == nil && strings.TrimSpace(current) != "" {
 		branch = strings.TrimSpace(current)
 	}
 	// Code search is the measurement the large-codebase comparison is about: it
@@ -729,7 +730,7 @@ func printScaleBenchReport(out io.Writer, r scaleBenchReport) {
 		// "each" to report; the per-mode sample counts below still are.
 		fmt.Fprintf(out, "\nquery latency (%d queries)\n", len(r.Queries))
 	}
-	fmt.Fprintf(out, "  code_search runs against the semantic index (%s symbols).\n", humanCount(int64(r.Symbols)))
+	fmt.Fprintf(out, "  code_search runs against the code index (%s symbols).\n", humanCount(int64(r.Symbols)))
 	knowledgeCount := humanCount(int64(r.KnowledgeRecords))
 	if r.KnowledgeRecords < 0 {
 		knowledgeCount = "unknown"

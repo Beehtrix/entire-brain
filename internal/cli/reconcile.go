@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const factsProposalsFileName = "proposals.ndjson"
@@ -24,7 +27,7 @@ func factsProposalsRelPath(branch string) string {
 // loadFactProposals reads a branch's pending proposals; a missing file yields
 // none. A malformed line is a hard error so a corrupt queue is surfaced.
 func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", base.DefaultMaxReadBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +55,7 @@ func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
 func writeFactProposals(brainDir, branch string, proposals []factProposal) error {
 	deduped := dedupeProposals(proposals)
 	if len(deduped) == 0 {
-		return removeBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
+		return brainstore.RemoveBrainRelativeFile(brainDir, factsProposalsRelPath(branch))
 	}
 	var buf strings.Builder
 	for _, p := range deduped {
@@ -63,7 +66,7 @@ func writeFactProposals(brainDir, branch string, proposals []factProposal) error
 		buf.Write(data)
 		buf.WriteByte('\n')
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsProposalsRelPath(branch), []byte(buf.String()), 0o600)
 }
 
 // dedupeProposals collapses identical queue entries, keyed on
@@ -188,12 +191,12 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 		// ("3 new 1.0") or omit a trailing confidence; handle those per kind below
 		// instead of rejecting the whole line.
 		if len(fields) < 2 {
-			warnings = append(warnings, "reconcile: malformed line: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: malformed line: "+base.TruncateString(line, 80))
 			continue
 		}
 		ci, err := strconv.Atoi(fields[0])
 		if err != nil || ci < 1 || ci > len(candidates) {
-			warnings = append(warnings, "reconcile: bad candidate number: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: bad candidate number: "+base.TruncateString(line, 80))
 			continue
 		}
 		candidate := candidates[ci-1]
@@ -244,7 +247,7 @@ func parseReconcileActions(output string, candidates, existing []factRecord) ([]
 			}
 			decided[ci] = factAction{Kind: kind, TargetID: existing[ei-1].ID, Confidence: confidence, Candidate: candidate}
 		default:
-			warnings = append(warnings, "reconcile: unknown decision: "+truncateString(line, 80))
+			warnings = append(warnings, "reconcile: unknown decision: "+base.TruncateString(line, 80))
 		}
 	}
 
@@ -341,7 +344,7 @@ func candidatePathSet(candidates []factRecord) []string {
 // candidate is trivially `new` (no agent call); otherwise the agent decides.
 // An agent error leaves candidates staged for retry. It returns the actions
 // to apply plus any warnings.
-func reconcileChunkCandidates(ctx context.Context, run distillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
+func reconcileChunkCandidates(ctx context.Context, run base.DistillAgentRunner, agentArgs []string, candidates, active []factRecord, repoDir string, timeout time.Duration) ([]factAction, []string) {
 	existing, capped := activeFactsAtPaths(active, candidatePathSet(candidates))
 	if len(existing) == 0 {
 		actions := make([]factAction, len(candidates))

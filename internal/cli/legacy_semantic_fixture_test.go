@@ -1,8 +1,5 @@
 package cli
 
-// Legacy artifact helpers are compiled only for migration and compatibility
-// fixtures. Production Brain never builds or copies a code graph.
-
 import (
 	"bytes"
 	"context"
@@ -17,7 +14,14 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
+
+// Legacy artifact helpers are compiled only for migration and compatibility
+// fixtures. Production Brain never builds or copies a code graph.
 
 // buildSemanticGeneration ingests the filtered snapshot into a fresh SQLite
 // generation. snapshot is scanned record-by-record (never fully buffered);
@@ -42,7 +46,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 	}
 	start := time.Now()
 	generationsRoot := filepath.Join(brainDir, semanticDirName, semanticGenerationsDir)
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 	if err := os.MkdirAll(generationsRoot, 0o700); err != nil {
@@ -64,7 +68,7 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 	}()
 
 	dbPath := filepath.Join(tmpDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, dbPath)
+	db, err := sql.Open(sqlitedriver.Name, dbPath)
 	if err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
@@ -90,12 +94,12 @@ func buildSemanticGeneration(ctx context.Context, brainDir, repoDir, generationI
 		return "", semanticBuildMetrics{}, err
 	}
 	metricsData = append(metricsData, '\n')
-	if err := writeFileAtomic(filepath.Join(tmpDir, semanticMetricsName), metricsData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(tmpDir, semanticMetricsName), metricsData, 0o600); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 
 	finalDir := filepath.Join(generationsRoot, finalID)
-	if err := rejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, finalID)); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticGenerationsDir, finalID)); err != nil {
 		return "", semanticBuildMetrics{}, err
 	}
 	if _, err := os.Lstat(finalDir); err == nil {
@@ -347,7 +351,7 @@ func writeSemanticParseCacheArtifact(generationDir, path, blob, contentHash stri
 		return "", err
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(filepath.Join(generationDir, rel), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(generationDir, rel), data, 0o600); err != nil {
 		return "", err
 	}
 	return filepath.ToSlash(rel), nil

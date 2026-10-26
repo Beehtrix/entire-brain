@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func writeForwardStateFixture(t *testing.T, brainDir, rel string, data []byte) string {
@@ -43,8 +45,8 @@ func TestCoordinatorStatePreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) {
 		data []byte
 		code string
 	}{
-		{name: "unknown-newer", data: []byte(`{"schema_version":2,"future":true}` + "\n"), code: memoryErrUnsupportedVersion},
-		{name: "corrupt-current", data: []byte(`{"schema_version":1,"future":true}` + "\n"), code: memoryErrStateCorrupt},
+		{name: "unknown-newer", data: []byte(`{"schema_version":2,"future":true}` + "\n"), code: brainstore.UnsupportedVersionCode},
+		{name: "corrupt-current", data: []byte(`{"schema_version":1,"future":true}` + "\n"), code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
@@ -73,7 +75,7 @@ func TestCoordinatorStatePreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) {
 	if err := os.Symlink(outside, path); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if coordinator, err := acquireMemoryCoordinator(brainDir, now, "test"); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if coordinator, err := acquireMemoryCoordinator(brainDir, now, "test"); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		if coordinator != nil {
 			coordinator.close(now, "failed")
 		}
@@ -108,7 +110,7 @@ func TestCoordinatorHeartbeatPreservesReplacedUnknownNewerState(t *testing.T) {
 	}
 	future := []byte(`{"schema_version":2,"future":true}` + "\n")
 	path := writeForwardStateFixture(t, brainDir, memoryCoordinatorStateRel, future)
-	if err := coordinator.heartbeat(now.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if err := coordinator.heartbeat(now.Add(time.Minute)); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("heartbeat error = %v", err)
 	}
 	requireForwardStateBytes(t, path, future)
@@ -124,8 +126,8 @@ func TestCancellationMarkerPreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) 
 		data []byte
 		code string
 	}{
-		{name: "unknown-newer", data: []byte(`{"schema_version":2,"job_id":"job:forward-state","future":true}` + "\n"), code: memoryErrUnsupportedVersion},
-		{name: "corrupt-current", data: []byte(`{"schema_version":1,"job_id":"job:forward-state","future":true}` + "\n"), code: memoryErrStateCorrupt},
+		{name: "unknown-newer", data: []byte(`{"schema_version":2,"job_id":"job:forward-state","future":true}` + "\n"), code: brainstore.UnsupportedVersionCode},
+		{name: "corrupt-current", data: []byte(`{"schema_version":1,"job_id":"job:forward-state","future":true}` + "\n"), code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
@@ -154,7 +156,7 @@ func TestCancellationMarkerPreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) 
 	if err := os.Symlink(outside, path); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := removeMemoryCancellationRequest(brainDir, job.JobID); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := removeMemoryCancellationRequest(brainDir, job.JobID); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("unsafe remove error = %v", err)
 	}
 	requireForwardStateBytes(t, outside, canary)
@@ -191,10 +193,10 @@ func TestProjectionReceiptUnknownNewerIsClassifiedBeforeStrictDecodeAndPreserved
 	sum := sha256.Sum256(future)
 	source := &historySourceManifest{ProjectionStatePath: projectionStateRel, ProjectionStateDigest: "sha256:" + hex.EncodeToString(sum[:])}
 	_, state, err := loadProjectionStateChecked(brainDir, source)
-	if state != projectionStateUnsupported || err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if state != projectionStateUnsupported || err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("state=%s err=%v", state, err)
 	}
-	if _, err := writeProjectionState(brainDir, projectionState{SchemaVersion: projectionSchemaVersion, ReconcilerVersion: projectionReconcilerVersion, GeneratedAt: time.Now().UTC()}); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, err := writeProjectionState(brainDir, projectionState{SchemaVersion: projectionSchemaVersion, ReconcilerVersion: projectionReconcilerVersion, GeneratedAt: time.Now().UTC()}); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("write error = %v", err)
 	}
 	requireForwardStateBytes(t, path, future)
@@ -224,8 +226,8 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 		code string
 	}{
 		// Derived, not a literal: see TestManifestNewerRefusedWithRemedy.
-		{name: "unknown-newer", data: []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1) + "\n"), code: memoryErrUnsupportedVersion},
-		{name: "additive-current", data: []byte(`{"schema_version":3,"future":true}` + "\n"), code: memoryErrStateCorrupt},
+		{name: "unknown-newer", data: []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, brainManifestSchemaVersion+1) + "\n"), code: brainstore.UnsupportedVersionCode},
+		{name: "additive-current", data: []byte(`{"schema_version":3,"future":true}` + "\n"), code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
@@ -246,7 +248,7 @@ func TestBrainManifestPreservesUnknownNewerCorruptAndUnsafeLeaves(t *testing.T) 
 	if err := os.Symlink(outside, filepath.Join(brainDir, exportManifestFileName)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion}); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion}); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("unsafe write error = %v", err)
 	}
 	requireForwardStateBytes(t, outside, canary)
@@ -281,14 +283,14 @@ func TestPrivacyTransactionPreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) 
 		data []byte
 		code string
 	}{
-		{name: "unknown-newer", data: []byte(`{"schema_version":3,"session_id":"forward-private","future":true}` + "\n"), code: memoryErrUnsupportedVersion},
-		{name: "corrupt-current", data: []byte(`{"schema_version":2,"session_id":"forward-private","future":true}` + "\n"), code: memoryErrStateCorrupt},
+		{name: "unknown-newer", data: []byte(`{"schema_version":3,"session_id":"forward-private","future":true}` + "\n"), code: brainstore.UnsupportedVersionCode},
+		{name: "corrupt-current", data: []byte(`{"schema_version":2,"session_id":"forward-private","future":true}` + "\n"), code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			path := writeForwardStateFixture(t, brainDir, privacyTransactionRel(sessionID), tc.data)
-			tx := privacyTransaction{SessionID: sessionID, Operation: "exclude", State: privacyStateRequested, StartedAt: now}
-			if err := writePrivacyTransaction(brainDir, tx, now); err == nil || !strings.Contains(err.Error(), tc.code) {
+			path := writeForwardStateFixture(t, brainDir, brainstore.PrivacyTransactionRel(sessionID), tc.data)
+			tx := privacyTransaction{SessionID: sessionID, Operation: "exclude", State: brainstore.PrivacyStateRequested, StartedAt: now}
+			if err := brainstore.WritePrivacyTransaction(brainDir, tx, now); err == nil || !strings.Contains(err.Error(), tc.code) {
 				t.Fatalf("write error = %v, want %s", err, tc.code)
 			}
 			requireForwardStateBytes(t, path, tc.data)
@@ -305,14 +307,14 @@ func TestPrivacyTransactionPreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) 
 	if err := os.WriteFile(outside, canary, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID)))
+	path := filepath.Join(brainDir, filepath.FromSlash(brainstore.PrivacyTransactionRel(sessionID)))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, path); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if err := removePrivacyTransaction(brainDir, sessionID); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := removePrivacyTransaction(brainDir, sessionID); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("unsafe remove error = %v", err)
 	}
 	requireForwardStateBytes(t, outside, canary)
@@ -321,22 +323,22 @@ func TestPrivacyTransactionPreservesUnknownCorruptAndUnsafeLeaves(t *testing.T) 
 func TestPrivacyTransactionCurrentVersionCanAdvanceAndBeRemoved(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 9, 22, 10, 0, 0, time.UTC)
-	tx := privacyTransaction{SessionID: "current-private", Operation: "purge", State: privacyStateRequested, StartedAt: now}
-	if err := writePrivacyTransaction(brainDir, tx, now); err != nil {
+	tx := privacyTransaction{SessionID: "current-private", Operation: "purge", State: brainstore.PrivacyStateRequested, StartedAt: now}
+	if err := brainstore.WritePrivacyTransaction(brainDir, tx, now); err != nil {
 		t.Fatal(err)
 	}
-	tx.State = privacyStateComplete
-	if err := writePrivacyTransaction(brainDir, tx, now.Add(time.Minute)); err != nil {
+	tx.State = brainstore.PrivacyStateComplete
+	if err := brainstore.WritePrivacyTransaction(brainDir, tx, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	loaded, present, err := loadPrivacyTransactionChecked(brainDir, tx.SessionID)
-	if err != nil || !present || loaded.State != privacyStateComplete {
+	loaded, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, tx.SessionID)
+	if err != nil || !present || loaded.State != brainstore.PrivacyStateComplete {
 		t.Fatalf("loaded=%+v present=%t err=%v", loaded, present, err)
 	}
 	if err := removePrivacyTransaction(brainDir, tx.SessionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, present, err := loadPrivacyTransactionChecked(brainDir, tx.SessionID); err != nil || present {
+	if _, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, tx.SessionID); err != nil || present {
 		t.Fatalf("present=%t err=%v", present, err)
 	}
 }
@@ -346,19 +348,19 @@ func TestPrivacyTransactionLegacyVersionUpgradesWithoutLosingState(t *testing.T)
 	now := time.Date(2026, 8, 9, 22, 15, 0, 0, time.UTC)
 	sessionID := "legacy-private"
 	legacy := []byte(fmt.Sprintf(`{"schema_version":%d,"session_id":%q,"operation":"exclude","state":"error","started_at":%q,"updated_at":%q,"artifacts":[{"path":"sessions/main/legacy.jsonl","bytes":12}],"error":"interrupted"}`+"\n",
-		privacyTransactionLegacyVersion, sessionID, now.Format(time.RFC3339), now.Format(time.RFC3339)))
-	writeForwardStateFixture(t, brainDir, privacyTransactionRel(sessionID), legacy)
-	tx, present, err := loadPrivacyTransactionChecked(brainDir, sessionID)
-	if err != nil || !present || tx.State != privacyStateError || len(tx.Artifacts) != 1 {
+		brainstore.PrivacyTransactionLegacyVersion, sessionID, now.Format(time.RFC3339), now.Format(time.RFC3339)))
+	writeForwardStateFixture(t, brainDir, brainstore.PrivacyTransactionRel(sessionID), legacy)
+	tx, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, sessionID)
+	if err != nil || !present || tx.State != brainstore.PrivacyStateError || len(tx.Artifacts) != 1 {
 		t.Fatalf("legacy transaction=%+v present=%t err=%v", tx, present, err)
 	}
-	tx.State = privacyStateRequested
+	tx.State = brainstore.PrivacyStateRequested
 	tx.Error = ""
-	if err := writePrivacyTransaction(brainDir, tx, now.Add(time.Minute)); err != nil {
+	if err := brainstore.WritePrivacyTransaction(brainDir, tx, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	upgraded, present, err := loadPrivacyTransactionChecked(brainDir, sessionID)
-	if err != nil || !present || upgraded.SchemaVersion != privacyTransactionVersion || len(upgraded.Artifacts) != 1 {
+	upgraded, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, sessionID)
+	if err != nil || !present || upgraded.SchemaVersion != brainstore.PrivacyTransactionVersion || len(upgraded.Artifacts) != 1 {
 		t.Fatalf("upgraded transaction=%+v present=%t err=%v", upgraded, present, err)
 	}
 }
@@ -368,13 +370,13 @@ func TestPrivacyCleanupRefusesUnknownTransactionBeforeTombstoneMutation(t *testi
 	now := time.Date(2026, 8, 9, 22, 20, 0, 0, time.UTC)
 	sessionID := "future-cleanup"
 	future := []byte(`{"schema_version":3,"session_id":"future-cleanup","future":true}` + "\n")
-	path := writeForwardStateFixture(t, brainDir, privacyTransactionRel(sessionID), future)
-	if err := executeSessionCleanup(brainDir, sessionID, sessionPurgePlan{}, now, "excluded", true); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	path := writeForwardStateFixture(t, brainDir, brainstore.PrivacyTransactionRel(sessionID), future)
+	if err := executeSessionCleanup(brainDir, sessionID, sessionPurgePlan{}, now, "excluded", true); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("cleanup error = %v", err)
 	}
 	requireForwardStateBytes(t, path, future)
-	stones, state, err := loadSessionTombstonesChecked(brainDir)
-	if err != nil || state.State != sessionTombstoneAbsent || len(stones.Excluded) != 0 {
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
+	if err != nil || state.State != brainstore.SessionTombstoneAbsent || len(stones.Excluded) != 0 {
 		t.Fatalf("tombstones=%+v state=%+v err=%v", stones, state, err)
 	}
 }
@@ -382,8 +384,8 @@ func TestPrivacyCleanupRefusesUnknownTransactionBeforeTombstoneMutation(t *testi
 func TestSessionTombstoneWriterPreservesAdditiveCurrentState(t *testing.T) {
 	brainDir := t.TempDir()
 	future := []byte(`{"version":1,"excluded":{},"future":true}` + "\n")
-	path := writeForwardStateFixture(t, brainDir, sessionTombstonesPath, future)
-	if err := saveSessionTombstones(brainDir, emptySessionTombstones()); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	path := writeForwardStateFixture(t, brainDir, brainstore.SessionTombstonesPath, future)
+	if err := brainstore.SaveSessionTombstones(brainDir, brainstore.EmptySessionTombstones()); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("write error = %v", err)
 	}
 	requireForwardStateBytes(t, path, future)

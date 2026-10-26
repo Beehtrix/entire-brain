@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -150,7 +151,7 @@ func TestSetupSummaryDoesNotCallAnUnqueryableBrainReady(t *testing.T) {
 	// The terse block names the lost CAPABILITY, not the component id -- that
 	// is the vocabulary a reader of this block has. `--verbose` and `doctor`
 	// carry the component names.
-	if !strings.Contains(got, "semantic search unavailable") {
+	if !strings.Contains(got, "code context unavailable") {
 		t.Fatalf("the summary must name what is unavailable:\n%s", got)
 	}
 	if !strings.Contains(got, "could not be built") {
@@ -220,7 +221,7 @@ func TestSetupSaysWhatIsUnavailableWhenNothingCanAnswer(t *testing.T) {
 	}
 	// The failure has to NAME both missing sources. "setup failed" alone sends
 	// the reader back to the output they already could not act on.
-	for _, want := range []string{"seed baseline", "semantic index"} {
+	for _, want := range []string{"seed baseline", "code index"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("setup must name what is unavailable (%q): %v", want, err)
 		}
@@ -236,7 +237,7 @@ func renderStatusShortPlain(t *testing.T, report brainStatusReport) string {
 	t.Helper()
 	out := &bytes.Buffer{}
 	theme, _ := tui.ThemeByName("default")
-	renderBrainStatusShort(out, tui.NewRendererWith(theme, tui.PlainCaps()), report, setupBrainBinaryName)
+	renderBrainStatusShort(out, tui.NewRendererWith(theme, tui.PlainCaps()), report, base.SetupBrainBinaryName)
 	return out.String()
 }
 
@@ -323,7 +324,7 @@ func TestDirtyWorktreeGetsExactlyOneRemedy(t *testing.T) {
 	}}
 
 	got := renderStatusShortPlain(t, report)
-	remedy := setupDirtyWorktreeHint(setupBrainBinaryName)
+	remedy := setupDirtyWorktreeHint(base.SetupBrainBinaryName)
 	if !strings.Contains(got, remedy) {
 		t.Fatalf("the verdict must carry the one remedy resolver's answer:\n%s", got)
 	}
@@ -349,7 +350,7 @@ func TestDirtyWorktreeGetsExactlyOneRemedy(t *testing.T) {
 // become saying one remedy three times.
 func TestStatusStatesTheDirtyRemedyExactlyOnce(t *testing.T) {
 	t.Parallel()
-	remedy := setupDirtyWorktreeHint(setupBrainBinaryName)
+	remedy := setupDirtyWorktreeHint(base.SetupBrainBinaryName)
 	report := statusFixtureReport(t, 0)
 	report.Live.Dirty = true
 	report.Semantic.Freshness = &staleReport{Severity: "ok", Axes: map[string]staleAxis{"store": {State: "ok"}}}
@@ -380,8 +381,8 @@ func TestStatusStatesTheDirtyRemedyExactlyOnce(t *testing.T) {
 // setup on a clean tree and the one that indexes the tree as it is.
 func TestDirtyWorktreeRemedyNamesBothWaysOut(t *testing.T) {
 	t.Parallel()
-	remedy := setupDirtyWorktreeHint(setupBrainBinaryName)
-	for _, want := range []string{"commit or stash", setupBrainBinaryName + " setup", "refresh --worktree", "entire enable"} {
+	remedy := setupDirtyWorktreeHint(base.SetupBrainBinaryName)
+	for _, want := range []string{"commit or stash", base.SetupBrainBinaryName + " setup", "refresh --worktree", "entire enable"} {
 		if !strings.Contains(remedy, want) {
 			t.Fatalf("the single remedy must name %q: %s", want, remedy)
 		}
@@ -447,7 +448,7 @@ func TestTheSetupSummaryStatesOneRemedyOnce(t *testing.T) {
 	// where the dedup lives, so it is asserted there rather than through a
 	// renderer that never prints a hint at all.
 	_, _, failed := partitionSetupComponents(report.Instant.Components)
-	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
+	out := strings.Join(setupComponentFailureDetails(failed, "--", base.SetupBrainBinaryName), "\n")
 
 	if !strings.Contains(out, "refusing to seed") || !strings.Contains(out, "refusing to index") {
 		t.Fatalf("both failures must still be named, so this guard is not vacuous:\n%s", out)
@@ -467,7 +468,7 @@ func TestTwoDifferentRemediesAreBothShown(t *testing.T) {
 		}},
 	}
 	_, _, failed := partitionSetupComponents(report.Instant.Components)
-	out := strings.Join(setupComponentFailureDetails(failed, "--", setupBrainBinaryName), "\n")
+	out := strings.Join(setupComponentFailureDetails(failed, "--", base.SetupBrainBinaryName), "\n")
 	if n := strings.Count(out, "hint: "); n != 2 {
 		t.Fatalf("distinct remedies must both appear, got %d:\n%s", n, out)
 	}
@@ -618,7 +619,7 @@ func renderSetupSummaryPlain(t *testing.T, report setupReport, timings *setupTim
 	out := &bytes.Buffer{}
 	theme, _ := tui.ThemeByName("default")
 	queryable := len(setupUnqueryableCore(report.Instant.Components)) == 0
-	terse := terseReportFor(report, timings, queryable, defaultSetupOptions(), setupBrainBinaryName)
+	terse := terseReportFor(report, timings, queryable, defaultSetupOptions(), base.SetupBrainBinaryName)
 	setupui.RenderTerse(out, setupui.NewRendererWidth(tui.NewRendererWith(theme, tui.PlainCaps()), 200), terse)
 	return out.String()
 }
@@ -641,7 +642,7 @@ func TestQueryabilityClauseNeverOverclaims(t *testing.T) {
 	if strings.Contains(got, "queryable now") {
 		t.Fatalf("no index and no baseline is not queryable: %q", got)
 	}
-	for _, want := range []string{"semantic index", "seed baseline"} {
+	for _, want := range []string{"code index", "seed baseline"} {
 		if !strings.Contains(got, "no "+want) {
 			t.Fatalf("the clause must name what is unavailable (%q): %q", want, got)
 		}

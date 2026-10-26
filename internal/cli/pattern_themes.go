@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Themes / latent practices (Pattern Consolidation v2, Priority 5).
@@ -141,7 +144,7 @@ func pruneThemes(db *sql.DB, keep map[string]bool) error {
 func themeFingerprint(members []string) string {
 	sorted := append([]string(nil), members...)
 	sort.Strings(sorted)
-	return "sha256:" + hexSHA(strings.Join(sorted, "|"))
+	return "sha256:" + base.HexSHA(strings.Join(sorted, "|"))
 }
 
 func dominantShape(shapes map[string]int) string {
@@ -176,7 +179,7 @@ func loadThemeViews(brainDir string, verifiedOnly bool) []themeView {
 }
 
 func loadThemeViewsChecked(brainDir string, verifiedOnly bool) ([]themeView, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +198,7 @@ func queryThemeViews(db *sql.DB, verifiedOnly bool) []themeView {
 func queryThemeViewsChecked(db *sql.DB, verifiedOnly bool) ([]themeView, error) {
 	// A corpus that predates the additive themes table has no themes, not a
 	// broken read.
-	if ok, err := patternCorpusHasTable(db, "themes"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db, "themes"); err != nil || !ok {
 		return nil, err
 	}
 	q := `SELECT id, title, description, shape, support, strength, status, COALESCE(verdict,'') FROM themes WHERE COALESCE(verdict,'') != 'rejected'`
@@ -227,7 +230,7 @@ func themePatternView(th themeView) patternView {
 	}
 	return patternView{
 		ID: th.ID, Type: "theme", Scope: "repo", Kind: th.Shape,
-		Title: th.Title, Strength: th.Strength, StrengthLabel: strengthLabelV2(th.Strength),
+		Title: th.Title, Strength: th.Strength, StrengthLabel: patterncore.StrengthLabelV2(th.Strength),
 		Support: th.Support, DossierStatus: state,
 	}
 }
@@ -262,7 +265,7 @@ func loadAcceptedThemeAsDeep(brainDir, themeID string) (deepSkillInput, bool) {
 }
 
 func loadAcceptedThemeAsDeepChecked(brainDir, themeID string) (deepSkillInput, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return deepSkillInput{}, false, err
 	}
@@ -270,7 +273,7 @@ func loadAcceptedThemeAsDeepChecked(brainDir, themeID string) (deepSkillInput, b
 		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
-	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db.DB, "themes"); err != nil || !ok {
 		return deepSkillInput{}, false, err
 	}
 	var title, desc, shape, verdict string
@@ -289,7 +292,7 @@ func loadAcceptedThemeAsDeepChecked(brainDir, themeID string) (deepSkillInput, b
 			Title:         title,
 			Trigger:       "latent practice (" + shape + "): " + desc,
 		},
-		verdict: dossierVerdict{Verdict: "accepted"},
+		verdict: patterncore.DossierVerdict{Verdict: "accepted"},
 	}, true, nil
 }
 
@@ -300,7 +303,7 @@ func getCorpusTheme(brainDir, themeID string) (unifiedResult, bool) {
 }
 
 func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}
@@ -308,7 +311,7 @@ func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error
 		return unifiedResult{}, false, nil
 	}
 	defer db.Close()
-	if ok, err := patternCorpusHasTable(db.DB, "themes"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db.DB, "themes"); err != nil || !ok {
 		return unifiedResult{}, false, err
 	}
 	var v themeView
@@ -329,7 +332,7 @@ func getCorpusThemeChecked(brainDir, themeID string) (unifiedResult, bool, error
 		state += "/" + v.Verdict
 	}
 	b.WriteString("members: " + strconv.Itoa(v.Support) + " episode(s) (" + state + ")")
-	return unifiedResult{Source: "theme", ID: v.ID, Text: redactText(b.String())}, true, nil
+	return unifiedResult{Source: "theme", ID: v.ID, Text: base.RedactText(b.String())}, true, nil
 }
 
 // rankTaskRelevantThemes returns verified themes whose title/description share a
@@ -414,9 +417,9 @@ type proposedTheme struct {
 // membership to the agent's choice, expands each seed deterministically, and
 // stores the result. Egress-gated; cached by the sample fingerprint; never from
 // refresh.
-func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
 
@@ -430,21 +433,21 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 	// excerpt), so the cache invalidates when episode CONTENT changes, not only
 	// when the set of keys changes.
 	payload, _ := json.Marshal(map[string]any{"episodes": sample})
-	sampleFP := proposalSampleFingerprint(payload)
-	if corpusMeta(db, "themes_sample_fingerprint") == sampleFP && corpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
-		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM themes`)
+	sampleFP := patterncore.ProposalSampleFingerprint(payload)
+	if patterncore.CorpusMeta(db, "themes_sample_fingerprint") == sampleFP && patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`) > 0 {
+		stats.Cached = patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM themes`)
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
 	}
 
-	args, err := distillAgentCommandArgs(agent, nil, themeProposeSystemPrompt)
+	args, err := base.DistillAgentCommandArgs(agent, nil, themeProposeSystemPrompt)
 	if err != nil {
 		return stats, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), patterncore.DossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("theme proposal agent: %w", err)
 	}
@@ -453,7 +456,7 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	valid := map[string]bool{}
 	for _, k := range sampleKeys {
@@ -471,19 +474,19 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		// episodes whose intent/excerpt overlaps the proposed description.
 		members = expandThemeMembers(db, members, pt.Title+" "+pt.Desc)
 		verdict := strings.ToLower(strings.TrimSpace(pt.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			// A missing/unknown verdict must never be treated as accepted — it would
 			// surface an unverified theme. Default to the softest non-accepting verdict.
 			verdict = "low_confidence"
 		}
 		memberJSON, _ := json.Marshal(members)
 		shape := memberDominantShape(db, members)
-		strength := math.Round(supportScoreV2(len(members))*1000) / 1000
-		id := "theme:" + hexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+		strength := math.Round(patterncore.SupportScoreV2(len(members))*1000) / 1000
+		id := "theme:" + base.HexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
-			title:       redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
-			description: redactText(truncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			title:       base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
+			description: base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
 		})
@@ -553,11 +556,11 @@ func sampleShapedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, []s
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
-			ex = redactText(t)
+			ex = base.RedactText(t)
 		}
 		sample = append(sample, map[string]string{
 			"episode_key": key, "shape": shape,
-			"intent": redactText(truncateString(intent, 160)), "excerpt": ex,
+			"intent": base.RedactText(base.TruncateString(intent, 160)), "excerpt": ex,
 		})
 		keys = append(keys, key)
 	}

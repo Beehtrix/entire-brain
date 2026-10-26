@@ -4,6 +4,8 @@ import (
 	"os"
 	"runtime"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // redirectHomeDir points os.UserHomeDir at a fresh temp directory on EVERY
@@ -109,7 +111,7 @@ func TestDefaultStoreFallbackStaysInsideTheSandbox(t *testing.T) {
 		envPluginStateDir:  dirs.State,
 		envPluginCacheDir:  dirs.Cache,
 	} {
-		if !pathInside(home, got) {
+		if !base.PathInside(home, got) {
 			t.Errorf("%s resolved to %q, outside the redirected home %q", name, got, home)
 		}
 	}

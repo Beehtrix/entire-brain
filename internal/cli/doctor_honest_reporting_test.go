@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // doctor_honest_reporting_test.go covers three ways `doctor` lied.
@@ -701,7 +704,7 @@ func TestUnreadableFTSStoreIsStillCorruption(t *testing.T) {
 	if got := normalizeMemoryObservedState(memoryObservedStateValue(health["state"])); got != "corrupt" {
 		t.Fatalf("a file that is not a database = %q, want corrupt: %#v", got, health)
 	}
-	if health["error_code"] != memoryErrStateCorrupt {
+	if health["error_code"] != brainstore.StateCorruptCode {
 		t.Fatalf("corrupt FTS store lost its error code: %#v", health)
 	}
 }
@@ -711,7 +714,7 @@ func TestUnreadableFTSStoreIsStillCorruption(t *testing.T) {
 // indexed into it.
 func createEmptySQLiteFile(t *testing.T, path string) {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

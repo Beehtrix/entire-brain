@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
@@ -75,7 +77,7 @@ func TestHistoryProjectionPublishFailurePreservesPreviousGeneration(t *testing.T
 		return originalWrite(brainDir, rel, data, perm)
 	}
 	t.Cleanup(func() { historyProjectionWriteFile = originalWrite })
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -115,7 +117,7 @@ func TestHistoryProjectionSourceChangeBeforeCommitPublishesNothing(t *testing.T)
 	if err := os.Chtimes(full, changed, changed); err != nil {
 		t.Fatal(err)
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -139,7 +141,7 @@ func TestHistoryProjectionSameMetadataReplacementBeforeCommitPublishesNothing(t 
 	target := filepath.Join(brainDir, filepath.FromSlash(rel))
 	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -175,7 +177,7 @@ func TestHistoryProjectionCancellationAtCommitPublishesNothing(t *testing.T) {
 		}
 		return nil
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, guard)
 		return publishErr
 	})
@@ -194,9 +196,9 @@ func TestHistoryProjectionPrivacyOrOverlayChangeBeforeCommitPublishesNothing(t *
 		mutate func(t *testing.T, brainDir string, now time.Time)
 	}{
 		{name: "tombstone", mutate: func(t *testing.T, brainDir string, now time.Time) {
-			stones := loadSessionTombstones(brainDir)
+			stones := brainstore.LoadSessionTombstones(brainDir)
 			stones.Excluded["session-1"] = sessionTombstone{At: now, Reason: "test"}
-			if err := saveSessionTombstones(brainDir, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -220,7 +222,7 @@ func TestHistoryProjectionPrivacyOrOverlayChangeBeforeCommitPublishesNothing(t *
 				t.Fatal(err)
 			}
 			test.mutate(t, brainDir, now.Add(2*time.Minute))
-			err = withBrainWriteLock(brainDir, func() error {
+			err = brainstore.WithBrainWriteLock(brainDir, func() error {
 				_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 				return publishErr
 			})
@@ -279,7 +281,7 @@ func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -306,7 +308,7 @@ func TestPrivacyInventoryIncludesEveryHistoryGenerationArtifact(t *testing.T) {
 
 func TestHistoryProjectionPrepareDoesNotAcquireBrainWriteLock(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	unlock, err := acquireBrainWriteLock(brainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +330,7 @@ func TestHistoryProjectionCommitRevalidationIsMetadataOnly(t *testing.T) {
 	originalHook := beforeHistoryProjectionContentDigest
 	beforeHistoryProjectionContentDigest = func(string) { digestCalls++ }
 	t.Cleanup(func() { beforeHistoryProjectionContentDigest = originalHook })
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -376,7 +378,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -435,7 +437,7 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, target, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -462,16 +464,16 @@ func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.
 
 func TestPrivacyVerifyFailsClosedOnCorruptEgressReceipt(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	rel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, "corrupt.json"))
-	if err := writeBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, []byte("{not-json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("privacy verify error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("privacy verify error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }

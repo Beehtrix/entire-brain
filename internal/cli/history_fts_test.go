@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func ftsTestIndex() historyIndex {
@@ -51,7 +54,7 @@ func writeDirectHistoryFTSFixture(t testing.TB, index historyIndex) (string, *hi
 		RecordsFingerprint: fingerprint,
 		Records:            len(index.Records),
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	index.recordsFingerprint = fingerprint
@@ -185,7 +188,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "stale metadata",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -198,7 +201,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "malformed payload",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -220,7 +223,7 @@ func TestHistoryFTSDirectStaleAndMalformedPayloadFallBack(t *testing.T) {
 		{
 			name: "aliased record order",
 			mutate: func(t *testing.T, brainDir string) {
-				db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+				db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -277,7 +280,7 @@ func TestHistoryFTSReadOnlyMissDoesNotCreateCache(t *testing.T) {
 		RecordsFingerprint: historyRecordsFingerprint(index.Records),
 		Records:            len(index.Records),
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(historyFTSDBPath(brainDir)); !os.IsNotExist(err) {
@@ -318,7 +321,7 @@ func TestHistoryFTSDirectSizeMismatchIsHardWithoutWriter(t *testing.T) {
 func TestHistoryFTSDirectServesMatchingSnapshotDuringRefresh(t *testing.T) {
 	index := ftsTestIndex()
 	brainDir, source := writeDirectHistoryFTSFixture(t, index)
-	unlock, err := acquireBrainWriteLock(brainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

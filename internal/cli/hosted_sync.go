@@ -11,6 +11,8 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -65,7 +67,7 @@ type hostedSyncOutcome struct {
 // keys off it). Callers that promise a sync to the user (connect) key their
 // report off PullSucceeded; background callers keep ignoring it.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
@@ -192,7 +194,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = withBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		state, items, err := loadHostedFeedCache(feedDir)
 		if err != nil {
 			return err
@@ -319,7 +321,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 // hostedSyncBranch resolves the branch a hosted sync step should cover: the
 // repo's current branch, else the default branch.
 func hostedSyncBranch(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if current, err := gitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if current, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		if branch := strings.TrimSpace(current); branch != "" {
 			return branch
 		}

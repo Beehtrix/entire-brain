@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // fixedDaemonSpec is the spec both golden tests render, with paths that are
@@ -429,7 +431,7 @@ func TestUninstallDaemonPreservesUnitWhenStopFails(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0600); err != nil {
+			if err := brainstore.WriteFileAtomic(plan.UnitPath, []byte(plan.Contents), 0600); err != nil {
 				t.Fatal(err)
 			}
 			runner := &recordingDaemonRunner{stopErr: errors.New("service manager unavailable")}

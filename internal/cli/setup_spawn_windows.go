@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"os"
 	"syscall"
 )
 
@@ -18,14 +17,3 @@ func detachedSysProcAttr() *syscall.SysProcAttr {
 // creation there requires a privilege the attack this guards against does not
 // have by default.
 const noFollowOpenFlag = 0
-
-// processAlive reports whether a recorded backfill pid is still running.
-// os.FindProcess opens a handle on Windows, so an error means the process is
-// gone.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	_, err := os.FindProcess(pid)
-	return err == nil
-}

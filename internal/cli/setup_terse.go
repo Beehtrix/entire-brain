@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
 
@@ -16,7 +17,7 @@ import (
 // in the short form: an id like "entities" tells a reader nothing they can act
 // on, and `doctor` already lists every component by name.
 var terseCapabilityLabels = map[string]string{
-	brainComponentSemantic: "semantic search",
+	brainComponentSemantic: "code context",
 	brainComponentHistory:  "history search",
 	brainComponentDocs:     "docs search",
 	// Session export earns a label for one reason: its commonest failure is
@@ -45,7 +46,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 		Sessions:  report.Facts.Sessions,
 		Distilled: report.Facts.Distilled,
 		Queued:    report.Facts.Queued,
-		BrainCmd:  setupBrainCommand(brainCmd),
+		BrainCmd:  base.SetupBrainCommand(brainCmd),
 	}
 	if timings != nil {
 		out.Elapsed = timings.total()

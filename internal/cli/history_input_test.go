@@ -11,11 +11,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestHistorySessionInventoryDeterministic(t *testing.T) {
 	brainDir := t.TempDir()
-	mainDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	mainDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(mainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +56,7 @@ func TestHistorySessionInventoryDeterministic(t *testing.T) {
 
 func TestHistorySessionInventoryCancellation(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, exportSessionsDirectory), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.SessionsDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -79,7 +81,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 	if err := os.WriteFile(external, []byte(canary), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	alias := filepath.Join(brainDir, exportSessionsDirectory, "main", "external.jsonl")
+	alias := filepath.Join(brainDir, brainstore.SessionsDirName, "main", "external.jsonl")
 	if err := os.Symlink(external, alias); err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +188,7 @@ func TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay(t *testing.
 		oldLimit := historySessionInventoryMaxEntries
 		historySessionInventoryMaxEntries = 1
 		t.Cleanup(func() { historySessionInventoryMaxEntries = oldLimit })
-		err = withBrainWriteLock(brainDir, func() error {
+		err = brainstore.WithBrainWriteLock(brainDir, func() error {
 			_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 			return buildErr
 		})
@@ -210,7 +212,7 @@ func TestShortTermDeltaMembershipRacePreservesOverlay(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			racedPath := filepath.Join(brainDir, exportSessionsDirectory, "main", racedName)
+			racedPath := filepath.Join(brainDir, brainstore.SessionsDirName, "main", racedName)
 			originalHook := beforeHistoryShortTermInventoryRecheck
 			landed := false
 			beforeHistoryShortTermInventoryRecheck = func() {
@@ -223,7 +225,7 @@ func TestShortTermDeltaMembershipRacePreservesOverlay(t *testing.T) {
 				}
 			}
 			t.Cleanup(func() { beforeHistoryShortTermInventoryRecheck = originalHook })
-			err = withBrainWriteLock(brainDir, func() error {
+			err = brainstore.WithBrainWriteLock(brainDir, func() error {
 				_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 				return buildErr
 			})

@@ -1,6 +1,6 @@
 {
   "schema": "entire-brain.windows-ci.settings.v1",
-  "shardCount": 8,
+  "shardCount": 6,
   "defaultWeightSeconds": 1.0,
   "timeout": "20m",
   "commandLineLimit": 30000,

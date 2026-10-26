@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -77,6 +79,7 @@ func assertHistoryIdentityPersisted(t testing.TB, brainDir string, identity *his
 }
 
 func TestLoadBrainHistoryIndexGenericDoesNotDeriveLegacyIdentity(t *testing.T) {
+	t.Parallel()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 
 	generic, err := loadBrainHistoryIndex(brainDir, legacy)
@@ -100,6 +103,7 @@ func TestLoadBrainHistoryIndexGenericDoesNotDeriveLegacyIdentity(t *testing.T) {
 }
 
 func TestHistoryLegacyIdentityUpgradeRequiresVerifiedTruthAndDirectPayload(t *testing.T) {
+	t.Parallel()
 	index := ftsTestIndex()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, index)
 	loaded, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
@@ -145,6 +149,7 @@ func TestHistoryLegacyIdentityUpgradeRequiresVerifiedTruthAndDirectPayload(t *te
 }
 
 func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(t *testing.T) {
+	t.Parallel()
 	indexA := ftsTestIndex()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, indexA)
 	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
@@ -169,7 +174,7 @@ func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(
 	if len(dataB) != len(dataA) {
 		t.Fatalf("replacement must retain size: A=%d B=%d", len(dataA), len(dataB))
 	}
-	if err := writeFileAtomic(path, dataB, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, dataB, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if identity.IndexSHA256 != historyIndexBytesFingerprint(dataA) || identity.IndexSHA256 == historyIndexBytesFingerprint(dataB) {
@@ -186,6 +191,7 @@ func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(
 }
 
 func TestHistoryLegacyIdentityConcurrentMigrationPreservesNewerFields(t *testing.T) {
+	t.Parallel()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 	_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
 
@@ -225,6 +231,7 @@ func TestHistoryLegacyIdentityConcurrentMigrationPreservesNewerFields(t *testing
 }
 
 func TestHistoryLegacyIdentityRejectsStaleManifestCoordinates(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		mutate func(*historySourceManifest)
@@ -253,6 +260,7 @@ func TestHistoryLegacyIdentityRejectsStaleManifestCoordinates(t *testing.T) {
 }
 
 func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *testing.T) {
+	t.Parallel()
 	t.Run("no FTS", func(t *testing.T) {
 		index := ftsTestIndex()
 		brainDir := t.TempDir()
@@ -262,7 +270,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 		}
 		data = append(data, '\n')
 		legacy := &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records)}
-		if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: legacy}}); err != nil {
@@ -281,7 +289,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 	t.Run("corrupt matched payload", func(t *testing.T) {
 		brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 		_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
-		db, err := sql.Open(sqliteDriverName, historyFTSDBPath(brainDir))
+		db, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(brainDir))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -308,7 +316,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 		if !ok {
 			t.Fatal("reference ranking unavailable")
 		}
-		lockPath := brainWriteLockPath(brainDir)
+		lockPath := brainstore.BrainWriteLockPath(brainDir)
 		if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -325,6 +333,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 }
 
 func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
+	t.Parallel()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 	_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
 	manifestPath := filepath.Join(brainDir, exportManifestFileName)
@@ -439,6 +448,7 @@ func TestHistoryLegacyIdentityLockRecheckAllocationsAreSizeIndependent(t *testin
 }
 
 func TestBrainBriefLegacyHistoryIdentityFirstAndDirectPacketsAreExact(t *testing.T) {
+	t.Parallel()
 	fixture := newBrainBriefRawHistoryEndToEndFixture(t)
 	storage, err := repoStoragePaths(context.Background(), fixture.opts.Runner, fixture.opts.Env, fixture.opts.Env.RepoRoot)
 	if err != nil {

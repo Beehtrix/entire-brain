@@ -7,21 +7,26 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // newCorpusAtDir creates an empty corpus (file + schema) at brainDir so
 // openPatternCorpusMutableDB can reopen it; mirrors promotableCorpusDir's setup.
 func newCorpusAtDir(t *testing.T, brainDir string) {
 	t.Helper()
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range patternCorpusSchema {
+	for _, s := range patterncore.CorpusSchema {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("schema: %v", err)
 		}
@@ -43,7 +48,7 @@ func seedCorrectedEpisodes(t *testing.T, brainDir, intentSig, failingCmd string,
 	defer db.Close()
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("episode:%s%d", intentSig, i)
-		insertCorpusEpisode(t, db, id, intentSig, "corrected", 3, now)
+		patterntest.InsertCorpusEpisode(t, db, id, intentSig, "corrected", 3, now)
 		if _, err := db.Exec(`INSERT INTO episode_commands (episode_id, ord, head, raw_redacted, line, exit_code, failed) VALUES (?,?,?,?,?,?,1)`,
 			id, 0, failingCmd, failingCmd, 1, 1); err != nil {
 			t.Fatal(err)

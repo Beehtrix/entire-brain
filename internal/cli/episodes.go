@@ -14,6 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Episode layer (Pattern Consolidation, Phase 1).
@@ -131,7 +134,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		return nil, nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return nil, nil, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+		return nil, nil, errors.New("session history missing; run `" + base.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 	}
 
 	var (
@@ -155,7 +158,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	}
 	defer beforeInventory.Close()
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		if guard.blocksExportSession(session) {
+		if guardBlocksExportSession(guard, session) {
 			continue
 		}
 		rel := strings.TrimSpace(session.TranscriptPath)
@@ -199,7 +202,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 				Branch:          session.Branch,
 				Author:          author,
 				Agent:           session.Agent,
-				Intent:          truncateString(turn.Text, 280),
+				Intent:          base.TruncateString(turn.Text, 280),
 				IntentSignature: intentSignature(turn.Text),
 				ToolSequence:    tools,
 				CommandSequence: commands,
@@ -241,7 +244,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 		// The guard's identity is the exact tombstone bytes this build
 		// filtered against, so the recorded epoch cannot drift from the
 		// corpus it describes.
-		PrivacyIdentity:     guard.policyIdentity,
+		PrivacyIdentity:     guard.PolicyIdentity,
 		SessionsFingerprint: brainSessionsFingerprint(outputDir),
 		Episodes:            len(episodes),
 		Reinforcement:       counts,
@@ -254,7 +257,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 // source in the manifest, under the brain write lock.
 func writeBrainEpisodesAndSource(outputDir string, now time.Time) (*patternSourceManifest, error) {
 	var source *patternSourceManifest
-	err := withBrainWriteLock(outputDir, func() error {
+	err := brainstore.WithBrainWriteLock(outputDir, func() error {
 		var runErr error
 		source, runErr = writeBrainEpisodesAndSourceLocked(outputDir, now)
 		return runErr
@@ -275,7 +278,7 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 			return nil, fmt.Errorf("encode episode: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsEpisodesPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsEpisodesPath, buf.Bytes(), 0o600); err != nil {
 		return nil, fmt.Errorf("write episodes: %w", err)
 	}
 
@@ -337,14 +340,14 @@ func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 	if !sessionSourceFingerprintCurrent(source.SessionsFingerprint, brainSessionsFingerprint(brainDir)) {
 		return false
 	}
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return false
 	}
 	if source.PrivacyIdentity == state.Identity {
 		return true
 	}
-	return source.PrivacyIdentity == "" && state.State == sessionTombstoneAbsent
+	return source.PrivacyIdentity == "" && state.State == brainstore.SessionTombstoneAbsent
 }
 
 // refreshPatternLayer rebuilds the pattern layer (episodes -> tasks, procedures,

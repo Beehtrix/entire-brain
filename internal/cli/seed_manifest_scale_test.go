@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // coverageFixture builds a history-coverage record whose per-commit gap list has
@@ -43,13 +45,14 @@ func coverageFixture(n int) *seedHistoryCoverage {
 // At 50,000 commits that manifest was 28 MB against a 16 MiB read bound, so the
 // next command could not read what the previous one had just written.
 func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
+	t.Parallel()
 	full := coverageFixture(50000)
 
 	unbounded, err := json.Marshal(full)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if int64(len(unbounded)) <= maxManifestBytes {
+	if int64(len(unbounded)) <= base.MaxManifestBytes {
 		t.Fatalf("fixture is too small to exercise the bound: %d bytes", len(unbounded))
 	}
 
@@ -58,7 +61,7 @@ func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal bounded: %v", err)
 	}
-	if int64(len(encoded)) > maxManifestBytes {
+	if int64(len(encoded)) > base.MaxManifestBytes {
 		t.Fatalf("bounded coverage is still over the manifest read bound: %d bytes", len(encoded))
 	}
 	if got := len(bounded.UncoveredCommits); got != seedManifestMaxUncoveredCommits {
@@ -90,6 +93,7 @@ func TestSeedHistoryCoverageInManifestStaysUnderTheReadBound(t *testing.T) {
 // all, so an ordinary repository's manifest is byte-identical to what earlier
 // builds wrote.
 func TestSeedHistoryCoverageUnderTheBoundIsUnchanged(t *testing.T) {
+	t.Parallel()
 	small := coverageFixture(10)
 	bounded := manifestSeedHistoryCoverage(small)
 	if bounded != small {
@@ -117,6 +121,7 @@ func TestSeedHistoryCoverageUnderTheBoundIsUnchanged(t *testing.T) {
 // asserts the only property that matters afterwards: the brain can still read
 // what it just wrote.
 func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
+	t.Parallel()
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)
@@ -146,8 +151,8 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat manifest: %v", err)
 	}
-	if info.Size() > maxManifestBytes {
-		t.Fatalf("seed wrote a %d byte manifest against a %d byte read bound", info.Size(), maxManifestBytes)
+	if info.Size() > base.MaxManifestBytes {
+		t.Fatalf("seed wrote a %d byte manifest against a %d byte read bound", info.Size(), base.MaxManifestBytes)
 	}
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -203,9 +208,21 @@ func fakeSeedGitLog(n int) string {
 // Large retained coverage records written by earlier builds remain readable and
 // rewritable even though new seed projections store coverage more compactly.
 func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
+	// The pinned relation is "a retained coverage block above maxManifestBytes
+	// still reads and rewrites" — the reader is deliberately unbounded. The
+	// default run lowers the ceiling instead of paying for a 16 MiB fixture;
+	// the nightly's ENTIRE_BRAIN_OBSERVED_SCALE=1 keeps the recorded 50k-record
+	// size against the real ceiling. Serial: the ceiling is a package-level var.
+	records := 50000
+	if !observedScale() {
+		records = 1000
+		prev := base.MaxManifestBytes
+		base.MaxManifestBytes = 256 << 10
+		t.Cleanup(func() { base.MaxManifestBytes = prev })
+	}
 	brainDir := t.TempDir()
 	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: "local/example", Sources: &brainSources{Seed: &seedSourceManifest{
-		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(50000),
+		GeneratedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), HistoryCoverage: coverageFixture(records),
 	}}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
@@ -214,14 +231,14 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() <= maxManifestBytes {
+	if info.Size() <= base.MaxManifestBytes {
 		t.Fatal("fixture did not exceed old ceiling")
 	}
 	got, err := loadBrainManifest(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Sources.Seed.HistoryCoverage.UncoveredCommits) != 50000 {
+	if len(got.Sources.Seed.HistoryCoverage.UncoveredCommits) != records {
 		t.Fatal("lost coverage records")
 	}
 	if err := writeBrainManifestAndReadme(brainDir, *got); err != nil {
@@ -234,6 +251,7 @@ func TestWriteBrainManifestLargeCoverageRoundTrip(t *testing.T) {
 // and stopped, so the whole report of a brain that skipped most of the
 // repository was a digit. `refresh sessions` has always printed the text too.
 func TestSeedPrintsEveryWarningNotJustACount(t *testing.T) {
+	t.Parallel()
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	cmd := NewRootCommand(Options{

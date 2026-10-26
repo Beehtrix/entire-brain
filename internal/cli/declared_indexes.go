@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // declared_indexes.go cross-checks the retrieval indexes the manifest DECLARES
@@ -58,7 +60,7 @@ var declaredIndexOrder = []declaredIndexSource{declaredIndexSeed, declaredIndexD
 // of these artifacts is derived deterministically from sources the brain still
 // holds.
 func declaredIndexRepairHint() string {
-	return "run `" + brainInvocation(os.LookupEnv, "refresh") + "`"
+	return "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"
 }
 
 // declaredIndexDefect is one declared artifact the store cannot produce. The

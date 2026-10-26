@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
@@ -230,7 +232,7 @@ func TestSeedAgentCommandArgsAcceptModelAndEffort(t *testing.T) {
 	// Seed reuses the distill injectors (applied in runSeedAgentPhase), so a full refresh can run
 	// seed synthesis on a fast/cheap model + effort. Prompt must stay last after injection.
 	codex, _ := seedAgentCommandArgs("/repo", "quick", seedCommandOptions{agent: "codex"})
-	codex = injectAgentEffort(injectAgentModel(codex, "codex", "gpt-5.4-mini"), "codex", "low")
+	codex = base.InjectAgentEffort(base.InjectAgentModel(codex, "codex", "gpt-5.4-mini"), "codex", "low")
 	joined := strings.Join(codex, "\x00")
 	for _, want := range []string{"--model\x00gpt-5.4-mini", "--config\x00model_reasoning_effort=low"} {
 		if !strings.Contains(joined, want) {
@@ -242,7 +244,7 @@ func TestSeedAgentCommandArgsAcceptModelAndEffort(t *testing.T) {
 	}
 
 	claude, _ := seedAgentCommandArgs("/repo", "deep", seedCommandOptions{agent: "claude-code"})
-	claude = injectAgentEffort(injectAgentModel(claude, "claude-code", "haiku"), "claude-code", "low")
+	claude = base.InjectAgentEffort(base.InjectAgentModel(claude, "claude-code", "haiku"), "claude-code", "low")
 	joinedc := strings.Join(claude, "\x00")
 	for _, want := range []string{"--model\x00haiku", "--effort\x00low"} {
 		if !strings.Contains(joinedc, want) {

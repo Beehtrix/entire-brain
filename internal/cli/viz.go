@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"io/fs"
 	"net"
@@ -21,9 +22,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
-
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/spf13/cobra"
 )
 
 // vizGraphMaxView is a safety ceiling on rendered nodes — NOT a feature cap. It's
@@ -65,7 +66,7 @@ func newVizCommand(opts Options) *cobra.Command {
 		Use:   "viz [path]",
 		Short: "Explore the brain as a graph in your browser",
 		Long: `viz starts a local, no-egress web interface that renders the brain's
-semantic graph — code entities and their CALLS/IMPORTS relations — as an
+code graph — code entities and their CALLS/IMPORTS relations — as an
 explorable, force-directed graph with search and a symbol inspector.
 
 It binds to 127.0.0.1 only, serves a self-contained embedded UI (no CDN), and
@@ -130,7 +131,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 
 	srv := &vizServer{
 		repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest,
-		guard: guard, guardObserved: !guard.empty(),
+		guard: guard, guardObserved: !guard.Empty(),
 	}
 	// The manifest's RepoKey is the canonical key (it survives nested owner
 	// groups and any store-layout change); the brainDir tail is the fallback.
@@ -448,22 +449,22 @@ func (s *vizServer) requestSessionGuard(w http.ResponseWriter) (sessionReadGuard
 	s.guardMu.Lock()
 	defer s.guardMu.Unlock()
 
-	stones, state, err := loadSessionTombstonesChecked(s.brainDir)
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(s.brainDir)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusServiceUnavailable, map[string]any{
 			"error": commandErrorCode(err), "message": "session privacy state is unavailable",
 		})
 		return sessionReadGuard{}, false
 	}
-	if state.State == sessionTombstoneAbsent && s.guardObserved {
+	if state.State == brainstore.SessionTombstoneAbsent && s.guardObserved {
 		return s.guard, true
 	}
-	if state.State == sessionTombstoneCurrent {
+	if state.State == brainstore.SessionTombstoneCurrent {
 		s.guardObserved = true
 		if len(stones.Excluded) == 0 {
 			s.guard = sessionReadGuard{}
 		} else {
-			s.guard = sessionReadGuard{ids: stones.Excluded, paths: excludedTranscriptPaths(s.manifest, stones)}
+			s.guard = sessionReadGuard{IDs: stones.Excluded, Paths: excludedTranscriptPaths(s.manifest, stones)}
 		}
 		return s.guard, true
 	}
@@ -975,7 +976,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "no code graph — run `"+base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -985,7 +986,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	// budget below, not mid-file here.
 	syms, err := semanticSymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
 	if err != nil {
-		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
+		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1063,7 +1064,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// safety ceiling are enforced inside vizQueryLimit for every endpoint.
 	limit := vizQueryLimit(r, 1200)
 	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
-		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + brainInvocation(os.LookupEnv, "refresh") + "`"}})
+		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"}})
 		return
 	}
 	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
@@ -1076,7 +1077,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	recs := make([]historyRecord, 0, len(idx.Records))
 	seen := make(map[string]bool, len(idx.Records))
 	for _, h := range idx.Records {
-		if h.ID == "" || seen[h.ID] || guard.blocksRecord(h) {
+		if h.ID == "" || seen[h.ID] || guardBlocksRecord(guard, h) {
 			continue
 		}
 		seen[h.ID] = true
@@ -1234,7 +1235,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "no code graph yet — run `"+base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1252,12 +1253,12 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	syms, err := s.semanticSymbolPool(sem, pool)
 	if err != nil {
-		resp.Warnings = append(resp.Warnings, "semantic symbols: "+err.Error())
+		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
 	if len(syms) == 0 {
-		resp.Warnings = append(resp.Warnings, "the semantic snapshot has no symbols yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		resp.Warnings = append(resp.Warnings, "the code index has no symbols yet — run `"+base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)+"`")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1351,7 +1352,7 @@ func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
 	}
 	sem := s.semanticSource()
 	if sem == nil {
-		resp.Warnings = append(resp.Warnings, "no semantic graph")
+		resp.Warnings = append(resp.Warnings, "no code graph")
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
@@ -1425,54 +1426,22 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // that need both endpoints inside filter the result themselves. Mirrors the
 // SQLite-vs-snapshot branch semanticContextFacts uses (semantic.go).
 func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []semanticRecord, limit int) ([]semanticRecord, error) {
-	if sem.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
-		if err != nil {
-			return nil, err
-		}
-		return findSemanticRelationsForSymbolsInSQLite(storePath, syms, limit)
-	}
-	full, err := s.snapshotFullPath(sem)
+	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, err
 	}
-	return findSemanticRelationsForSymbols(full, syms, limit)
+	return findSemanticRelationsForSymbolsInSQLite(storePath, syms, limit)
 }
 
 // nodeDetail resolves one symbol by exact id plus its relations and neighbors,
 // mirroring semanticContextFacts but seeded by id rather than a search query.
 func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanticRecord, []semanticRecord, []semanticRecord, error) {
 	const limit = 80
-	if sem.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		byID, err := loadSemanticSymbolsByIDsSQLite(storePath, []string{id})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		node, ok := byID[id]
-		if !ok {
-			return nil, nil, nil, nil
-		}
-		rels, err := findSemanticRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
-			return loadSemanticSymbolsByIDsSQLite(storePath, ids)
-		}, limit)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		return &node, neighbors, rels, nil
-	}
-	full, err := s.snapshotFullPath(sem)
+	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	byID, err := loadSemanticSymbolsByIDsSnapshot(full, []string{id})
+	byID, err := loadSemanticSymbolsByIDsSQLite(storePath, []string{id})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1480,12 +1449,12 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 	if !ok {
 		return nil, nil, nil, nil
 	}
-	rels, err := findSemanticRelationsForSymbols(full, []semanticRecord{node}, limit*4)
+	rels, err := findSemanticRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
-		return loadSemanticSymbolsByIDsSnapshot(full, ids)
+		return loadSemanticSymbolsByIDsSQLite(storePath, ids)
 	}, limit)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1503,17 +1472,6 @@ func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord,
 		return nil, err
 	}
 	return resolveContextNeighbors([]semanticRecord{node}, rels, byID, limit), nil
-}
-
-func (s *vizServer) snapshotFullPath(sem *semanticSourceManifest) (string, error) {
-	snap, err := validateSemanticSnapshotPath(sem.SnapshotPath)
-	if err != nil {
-		return "", err
-	}
-	if err := rejectSymlinkPathComponents(s.brainDir, snap); err != nil {
-		return "", err
-	}
-	return filepath.Join(s.brainDir, snap), nil
 }
 
 func writeJSONHTTP(w http.ResponseWriter, code int, v any) {

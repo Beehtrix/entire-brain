@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +51,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			endpoint, enabled, reason := webhookEndpoint()
 			signed := strings.TrimSpace(os.Getenv(webhookSecretEnv)) != ""
-			includeText := envBool(webhookIncludeTextEnv)
+			includeText := base.EnvBool(webhookIncludeTextEnv)
 			if jsonOut {
 				return writeJSON(cmd, map[string]any{
 					"enabled":      enabled,
@@ -68,8 +69,8 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 				// variable they have already set — because an egress toggle is
 				// what actually silenced this — sends them to fix the wrong thing.
 				switch {
-				case brainNoEgressMode():
-					fmt.Fprintf(out, "  unset %s to allow them\n", noEgressToggleName())
+				case base.BrainNoEgressMode():
+					fmt.Fprintf(out, "  unset %s to allow them\n", base.NoEgressToggleName())
 				case strings.TrimSpace(os.Getenv(webhookURLEnv)) != "":
 					fmt.Fprintf(out, "  %s is set to %q; correct it and try again\n",
 						webhookURLEnv, strings.TrimSpace(os.Getenv(webhookURLEnv)))

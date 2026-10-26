@@ -7,16 +7,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // patternCorpusPrivacyArtifactRels derives the privacy inventory from the
 // publication layer's canonical sidecar set. Keep the ownership of those
-// names in pattern_corpus.go: publication, privacy deletion, and verification
-// must agree about every SQLite leaf, including rollback journals.
+// names in patterns/corpus_publication.go: publication, privacy deletion, and
+// verification must agree about every SQLite leaf, including rollback journals.
 func patternCorpusPrivacyArtifactRels() []string {
-	rels := make([]string, 0, 1+len(patternCorpusSidecarNames))
-	rels = append(rels, patternCorpusPath)
-	for _, name := range patternCorpusSidecarNames {
+	rels := make([]string, 0, 1+len(patterncore.CorpusSidecarNames))
+	rels = append(rels, patterncore.CorpusPath)
+	for _, name := range patterncore.CorpusSidecarNames {
 		rels = append(rels, filepath.ToSlash(filepath.Join("patterns", name)))
 	}
 	return rels
@@ -34,7 +37,7 @@ func isPatternCorpusPrivacyArtifactRel(rel string) bool {
 
 func isPatternCorpusRollbackJournalRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
-	for _, name := range patternCorpusSidecarNames {
+	for _, name := range patterncore.CorpusSidecarNames {
 		if strings.HasSuffix(name, "-journal") && rel == filepath.ToSlash(filepath.Join("patterns", name)) {
 			return true
 		}
@@ -45,7 +48,7 @@ func isPatternCorpusRollbackJournalRel(rel string) bool {
 func isPatternCorpusStagingArtifactRel(rel string) bool {
 	rel = filepath.ToSlash(rel)
 	dir, name := filepath.ToSlash(filepath.Dir(rel)), filepath.Base(filepath.FromSlash(rel))
-	return dir == "patterns" && strings.HasPrefix(name, patternCorpusStagingPrefix)
+	return dir == "patterns" && strings.HasPrefix(name, patterncore.CorpusStagingPrefix)
 }
 
 type patternCorpusPublicationReadState string
@@ -84,12 +87,12 @@ func newPatternCorpusPublicationLoadError(err error, version int) error {
 	code := memoryErrorCode(err)
 	state := patternCorpusPublicationCorrupt
 	switch code {
-	case memoryErrUnsupportedVersion:
+	case brainstore.UnsupportedVersionCode:
 		state = patternCorpusPublicationUnsupported
-	case memoryErrStateUnsafe:
+	case brainstore.StateUnsafeCode:
 		state = patternCorpusPublicationUnsafe
 	default:
-		code = memoryErrStateCorrupt
+		code = brainstore.StateCorruptCode
 	}
 	return &patternCorpusPublicationLoadError{Code: code, State: state, Version: version, Err: err}
 }
@@ -98,21 +101,21 @@ func newPatternCorpusPublicationLoadError(err error, version int) error {
 // markers at both recovery and privacy-cleanup boundaries. It classifies the
 // version header before a strict current-schema decode so a future producer's
 // additional fields remain opaque, read-only state.
-func decodePatternCorpusPublication(data []byte) (patternCorpusPublication, error) {
-	var publication patternCorpusPublication
-	version, err := decodeStrictVersionedJSON(data, &publication, patternCorpusPublicationVersion, "pattern corpus publication marker")
+func decodePatternCorpusPublication(data []byte) (patterncore.CorpusPublication, error) {
+	var publication patterncore.CorpusPublication
+	version, err := brainstore.DecodeStrictVersionedJSON(data, &publication, patterncore.CorpusPublicationVersion, "pattern corpus publication marker")
 	if err != nil {
-		return patternCorpusPublication{}, newPatternCorpusPublicationLoadError(err, version)
+		return patterncore.CorpusPublication{}, newPatternCorpusPublicationLoadError(err, version)
 	}
 	decodedSHA, decodeErr := hex.DecodeString(publication.SHA256)
-	if publication.SchemaVersion != patternCorpusPublicationVersion ||
-		!strings.HasPrefix(publication.Candidate, patternCorpusStagingPrefix) ||
+	if publication.SchemaVersion != patterncore.CorpusPublicationVersion ||
+		!strings.HasPrefix(publication.Candidate, patterncore.CorpusStagingPrefix) ||
 		filepath.Base(publication.Candidate) != publication.Candidate ||
 		strings.ContainsAny(publication.Candidate, `/\`) ||
 		decodeErr != nil || len(decodedSHA) != sha256.Size || publication.SHA256 != strings.ToLower(publication.SHA256) ||
-		publication.Size < 1 || publication.Size > privacySQLiteSnapshotMaxBytes {
-		return patternCorpusPublication{}, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: invalid pattern corpus publication marker", memoryErrStateCorrupt), publication.SchemaVersion)
+		publication.Size < 1 || publication.Size > brainstore.PrivacySQLiteSnapshotMaxBytes {
+		return patterncore.CorpusPublication{}, newPatternCorpusPublicationLoadError(
+			fmt.Errorf("%s: invalid pattern corpus publication marker", brainstore.StateCorruptCode), publication.SchemaVersion)
 	}
 	return publication, nil
 }
@@ -120,30 +123,30 @@ func decodePatternCorpusPublication(data []byte) (patternCorpusPublication, erro
 // loadPatternCorpusPublicationForPrivacy binds the parsed marker bytes to the
 // exact regular-file identity observed by inventory. Callers may retain info
 // only while holding the Brain privacy/write locks; removal rechecks it.
-func loadPatternCorpusPublicationForPrivacy(brainDir string) (patternCorpusPublication, os.FileInfo, bool, error) {
-	info, present, err := privacyArtifactInfo(brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker")
+func loadPatternCorpusPublicationForPrivacy(brainDir string) (patterncore.CorpusPublication, os.FileInfo, bool, error) {
+	info, present, err := brainstore.PrivacyArtifactInfo(brainDir, patterncore.CorpusPublicationMarkerPath, "pattern corpus publication marker")
 	if err != nil {
-		return patternCorpusPublication{}, nil, present, newPatternCorpusPublicationLoadError(err, 0)
+		return patterncore.CorpusPublication{}, nil, present, newPatternCorpusPublicationLoadError(err, 0)
 	}
 	if !present {
-		return patternCorpusPublication{}, nil, false, nil
+		return patterncore.CorpusPublication{}, nil, false, nil
 	}
-	if info.Size() < 1 || info.Size() > patternCorpusPublicationMarkerMax {
-		return patternCorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker is outside its safe size bounds", memoryErrStateUnsafe), 0)
+	if info.Size() < 1 || info.Size() > patterncore.CorpusPublicationMarkerMax {
+		return patterncore.CorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
+			fmt.Errorf("%s: pattern corpus publication marker is outside its safe size bounds", brainstore.StateUnsafeCode), 0)
 	}
 	data, stillPresent, err := readMemoryStateFileExpected(
-		brainDir, patternCorpusPublicationMarkerPath, "pattern corpus publication marker", patternCorpusPublicationMarkerMax, info)
+		brainDir, patterncore.CorpusPublicationMarkerPath, "pattern corpus publication marker", patterncore.CorpusPublicationMarkerMax, info)
 	if err != nil {
-		return patternCorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(err, 0)
+		return patterncore.CorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(err, 0)
 	}
 	if !stillPresent {
-		return patternCorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
-			fmt.Errorf("%s: pattern corpus publication marker disappeared during inventory", memoryErrStateUnsafe), 0)
+		return patterncore.CorpusPublication{}, nil, true, newPatternCorpusPublicationLoadError(
+			fmt.Errorf("%s: pattern corpus publication marker disappeared during inventory", brainstore.StateUnsafeCode), 0)
 	}
 	publication, err := decodePatternCorpusPublication(data)
 	if err != nil {
-		return patternCorpusPublication{}, nil, true, err
+		return patterncore.CorpusPublication{}, nil, true, err
 	}
 	return publication, info, true, nil
 }
@@ -156,8 +159,8 @@ func removePatternCorpusPublicationForPrivacy(brainDir string) error {
 	if err != nil || !present {
 		return err
 	}
-	if err := removeBrainRelativeFileExpected(brainDir, patternCorpusPublicationMarkerPath, info); err != nil {
-		return newPatternCorpusPublicationLoadError(err, patternCorpusPublicationVersion)
+	if err := removeBrainRelativeFileExpected(brainDir, patterncore.CorpusPublicationMarkerPath, info); err != nil {
+		return newPatternCorpusPublicationLoadError(err, patterncore.CorpusPublicationVersion)
 	}
 	return nil
 }

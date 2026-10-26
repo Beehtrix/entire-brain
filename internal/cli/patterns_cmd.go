@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -131,7 +133,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
 			if !patternsPresent {
-				fmt.Fprintln(out, "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+				fmt.Fprintln(out, "patterns: not built (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			} else {
 				fmt.Fprintln(out, "patterns: none detected yet")
 			}
@@ -323,7 +325,7 @@ func renderPatternView(out io.Writer, v patternView) {
 	if v.Verdict != "" {
 		state = strings.TrimLeft(state+"/"+v.Verdict, "/")
 	}
-	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), redactText(v.Title), label)
+	header := fmt.Sprintf("[%s] %s  (%s", strings.ToUpper(v.StrengthLabel), base.RedactText(v.Title), label)
 	if scope != "" {
 		header += ", " + scope
 	}
@@ -347,7 +349,7 @@ func renderPatternView(out io.Writer, v patternView) {
 		fmt.Fprintf(out, "    across %d repo(s): %s\n", v.Repos, strings.Join(repos, ", "))
 	}
 	if v.Example != nil {
-		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", redactText(v.Example.Path), v.Example.Line, v.ID)
+		fmt.Fprintf(out, "    e.g. %s:%d   id %s\n", base.RedactText(v.Example.Path), v.Example.Line, v.ID)
 	} else {
 		fmt.Fprintf(out, "    id %s\n", v.ID)
 	}
@@ -437,12 +439,12 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err
 	}
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
 	return runPrivacyLinearizedPatternMutation(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		run := defaultDistillAgentRunner(agent)
-		verify := verifyDossiers
+		verify := patterncore.VerifyDossiers
 		mode := "dossier"
 		switch {
 		case themes:
@@ -458,12 +460,12 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			verify = verifyDeepDossiers
 			mode = "deep dossier"
 		}
-		var stats dossierVerifyStats
-		if err := withPatternCorpusMutationLocked(brainDir, func(db *sql.DB) error {
+		var stats patterncore.VerifyStats
+		if err := patterncore.WithCorpusMutationLocked(brainDir, func(db *sql.DB) error {
 			var verifyErr error
 			stats, verifyErr = verify(ctx, db, brainDir, repoDir, agent, model, effort, run, opts.Now().UTC())
 			return verifyErr
-		}); err != nil {
+		}, decodePatternCorpusPublication); err != nil {
 			return err
 		}
 		if asJSON {
@@ -495,7 +497,7 @@ func resolvePatternsBrainDir(ctx context.Context, opts Options, target string) (
 // resolvePatternsRepoAndBrain resolves both the local repo directory (needed as
 // the agent runner's working dir) and the brain storage dir for that repo.
 func resolvePatternsRepoAndBrain(ctx context.Context, opts Options, target string) (repoDir, brainDir string, err error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return "", "", err
 	}
@@ -571,7 +573,7 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			return writeJSON(cmd, report)
 		}
 		if !report.Present {
-			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			return nil
 		}
 		out := cmd.OutOrStdout()

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/issues"
 	"github.com/spf13/cobra"
 )
@@ -65,7 +66,7 @@ func TestIssueEmissionRejectsLatePurge(t *testing.T) {
 				err = runBrainBrief(context.Background(), cmd, f.opts, brainBriefOptions{limit: 3, json: true, issue: "COR-123"}, "retry")
 			case "workspace-query", "workspace-get":
 				const key = "gh/example/repo"
-				if err := writeWorkspaceManifest(f.opts.Env, workspaceManifest{Name: "issue-race", Repos: []workspaceRepo{{RepoKey: key}}}); err != nil {
+				if err := workspaceStore(f.opts.Env).WriteManifest(workspacelib.Manifest{SchemaVersion: workspacelib.SchemaVersion, Name: "issue-race", Repos: []workspacelib.Repo{{RepoKey: key}}}); err != nil {
 					t.Fatal(err)
 				}
 				if surface == "workspace-query" {
@@ -160,7 +161,7 @@ func TestIssueLargeSnapshotMCPPagination(t *testing.T) {
 		t.Fatal("CLI continuation failed", cliOut, err)
 	}
 	const key = "gh/example/repo"
-	if err := writeWorkspaceManifest(f.opts.Env, workspaceManifest{Name: "issue-pages", Repos: []workspaceRepo{{RepoKey: key}}}); err != nil {
+	if err := workspaceStore(f.opts.Env).WriteManifest(workspacelib.Manifest{SchemaVersion: workspacelib.SchemaVersion, Name: "issue-pages", Repos: []workspacelib.Repo{{RepoKey: key}}}); err != nil {
 		t.Fatal(err)
 	}
 	var workspaceOut bytes.Buffer

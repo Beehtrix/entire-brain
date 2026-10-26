@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +46,7 @@ func newDocsExtractCommand() *cobra.Command {
 			// symlinks and says nothing about FIFOs, and a plain ReadFile on
 			// one blocks forever with no writer; an oversized file is refused
 			// on its stated size rather than after paying for it.
-			data, err := safeReadFile(path, maxExtractDocumentBytes)
+			data, err := base.SafeReadFile(path, maxExtractDocumentBytes)
 			if err != nil {
 				return err
 			}

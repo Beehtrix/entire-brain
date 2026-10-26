@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +43,7 @@ func TestMCPWorkspaceToolsSurviveOneDeadMember(t *testing.T) {
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, boundDir, siblingKey := workspaceSiblingFixture(t, "dead")
-			manifest, err := loadWorkspaceManifest(opts.Env, "dead")
+			manifest, err := workspaceStore(opts.Env).LoadManifest("dead")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,8 +53,8 @@ func TestMCPWorkspaceToolsSurviveOneDeadMember(t *testing.T) {
 			deadDir := filepath.Join(filepath.Dir(boundDir), "deleted-sibling")
 			deadKey := testLocalRepoStorageKey(t, deadDir)
 			writeScopeTestBrain(t, opts.Env, deadKey)
-			manifest.Repos = append(manifest.Repos, workspaceRepo{RepoKey: deadKey, Name: "deleted-sibling", LocalPathHint: deadDir})
-			if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+			manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: deadKey, Name: "deleted-sibling", LocalPathHint: deadDir})
+			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 				t.Fatal(err)
 			}
 
@@ -90,7 +91,7 @@ func TestMCPWorkspaceExcludesForgedMemberInsteadOfReadingItsBrain(t *testing.T) 
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, _, siblingKey := workspaceSiblingFixture(t, "forgery")
-			manifest, err := loadWorkspaceManifest(opts.Env, "forgery")
+			manifest, err := workspaceStore(opts.Env).LoadManifest("forgery")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -103,7 +104,7 @@ func TestMCPWorkspaceExcludesForgedMemberInsteadOfReadingItsBrain(t *testing.T) 
 					manifest.Repos[i].RepoKey = foreignKey
 				}
 			}
-			if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+			if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 				t.Fatal(err)
 			}
 
@@ -138,14 +139,14 @@ func TestMCPWorkspaceStillRefusesAMemberResolvingOutOfScope(t *testing.T) {
 	if err := os.Symlink(outside, escapeDir); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	manifest, err := loadWorkspaceManifest(opts.Env, "escape")
+	manifest, err := workspaceStore(opts.Env).LoadManifest("escape")
 	if err != nil {
 		t.Fatal(err)
 	}
 	escapeKey := testLocalRepoStorageKey(t, outside)
 	writeScopeTestBrain(t, opts.Env, escapeKey)
-	manifest.Repos = append(manifest.Repos, workspaceRepo{RepoKey: escapeKey, LocalPathHint: escapeDir})
-	if err := writeWorkspaceManifest(opts.Env, manifest); err != nil {
+	manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: escapeKey, LocalPathHint: escapeDir})
+	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, "brain_workspace_graph", scopeToolArgs("brain_workspace_graph", "escape")))
@@ -168,15 +169,15 @@ func workspaceCoverageFixture(t *testing.T, name string) (EntireEnv, *cobra.Comm
 	deadKey := testLocalRepoStorageKey(t, deadDir)
 	writeWorkspaceBrainRepoAt(t, env, deadKey, repoDir, session, "pkg/review_context.go", clean)
 
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          name,
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: key, Name: "healthy", LocalPathHint: repoDir},
 			{RepoKey: deadKey, Name: "never-cloned", LocalPathHint: deadDir},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
@@ -298,7 +299,7 @@ func TestWorkspaceAddReportsAnExistingMemberRatherThanClaimingItAdded(t *testing
 	if !strings.Contains(out, second) {
 		t.Fatalf("the rebound checkout, which every later scan uses, was not named: %s", out)
 	}
-	manifest, err := loadWorkspaceManifest(env, "dup")
+	manifest, err := workspaceStore(env).LoadManifest("dup")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,12 +319,12 @@ func TestWorkspaceAddReportsAnExistingMemberRatherThanClaimingItAdded(t *testing
 // dependency lands, so a documentation target is worse than none: real,
 // plausible, and never the code that would have to change.
 func TestWorkspaceImportTargetPrefersCodeOverDocumentation(t *testing.T) {
-	candidates := []workspaceGraphSymbolRef{
+	candidates := []workspace.SymbolRef{
 		{ID: "r:Markdown:README.md:section:api-client", Kind: "section", Name: "api-client", QualifiedName: "api-client", FilePath: "README.md"},
 		{ID: "r:Go:client/client.go:type:Client", Kind: "type", Name: "Client", QualifiedName: "Client", FilePath: "client/client.go"},
 	}
 	// A root import -- `@owner/api-client` -- whose subpath is empty.
-	got, ok := workspaceImportTargetCandidate(candidates, "")
+	got, ok := workspace.ImportTargetCandidate(candidates, "")
 	if !ok {
 		t.Fatal("root import resolved to no target at all")
 	}
@@ -335,7 +336,7 @@ func TestWorkspaceImportTargetPrefersCodeOverDocumentation(t *testing.T) {
 	}
 	// Documentation is ranked last, not filtered: a docs-only repository has
 	// nothing better to offer and must still resolve.
-	got, ok = workspaceImportTargetCandidate(candidates[:1], "")
+	got, ok = workspace.ImportTargetCandidate(candidates[:1], "")
 	if !ok || got.FilePath != "README.md" {
 		t.Fatalf("a docs-only repository must still resolve: %+v ok=%v", got, ok)
 	}
@@ -363,12 +364,12 @@ func TestWorkspaceReviewWillNotCallATreeCleanWithoutComparingIt(t *testing.T) {
 	repoDir, key := writeLocalWorkspaceBrainRepo(t, env,
 		`{"text":"we talked about the deployment schedule"}`,
 		"pkg/review_context.go", "package x\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "unscanned",
-		Repos:         []workspaceRepo{{RepoKey: key, Name: "quiet", LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: key, Name: "quiet", LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "review", "unscanned", "scopeBaseRef base scope", "--json")
@@ -414,12 +415,12 @@ func TestWorkspaceReviewStillReportsAGenuinelyCleanTree(t *testing.T) {
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	clean := "package x\nfunc f() string {\n\treturn scopeBaseRef + \"..HEAD\"\n}\n"
 	repoDir, key := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", clean)
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "scanned",
-		Repos:         []workspaceRepo{{RepoKey: key, Name: "clean", LocalPathHint: repoDir}},
+		Repos:         []workspace.Repo{{RepoKey: key, Name: "clean", LocalPathHint: repoDir}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "review", "scanned", "fix scopeBaseRef base scope", "--json")
@@ -474,15 +475,15 @@ func TestWorkspaceRegressionsHeadlineWillNotCallAWorkspaceCleanWithoutScanningIt
 	quiet := `{"text":"we talked about the deployment schedule"}`
 	rA, kA := writeLocalWorkspaceBrainRepo(t, env, quiet, "pkg/a.go", "package a\n")
 	rB, kB := writeLocalWorkspaceBrainRepo(t, env, quiet, "pkg/b.go", "package b\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "allquiet",
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: kA, Name: "a", LocalPathHint: rA},
 			{RepoKey: kB, Name: "b", LocalPathHint: rB},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, cmd, "workspace", "inspect", "regressions", "allquiet", "scopeBaseRef base scope")

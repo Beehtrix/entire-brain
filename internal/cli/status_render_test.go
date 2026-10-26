@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 // statusFixtureReport is the report the screenshot that started this work came
@@ -93,18 +93,17 @@ func TestShortStatusGolden(t *testing.T) {
 	t.Parallel()
 	got := renderStatus(t, statusFixtureReport(t, 44), false)
 	const want = "\n" +
-		"Brain  gh/entireio/entire-brain\n" +
-		"  manifest: current\n" +
-		"  semantic: 1179 files, 40781 symbols\n" +
-		"  memories: 375\n" +
+		"* Brain | gh/entireio/entire-brain\n" +
 		"\n" +
-		"Onboarding\n" +
-		"  memories  #............. 20/185 distilled  (backfill running, pid 4242)\n" +
-		"  daemon    - installed but not running (last watcher tick 17m0s ago)\n" +
-		"  instant   + sessions  + seed  + docs  + semantic  - history\n" +
+		"  Memories   | 375 (20/185 distilled, backfill running, pid 4242)\n" +
+		"  Daemon     | installed but not running (last watcher tick 17m0s ago)\n" +
+		"  Sources    | sessions, seed, docs, semantic | missing: history\n" +
+		"  Code index | 1,179 files, 40,781 symbols\n" +
+		"  Manifest   | current\n" +
 		"\n" +
-		"- freshness degraded -- run `entire-brain refresh --agent none`\n" +
-		"  semantic_completeness=degraded (44 partial failures)\n" +
+		"  ! freshness degraded | run `entire-brain refresh --agent none`\n" +
+		"    semantic_completeness=degraded (44 partial failures)\n" +
+		"\n" +
 		"  `entire-brain status --verbose` for the full report\n" +
 		"\n"
 	if got != want {
@@ -172,7 +171,7 @@ func TestVerboseStatusCollapsesRepeatedWarnings(t *testing.T) {
 	if n := strings.Count(got, "44 data files skipped"); n != 1 {
 		t.Errorf("the collapsed line itself is printed %d times, want 1:\n%s", n, got)
 	}
-	if !strings.Contains(got, "all of them are the semantic warnings listed above") {
+	if !strings.Contains(got, "all of them are the code-context warnings listed above") {
 		t.Errorf("the blind-spot section must defer to the section that already listed them:\n%s", got)
 	}
 	// The full report still has to BE the full report.
@@ -272,7 +271,7 @@ func TestStatusHealthCounts(t *testing.T) {
 		t.Errorf("failed components = %+v", health.Failed)
 	}
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
-	line := health.Line(render, setupBrainBinaryName)
+	line := health.Line(render, base.SetupBrainBinaryName)
 	for _, want := range []string{"history failed", "1 issue", "run `entire-brain doctor`"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("verdict %q missing %q", line, want)
@@ -280,12 +279,12 @@ func TestStatusHealthCounts(t *testing.T) {
 	}
 }
 
-func TestStatusHealthWarningUsesSkippedMark(t *testing.T) {
+func TestStatusHealthWarningLeadsWithTheGlyph(t *testing.T) {
 	t.Parallel()
 	render := tui.NewRendererWith(tui.Theme{}, tui.PlainCaps())
-	line := (statusHealth{Warnings: 1}).Line(render, setupBrainBinaryName)
-	if !strings.HasPrefix(line, "- 1 warning") {
-		t.Fatalf("warning-only health rendered as a hard failure: %q", line)
+	line := (statusHealth{Warnings: 1}).Line(render, base.SetupBrainBinaryName)
+	if !strings.HasPrefix(line, "  ! 1 warning") {
+		t.Fatalf("warning-only health lost its warning glyph: %q", line)
 	}
 }
 
@@ -319,13 +318,13 @@ func TestStatusSaysWhenTheInstalledDaemonIsNotCurrent(t *testing.T) {
 func TestStatusNextStepNamesGraphInstallWhenProviderAbsent(t *testing.T) {
 	t.Parallel()
 	h := statusHealth{SemanticMissing: true, SemanticProviderAbsent: true}
-	got := h.nextStepMessage(setupBrainBinaryName)
-	for _, want := range []string{"entire plugin install graph", semanticIndexVerb} {
+	got := h.nextStepMessage(base.SetupBrainBinaryName)
+	for _, want := range []string{"entire plugin install graph", base.SemanticIndexVerb} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("next step %q does not name %q", got, want)
 		}
 	}
-	if withProvider := (statusHealth{SemanticMissing: true}).nextStepMessage(setupBrainBinaryName); strings.Contains(withProvider, "plugin install") {
+	if withProvider := (statusHealth{SemanticMissing: true}).nextStepMessage(base.SetupBrainBinaryName); strings.Contains(withProvider, "plugin install") {
 		t.Fatalf("provider-present next step must stay the refresh remedy: %q", withProvider)
 	}
 }

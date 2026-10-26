@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/factsync"
-
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +45,7 @@ It is the same exchange the background sync runs, except failures fail the
 command instead of degrading silently.
 
 Memory sync is hosted-only. The default target is the connected binding
-('` + brainInvocation(os.LookupEnv, "connect") + `'); on an unconnected repo a plain sync fails and
+('` + base.BrainInvocation(os.LookupEnv, "connect") + `'); on an unconnected repo a plain sync fails and
 memories stay local. The local-gitmeta backend was removed (COR-2236):
 --memories-backend accepts only "http", and the explicit target resolves
 flag > env > connected binding (--api-url/ENTIRE_API_URL,
@@ -80,12 +80,12 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 	case "", factsBackendHTTP:
 	case factsBackendLocalGitmeta:
 		return fmt.Errorf("memories sync: the %q backend was removed (COR-2236): memory sync is hosted-only; run '%s' to sync with the team, or drop --memories-backend/%s (memories stay local otherwise)",
-			factsBackendLocalGitmeta, brainInvocation(os.LookupEnv, "connect"), envFactsBackend)
+			factsBackendLocalGitmeta, base.BrainInvocation(os.LookupEnv, "connect"), envFactsBackend)
 	default:
 		return fmt.Errorf("unknown --memories-backend %q: only %q (the hosted per-fact wire) is supported; the local-gitmeta backend was removed (COR-2236)", backend, factsBackendHTTP)
 	}
 
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 
 	branch := strings.TrimSpace(syncOpts.branch)
 	if branch == "" {
-		if current, gitErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 			branch = strings.TrimSpace(current)
 		}
 	}
@@ -116,30 +116,30 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		// own configuration doing exactly what it promises.
 		binding, present, bindErr := readHostedRepoBinding(storage.BrainDir)
 		if bindErr != nil {
-			return fmt.Errorf("memories sync: hosted binding unreadable: %w; run '%s' to rebind", bindErr, brainInvocation(os.LookupEnv, "connect"))
+			return fmt.Errorf("memories sync: hosted binding unreadable: %w; run '%s' to rebind", bindErr, base.BrainInvocation(os.LookupEnv, "connect"))
 		}
 		if !present || binding.OptedOut {
-			return fmt.Errorf("memories sync: this repo is not connected to Brainstore, so there is nothing to sync with (memories stay local); run '%s' to connect, or pass --memories-backend=http with an explicit --repo-id/--api-url/--token target", brainInvocation(os.LookupEnv, "connect"))
+			return fmt.Errorf("memories sync: this repo is not connected to Brainstore, so there is nothing to sync with (memories stay local); run '%s' to connect, or pass --memories-backend=http with an explicit --repo-id/--api-url/--token target", base.BrainInvocation(os.LookupEnv, "connect"))
 		}
-		if brainNoEgressMode() {
+		if base.BrainNoEgressMode() {
 			// A suppressed sync is the user's own kill switch working, so it
 			// exits 0 — but it must still answer in the caller's format.
 			if syncOpts.jsonOut {
 				return writeJSON(cmd, map[string]any{
 					"branch":  branch,
 					"skipped": true,
-					"reason":  noEgressToggleName() + " is set",
+					"reason":  base.NoEgressToggleName() + " is set",
 				})
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "memories sync: skipped: %s is set; unset it to sync with Brainstore (memories stay local meanwhile)\n", noEgressToggleName())
+			fmt.Fprintf(cmd.OutOrStdout(), "memories sync: skipped: %s is set; unset it to sync with Brainstore (memories stay local meanwhile)\n", base.NoEgressToggleName())
 			return nil
 		}
 		return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch)
 	}
 
 	// Explicit http: the master kill switch still wins over the opt-in.
-	if brainNoEgressMode() {
-		return fmt.Errorf("no_egress: hosted memory sync is disabled while %s is set; unset it to sync", noEgressToggleName())
+	if base.BrainNoEgressMode() {
+		return fmt.Errorf("no_egress: hosted memory sync is disabled while %s is set; unset it to sync", base.NoEgressToggleName())
 	}
 	return runHostedFactsSync(cmd, opts, syncOpts, repoDir, storage, branch)
 }

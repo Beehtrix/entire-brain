@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,7 +25,7 @@ func TestIssueStoreReadRejectsOversizedState(t *testing.T) {
 			if err != nil || !bytes.Equal(got, valid) {
 				t.Fatalf("valid state read: %q, %v", got, err)
 			}
-			if err := os.Truncate(path, defaultMaxReadBytes+1); err != nil {
+			if err := os.Truncate(path, base.DefaultMaxReadBytes+1); err != nil {
 				t.Fatal(err)
 			}
 			got, err = issueStore(dir).Read(path)

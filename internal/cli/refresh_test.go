@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,14 +61,14 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 		"refresh: export sessions: unavailable, using seed baseline done",
 		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: history index: 0 records, 0 decisions, 0 tool calls done",
-		"refresh: semantic index: 1 symbol, 1 relation, 1 file done",
+		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 		"refreshed brain:",
 		// refresh closes with the SHORT status report: the phase lines above
 		// already said what was built, so repeating the full dump here was the
 		// wall this command's output is being rescued from.
-		"Brain  gh/example/repo",
-		"Onboarding",
-		"+ seed",
+		"Brain | gh/example/repo",
+		"  Memories",
+		"  Sources",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh output missing %q:\n%s", want, out)
@@ -102,7 +103,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 	runner := seedFixtureRunner(repoDir)
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{stdout: "[]\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	opts := Options{
 		Version: "test-version",
@@ -232,7 +233,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 			TranscriptPath:   "sessions/main/session-one.jsonl",
 		}},
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatalf("create history dir: %v", err)
 	}
 	indexData := []byte(`{"records":[]}`)

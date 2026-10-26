@@ -9,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const brainManifestSchemaVersion = 4
@@ -23,15 +26,6 @@ const brainManifestSchemaVersion = 4
 // adapt. Reading it as "current" was how an empty object passed for a healthy
 // brain.
 const brainManifestMinSchemaVersion = 1
-
-const (
-	brainLockDirName      = "locks"
-	brainWriteLockName    = "write.lock"
-	brainManifestLockName = "manifest.lock"
-	brainPrivacyLockName  = "privacy-side-effect.lock"
-	brainDistillLockName  = "distill-pass.lock"
-	brainWriteLockTimeout = 10 * time.Second
-)
 
 type brainSources struct {
 	Seed     *seedSourceManifest     `json:"seed,omitempty"`
@@ -63,120 +57,6 @@ type sessionSourceManifest struct {
 	Branches           []exportBranch  `json:"branches,omitempty"`
 	Sessions           []exportSession `json:"sessions"`
 	Warnings           []string        `json:"warnings,omitempty"`
-}
-
-func brainWriteLockPath(brainDir string) string {
-	return filepath.Join(brainDir, brainLockDirName, brainWriteLockName)
-}
-
-func acquireBrainWriteLock(brainDir string) (func(), error) {
-	return acquireBrainWriteLockTimeout(brainDir, brainWriteLockTimeout)
-}
-
-func acquireBrainWriteLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return nil, err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
-		return nil, err
-	}
-	lock, err := acquireFileLock(brainWriteLockPath(brainDir), "brain_locked", timeout)
-	if err != nil {
-		return nil, err
-	}
-	return func() { _ = lock.Close() }, nil
-}
-
-func withBrainWriteLock(brainDir string, fn func() error) error {
-	unlock, err := acquireBrainWriteLock(brainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return fn()
-}
-
-// acquireBrainPrivacySideEffectLock serializes irreversible provider egress
-// with privacy-policy mutations without blocking ordinary projections,
-// retrievals, or cancellation requests for the duration of a provider call.
-// Any operation needing both locks must acquire this lock before write.lock.
-func acquireBrainPrivacySideEffectLock(brainDir string) (func(), error) {
-	return acquireBrainPrivacySideEffectLockTimeout(brainDir, brainWriteLockTimeout)
-}
-
-func acquireBrainPrivacySideEffectLockTimeout(brainDir string, timeout time.Duration) (func(), error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return nil, err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
-		return nil, err
-	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainPrivacyLockName), memoryErrPrivacyBusy, timeout)
-	if err != nil {
-		return nil, err
-	}
-	return func() { _ = lock.Close() }, nil
-}
-
-func withBrainPrivacySideEffectLock(brainDir string, fn func() error) error {
-	unlock, err := acquireBrainPrivacySideEffectLock(brainDir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return fn()
-}
-
-// withDistillPassLock is the cross-process guard against two distill passes
-// spending agent tokens on the same sessions at once. `setup` creates exactly
-// that race: it spawns the detached backfill AND installs a watcher whose first
-// tick distills immediately. The brain write lock does not help — it only wraps
-// the flush at the END of a pass, so both processes sail through the expensive
-// agent calls first and only then serialize on writing the identical facts.
-//
-// Two properties matter, and both differ from the other brain locks:
-//
-//   - it is held for the WHOLE pass, not just the write, because the token spend
-//     is the resource being protected;
-//   - it is TRY-only. A second comer must skip cleanly, not queue behind an
-//     hours-long backfill and then re-spend on the sessions that backfill just
-//     finished. onBusy reports the skip; the pass returns nil, because "someone
-//     else is already doing this" is a success for the caller.
-func withDistillPassLock(brainDir string, onBusy func(), fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
-		return err
-	}
-	// timeout 0 = try once; acquireFileLock reports contention as a timeout.
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
-	if err != nil {
-		if errors.Is(err, errFileLockTimeout) {
-			if onBusy != nil {
-				onBusy()
-			}
-			return nil
-		}
-		return err
-	}
-	defer func() { _ = lock.Close() }()
-	return fn()
-}
-
-func withBrainManifestWriteLock(brainDir string, fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
-		return err
-	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, brainManifestLockName), "brain_manifest_locked", brainWriteLockTimeout)
-	if err != nil {
-		return err
-	}
-	defer lock.Close()
-	return fn()
 }
 
 // loadBrainManifest reads the manifest for the callers that only consume it —
@@ -227,7 +107,7 @@ func loadBrainManifestForReplace(outputDir string) (*exportManifest, error) {
 // A func, not a const: the spelling depends on how the reader reached this
 // binary, which is only knowable at call time.
 func retiredManifestRemedy() string {
-	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + brainInvocation(os.LookupEnv, "refresh") + " --force`"
+	return "; this manifest carries a field this build retired, so it cannot be rewritten without erasing what another build recorded -- rebuild it with `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force`"
 }
 
 // retiredManifestFieldMessage states the failure AND what to do about it.
@@ -309,7 +189,7 @@ func errDurablePrepassFailure(err error) bool {
 // call sites -- a second caller added later would otherwise reintroduce the
 // leak this closed.
 func durablePrepassMessage(err error) string {
-	return redactText(durablePrepassText(err))
+	return base.RedactText(durablePrepassText(err))
 }
 
 func durablePrepassText(err error) string {
@@ -320,14 +200,14 @@ func durablePrepassText(err error) string {
 		return retiredManifestFieldMessage(err)
 	}
 	if errRepositoryGone(err) {
-		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + brainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
+		return err.Error() + "; the repository this brain belongs to is gone, so nothing here can be refreshed -- remove the brain with `" + base.BrainInvocation(os.LookupEnv, "reset") + "` if the repository is not coming back"
 	}
 	return err.Error()
 }
 
 func errRetiredManifestField(err error) bool {
-	return isUnknownFieldError(err) || (err != nil &&
-		strings.Contains(err.Error(), memoryErrStateCorrupt) &&
+	return brainstore.IsUnknownFieldError(err) || (err != nil &&
+		strings.Contains(err.Error(), brainstore.StateCorruptCode) &&
 		strings.Contains(err.Error(), "unknown field"))
 }
 
@@ -361,7 +241,7 @@ var errManifestRoundTrips = errors.New("manifest round-trips")
 // every other cooperative manifest mutation.
 func discardManifestThisBuildCannotRewrite(brainDir string) (bool, error) {
 	unrewritable := false
-	err := withBrainManifestWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainManifestWriteLock(brainDir, func() error {
 		return removeCheckedMemoryStateFileValidated(brainDir, exportManifestFileName, "brain manifest", func(before os.FileInfo) (bool, error) {
 			f, present, err := openMemoryStateFileExpected(brainDir, exportManifestFileName, "brain manifest", before)
 			if err != nil || !present {
@@ -455,7 +335,7 @@ func shouldReplaceExportSession(current, candidate exportSession) bool {
 }
 
 func writeBrainSessionSource(outputDir, repoKey string, sessionManifest exportManifest) error {
-	return withBrainWriteLock(outputDir, func() error {
+	return brainstore.WithBrainWriteLock(outputDir, func() error {
 		return writeBrainSessionSourceLocked(outputDir, repoKey, sessionManifest)
 	})
 }
@@ -482,7 +362,7 @@ func writeBrainSessionSourceLocked(outputDir, repoKey string, sessionManifest ex
 }
 
 func writeBrainSeedSource(outputDir, repoKey string, seed *seedSourceManifest) error {
-	return withBrainWriteLock(outputDir, func() error {
+	return brainstore.WithBrainWriteLock(outputDir, func() error {
 		return writeBrainSeedSourceLocked(outputDir, repoKey, seed)
 	})
 }
@@ -524,7 +404,7 @@ func applySessionSourceAliases(manifest *exportManifest) {
 }
 
 func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) error {
-	return withBrainManifestWriteLock(outputDir, func() error {
+	return brainstore.WithBrainManifestWriteLock(outputDir, func() error {
 		// All production manifest replacements share this leaf-specific lock and
 		// classify the exact present bytes while holding it. This does not claim
 		// to exclude hostile non-cooperating filesystem mutation, but no current
@@ -542,91 +422,14 @@ func writeBrainManifestAndReadme(outputDir string, manifest exportManifest) erro
 		data = append(data, '\n')
 		// Canonical manifest readers have no byte ceiling; retain every record
 		// and publish the complete document atomically.
-		if err := writeBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportManifestFileName, data, 0o600); err != nil {
 			return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 		}
-		if err := writeBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, exportReadmeFileName, []byte(renderBrainReadme(manifest)), 0o600); err != nil {
 			return fmt.Errorf("write brain readme: %w", err)
 		}
 		return nil
 	})
-}
-
-func cleanBrainRelativePath(rel string) (string, error) {
-	clean := filepath.Clean(filepath.FromSlash(rel))
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("path is outside brain: %s", rel)
-	}
-	return clean, nil
-}
-
-func writeBrainRelativeFileAtomic(brainDir, rel string, data []byte, perm os.FileMode) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(clean)
-	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
-			return err
-		}
-	}
-	abs := filepath.Join(brainDir, clean)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-		return err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return err
-	}
-	return writeFileAtomic(abs, data, perm)
-}
-
-func prepareBrainRelativeSQLiteFile(brainDir, rel string) (string, error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return "", err
-	}
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Dir(clean)
-	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
-			return "", err
-		}
-	}
-	abs := filepath.Join(brainDir, clean)
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
-		return "", err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return "", err
-	}
-	if err := rejectUnsafeExistingRegularFile(abs, "sqlite cache"); err != nil {
-		return "", err
-	}
-	return abs, nil
-}
-
-func removeBrainRelativeFile(brainDir, rel string) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
-		return err
-	}
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil {
-		return err
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return err
-	}
-	err = os.Remove(filepath.Join(brainDir, clean))
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
 }
 
 // removeBrainRelativeFileExpected removes a file only when it is still the
@@ -637,14 +440,14 @@ func removeBrainRelativeFileExpected(brainDir, rel string, expected os.FileInfo)
 	if expected == nil {
 		return fmt.Errorf("memory_state_unsafe: missing expected file identity for %s", rel)
 	}
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
 	path := filepath.Join(brainDir, clean)
@@ -661,43 +464,6 @@ func removeBrainRelativeFileExpected(brainDir, rel string, expected os.FileInfo)
 	if err := os.Remove(path); err != nil {
 		return err
 	}
-	return nil
-}
-
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpName)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := replaceFileAtomic(tmpName, path); err != nil {
-		return err
-	}
-	cleanup = false
 	return nil
 }
 

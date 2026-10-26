@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Procedure-skill source (PR #44 follow-up): skills from corrected episodes.
@@ -60,9 +63,9 @@ type proposedLesson struct {
 // agent to group recurring failure→recovery lessons by meaning, and stores
 // accepted lessons as deep dossiers (archetype "procedure") under `lesson:` ids.
 // Egress-gated; cached by the sample fingerprint; never from refresh.
-func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
 	sample, sampleKeys := sampleCorrectedEpisodes(db, brainDir)
@@ -76,22 +79,22 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 	payload, _ := json.Marshal(map[string]any{"episodes": sample})
 	sampleFP := knowledgeSampleFingerprint(payload)
 	countLessons := func() int {
-		return corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
+		return patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`)
 	}
-	if corpusMeta(db, "lessons_sample_fingerprint") == sampleFP && countLessons() > 0 {
+	if patterncore.CorpusMeta(db, "lessons_sample_fingerprint") == sampleFP && countLessons() > 0 {
 		stats.Cached = countLessons()
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
 	}
 
-	args, err := distillAgentCommandArgs(agent, nil, lessonProposeSystemPrompt)
+	args, err := base.DistillAgentCommandArgs(agent, nil, lessonProposeSystemPrompt)
 	if err != nil {
 		return stats, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), patterncore.DossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("lesson proposal agent: %w", err)
 	}
@@ -100,7 +103,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'lesson:%'`); err != nil {
 		return stats, err
@@ -113,7 +116,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		stats.Considered++
 		members := uniqueStrings(filterValidKeys(pl.MemberKeys, valid))
 		verdict := strings.ToLower(strings.TrimSpace(pl.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			verdict = "low_confidence"
 		}
 		if len(members) < lessonMinMembers || verdict == "rejected" {
@@ -128,7 +131,7 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, redactText(string(blob)), verdict, ts, ts); err != nil {
+			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, base.RedactText(string(blob)), verdict, ts, ts); err != nil {
 			return stats, err
 		}
 		if verdict == "accepted" {
@@ -142,31 +145,31 @@ func proposeSkillLessons(ctx context.Context, db *sql.DB, brainDir, repoDir, age
 // lessonRecord renders an accepted lesson proposal into a procedure-archetype
 // deep dossier (already truncated; redacted by the caller before storage).
 func lessonRecord(pl proposedLesson, members []string, repoKey string) deepDossierRecord {
-	id := "lesson:" + hexSHA("lesson\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+	id := "lesson:" + base.HexSHA("lesson\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 	var knowledge []string
 	for _, k := range pl.Knowledge {
 		if s := strings.TrimSpace(k); s != "" {
-			knowledge = append(knowledge, truncateString(s, 280))
+			knowledge = append(knowledge, base.TruncateString(s, 280))
 		}
 	}
 	return deepDossierRecord{
 		SchemaVersion:    deepSchemaVersion,
 		PatternID:        id,
 		Archetype:        "procedure",
-		Fingerprint:      "sha256:" + hexSHA("lesson\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            truncateString(strings.TrimSpace(firstNonEmpty(pl.Title, "lesson")), 120),
-		Trigger:          truncateString(strings.TrimSpace(pl.Trigger), 280),
-		NotWhen:          truncateString(strings.TrimSpace(pl.NotWhen), 280),
+		Fingerprint:      "sha256:" + base.HexSHA("lesson\x00"+strings.Join(sortedCopy(members), "|")),
+		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pl.Title, "lesson")), 120),
+		Trigger:          base.TruncateString(strings.TrimSpace(pl.Trigger), 280),
+		NotWhen:          base.TruncateString(strings.TrimSpace(pl.NotWhen), 280),
 		Knowledge:        knowledge,
-		FailureModes:     []deepFailureMode{{Failure: truncateString(strings.TrimSpace(pl.Failure), 280), Recovery: truncateString(strings.TrimSpace(pl.Recovery), 280)}},
+		FailureModes:     []deepFailureMode{{Failure: base.TruncateString(strings.TrimSpace(pl.Failure), 280), Recovery: base.TruncateString(strings.TrimSpace(pl.Recovery), 280)}},
 		EvidenceEpisodes: len(members),
 	}
 }
 
 // lessonSourceAnchors resolves the selected episodes (by episode_key) to source
 // anchors with redacted transcript excerpts where the transcript is available.
-func lessonSourceAnchors(db *sql.DB, brainDir string, members []string) []dossierAnchor {
-	var anchors []dossierAnchor
+func lessonSourceAnchors(db *sql.DB, brainDir string, members []string) []patterncore.DossierAnchor {
+	var anchors []patterncore.DossierAnchor
 	for _, key := range members {
 		var session, path, outcome string
 		var start, end int
@@ -174,13 +177,13 @@ func lessonSourceAnchors(db *sql.DB, brainDir string, members []string) []dossie
 			Scan(&session, &path, &start, &end, &outcome) != nil {
 			continue
 		}
-		a := dossierAnchor{SessionID: session, Transcript: redactText(path), StartLine: start, EndLine: end, Outcome: outcome}
+		a := patterncore.DossierAnchor{SessionID: session, Transcript: base.RedactText(path), StartLine: start, EndLine: end, Outcome: outcome}
 		lines := end - start + 1
 		if lines <= 0 || lines > themeMemberExcerptLines {
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
-			a.Excerpt = redactText(t)
+			a.Excerpt = base.RedactText(t)
 		}
 		anchors = append(anchors, a)
 	}
@@ -245,13 +248,13 @@ func sampleCorrectedEpisodes(db *sql.DB, brainDir string) ([]map[string]string, 
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: r.path, Line: r.start}, lines, themeMemberExcerptBytes); t != "" {
-			ex = redactText(t)
+			ex = base.RedactText(t)
 		}
 		sample = append(sample, map[string]string{
 			"episode_key":     r.key,
-			"intent":          redactText(truncateString(r.intent, 160)),
+			"intent":          base.RedactText(base.TruncateString(r.intent, 160)),
 			"outcome":         r.outcome,
-			"failing_command": redactText(failing),
+			"failing_command": base.RedactText(failing),
 			"excerpt":         ex,
 		})
 		keys = append(keys, r.key)

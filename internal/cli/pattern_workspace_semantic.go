@@ -3,13 +3,14 @@ package cli
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // Workspace semantic merge (SR5).
@@ -24,31 +25,6 @@ import (
 // verify`), egress-gated, cached by the member-candidate fingerprint.
 
 const workspaceFamilyMaxPerRepo = 15 // cap member candidates handed to the agent per repo
-
-type familyRepoVariant struct {
-	RepoKey  string   `json:"repo_key"`
-	Commands []string `json:"commands"`
-}
-
-type workspaceFamily struct {
-	ID             string              `json:"id"`
-	Title          string              `json:"title"`
-	Trigger        string              `json:"trigger"`
-	Purpose        string              `json:"purpose"`
-	CommonWorkflow []string            `json:"common_workflow"`
-	PerRepo        []familyRepoVariant `json:"per_repo"`
-	Verdict        string              `json:"verdict"`
-}
-
-func (f workspaceFamily) repoCount() int {
-	seen := map[string]bool{}
-	for _, v := range f.PerRepo {
-		if v.RepoKey != "" {
-			seen[v.RepoKey] = true
-		}
-	}
-	return len(seen)
-}
 
 const workspaceFamilyProposeSystemPrompt = `You are given task workflows from MULTIPLE repositories in a workspace, grouped per repo (each with its trigger/intent and the actual commands run).
 
@@ -76,45 +52,38 @@ Use "accepted" only for a genuine cross-repo family spanning >=2 repos. Do not i
 
 // proposeWorkspaceFamilies runs the agent judgment layer over member-repo task
 // candidates and stores accepted cross-repo families as workspace dossiers.
-func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspaceManifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return stats, err
 	}
-	err = withPatternCorpusMutationLocked(wsBrainDir, func(db *sql.DB) error {
+	err = patterncore.WithCorpusMutationLocked(wsBrainDir, func(db *sql.DB) error {
 		var mutationErr error
 		stats, mutationErr = proposeWorkspaceFamiliesInDB(ctx, db, env, manifest, repoDir, agent, model, effort, run, now)
 		return mutationErr
-	})
+	}, decodePatternCorpusPublication)
 	if err != nil {
-		return stats, fmt.Errorf("workspace corpus not built (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`): %w", manifest.Name, err)
+		return stats, fmt.Errorf("workspace corpus not built (run `"+base.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`): %w", manifest.Name, err)
 	}
 	return stats, nil
 }
 
-func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspaceManifest, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
-	// Gather each member's promotable task candidates (the cheap exact signal feeds
-	// the agent, which merges across repos by meaning).
-	perRepo := map[string][]map[string]any{}
-	contributing := 0
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
-	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
-	for _, repo := range repos {
-		memberDir, err := brainDirForKey(env, repo.RepoKey)
+func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	return patterncore.ProposeWorkspaceFamilies(db, manifest, func(repoKey string) ([]map[string]any, error) {
+		memberDir, err := brainDirForKey(env, repoKey)
 		if err != nil {
-			continue
+			return nil, nil
 		}
 		cands, ok, err := loadCorpusTaskCandidatesChecked(memberDir)
 		if err != nil {
-			return stats, err
+			return nil, err
 		}
 		if !ok || len(cands) == 0 {
-			continue
+			return nil, nil
 		}
 		var list []map[string]any
 		for i, c := range cands {
@@ -123,157 +92,34 @@ func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv
 			}
 			r := c.Reinforcement
 			list = append(list, map[string]any{
-				"intent": c.IntentSignature, "title": redactText(c.Label), "commands": redactStrings(c.Commands),
+				"intent": c.IntentSignature, "title": base.RedactText(c.Label), "commands": base.RedactStrings(c.Commands),
 				"support": c.Support, "reinforcement": []int{r.Success, r.Corrected, r.Neutral},
 			})
 		}
-		if len(list) > 0 {
-			perRepo[repo.RepoKey] = list
-			contributing++
-		}
-	}
-	if contributing < workspaceMinRepos {
-		if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`); err != nil {
-			return stats, err
-		}
-		if _, err := db.Exec(`DELETE FROM meta WHERE key='workspace_families_fingerprint'`); err != nil {
-			return stats, err
-		}
-		return stats, nil
-	}
-
-	// Fingerprint the actual evidence payload (per-repo intent + title + commands +
-	// support + reinforcement), so changed member evidence invalidates the cached
-	// families even when the set of repos/intents is unchanged.
-	payload, _ := json.Marshal(map[string]any{"workspace": manifest.Name, "repos": perRepo})
-	fp := proposalSampleFingerprint(payload)
-	if corpusMeta(db, "workspace_families_fingerprint") == fp &&
-		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND status!='current'`) == 0 &&
-		corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`) > 0 {
-		stats.Cached = corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`)
-		stats.Considered = stats.Cached
-		return stats, nil
-	}
-
-	args, err := distillAgentCommandArgs(agent, nil, workspaceFamilyProposeSystemPrompt)
-	if err != nil {
-		return stats, err
-	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
-	if err != nil {
-		return stats, fmt.Errorf("workspace family proposal agent: %w", err)
-	}
-	families, err := parseWorkspaceFamilies(out)
-	if err != nil {
-		return stats, err
-	}
-
-	members := map[string]bool{}
-	for k := range perRepo {
-		members[k] = true
-	}
-	ts := now.UTC().Format(time.RFC3339)
-	prepared := make([]workspaceFamily, 0, len(families))
-	for _, f := range families {
-		stats.Considered++
-		// Curate per-repo variants to real members; require >=2 distinct repos.
-		var variants []familyRepoVariant
-		for _, v := range f.PerRepo {
-			if members[v.RepoKey] {
-				variants = append(variants, familyRepoVariant{RepoKey: v.RepoKey, Commands: redactStrings(v.Commands)})
-			}
-		}
-		f.PerRepo = variants
-		if f.repoCount() < workspaceMinRepos {
-			stats.Failed++
-			continue
-		}
-		f.Verdict = strings.ToLower(strings.TrimSpace(f.Verdict))
-		if !allowedVerdicts[f.Verdict] {
-			// A missing/unknown verdict must never be treated as accepted — it would
-			// surface an unverified family. Default to the softest non-accepting verdict.
-			f.Verdict = "low_confidence"
-		}
-		f.ID = "family:" + hexSHA(manifest.Name+"\x00"+f.Title+"\x00"+familyRepoKeysJoined(f))
-		f.Title = redactText(f.Title)
-		prepared = append(prepared, f)
-		if f.Verdict == "accepted" {
-			stats.Verified++
-		}
-	}
-	tx, err := db.Begin()
-	if err != nil {
-		return stats, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'family:%'`); err != nil {
-		return stats, err
-	}
-	for _, f := range prepared {
-		blob, err := json.Marshal(f)
+		return list, nil
+	}, func(payload []byte) (string, error) {
+		args, err := base.DistillAgentCommandArgs(agent, nil, workspaceFamilyProposeSystemPrompt)
 		if err != nil {
-			return stats, err
+			return "", err
 		}
-		if _, err := tx.Exec(`INSERT OR REPLACE INTO deep_dossiers
-			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, f.ID, fp, redactText(string(blob)), f.Verdict, ts, ts); err != nil {
-			return stats, err
+		args = base.InjectAgentModel(args, agent, model)
+		args = base.InjectAgentEffort(args, agent, effort)
+		out, err := run(ctx, repoDir, args, payload, patterncore.DossierVerifyTimeout)
+		if err != nil {
+			return "", fmt.Errorf("workspace family proposal agent: %w", err)
 		}
-	}
-	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES ('workspace_families_fingerprint', ?)
-		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fp); err != nil {
-		return stats, err
-	}
-	if _, err := tx.Exec(`INSERT INTO meta(key,value) VALUES('workspace_families_membership',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, workspaceMembershipFingerprint(manifest)); err != nil {
-		return stats, err
-	}
-	return stats, tx.Commit()
-}
-
-func parseWorkspaceFamilies(out string) ([]workspaceFamily, error) {
-	raw := strings.TrimSpace(out)
-	if i := strings.IndexByte(raw, '{'); i >= 0 {
-		if j := strings.LastIndexByte(raw, '}'); j >= i {
-			raw = raw[i : j+1]
-		}
-	}
-	var wrap struct {
-		Families []workspaceFamily `json:"families"`
-	}
-	if err := json.Unmarshal([]byte(raw), &wrap); err != nil {
-		return nil, fmt.Errorf("parse workspace families: %w", err)
-	}
-	return wrap.Families, nil
-}
-
-func familyRepoKeysJoined(f workspaceFamily) string {
-	keys := make([]string, 0, len(f.PerRepo))
-	for _, v := range f.PerRepo {
-		keys = append(keys, v.RepoKey)
-	}
-	sort.Strings(keys)
-	return strings.Join(keys, ",")
-}
-
-func workspaceMembershipFingerprint(manifest workspaceManifest) string {
-	keys := make([]string, 0, len(manifest.Repos))
-	for _, repo := range manifest.Repos {
-		keys = append(keys, repo.RepoKey)
-	}
-	sort.Strings(keys)
-	return "sha256:" + hexSHA(manifest.Name+"\x00"+strings.Join(keys, "\x00"))
+		return out, nil
+	}, now)
 }
 
 // loadAcceptedWorkspaceFamilies returns the accepted cross-repo families.
-func loadAcceptedWorkspaceFamilies(wsBrainDir string) []workspaceFamily {
+func loadAcceptedWorkspaceFamilies(wsBrainDir string) []patterncore.WorkspaceFamily {
 	families, _ := loadAcceptedWorkspaceFamiliesChecked(wsBrainDir)
 	return families
 }
 
-func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
+func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]patterncore.WorkspaceFamily, error) {
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -281,76 +127,26 @@ func loadAcceptedWorkspaceFamiliesChecked(wsBrainDir string) ([]workspaceFamily,
 		return nil, nil
 	}
 	defer db.Close()
-	// A cached family is only eligible in the current persisted workspace.
-	if err := rejectExistingSymlinkPathComponents(wsBrainDir, workspaceManifestName); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(filepath.Join(wsBrainDir, workspaceManifestName))
-	if err != nil {
-		return nil, err
-	}
-	var manifest workspaceManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, err
-	}
-	if manifest.SchemaVersion != workspaceSchemaVersion || manifest.Name != filepath.Base(wsBrainDir) {
-		return nil, fmt.Errorf("invalid workspace manifest identity")
-	}
-	members := map[string]bool{}
-	for _, repo := range manifest.Repos {
-		if err := validateWorkspaceRepoKey(repo.RepoKey); err != nil {
-			return nil, err
-		}
-		members[repo.RepoKey] = true
-	}
-	membershipCurrent := len(members) >= workspaceMinRepos && corpusMeta(db.DB, "workspace_families_membership") == workspaceMembershipFingerprint(manifest)
-	rows, err := db.Query(`SELECT json_redacted FROM deep_dossiers WHERE pattern_id LIKE 'family:%' AND verdict='accepted' AND status='current' ORDER BY pattern_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	if !membershipCurrent {
-		return nil, nil
-	}
-	var out []workspaceFamily
-	for rows.Next() {
-		var blob string
-		if err := rows.Scan(&blob); err != nil {
-			return out, err
-		}
-		var f workspaceFamily
-		if json.Unmarshal([]byte(blob), &f) == nil && f.repoCount() >= workspaceMinRepos {
-			current := true
-			for _, variant := range f.PerRepo {
-				if !members[variant.RepoKey] {
-					current = false
-				}
-			}
-			if current {
-				out = append(out, f)
-			}
-		}
-	}
-	return out, rows.Err()
+	return patterncore.LoadAcceptedWorkspaceFamilies(db.DB, wsBrainDir)
 }
 
 // getAcceptedWorkspaceFamily returns one accepted family by id.
-func getAcceptedWorkspaceFamily(wsBrainDir, id string) (workspaceFamily, bool) {
+func getAcceptedWorkspaceFamily(wsBrainDir, id string) (patterncore.WorkspaceFamily, bool) {
 	family, ok, _ := getAcceptedWorkspaceFamilyChecked(wsBrainDir, id)
 	return family, ok
 }
 
-func getAcceptedWorkspaceFamilyChecked(wsBrainDir, id string) (workspaceFamily, bool, error) {
+func getAcceptedWorkspaceFamilyChecked(wsBrainDir, id string) (patterncore.WorkspaceFamily, bool, error) {
 	families, err := loadAcceptedWorkspaceFamiliesChecked(wsBrainDir)
 	if err != nil {
-		return workspaceFamily{}, false, err
+		return patterncore.WorkspaceFamily{}, false, err
 	}
 	for _, f := range families {
 		if f.ID == id {
 			return f, true, nil
 		}
 	}
-	return workspaceFamily{}, false, nil
+	return patterncore.WorkspaceFamily{}, false, nil
 }
 
 const workspaceFamilySkillSystemPrompt = `You convert a VERIFIED cross-repo workspace family into a SKILL.md for a multi-repo workspace. The family was assembled from real per-repo evidence and accepted by a verifier.
@@ -366,13 +162,13 @@ Otherwise output ONLY a complete SKILL.md (no fences):
 - Body: a Workflow section (the common steps) and a "Per-repo variations" section naming each repo and its commands. Be concise; include only what the family supports.`
 
 // synthesizeWorkspaceSkill converts an accepted family into a SKILL.md.
-func synthesizeWorkspaceSkill(ctx context.Context, repoDir string, f workspaceFamily, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
-	args, err := distillAgentCommandArgs(agent, nil, workspaceFamilySkillSystemPrompt)
+func synthesizeWorkspaceSkill(ctx context.Context, repoDir string, f patterncore.WorkspaceFamily, agent, model, effort string, run base.DistillAgentRunner) (skillSynthesisResult, error) {
+	args, err := base.DistillAgentCommandArgs(agent, nil, workspaceFamilySkillSystemPrompt)
 	if err != nil {
 		return skillSynthesisResult{}, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 	out, err := run(ctx, repoDir, args, []byte(buildWorkspaceFamilyEvidence(f)), skillSynthesisTimeout)
 	if err != nil {
 		return skillSynthesisResult{}, fmt.Errorf("workspace family synthesis agent: %w", err)
@@ -380,7 +176,7 @@ func synthesizeWorkspaceSkill(ctx context.Context, repoDir string, f workspaceFa
 	return parseSynthesisOutput(out), nil
 }
 
-func buildWorkspaceFamilyEvidence(f workspaceFamily) string {
+func buildWorkspaceFamilyEvidence(f patterncore.WorkspaceFamily) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "VERIFIED CROSS-REPO WORKSPACE FAMILY (verdict: %s)\n", nonEmptyOr(f.Verdict, "accepted"))
 	fmt.Fprintf(&b, "Title: %s\n", f.Title)
@@ -398,5 +194,5 @@ func buildWorkspaceFamilyEvidence(f workspaceFamily) string {
 	for _, v := range f.PerRepo {
 		fmt.Fprintf(&b, "  - %s: %s\n", v.RepoKey, strings.Join(v.Commands, " → "))
 	}
-	return redactText(b.String())
+	return base.RedactText(b.String())
 }

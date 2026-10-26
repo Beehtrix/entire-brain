@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +41,7 @@ import (
 
 const (
 	historyShortTermFileName = "short-term.json"
-	historyShortTermPath     = historyDirName + "/" + historyShortTermFileName
+	historyShortTermPath     = brainstore.HistoryDirName + "/" + historyShortTermFileName
 	// historyShortTermVersion 3 binds per-file reuse to the exact bounded
 	// descriptor-rooted content digest. Older size+mtime-only overlays are
 	// disposable and rebuild on the next delta.
@@ -138,7 +140,7 @@ type shortTermFile struct {
 // falls back to exact long-term-only behavior.
 func loadHistoryShortTermState(brainDir string, source *historySourceManifest) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -183,7 +185,7 @@ func loadHistoryShortTerm(brainDir string, source *historySourceManifest) shortT
 // from this view.
 func loadHistoryShortTermRaw(brainDir string) (shortTermIndex, string) {
 	empty := shortTermIndex{Version: historyShortTermVersion, Files: map[string]shortTermFile{}}
-	data, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), defaultMaxReadBytes)
+	data, err := clibase.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)), clibase.DefaultMaxReadBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return empty, shortTermStateAbsent
@@ -203,7 +205,7 @@ func saveHistoryShortTerm(brainDir string, overlay shortTermIndex) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, historyShortTermPath, append(data, '\n'), 0o600)
 }
 
 // clearHistoryShortTerm removes the overlay (called after a completed full
@@ -229,19 +231,41 @@ type shortTermStats struct {
 
 // shortTermCanonicalInputRefusal separates ordinary availability failures,
 // which remain durably visible as an incomplete overlay, from failures that
-// make the canonical input unsafe or unbounded. Permission-denied preserves
-// the established retryable FailedFiles behavior; containment, source races,
-// cancellation, and bounds refuse publication and leave the prior generation
-// untouched.
+// make the canonical input unsafe or unbounded. Permission-denied and a single
+// over-cap transcript preserve the established retryable FailedFiles
+// behavior; containment, source races, cancellation, and any other bound
+// breach refuse publication and leave the prior generation untouched.
 func shortTermCanonicalInputRefusal(err error) bool {
 	if err == nil || os.IsPermission(err) {
 		return false
 	}
-	return errors.Is(err, errHistorySessionInventoryDegraded) ||
+	// One transcript too large to read is a statement about that file, not
+	// about the corpus, so it must cost its own session and nothing else —
+	// the same conclusion the three long-term readers of this inventory
+	// reached for the identical sentinel. Refusing here left the overlay
+	// blocked for every other session by one 438.9MB transcript, after the
+	// full index had already learned to survive it. The delta's own
+	// partial-success channel carries it: the file joins FailedFiles, so the
+	// gap stays durably visible and no surface claims complete coverage.
+	//
+	// Every OTHER refusal reason is tested FIRST, because one error value can
+	// carry several: readers return errors.Join(readErr, finishErr, closeErr),
+	// and a degraded inventory or a cancelled context can arrive joined with an
+	// oversize transcript. Asking about the sentinel first answered "skip" for
+	// the whole join and published the delta, dropping the refusal. The
+	// sentinel excuses only itself.
+	if errors.Is(err, errHistorySessionInventoryDegraded) ||
 		errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) ||
-		strings.Contains(err.Error(), memoryErrSourceStale) ||
-		strings.Contains(err.Error(), memoryErrInputTooLarge)
+		strings.Contains(err.Error(), memoryErrSourceStale) {
+		return true
+	}
+	// The substring check below still refuses every OTHER bound breach,
+	// which is why this is errors.Is on the sentinel and not a code match.
+	if errors.Is(err, errHistoryTranscriptTooLarge) {
+		return false
+	}
+	return strings.Contains(err.Error(), memoryErrInputTooLarge)
 }
 
 // buildHistoryShortTermLocked rebuilds the overlay: every session transcript
@@ -262,7 +286,7 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 	if manifest.Sources != nil {
 		source = manifest.Sources.History
 	}
-	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return stats, err
 	}
@@ -315,10 +339,13 @@ func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, n
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
 		if readErr != nil {
 			if shortTermCanonicalInputRefusal(readErr) {
-				// Canonical containment, bound, and source-stability failures
-				// refuse the entire delta. The prior overlay remains active.
+				// Canonical containment, corpus-level bound, and
+				// source-stability failures refuse the entire delta. The prior
+				// overlay remains active.
 				return stats, readErr
 			}
+			// Everything else — unreadable, and one transcript past the
+			// per-file cap — costs this file alone and is recorded below.
 			overlay.FailedFiles = append(overlay.FailedFiles, rel)
 			stats.Failed++
 			continue
@@ -971,7 +998,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 	line := fmt.Sprintf("short-term memory: %d records (%d exchanges) from %d changed transcripts (%d re-scanned, %d carried over)",
 		stats.Records, stats.Exchanges, stats.Files, stats.Scanned, stats.Reused)
 	if stats.Truncated {
-		line += "; buffer full; run `" + brainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
+		line += "; buffer full; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "` to consolidate"
 	}
 	fmt.Fprintln(cmd.OutOrStdout(), line)
 	return nil
@@ -1000,7 +1027,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		}
 	}
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return shortTermStats{}, err
 	}
@@ -1012,7 +1039,7 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 		return shortTermStats{}, err
 	}
 	var stats shortTermStats
-	err = withBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())
 		return buildErr

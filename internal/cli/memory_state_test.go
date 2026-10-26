@@ -11,6 +11,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -155,7 +158,7 @@ func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testi
 		t.Fatalf("writer failure = %v, want original output error", err)
 	}
 	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(writer.output.String()), &failure); decodeErr != nil || failure.Operation != "reconcile" || failure.ErrorCode != memoryErrStateCorrupt || failure.FinishedAt.IsZero() || len(failure.Artifacts) != 1 || failure.Artifacts[0].NewState != memoryJobStatePending {
+	if decodeErr := json.Unmarshal([]byte(writer.output.String()), &failure); decodeErr != nil || failure.Operation != "reconcile" || failure.ErrorCode != brainstore.StateCorruptCode || failure.FinishedAt.IsZero() || len(failure.Artifacts) != 1 || failure.Artifacts[0].NewState != memoryJobStatePending {
 		t.Fatalf("output failure receipt=%+v decode=%v\n%s", failure, decodeErr, writer.output.String())
 	}
 	if jobs := loadMemoryJobs(brainDir); len(jobs) != 2 {
@@ -692,7 +695,7 @@ func TestMemoryJobIssuesAreIsolatedAndNeverOverwritten(t *testing.T) {
 			blockedPath, original := tc.put(t, brainDir, expected[0])
 
 			var created int
-			if err := withBrainWriteLock(brainDir, func() error {
+			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 				var err error
 				created, err = reconcileMemoryJobsForTestLocked(brainDir, "worker", now)
 				return err
@@ -766,7 +769,7 @@ func TestMemoryManualMutationIgnoresUnrelatedJobIssue(t *testing.T) {
 	if err != nil || len(selected) != 1 {
 		t.Fatalf("valid retry selection blocked: jobs=%+v err=%v", selected, err)
 	}
-	if _, err := memoryJobsForSelector(brainDir, "", job.SessionRef); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if _, err := memoryJobsForSelector(brainDir, "", job.SessionRef); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("incomplete bulk session selection was not rejected: %v", err)
 	}
 	pending, err := transitionMemoryJob(brainDir, selected[0], memoryJobStatePending, now, "")
@@ -805,10 +808,10 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateCorrupt {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateCorruptCode {
 			t.Fatalf("arbitrary filename inventory = %+v", inventory)
 		}
-		if _, err := memoryJobsForSelector(brainDir, job.JobID, ""); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := memoryJobsForSelector(brainDir, job.JobID, ""); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("manual mutation error = %v", err)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != string(data) {
@@ -830,7 +833,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Migrations) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateCorrupt {
+		if len(inventory.Jobs) != 0 || len(inventory.Migrations) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateCorruptCode {
 			t.Fatalf("arbitrary legacy inventory = %+v", inventory)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != string(data) {
@@ -855,7 +858,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("symlink inventory = %+v", inventory)
 		}
 		if after, err := os.ReadFile(outside); err != nil || string(after) != string(data) {
@@ -870,7 +873,7 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("non-regular inventory = %+v", inventory)
 		}
 	})
@@ -886,10 +889,10 @@ func TestMemoryJobInventoryRejectsUnsafeAndArbitraryEntries(t *testing.T) {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		inventory := loadMemoryJobInventory(brainDir)
-		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Kind != "job_directory" || inventory.Issues[0].Code != memoryErrStateUnsafe {
+		if len(inventory.Jobs) != 0 || len(inventory.Issues) != 1 || inventory.Issues[0].Kind != "job_directory" || inventory.Issues[0].Code != brainstore.StateUnsafeCode {
 			t.Fatalf("symlinked directory inventory = %+v", inventory)
 		}
-		if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+		if err := memoryJobEnumerationError(inventory.Issues); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("directory enumeration error = %v", err)
 		}
 	})
@@ -923,7 +926,7 @@ func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	var plan sessionPurgePlan
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		plan, err = buildSessionPurgePlan(brainDir, job.SessionID)
 		return err
@@ -940,7 +943,7 @@ func TestMemoryLegacyJobUsesActualPathForPrivacyCleanup(t *testing.T) {
 	if !found {
 		t.Fatalf("legacy source path absent from privacy inventory: %+v", plan.WorkMetadata)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return purgeMemoryWorkForSessionLocked(brainDir, job.SessionID)
 	}); err != nil {
 		t.Fatal(err)
@@ -995,7 +998,7 @@ func TestMemoryJobV1StringErrorAdaptsToV2(t *testing.T) {
 	}
 	// The exact legacy filename remains discoverable until migration removes it;
 	// the canonical rewrite itself must be v2.
-	canonical, err := safeReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryJobRel(jobID))), maxManifestBytes)
+	canonical, err := base.SafeReadFile(filepath.Join(brainDir, filepath.FromSlash(memoryJobRel(jobID))), base.MaxManifestBytes)
 	if err != nil || !strings.Contains(string(canonical), `"schema_version": 2`) || strings.Contains(string(canonical), "private/path") {
 		t.Fatalf("canonical v2 rewrite err=%v data=%s", err, canonical)
 	}
@@ -1079,7 +1082,7 @@ func TestMemoryAutomaticAbstractUsesDurableLane(t *testing.T) {
 	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(abstractRel(sessionViewDigest(view))))); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileAbstractJobsLocked(brainDir, "repair", now.Add(time.Minute))
 		return err
 	}); err != nil {
@@ -1102,7 +1105,7 @@ func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.History.ProjectionStatePath))); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileMemoryJobsForTestLocked(brainDir, "repair", now.Add(time.Minute))
 		return err
 	}); err != nil {
@@ -1134,7 +1137,7 @@ func TestMemoryUnreadableSessionIsInvalidWithoutBlockingPeers(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now)
 		return err
 	}); err != nil {
@@ -1453,7 +1456,7 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	if err := saveMemoryJob(brainDir, running); err != nil {
 		t.Fatal(err)
 	}
-	unlock, err := acquireBrainWriteLock(brainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1634,7 +1637,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 	// The fixture appended to one indexed transcript and added a second
 	// session after the full build: reconcile must enqueue both scopes.
 	var created int
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		created, err = reconcileMemoryJobsForTestLocked(brainDir, "manual", now)
 		return err
@@ -1645,7 +1648,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 		t.Fatalf("jobs created = %d, want 2", created)
 	}
 	// Idempotent: a second reconcile creates nothing new.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		again, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now)
 		if err == nil && again != 0 {
 			t.Fatalf("re-reconcile created %d jobs", again)
@@ -1657,7 +1660,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 
 	// A hint for the changed session is consumed once the worker completes
 	// the projection and the receipt covers the new digest.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := writeMemoryHint(brainDir, "test/stm", "sess-live", "main", "session_end", now)
 		return err
 	}); err != nil {
@@ -1708,7 +1711,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 	if err := os.WriteFile(full, append(data, []byte(extra)...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		created, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now.Add(time.Minute))
 		if err == nil && created != 1 {
 			t.Fatalf("append reconcile created %d jobs", created)
@@ -1727,12 +1730,12 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 
 	// Tombstoning the session moves its active job to excluded and the next
 	// worker pass consumes any hint for it.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["sess-live"] = sessionTombstone{At: now}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileMemoryJobsForTestLocked(brainDir, "manual", now.Add(2*time.Minute))
 		return err
 	}); err != nil {

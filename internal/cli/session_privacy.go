@@ -17,115 +17,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
 var (
-	privacyLstat   = os.Lstat
-	privacyOpen    = os.OpenFile
-	privacyReadAll = safeReadAll
-	privacyReadDir = func(dir *os.File, n int) ([]os.DirEntry, error) { return dir.ReadDir(n) }
 	privacyWalkDir = filepath.WalkDir
 )
-
-const privacyInventoryMaxEntries = 10_000
-
-// privacyArtifactInfo is the common fail-closed leaf check used by privacy
-// inventory and verification. In particular, it lstat's before any open so a
-// FIFO/device/socket can never make a checked privacy read block indefinitely.
-func privacyArtifactInfo(brainDir, rel, label string) (os.FileInfo, bool, error) {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	if err != nil {
-		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
-	}
-	info, err := privacyLstat(filepath.Join(brainDir, clean))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("%s: %s is not a regular file: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
-	}
-	return info, true, nil
-}
-
-// readPrivacyArtifact reads a known brain-relative regular file through an
-// injectable, bounded reader. Missing is reported separately; every other
-// stat/read/type failure is an error rather than an empty privacy state.
-func readPrivacyArtifact(brainDir, rel, label string, maxBytes int64) ([]byte, bool, error) {
-	_, present, err := privacyArtifactInfo(brainDir, rel, label)
-	if err != nil || !present {
-		return nil, present, err
-	}
-	clean, _ := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	path := filepath.Join(brainDir, clean)
-	// O_NONBLOCK on Unix prevents an attacker-controlled regular-to-FIFO swap
-	// between the lstat above and this open from hanging a privacy gate. It is a
-	// no-op on Windows and has no effect on regular-file reads.
-	f, err := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, label); err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
-	}
-	data, err := privacyReadAll(f, maxBytes, path)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	return data, true, nil
-}
-
-func readPrivacyDirectory(brainDir, rel, label string) ([]os.DirEntry, bool, error) {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
-	if err != nil {
-		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
-	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
-	}
-	info, err := privacyLstat(filepath.Join(brainDir, clean))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return nil, false, fmt.Errorf("%s: %s is not a directory: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
-	}
-	path := filepath.Join(brainDir, clean)
-	dir, err := privacyOpen(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	defer dir.Close()
-	pathInfo, err := privacyLstat(path)
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	dirInfo, err := dir.Stat()
-	if err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	if pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(pathInfo, dirInfo) || !dirInfo.IsDir() {
-		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
-	}
-	entries, err := privacyReadDir(dir, privacyInventoryMaxEntries+1)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
-	}
-	if len(entries) > privacyInventoryMaxEntries {
-		return nil, true, fmt.Errorf("%s: %s %s exceeds %d entries", memoryErrStateCorrupt, label, filepath.ToSlash(clean), privacyInventoryMaxEntries)
-	}
-	return entries, true, nil
-}
 
 // session_privacy.go is Phase 4 (privacy, exclusion, and deletion) of the
 // conversational-memory plan: brain-local session tombstones understood before
@@ -140,179 +41,18 @@ func readPrivacyDirectory(brainDir, rel, label string) ([]os.DirEntry, bool, err
 // the still-canonical captured material. Deleting the canonical capture itself
 // is the capture layer's job, not the brain's.
 
-const (
-	sessionTombstonesFileName = "tombstones.json"
-	sessionTombstonesPath     = historyDirName + "/" + sessionTombstonesFileName
-	sessionTombstonesVersion  = 1
+// Session tombstone state lives in brainstore; these aliases keep the
+// package-local names for the many existing readers and tests.
+type (
+	sessionTombstones         = brainstore.SessionTombstones
+	sessionTombstone          = brainstore.SessionTombstone
+	sessionTombstoneState     = brainstore.SessionTombstoneState
+	sessionTombstoneFileState = brainstore.SessionTombstoneFileState
+	sessionTombstoneLoadError = brainstore.SessionTombstoneLoadError
 )
-
-type sessionTombstones struct {
-	Version int `json:"version"`
-	// Excluded maps session_id -> tombstone. Content-free by design: a
-	// tombstone must never retain what it excludes.
-	Excluded map[string]sessionTombstone `json:"excluded"`
-}
-
-type sessionTombstone struct {
-	At     time.Time `json:"at"`
-	Reason string    `json:"reason,omitempty"`
-}
-
-type sessionTombstoneState string
-
-const (
-	sessionTombstoneAbsent      sessionTombstoneState = "absent"
-	sessionTombstoneCurrent     sessionTombstoneState = "current"
-	sessionTombstoneCorrupt     sessionTombstoneState = "corrupt"
-	sessionTombstoneUnsupported sessionTombstoneState = "unsupported"
-)
-
-// sessionTombstoneFileState is content-free state for status and projection
-// identity checks. Identity hashes the exact bytes parsed by the checked
-// loader, avoiding a second-read race during generation preparation.
-type sessionTombstoneFileState struct {
-	State    sessionTombstoneState
-	Version  int
-	Identity string
-}
-
-// sessionTombstoneLoadError keeps privacy failures machine-classifiable on
-// every CLI/MCP serving and derivation boundary. Its Error prefix is also the
-// repository's established JSON command-error contract.
-type sessionTombstoneLoadError struct {
-	Code    string
-	State   sessionTombstoneState
-	Version int
-	Err     error
-}
-
-func (e *sessionTombstoneLoadError) Error() string {
-	detail := "session tombstone state is invalid"
-	if e.Err != nil {
-		detail = e.Err.Error()
-	}
-	return e.Code + ": " + detail
-}
-
-func (e *sessionTombstoneLoadError) Unwrap() error { return e.Err }
-
-func emptySessionTombstones() sessionTombstones {
-	return sessionTombstones{Version: sessionTombstonesVersion, Excluded: map[string]sessionTombstone{}}
-}
-
-// loadSessionTombstonesChecked is the only loader allowed on serving,
-// derivation, worker, privacy, and administration boundaries. Missing means a
-// valid empty policy. Once the file exists, unreadable/malformed state fails
-// closed: treating it as empty could disclose or re-derive excluded content.
-func loadSessionTombstonesChecked(brainDir string) (sessionTombstones, sessionTombstoneFileState, error) {
-	empty := emptySessionTombstones()
-	data, present, err := readPrivacyArtifact(brainDir, sessionTombstonesPath, "session tombstones", maxManifestBytes)
-	if err != nil {
-		state := sessionTombstoneFileState{State: sessionTombstoneCorrupt}
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State,
-			Err: fmt.Errorf("read session tombstones: %w", err),
-		}
-	}
-	if !present {
-		return empty, sessionTombstoneFileState{State: sessionTombstoneAbsent, Version: sessionTombstonesVersion, Identity: "absent"}, nil
-	}
-	sum := sha256.Sum256(data)
-	state := sessionTombstoneFileState{Identity: "sha256:" + hex.EncodeToString(sum[:])}
-	var header struct {
-		Version int `json:"version"`
-	}
-	if err := json.Unmarshal(data, &header); err != nil {
-		state.State = sessionTombstoneCorrupt
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State,
-			Err: errors.New("session tombstones cannot be parsed"),
-		}
-	}
-	state.Version = header.Version
-	if header.Version > sessionTombstonesVersion {
-		state.State = sessionTombstoneUnsupported
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrUnsupportedVersion, State: state.State, Version: header.Version,
-			Err: fmt.Errorf("session tombstone schema %d is unsupported (current %d)", header.Version, sessionTombstonesVersion),
-		}
-	}
-	var stones sessionTombstones
-	if _, err := decodeVersionedJSONBody(data, &stones, false); err != nil {
-		message := "session tombstones cannot be parsed strictly"
-		if errors.Is(err, errTrailingJSONData) {
-			message = "session tombstones contain trailing JSON data"
-		}
-		state.State = sessionTombstoneCorrupt
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State,
-			Err: errors.New(message),
-		}
-	}
-	if stones.Version != sessionTombstonesVersion {
-		state.State = sessionTombstoneCorrupt
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State, Version: stones.Version,
-			Err: fmt.Errorf("session tombstone schema %d is invalid (current %d)", stones.Version, sessionTombstonesVersion),
-		}
-	}
-	if stones.Excluded == nil {
-		state.State = sessionTombstoneCorrupt
-		return sessionTombstones{}, state, &sessionTombstoneLoadError{
-			Code: memoryErrStateCorrupt, State: state.State,
-			Err: errors.New("session tombstones excluded map is missing"),
-		}
-	}
-	state.State = sessionTombstoneCurrent
-	return stones, state, nil
-}
-
-// loadSessionTombstones is a convenience for tests and locked code that has
-// already established a valid tombstone file. It panics instead of ever
-// converting invalid present state into an empty policy. Production boundaries
-// must use loadSessionTombstonesChecked and return its typed error.
-func loadSessionTombstones(brainDir string) sessionTombstones {
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		panic(err)
-	}
-	return stones
-}
-
-func saveSessionTombstones(brainDir string, stones sessionTombstones) error {
-	if _, _, err := loadSessionTombstonesChecked(brainDir); err != nil {
-		return err
-	}
-	data, err := marshalSessionTombstones(stones)
-	if err != nil {
-		return err
-	}
-	return writeBrainRelativeFileAtomic(brainDir, sessionTombstonesPath, data, 0o600)
-}
-
-func marshalSessionTombstones(stones sessionTombstones) ([]byte, error) {
-	stones.Version = sessionTombstonesVersion
-	data, err := json.MarshalIndent(stones, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(data, '\n'), nil
-}
 
 // excludedTranscriptPaths resolves the brain-relative transcript paths that
 // belong to excluded sessions, from the trusted manifest only.
-func normalizePrivacyTranscriptPath(path string) string {
-	trimmed := strings.TrimSpace(path)
-	if trimmed == "" {
-		return ""
-	}
-	clean := filepath.Clean(filepath.FromSlash(trimmed))
-	if clean == "." {
-		return ""
-	}
-	return filepath.ToSlash(clean)
-}
-
 func excludedTranscriptPaths(manifest *exportManifest, stones sessionTombstones) map[string]string {
 	out := map[string]string{}
 	if len(stones.Excluded) == 0 || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
@@ -326,7 +66,7 @@ func excludedTranscriptPaths(manifest *exportManifest, stones sessionTombstones)
 		if _, excluded := stones.Excluded[id]; !excluded {
 			continue
 		}
-		rel := normalizePrivacyTranscriptPath(session.TranscriptPath)
+		rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath)
 		if rel != "" {
 			out[rel] = id
 		}
@@ -356,7 +96,7 @@ func newPrivacyCommand(opts Options) *cobra.Command {
 
 func resolveSessionsBrain(ctx context.Context, opts Options) (repoStorage, error) {
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return repoStorage{}, err
 	}
@@ -400,7 +140,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
@@ -479,111 +219,56 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 // excludedTranscriptPathsChecked extends the manifest with durable transaction
 // paths so refresh cannot reopen or reindex an excluded export it no longer names.
 func excludedTranscriptPathsChecked(brainDir string, manifest *exportManifest, stones sessionTombstones) (map[string]string, error) {
-	paths := excludedTranscriptPaths(manifest, stones)
-	for id := range stones.Excluded {
-		tx, _, err := loadPrivacyTransactionChecked(brainDir, id)
-		if err != nil {
-			return nil, err
-		}
-		durable, err := privacyTransactionTranscriptPaths(tx)
-		if err != nil {
-			return nil, err
-		}
-		for _, rel := range durable {
-			paths[rel] = id
-		}
-	}
-	return paths, nil
+	return brainstore.DurableExcludedTranscriptPaths(brainDir, stones, excludedTranscriptPaths(manifest, stones))
 }
 
-// sessionReadGuard is the retrieval-time tombstone view: every
-// conversation/history/fact retrieval boundary consults it so an excluded
-// session becomes unreadable the moment its tombstone lands, without waiting
-// for the derived rebuild. Defense in depth, not a substitute for cleanup.
-type sessionReadGuard struct {
-	ids            map[string]sessionTombstone
-	paths          map[string]string // excluded transcript rel -> session id, from manifest and durable scope
-	policyIdentity string            // exact checked tombstone bytes used to build the guard
-}
+// The session read guard lives in brainstore; the alias keeps the
+// package-local name for the many existing readers and tests.
+type sessionReadGuard = brainstore.SessionReadGuard
 
-// loadSessionReadGuard builds the guard from tombstones, durable transaction
-// paths, and any supplied manifest. Records that lost their session id still
-// resolve by path. Invalid present state is a
-// typed error; serving must stop rather than silently restore excluded data.
+// loadSessionReadGuard builds the guard, resolving the manifest's excluded
+// transcript paths alongside brainstore's durable transaction scope.
 func loadSessionReadGuard(brainDir string, manifest *exportManifest) (sessionReadGuard, error) {
-	stones, state, err := loadSessionTombstonesChecked(brainDir)
-	if err != nil {
-		return sessionReadGuard{}, err
-	}
-	guard := sessionReadGuard{policyIdentity: state.Identity}
-	if len(stones.Excluded) == 0 {
-		return guard, nil
-	}
-	guard.ids = stones.Excluded
-	guard.paths, err = excludedTranscriptPathsChecked(brainDir, manifest, stones)
-	if err != nil {
-		return sessionReadGuard{}, err
-	}
-	return guard, nil
+	return brainstore.LoadSessionReadGuard(brainDir, func(stones brainstore.SessionTombstones) map[string]string {
+		return excludedTranscriptPaths(manifest, stones)
+	})
 }
 
-func (g sessionReadGuard) empty() bool { return len(g.ids) == 0 }
-
-func (g sessionReadGuard) blocksSession(sessionID string) bool {
-	if g.empty() {
-		return false
-	}
-	_, ok := g.ids[strings.TrimSpace(sessionID)]
-	return ok
-}
-
-func (g sessionReadGuard) blocksExportSession(session exportSession) bool {
-	if g.blocksSession(session.SessionID) {
-		return true
-	}
-	_, blocked := g.paths[normalizePrivacyTranscriptPath(session.TranscriptPath)]
-	return blocked
+func guardBlocksExportSession(g sessionReadGuard, session exportSession) bool {
+	return g.BlocksSession(session.SessionID) || g.BlocksPath(session.TranscriptPath)
 }
 
 func guardExportSessions(guard sessionReadGuard, sessions []exportSession) []exportSession {
-	if guard.empty() || len(sessions) == 0 {
+	if guard.Empty() || len(sessions) == 0 {
 		return sessions
 	}
 	kept := make([]exportSession, 0, len(sessions))
 	for _, session := range sessions {
-		if !guard.blocksExportSession(session) {
+		if !guardBlocksExportSession(guard, session) {
 			kept = append(kept, session)
 		}
 	}
 	return kept
 }
 
-func (g sessionReadGuard) blocksRecord(r historyRecord) bool {
-	if g.blocksSession(r.SessionID) {
-		return true
-	}
-	_, ok := g.paths[normalizePrivacyTranscriptPath(r.Path)]
-	return ok
+func guardBlocksRecord(g sessionReadGuard, r historyRecord) bool {
+	return g.BlocksSession(r.SessionID) || g.BlocksPath(r.Path)
 }
 
-func (g sessionReadGuard) blocksFactAnchor(anchor factAnchor) bool {
-	if g.blocksSession(anchor.SessionID) {
-		return true
-	}
-	_, blocked := g.paths[normalizePrivacyTranscriptPath(anchor.Transcript)]
-	return blocked
+func guardBlocksFactAnchor(g sessionReadGuard, anchor factAnchor) bool {
+	return g.BlocksSession(anchor.SessionID) || g.BlocksPath(anchor.Transcript)
 }
 
-// blocksFact mirrors the purge rule at read time: a fact whose every
+// guardBlocksFact mirrors the purge rule at read time: a fact whose every
 // provenance anchor points at excluded sessions is unreadable; a fact still
 // corroborated by a non-excluded session (or with no session provenance at
 // all, e.g. seed-derived) stays visible.
-func (g sessionReadGuard) blocksFact(f factRecord) bool {
-	if g.empty() || len(f.Provenance) == 0 {
+func guardBlocksFact(g sessionReadGuard, f factRecord) bool {
+	if g.Empty() || len(f.Provenance) == 0 {
 		return false
 	}
 	for _, anchor := range f.Provenance {
-		if !g.blocksFactAnchor(anchor) {
+		if !guardBlocksFactAnchor(g, anchor) {
 			return false
 		}
 	}
@@ -593,22 +278,18 @@ func (g sessionReadGuard) blocksFact(f factRecord) bool {
 // guardFactRecords filters a fact slice through the exclusion guard,
 // returning the input unchanged when nothing is excluded.
 func guardFactRecords(guard sessionReadGuard, facts []factRecord) []factRecord {
-	if guard.empty() || len(facts) == 0 {
+	if guard.Empty() || len(facts) == 0 {
 		return facts
 	}
 	kept := make([]factRecord, 0, len(facts))
-	for _, f := range facts {
-		if guard.blocksFact(f) {
-			continue
+	for _, fact := range facts {
+		if !guardBlocksFact(guard, fact) {
+			kept = append(kept, fact)
 		}
-		kept = append(kept, f)
 	}
 	return kept
 }
 
-// filterTombstonedSessions drops excluded sessions from a derivation work
-// list: an excluded session must never produce new derived facts or
-// records, even though its canonical transcript may still exist.
 func filterTombstonedSessions(brainDir string, sessions []exportSession) ([]exportSession, error) {
 	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: sessions}}}
 	guard, err := loadSessionReadGuard(brainDir, manifest)
@@ -646,8 +327,8 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 	brainDir := storage.BrainDir
 	var plan sessionPurgePlan
 	matched := false
-	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			// Exclusion is purge minus the transcript: the tombstone guards
 			// reads immediately, then every derived projection the session fed --
 			// index records, facts, episodes, pattern outputs, caches, FTS and
@@ -759,8 +440,8 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-				return withBrainWriteLock(brainDir, func() error {
+			if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+				return brainstore.WithBrainWriteLock(brainDir, func() error {
 					return includeSessionLocked(brainDir, sessionID, opts.Now().UTC())
 				})
 			}); err != nil {
@@ -805,41 +486,41 @@ type includePrivacyRollback struct {
 // pre-commit step fails, the exact validated tombstone and transaction bytes are
 // restored before either lock is released, leaving the same command retryable.
 func includeSessionLocked(brainDir, sessionID string, now time.Time) error {
-	stones, tombstoneState, err := loadSessionTombstonesChecked(brainDir)
+	stones, tombstoneState, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return err
 	}
 	if _, ok := stones.Excluded[sessionID]; !ok {
 		return fmt.Errorf("session %s is not excluded", sessionID)
 	}
-	tombstonesBefore, present, err := readPrivacyArtifact(brainDir, sessionTombstonesPath, "session tombstones", maxManifestBytes)
+	tombstonesBefore, present, err := brainstore.ReadPrivacyArtifact(brainDir, brainstore.SessionTombstonesPath, "session tombstones", clibase.MaxManifestBytes)
 	if err != nil {
 		return err
 	}
 	if !present || privacyBytesIdentity(tombstonesBefore) != tombstoneState.Identity {
-		return fmt.Errorf("%s: session tombstones changed before include", memoryErrStateUnsafe)
+		return fmt.Errorf("%s: session tombstones changed before include", brainstore.StateUnsafeCode)
 	}
-	_, transactionPresent, err := loadPrivacyTransactionChecked(brainDir, sessionID)
+	_, transactionPresent, err := brainstore.LoadPrivacyTransactionChecked(brainDir, sessionID)
 	if err != nil {
 		return err
 	}
 	var transactionBefore []byte
-	transactionRel := privacyTransactionRel(sessionID)
+	transactionRel := brainstore.PrivacyTransactionRel(sessionID)
 	if transactionPresent {
-		transactionBefore, present, err = readPrivacyArtifact(brainDir, transactionRel, "privacy transaction", maxManifestBytes)
+		transactionBefore, present, err = brainstore.ReadPrivacyArtifact(brainDir, transactionRel, "privacy transaction", clibase.MaxManifestBytes)
 		if err != nil {
 			return err
 		}
 		if !present {
-			return fmt.Errorf("%s: privacy transaction disappeared before include", memoryErrStateUnsafe)
+			return fmt.Errorf("%s: privacy transaction disappeared before include", brainstore.StateUnsafeCode)
 		}
-		if _, err := decodePrivacyTransaction(transactionBefore, sessionID); err != nil {
+		if _, err := brainstore.DecodePrivacyTransaction(transactionBefore, sessionID); err != nil {
 			return err
 		}
 	}
 
 	delete(stones.Excluded, sessionID)
-	tombstonesAfter, err := marshalSessionTombstones(stones)
+	tombstonesAfter, err := brainstore.MarshalSessionTombstones(stones)
 	if err != nil {
 		return err
 	}
@@ -847,16 +528,16 @@ func includeSessionLocked(brainDir, sessionID string, now time.Time) error {
 		tombstonesBefore: tombstonesBefore, tombstonesAfter: tombstonesAfter,
 		transactionRel: transactionRel, transactionBefore: transactionBefore, transactionPresent: transactionPresent,
 	}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		// Atomic replacement can report a durability failure after rename made
 		// the included policy visible. The result is therefore ambiguous: always
 		// inspect and restore the exact prior state before releasing either lock.
 		return errors.Join(err, restoreIncludePrivacyState(brainDir, rollback))
 	}
-	currentTombstones, present, err := readPrivacyArtifact(brainDir, sessionTombstonesPath, "included session tombstones", maxManifestBytes)
+	currentTombstones, present, err := brainstore.ReadPrivacyArtifact(brainDir, brainstore.SessionTombstonesPath, "included session tombstones", clibase.MaxManifestBytes)
 	if err != nil || !present || !bytes.Equal(currentTombstones, tombstonesAfter) {
 		if err == nil {
-			err = fmt.Errorf("%s: session tombstones changed while including %s", memoryErrStateUnsafe, sessionID)
+			err = fmt.Errorf("%s: session tombstones changed while including %s", brainstore.StateUnsafeCode, sessionID)
 		}
 		return errors.Join(err, restoreIncludePrivacyState(brainDir, rollback))
 	}
@@ -896,7 +577,7 @@ func invalidateEntityIndexJoin(brainDir string) {
 	if err != nil {
 		return
 	}
-	_ = writeBrainRelativeFileAtomic(brainDir, entitiesCachePath, append(data, '\n'), 0o600)
+	_ = brainstore.WriteBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 }
 
 func privacyBytesIdentity(data []byte) string {
@@ -910,30 +591,30 @@ func privacyBytesIdentity(data []byte) string {
 // out-of-process or adversarial replacement.
 func restoreIncludePrivacyState(brainDir string, rollback includePrivacyRollback) error {
 	var restoreErr error
-	currentTombstones, present, err := readPrivacyArtifact(brainDir, sessionTombstonesPath, "session tombstones during include rollback", maxManifestBytes)
+	currentTombstones, present, err := brainstore.ReadPrivacyArtifact(brainDir, brainstore.SessionTombstonesPath, "session tombstones during include rollback", clibase.MaxManifestBytes)
 	switch {
 	case err != nil:
 		restoreErr = errors.Join(restoreErr, err)
 	case present && bytes.Equal(currentTombstones, rollback.tombstonesBefore):
 		// A failed atomic replacement may already have left the original bytes.
 	case !present || len(rollback.tombstonesAfter) == 0 || !bytes.Equal(currentTombstones, rollback.tombstonesAfter):
-		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: session tombstones changed during include rollback", memoryErrStateUnsafe))
+		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: session tombstones changed during include rollback", brainstore.StateUnsafeCode))
 	default:
-		if err := restoreIncludePrivacyFile(brainDir, sessionTombstonesPath, "session tombstones", rollback.tombstonesBefore); err != nil {
+		if err := restoreIncludePrivacyFile(brainDir, brainstore.SessionTombstonesPath, "session tombstones", rollback.tombstonesBefore); err != nil {
 			restoreErr = errors.Join(restoreErr, fmt.Errorf("restore session tombstones after failed include: %w", err))
 		}
 	}
 
-	currentTransaction, transactionPresent, err := readPrivacyArtifact(brainDir, rollback.transactionRel, "privacy transaction during include rollback", maxManifestBytes)
+	currentTransaction, transactionPresent, err := brainstore.ReadPrivacyArtifact(brainDir, rollback.transactionRel, "privacy transaction during include rollback", clibase.MaxManifestBytes)
 	switch {
 	case err != nil:
 		restoreErr = errors.Join(restoreErr, err)
 	case !rollback.transactionPresent && !transactionPresent:
 	case !rollback.transactionPresent:
-		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: privacy transaction appeared during include rollback", memoryErrStateUnsafe))
+		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: privacy transaction appeared during include rollback", brainstore.StateUnsafeCode))
 	case transactionPresent && bytes.Equal(currentTransaction, rollback.transactionBefore):
 	case transactionPresent:
-		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: privacy transaction changed during include rollback", memoryErrStateUnsafe))
+		restoreErr = errors.Join(restoreErr, fmt.Errorf("%s: privacy transaction changed during include rollback", brainstore.StateUnsafeCode))
 	default:
 		if err := restoreIncludePrivacyFile(brainDir, rollback.transactionRel, "privacy transaction", rollback.transactionBefore); err != nil {
 			restoreErr = errors.Join(restoreErr, fmt.Errorf("restore privacy transaction after failed include: %w", err))
@@ -944,17 +625,17 @@ func restoreIncludePrivacyState(brainDir string, rollback includePrivacyRollback
 
 func verifyIncludePrivacyRollback(brainDir string, rollback includePrivacyRollback) error {
 	var verifyErr error
-	if err := requireExactIncludePrivacyFile(brainDir, sessionTombstonesPath, "session tombstones", rollback.tombstonesBefore); err != nil {
+	if err := requireExactIncludePrivacyFile(brainDir, brainstore.SessionTombstonesPath, "session tombstones", rollback.tombstonesBefore); err != nil {
 		verifyErr = errors.Join(verifyErr, err)
 	}
-	current, present, err := readPrivacyArtifact(brainDir, rollback.transactionRel, "privacy transaction after include rollback", maxManifestBytes)
+	current, present, err := brainstore.ReadPrivacyArtifact(brainDir, rollback.transactionRel, "privacy transaction after include rollback", clibase.MaxManifestBytes)
 	switch {
 	case err != nil:
 		verifyErr = errors.Join(verifyErr, err)
 	case rollback.transactionPresent && (!present || !bytes.Equal(current, rollback.transactionBefore)):
-		verifyErr = errors.Join(verifyErr, fmt.Errorf("%s: exact privacy transaction rollback bytes are not live", memoryErrStateUnsafe))
+		verifyErr = errors.Join(verifyErr, fmt.Errorf("%s: exact privacy transaction rollback bytes are not live", brainstore.StateUnsafeCode))
 	case !rollback.transactionPresent && present:
-		verifyErr = errors.Join(verifyErr, fmt.Errorf("%s: unexpected privacy transaction is live after rollback", memoryErrStateUnsafe))
+		verifyErr = errors.Join(verifyErr, fmt.Errorf("%s: unexpected privacy transaction is live after rollback", brainstore.StateUnsafeCode))
 	}
 	return verifyErr
 }
@@ -965,25 +646,25 @@ func verifyIncludePrivacyRollback(brainDir string, rollback includePrivacyRollba
 // proves them again. Every other write failure remains an error; callers never
 // infer successful rollback from an unclassified failure.
 func restoreIncludePrivacyFile(brainDir, rel, label string, before []byte) error {
-	err := writeBrainRelativeFileAtomic(brainDir, rel, before, 0o600)
+	err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, before, 0o600)
 	if err == nil {
 		return nil
 	}
-	var durabilityErr *atomicReplaceDurabilityError
+	var durabilityErr *brainstore.AtomicReplaceDurabilityError
 	if !errors.As(err, &durabilityErr) {
 		return err
 	}
 	if exactErr := requireExactIncludePrivacyFile(brainDir, rel, label, before); exactErr != nil {
 		return errors.Join(err, exactErr)
 	}
-	if rootErr := rejectSymlinkedBrainRoot(brainDir); rootErr != nil {
+	if rootErr := clibase.RejectSymlinkedBrainRoot(brainDir); rootErr != nil {
 		return errors.Join(err, rootErr)
 	}
-	clean, cleanErr := cleanBrainRelativePath(rel)
+	clean, cleanErr := clibase.CleanBrainRelativePath(rel)
 	if cleanErr != nil {
 		return errors.Join(err, cleanErr)
 	}
-	if syncErr := syncParentDir(filepath.Join(brainDir, clean)); syncErr != nil {
+	if syncErr := brainstore.SyncParentDir(filepath.Join(brainDir, clean)); syncErr != nil {
 		return errors.Join(err, fmt.Errorf("sync restored %s directory: %w", label, syncErr))
 	}
 	if exactErr := requireExactIncludePrivacyFile(brainDir, rel, label, before); exactErr != nil {
@@ -993,12 +674,12 @@ func restoreIncludePrivacyFile(brainDir, rel, label string, before []byte) error
 }
 
 func requireExactIncludePrivacyFile(brainDir, rel, label string, want []byte) error {
-	current, present, err := readPrivacyArtifact(brainDir, rel, label+" after include rollback", maxManifestBytes)
+	current, present, err := brainstore.ReadPrivacyArtifact(brainDir, rel, label+" after include rollback", clibase.MaxManifestBytes)
 	if err != nil {
 		return err
 	}
 	if !present || !bytes.Equal(current, want) {
-		return fmt.Errorf("%s: exact %s rollback bytes are not live", memoryErrStateUnsafe, label)
+		return fmt.Errorf("%s: exact %s rollback bytes are not live", brainstore.StateUnsafeCode, label)
 	}
 	return nil
 }
@@ -1046,11 +727,6 @@ type sessionPurgePlan struct {
 	Matched bool `json:"matched"`
 }
 
-type purgeArtifact struct {
-	Path  string `json:"path"` // brain-relative
-	Bytes int64  `json:"bytes"`
-}
-
 func newSessionsPurgeCommand(opts Options) *cobra.Command {
 	var dryRun, jsonOut bool
 	cmd := &cobra.Command{
@@ -1078,7 +754,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 	brainDir := storage.BrainDir
 	var plan sessionPurgePlan
 	apply := func() error {
-		return withBrainWriteLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			var planErr error
 			plan, planErr = buildSessionPurgePlan(brainDir, sessionID)
 			if planErr != nil {
@@ -1099,7 +775,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 	}
 	if !dryRun {
 		operation := apply
-		apply = func() error { return withBrainPrivacySideEffectLock(brainDir, operation) }
+		apply = func() error { return brainstore.WithBrainPrivacySideEffectLock(brainDir, operation) }
 	}
 	if err := apply(); err != nil {
 		return err
@@ -1154,7 +830,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 // trusted manifest and the current index. Purging an unknown or already-purged
 // session yields an empty plan (idempotent), not an error.
 func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, error) {
-	entries, present, err := readPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	entries, present, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
 	if err != nil || !present {
 		if err != nil {
 			return nil, err
@@ -1164,20 +840,20 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 	byBranch := map[string][]factRecord{}
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 {
-			return nil, fmt.Errorf("%s: facts inventory contains a symlink: %s", memoryErrStateUnsafe, entry.Name())
+			return nil, fmt.Errorf("%s: facts inventory contains a symlink: %s", brainstore.StateUnsafeCode, entry.Name())
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return nil, fmt.Errorf("%s: inspect facts entry %s: %w", memoryErrStateCorrupt, entry.Name(), err)
+			return nil, fmt.Errorf("%s: inspect facts entry %s: %w", brainstore.StateCorruptCode, entry.Name(), err)
 		}
 		if !info.IsDir() {
 			if !info.Mode().IsRegular() {
-				return nil, fmt.Errorf("%s: facts inventory contains a nonregular entry: %s", memoryErrStateUnsafe, entry.Name())
+				return nil, fmt.Errorf("%s: facts inventory contains a nonregular entry: %s", brainstore.StateUnsafeCode, entry.Name())
 			}
 			continue // taxonomy and other root-level metadata are not fact stores.
 		}
 		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
-		data, exists, err := readPrivacyArtifact(brainDir, rel, "fact store", 256<<20)
+		data, exists, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "fact store", 256<<20)
 		if err != nil {
 			return nil, err
 		}
@@ -1189,13 +865,13 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 				}
 				var record factRecord
 				if err := json.Unmarshal([]byte(trimmed), &record); err != nil {
-					return nil, fmt.Errorf("%s: parse %s line %d: %w", memoryErrStateCorrupt, rel, lineNumber+1, err)
+					return nil, fmt.Errorf("%s: parse %s line %d: %w", brainstore.StateCorruptCode, rel, lineNumber+1, err)
 				}
 				byBranch[record.Branch] = append(byBranch[record.Branch], record)
 			}
 		}
 		proposalRel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsProposalsFileName))
-		proposalData, proposalExists, err := readPrivacyArtifact(brainDir, proposalRel, "fact proposal store", 64<<20)
+		proposalData, proposalExists, err := brainstore.ReadPrivacyArtifact(brainDir, proposalRel, "fact proposal store", 64<<20)
 		if err != nil {
 			return nil, err
 		}
@@ -1207,7 +883,7 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 				}
 				var proposal factProposal
 				if err := json.Unmarshal([]byte(trimmed), &proposal); err != nil {
-					return nil, fmt.Errorf("%s: parse %s line %d: %w", memoryErrStateCorrupt, proposalRel, lineNumber+1, err)
+					return nil, fmt.Errorf("%s: parse %s line %d: %w", brainstore.StateCorruptCode, proposalRel, lineNumber+1, err)
 				}
 			}
 		}
@@ -1219,26 +895,8 @@ func factAnchorMatchesSession(anchor factAnchor, sessionID string, transcriptRel
 	if strings.TrimSpace(anchor.SessionID) == strings.TrimSpace(sessionID) {
 		return true
 	}
-	rel := normalizePrivacyTranscriptPath(anchor.Transcript)
+	rel := brainstore.NormalizePrivacyTranscriptPath(anchor.Transcript)
 	return rel != "" && transcriptRels[rel]
-}
-
-// privacyTransactionTranscriptPaths recovers the content-free transcript scope
-// captured before cleanup. Validate persisted paths before classifying them so
-// traversal cannot silently discard scope or turn a transcript into another
-// artifact. Transactions written by cleanup use canonical brain-relative paths.
-func privacyTransactionTranscriptPaths(tx privacyTransaction) ([]string, error) {
-	var paths []string
-	for _, artifact := range tx.Artifacts {
-		clean, err := cleanBrainRelativePath(artifact.Path)
-		if err != nil || !fs.ValidPath(artifact.Path) || filepath.ToSlash(clean) != artifact.Path {
-			return nil, fmt.Errorf("%s: unsafe privacy transaction artifact path %q", memoryErrStateUnsafe, artifact.Path)
-		}
-		if strings.HasPrefix(artifact.Path, exportSessionsDirectory+"/") {
-			paths = append(paths, artifact.Path)
-		}
-	}
-	return paths, nil
 }
 
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
@@ -1248,7 +906,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		return plan, err
 	}
 	refSet := sessionRefsForSessionID(brainDir, manifest, sessionID)
-	priorTx, priorPresent, err := loadPrivacyTransactionChecked(brainDir, sessionID)
+	priorTx, priorPresent, err := brainstore.LoadPrivacyTransactionChecked(brainDir, sessionID)
 	if err != nil {
 		return plan, err
 	}
@@ -1258,7 +916,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		}
 	}
 	transcriptRels := map[string]bool{}
-	priorPaths, err := privacyTransactionTranscriptPaths(priorTx)
+	priorPaths, err := brainstore.PrivacyTransactionTranscriptPaths(priorTx)
 	if err != nil {
 		return plan, err
 	}
@@ -1268,7 +926,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	if manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		for _, session := range manifest.Sources.Sessions.Sessions {
 			if strings.TrimSpace(session.SessionID) == sessionID {
-				if rel := normalizePrivacyTranscriptPath(session.TranscriptPath); rel != "" {
+				if rel := brainstore.NormalizePrivacyTranscriptPath(session.TranscriptPath); rel != "" {
 					transcriptRels[rel] = true
 				}
 			}
@@ -1278,7 +936,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	// remain detectable even after the manifest has forgotten this session.
 	for rel := range transcriptRels {
 		artifact := purgeArtifact{Path: rel}
-		info, present, statErr := privacyArtifactInfo(brainDir, rel, "session transcript")
+		info, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, rel, "session transcript")
 		if statErr != nil {
 			return plan, statErr
 		}
@@ -1342,7 +1000,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		return plan, inventoryErr
 	}
 	for _, rel := range derivedArtifacts {
-		info, present, statErr := privacyArtifactInfo(brainDir, rel, "derived privacy store")
+		info, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, rel, "derived privacy store")
 		if statErr != nil {
 			return plan, statErr
 		}
@@ -1361,7 +1019,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 	}
 	addWork := func(rel string) error {
 		artifact := purgeArtifact{Path: rel}
-		info, present, statErr := privacyArtifactInfo(brainDir, rel, "memory work metadata")
+		info, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, rel, "memory work metadata")
 		if statErr != nil {
 			return statErr
 		}
@@ -1383,8 +1041,8 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 			continue
 		}
 		if ref := strings.TrimSpace(job.SessionRef); ref != "" {
-			if !strings.HasPrefix(ref, conversationSessionIDPrefix) {
-				return plan, fmt.Errorf("%s: abstract job has invalid session ref", memoryErrStateCorrupt)
+			if !strings.HasPrefix(ref, brainstore.ConversationSessionIDPrefix) {
+				return plan, fmt.Errorf("%s: abstract job has invalid session ref", brainstore.StateCorruptCode)
 			}
 			refSet[ref] = true
 		}
@@ -1394,7 +1052,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 			}
 		}
 		cancellationRel := memoryCancellationRel(job.JobID)
-		_, present, statErr := privacyArtifactInfo(brainDir, cancellationRel, "memory cancellation marker")
+		_, present, statErr := brainstore.PrivacyArtifactInfo(brainDir, cancellationRel, "memory cancellation marker")
 		if statErr != nil {
 			return plan, statErr
 		}
@@ -1404,8 +1062,8 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 			}
 		}
 	}
-	if len(refSet) > privacyTransactionSessionRefMax {
-		return plan, fmt.Errorf("%s: privacy scope exceeds %d canonical session refs", memoryErrQueryTooBroad, privacyTransactionSessionRefMax)
+	if len(refSet) > brainstore.PrivacyTransactionSessionRefMax {
+		return plan, fmt.Errorf("%s: privacy scope exceeds %d canonical session refs", memoryErrQueryTooBroad, brainstore.PrivacyTransactionSessionRefMax)
 	}
 	for ref := range refSet {
 		plan.SessionRefs = append(plan.SessionRefs, ref)
@@ -1430,17 +1088,17 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 func privacyDerivedStoreRels() []string {
 	rels := []string{
 		historyFTSDBRelPath(),
-		filepath.ToSlash(filepath.Join(historyDirName, historyScanCacheFileName)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, historyScanCacheFileName)),
 		historyShortTermPath,
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
-		filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
+		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 		patternsTasksPath,
 		patternsProceduresPath,
 		patternsPracticesPath,
 		patternRunsRelPath,
 	}
 	rels = append(rels, patternCorpusPrivacyArtifactRels()...)
-	rels = append(rels, patternCorpusPublicationMarkerPath)
+	rels = append(rels, patterncore.CorpusPublicationMarkerPath)
 	return rels
 }
 
@@ -1481,7 +1139,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 		if legacy.path == legacy.active {
 			continue
 		}
-		info, statErr := privacyLstat(filepath.Join(brainDir, filepath.FromSlash(legacy.path)))
+		info, statErr := brainstore.PrivacyLstat(filepath.Join(brainDir, filepath.FromSlash(legacy.path)))
 		if statErr != nil {
 			if os.IsNotExist(statErr) {
 				continue
@@ -1537,24 +1195,24 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// behind, and an in-flight build may still contain an excluded transcript.
 	// Inventory the bounded directory explicitly so purge removes every such
 	// staging generation and the later publisher fails closed.
-	patternEntries, patternsPresent, err := readPrivacyDirectory(brainDir, "patterns", "pattern directory")
+	patternEntries, patternsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, "patterns", "pattern directory")
 	if err != nil {
 		return nil, err
 	}
 	if patternsPresent {
 		for _, entry := range patternEntries {
-			if !strings.HasPrefix(entry.Name(), patternCorpusStagingPrefix) {
+			if !strings.HasPrefix(entry.Name(), patterncore.CorpusStagingPrefix) {
 				continue
 			}
 			if entry.Type()&os.ModeSymlink != 0 {
-				return nil, fmt.Errorf("%s: pattern staging inventory contains a symlink: %s", memoryErrStateUnsafe, entry.Name())
+				return nil, fmt.Errorf("%s: pattern staging inventory contains a symlink: %s", brainstore.StateUnsafeCode, entry.Name())
 			}
 			info, infoErr := entry.Info()
 			if infoErr != nil {
-				return nil, fmt.Errorf("%s: inspect pattern staging artifact %s: %w", memoryErrStateCorrupt, entry.Name(), infoErr)
+				return nil, fmt.Errorf("%s: inspect pattern staging artifact %s: %w", brainstore.StateCorruptCode, entry.Name(), infoErr)
 			}
 			if !info.Mode().IsRegular() {
-				return nil, fmt.Errorf("%s: pattern staging inventory contains a nonregular artifact: %s", memoryErrStateUnsafe, entry.Name())
+				return nil, fmt.Errorf("%s: pattern staging inventory contains a nonregular artifact: %s", brainstore.StateUnsafeCode, entry.Name())
 			}
 			rels = append(rels, filepath.ToSlash(filepath.Join("patterns", entry.Name())))
 		}
@@ -1563,27 +1221,27 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// names may contain glob metacharacters, and Glob cannot report unreadable
 	// directories or unsafe entry types. Only the two exact store basenames and
 	// their SQLite sidecars are allowed in an embeddings directory.
-	factEntries, factsPresent, err := readPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	factEntries, factsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
 	if err != nil {
 		return nil, err
 	}
 	if factsPresent {
 		for _, branchEntry := range factEntries {
 			if branchEntry.Type()&os.ModeSymlink != 0 {
-				return nil, fmt.Errorf("%s: facts inventory contains a symlink: %s", memoryErrStateUnsafe, branchEntry.Name())
+				return nil, fmt.Errorf("%s: facts inventory contains a symlink: %s", brainstore.StateUnsafeCode, branchEntry.Name())
 			}
 			branchInfo, infoErr := branchEntry.Info()
 			if infoErr != nil {
-				return nil, fmt.Errorf("%s: inspect facts entry %s: %w", memoryErrStateCorrupt, branchEntry.Name(), infoErr)
+				return nil, fmt.Errorf("%s: inspect facts entry %s: %w", brainstore.StateCorruptCode, branchEntry.Name(), infoErr)
 			}
 			if !branchInfo.IsDir() {
 				if !branchInfo.Mode().IsRegular() {
-					return nil, fmt.Errorf("%s: facts inventory contains a nonregular entry: %s", memoryErrStateUnsafe, branchEntry.Name())
+					return nil, fmt.Errorf("%s: facts inventory contains a nonregular entry: %s", brainstore.StateUnsafeCode, branchEntry.Name())
 				}
 				continue
 			}
 			embedRel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name(), embedStoreDirName))
-			embedEntries, embedPresent, readErr := readPrivacyDirectory(brainDir, embedRel, "fact embedding directory")
+			embedEntries, embedPresent, readErr := brainstore.ReadPrivacyDirectory(brainDir, embedRel, "fact embedding directory")
 			if readErr != nil {
 				return nil, readErr
 			}
@@ -1592,18 +1250,18 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 			}
 			for _, entry := range embedEntries {
 				if entry.Type()&os.ModeSymlink != 0 {
-					return nil, fmt.Errorf("%s: fact embedding inventory contains a symlink: %s/%s", memoryErrStateUnsafe, embedRel, entry.Name())
+					return nil, fmt.Errorf("%s: fact embedding inventory contains a symlink: %s/%s", brainstore.StateUnsafeCode, embedRel, entry.Name())
 				}
 				info, infoErr := entry.Info()
 				if infoErr != nil {
-					return nil, fmt.Errorf("%s: inspect fact embedding %s/%s: %w", memoryErrStateCorrupt, embedRel, entry.Name(), infoErr)
+					return nil, fmt.Errorf("%s: inspect fact embedding %s/%s: %w", brainstore.StateCorruptCode, embedRel, entry.Name(), infoErr)
 				}
 				if !info.Mode().IsRegular() {
-					return nil, fmt.Errorf("%s: fact embedding inventory contains a nonregular artifact: %s/%s", memoryErrStateUnsafe, embedRel, entry.Name())
+					return nil, fmt.Errorf("%s: fact embedding inventory contains a nonregular artifact: %s/%s", brainstore.StateUnsafeCode, embedRel, entry.Name())
 				}
 				base := strings.TrimSuffix(strings.TrimSuffix(entry.Name(), "-wal"), "-shm")
 				if base != embedStoreFileName && base != historyVecStoreFileNamePortable {
-					return nil, fmt.Errorf("%s: unknown fact embedding artifact: %s/%s", memoryErrStateCorrupt, embedRel, entry.Name())
+					return nil, fmt.Errorf("%s: unknown fact embedding artifact: %s/%s", brainstore.StateCorruptCode, embedRel, entry.Name())
 				}
 				rels = append(rels, filepath.ToSlash(filepath.Join(embedRel, base)))
 			}
@@ -1613,7 +1271,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	seen := make(map[string]bool, len(rels)*3)
 	for _, rel := range rels {
 		artifacts := []string{rel, rel + "-wal", rel + "-shm"}
-		if rel == patternCorpusPublicationMarkerPath || isPatternCorpusPrivacyArtifactRel(rel) || isPatternCorpusStagingArtifactRel(rel) {
+		if rel == patterncore.CorpusPublicationMarkerPath || isPatternCorpusPrivacyArtifactRel(rel) || isPatternCorpusStagingArtifactRel(rel) {
 			// Pattern publication owns an explicit shared sidecar inventory, and
 			// staging leaves were enumerated exactly. Do not synthesize unrelated
 			// suffixes for its marker, sidecars, or candidate leaves.
@@ -1636,7 +1294,7 @@ type privacyEpisodeLine struct {
 }
 
 func loadPrivacyEpisodeLines(brainDir string) ([]privacyEpisodeLine, bool, error) {
-	data, present, err := readPrivacyArtifact(brainDir, patternsEpisodesPath, "pattern episodes", 256<<20)
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, patternsEpisodesPath, "pattern episodes", 256<<20)
 	if err != nil || !present {
 		return nil, present, err
 	}
@@ -1648,7 +1306,7 @@ func loadPrivacyEpisodeLines(brainDir string) ([]privacyEpisodeLine, bool, error
 		}
 		var record episodeRecord
 		if err := json.Unmarshal([]byte(trimmed), &record); err != nil {
-			return nil, true, fmt.Errorf("%s: parse %s line %d: %w", memoryErrStateCorrupt, patternsEpisodesPath, lineNumber+1, err)
+			return nil, true, fmt.Errorf("%s: parse %s line %d: %w", brainstore.StateCorruptCode, patternsEpisodesPath, lineNumber+1, err)
 		}
 		lines = append(lines, privacyEpisodeLine{raw: line, record: record})
 	}
@@ -1663,22 +1321,22 @@ func loadPrivacyEpisodeLines(brainDir string) ([]privacyEpisodeLine, bool, error
 // an unreadable or unparseable index is state whose session attribution cannot
 // be inspected, and treating it as empty would let cleanup claim a session was
 // erased from a file it never managed to read.
-func loadPrivacyEntityIndex(brainDir string) (entityIndexCache, bool, error) {
-	data, present, err := readPrivacyArtifact(brainDir, entitiesCachePath, "entity index", defaultMaxReadBytes)
+func loadPrivacyEntityIndex(brainDir string) (entities.IndexCache, bool, error) {
+	data, present, err := brainstore.ReadPrivacyArtifact(brainDir, entities.CachePath, "entity index", clibase.DefaultMaxReadBytes)
 	if err != nil || !present {
-		return entityIndexCache{}, present, err
+		return entities.IndexCache{}, present, err
 	}
-	var cache entityIndexCache
+	var cache entities.IndexCache
 	if err := json.Unmarshal(data, &cache); err != nil {
-		return entityIndexCache{}, true, fmt.Errorf("%s: parse %s: %w", memoryErrStateCorrupt, entitiesCachePath, err)
+		return entities.IndexCache{}, true, fmt.Errorf("%s: parse %s: %w", brainstore.StateCorruptCode, entities.CachePath, err)
 	}
 	// A forward-version index may attribute sessions in a shape this binary
 	// cannot see, so neither stripping nor verifying it can be trusted. Refuse,
 	// the way every other forward-state gate here does, rather than reading it
 	// as empty and calling that clean.
-	if cache.SchemaVersion > entityIndexCacheVersion {
-		return entityIndexCache{}, true, fmt.Errorf("%s: %s schema %d is newer than this binary supports (%d)",
-			memoryErrUnsupportedVersion, entitiesCachePath, cache.SchemaVersion, entityIndexCacheVersion)
+	if cache.SchemaVersion > entities.CacheVersion {
+		return entities.IndexCache{}, true, fmt.Errorf("%s: %s schema %d is newer than this binary supports (%d)",
+			brainstore.UnsupportedVersionCode, entities.CachePath, cache.SchemaVersion, entities.CacheVersion)
 	}
 	return cache, true, nil
 }
@@ -1722,7 +1380,7 @@ func filterEntityIndexSessions(brainDir string, tombstoned map[string]sessionTom
 	if err != nil {
 		return removed, err
 	}
-	return removed, writeBrainRelativeFileAtomic(brainDir, entitiesCachePath, append(data, '\n'), 0o600)
+	return removed, brainstore.WriteBrainRelativeFileAtomic(brainDir, entities.CachePath, append(data, '\n'), 0o600)
 }
 
 // countSessionEpisodes counts episode records that would be filtered out of
@@ -1748,7 +1406,7 @@ func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bo
 	var out strings.Builder
 	for _, line := range lines {
 		record := line.record
-		if strings.TrimSpace(record.SessionID) == sessionID || transcriptRels[normalizePrivacyTranscriptPath(record.Source.Path)] {
+		if strings.TrimSpace(record.SessionID) == sessionID || transcriptRels[brainstore.NormalizePrivacyTranscriptPath(record.Source.Path)] {
 			removed++
 			continue
 		}
@@ -1759,7 +1417,7 @@ func filterEpisodesFile(brainDir, sessionID string, transcriptRels map[string]bo
 	if !write || removed == 0 {
 		return kept, removed, nil
 	}
-	return kept, removed, writeBrainRelativeFileAtomic(brainDir, patternsEpisodesPath, []byte(out.String()), 0o600)
+	return kept, removed, brainstore.WriteBrainRelativeFileAtomic(brainDir, patternsEpisodesPath, []byte(out.String()), 0o600)
 }
 
 // purgeSessionFacts applies the fact rules: strip purged-session anchors,
@@ -1878,131 +1536,18 @@ func purgeDistillCacheEntries(brainDir, sessionID string) error {
 // verification passed), complete, or error (bounded redacted message; the
 // operation is idempotent and re-runnable).
 
-const (
-	privacyTransactionVersion       = 2
-	privacyTransactionLegacyVersion = 1
-	privacyTransactionSessionRefMax = 256
-
-	privacyStateRequested  = "requested"
-	privacyStateGuarded    = "guarded"
-	privacyStateRebuilding = "rebuilding"
-	privacyStateVerified   = "verified"
-	privacyStateComplete   = "complete"
-	privacyStateError      = "error"
-
-	privacyTransactionErrorMaxBytes = 512
+// Privacy transaction records live in brainstore; these aliases keep the
+// package-local names for the existing flows and tests.
+type (
+	privacyTransaction = brainstore.PrivacyTransaction
+	purgeArtifact      = brainstore.PurgeArtifact
 )
 
-type privacyTransaction struct {
-	SchemaVersion int       `json:"schema_version"`
-	SessionID     string    `json:"session_id"`
-	Operation     string    `json:"operation"` // exclude | purge
-	State         string    `json:"state"`
-	StartedAt     time.Time `json:"started_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
-	// Artifacts carries identities and sizes only, never content.
-	Artifacts   []purgeArtifact `json:"artifacts,omitempty"`
-	SessionRefs []string        `json:"session_refs,omitempty"`
-	Error       string          `json:"error,omitempty"`
-}
-
-// windowsReservedDeviceNames are the DOS device names Windows still resolves in
-// every directory, with or without an extension: `CON.json` names the console,
-// not a file. The comparison is case-insensitive and the list has not changed
-// in decades.
-var windowsReservedDeviceNames = map[string]bool{
-	"CON": true, "PRN": true, "AUX": true, "NUL": true,
-	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
-	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
-	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
-	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
-}
-
-// escapePrivacyTransactionID turns a session id into one path component that is
-// a legal filename on every platform this ships to.
-//
-// This used to be url.PathEscape alone, and PathEscape is a URL function, not a
-// filename function: RFC 3986 allows a colon inside a path segment, so it
-// deliberately leaves one unescaped. NTFS does not -- `a:b` names an alternate
-// data stream -- so on Windows the FIRST write both `privacy exclude` and
-// `privacy purge` perform (the transaction record, written before the
-// tombstone) failed with ERROR_INVALID_PARAMETER, "The parameter is incorrect",
-// for any id containing a colon, and neither command could run at all.
-//
-// Captured session ids are UUIDs and were never affected, which is why this
-// survived: every test in the suite used a hyphenated fixture id. Ids an
-// OPERATOR types are affected, and this tool's own id vocabulary is full of
-// colons -- `conversation-session:…`, `fact:…`, `history:…` are what `get`,
-// `search` and `multi-get` print and what their documented examples show -- so
-// pasting an id the tool itself emitted was enough to hit it.
-//
-// PathEscape already escapes the rest of the Windows-illegal set (\ / * ? " < >
-// |, control bytes, and a trailing space), so the fix is exactly the colon plus
-// the reserved device names and nothing else. Every id whose characters are
-// already safe -- every UUID, and so every real captured session -- keeps the
-// byte-identical filename it has on disk today, and no existing record is
-// renamed.
-//
-// This escaping is for FILENAMES ONLY. Do not reach for it at the three sites
-// that escape a session id for the distill cache -- distillSessionCacheKey,
-// the purge/exclude eviction in purgeDistillCacheEntries, and the check in
-// verifySessionPrivacy. Those build a JSON MAP KEY, not a path, a colon is
-// harmless in one, and the three match each other by suffix: hardening one
-// without the others makes purge silently stop evicting and verification start
-// reporting the leftovers.
-//
-// One residual: a POSIX brain that ran exclude/purge with a colon id before
-// this fix (which could only ever have been a phantom, since no captured id
-// contains one) keeps a file under the old name that nothing now reads. It is
-// inert -- nothing enumerates this directory, transactions are only ever looked
-// up by id, and the tombstone that actually enforces an exclusion lives in
-// history/tombstones.json keyed by the raw id, so `privacy include` still
-// clears it. A read-fallback to the old name was rejected deliberately: it
-// would have to be threaded through includeSessionLocked's two-file rollback
-// protocol, which is carefully built around a single transaction path, to
-// recover a record that describes an operation that did nothing.
-func escapePrivacyTransactionID(sessionID string) string {
-	escaped := strings.ReplaceAll(url.PathEscape(sessionID), ":", "%3A")
-	if windowsReservedDeviceNames[strings.ToUpper(escaped)] {
-		// Escaping the first byte is enough to stop the name resolving as a
-		// device, and cannot collide with any other id: PathEscape never emits
-		// %XX for an ASCII letter, so only "CON" can produce "%43ON".
-		escaped = fmt.Sprintf("%%%02X%s", escaped[0], escaped[1:])
-	}
-	return escaped
-}
-
-func privacyTransactionRel(sessionID string) string {
-	return filepath.ToSlash(filepath.Join(historyDirName, "privacy", escapePrivacyTransactionID(sessionID)+".json"))
-}
-
-func writePrivacyTransaction(brainDir string, tx privacyTransaction, now time.Time) error {
-	if _, _, err := loadPrivacyTransactionChecked(brainDir, tx.SessionID); err != nil {
-		return err
-	}
-	tx.SchemaVersion = privacyTransactionVersion
-	tx.UpdatedAt = now
-	data, err := json.MarshalIndent(tx, "", "  ")
-	if err != nil {
-		return err
-	}
-	if _, err := decodePrivacyTransaction(data, tx.SessionID); err != nil {
-		return err
-	}
-	return writeBrainRelativeFileAtomic(brainDir, privacyTransactionRel(tx.SessionID), append(data, '\n'), 0o600)
-}
-
-func loadPrivacyTransaction(brainDir, sessionID string) (privacyTransaction, bool) {
-	tx, present, err := loadPrivacyTransactionChecked(brainDir, sessionID)
-	if err != nil {
-		return privacyTransaction{}, false
-	}
-	return tx, present
-}
+const privacyTransactionErrorMaxBytes = 512
 
 func removePrivacyTransaction(brainDir, sessionID string) error {
-	return removeCheckedMemoryStateFile(brainDir, privacyTransactionRel(sessionID), "privacy transaction", maxManifestBytes, func(data []byte) error {
-		_, err := decodePrivacyTransaction(data, sessionID)
+	return removeCheckedMemoryStateFile(brainDir, brainstore.PrivacyTransactionRel(sessionID), "privacy transaction", clibase.MaxManifestBytes, func(data []byte) error {
+		_, err := brainstore.DecodePrivacyTransaction(data, sessionID)
 		return err
 	})
 }
@@ -2014,7 +1559,7 @@ func removePrivacyTransactionForInclude(brainDir, sessionID string, present bool
 	if !present {
 		return removePrivacyTransaction(brainDir, sessionID)
 	}
-	clean, err := cleanBrainRelativePath(privacyTransactionRel(sessionID))
+	clean, err := clibase.CleanBrainRelativePath(brainstore.PrivacyTransactionRel(sessionID))
 	if err != nil {
 		return err
 	}
@@ -2030,7 +1575,7 @@ func removePrivacyTransactionForInclude(brainDir, sessionID string, present bool
 	if err := beforeIncludePrivacyTransactionDirSync(path); err != nil {
 		return fmt.Errorf("sync removed privacy transaction directory: %w", err)
 	}
-	if err := syncPinnedDirectory(pinnedParent); err != nil {
+	if err := brainstore.SyncPinnedDirectory(pinnedParent); err != nil {
 		return fmt.Errorf("sync removed privacy transaction directory: %w", err)
 	}
 	return nil
@@ -2063,7 +1608,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if _, _, _, markerErr := loadPatternCorpusPublicationForPrivacy(brainDir); markerErr != nil {
 		return markerErr
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return err
 	}
@@ -2073,11 +1618,11 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	}
 	tx := privacyTransaction{
 		SessionID: sessionID, Operation: operation,
-		State: privacyStateRequested, StartedAt: now,
+		State: brainstore.PrivacyStateRequested, StartedAt: now,
 		Artifacts:   append(append(append([]purgeArtifact(nil), plan.Transcripts...), plan.DerivedStores...), plan.WorkMetadata...),
 		SessionRefs: append([]string(nil), plan.SessionRefs...),
 	}
-	if txErr := writePrivacyTransaction(brainDir, tx, now); txErr != nil {
+	if txErr := brainstore.WritePrivacyTransaction(brainDir, tx, now); txErr != nil {
 		return txErr
 	}
 	defer func() {
@@ -2085,27 +1630,27 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 			return
 		}
 		// Best-effort durable failure state; the command error is authoritative.
-		tx.State = privacyStateError
+		tx.State = brainstore.PrivacyStateError
 		message := err.Error()
 		if len(message) > privacyTransactionErrorMaxBytes {
 			message = message[:privacyTransactionErrorMaxBytes]
 		}
 		tx.Error = message
-		_ = writePrivacyTransaction(brainDir, tx, now)
+		_ = brainstore.WritePrivacyTransaction(brainDir, tx, now)
 	}()
 	advance := func(state string) error {
 		tx.State = state
 		tx.Error = ""
-		return writePrivacyTransaction(brainDir, tx, now)
+		return brainstore.WritePrivacyTransaction(brainDir, tx, now)
 	}
 	stones.Excluded[sessionID] = sessionTombstone{At: now, Reason: reason}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		return err
 	}
-	if err := advance(privacyStateGuarded); err != nil {
+	if err := advance(brainstore.PrivacyStateGuarded); err != nil {
 		return err
 	}
-	if err := advance(privacyStateRebuilding); err != nil {
+	if err := advance(brainstore.PrivacyStateRebuilding); err != nil {
 		return err
 	}
 	// Remove a supported marker first, with a fresh classification and exact
@@ -2129,7 +1674,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		}
 	}
 	for _, artifact := range plan.DerivedStores {
-		if artifact.Path == patternCorpusPublicationMarkerPath {
+		if artifact.Path == patterncore.CorpusPublicationMarkerPath {
 			continue // classified and identity-checked above
 		}
 		if err := removePrivacyDerivedStoreArtifact(brainDir, artifact.Path); err != nil {
@@ -2138,7 +1683,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	}
 	transcriptRels := map[string]bool{}
 	for _, artifact := range plan.Transcripts {
-		transcriptRels[normalizePrivacyTranscriptPath(artifact.Path)] = true
+		transcriptRels[brainstore.NormalizePrivacyTranscriptPath(artifact.Path)] = true
 	}
 	deletedFacts, strippedAnchors, err := purgeSessionFacts(brainDir, sessionID, transcriptRels)
 	if err != nil {
@@ -2190,7 +1735,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 		if isAbstractEgressReceiptPath(artifact.Path) {
 			continue // re-derived, validated, and removed above under this lock
 		}
-		if err := removeBrainRelativeFile(brainDir, artifact.Path); err != nil {
+		if err := brainstore.RemoveBrainRelativeFile(brainDir, artifact.Path); err != nil {
 			return fmt.Errorf("delete memory work metadata %s: %w", artifact.Path, err)
 		}
 	}
@@ -2210,10 +1755,10 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if !report.Clean {
 		return fmt.Errorf("cleanup incomplete: verification found %d violations (first: %s %s); the operation is idempotent, re-run it after resolving the artifact", len(report.Findings), report.Findings[0].Artifact, report.Findings[0].Detail)
 	}
-	if err := advance(privacyStateVerified); err != nil {
+	if err := advance(brainstore.PrivacyStateVerified); err != nil {
 		return err
 	}
-	return advance(privacyStateComplete)
+	return advance(brainstore.PrivacyStateComplete)
 }
 
 // purgeGitmetaSyncCaveats reports fact copies a purge can NOT clean: fact-set
@@ -2244,17 +1789,17 @@ func purgeGitmetaSyncCaveats(env EntireEnv, repoKey string, plan sessionPurgePla
 // sidecar set, including its rollback journal. Missing files are fine, while
 // unsafe path components and every other failure propagate.
 func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := clibase.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
-		return fmt.Errorf("%s: derived privacy store has an unsafe path %q: %w", memoryErrStateUnsafe, rel, err)
+		return fmt.Errorf("%s: derived privacy store has an unsafe path %q: %w", brainstore.StateUnsafeCode, rel, err)
 	}
 	rel = filepath.ToSlash(clean)
-	if rel == patternCorpusPublicationMarkerPath {
+	if rel == patterncore.CorpusPublicationMarkerPath {
 		return removePatternCorpusPublicationForPrivacy(brainDir)
 	}
 	var candidates []string
 	switch {
-	case rel == patternCorpusPath:
+	case rel == patterncore.CorpusPath:
 		candidates = patternCorpusPrivacyArtifactRels()
 	case isPatternCorpusPrivacyArtifactRel(rel), isPatternCorpusStagingArtifactRel(rel):
 		candidates = []string{rel}
@@ -2262,7 +1807,7 @@ func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
 		candidates = []string{rel, rel + "-wal", rel + "-shm"}
 	}
 	for _, candidate := range candidates {
-		info, present, err := privacyArtifactInfo(brainDir, candidate, "derived privacy store")
+		info, present, err := brainstore.PrivacyArtifactInfo(brainDir, candidate, "derived privacy store")
 		if err != nil {
 			return err
 		}

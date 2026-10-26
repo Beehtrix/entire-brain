@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"os"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -58,13 +59,8 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	generationRel := filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "audit"))
-	storeRel := filepath.ToSlash(filepath.Join(generationRel, semanticSQLiteName))
-	storePath := filepath.Join(storage.BrainDir, filepath.FromSlash(storeRel))
-	if err := os.MkdirAll(filepath.Dir(storePath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open(sqliteDriverName, storePath)
+	storePath := filepath.Join(t.TempDir(), "graph.sqlite")
+	db, err := sql.Open(sqlitedriver.Name, storePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +92,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
 			Branch:           "main",
-			GenerationPath:   generationRel,
-			StorePath:        storeRel,
+			StoreOwner:       "graph",
 			Files:            3,
 			Symbols:          3,
 			Relations:        2,
@@ -230,55 +225,6 @@ func TestBrainStatusCompactReportPreservesTrustAndOmitsFollowUpDetail(t *testing
 	}
 }
 
-func TestValidateSemanticSQLiteStoreChecksFileCount(t *testing.T) {
-	storePath := filepath.Join(t.TempDir(), semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, storePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`INSERT INTO files(path, blob, content_hash) VALUES ('a.go', 'blob', 'hash')`); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	err = validateSemanticSQLiteStore(storePath, 2, 0, 0)
-	if err == nil || !strings.Contains(err.Error(), "file count 1 does not match manifest 2") {
-		t.Fatalf("expected file count mismatch, got %v", err)
-	}
-}
-
-func TestValidateSemanticSQLiteStoreInReadOnlyDirectory(t *testing.T) {
-	storeDir := t.TempDir()
-	storePath := filepath.Join(storeDir, semanticSQLiteName)
-	db, err := sql.Open(sqliteDriverName, storePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := initializeSemanticSQLite(db); err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(storeDir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(storeDir, 0o700) })
-	probe := filepath.Join(storeDir, "write-probe")
-	if err := os.WriteFile(probe, []byte("probe"), 0o600); err == nil {
-		_ = os.Remove(probe)
-		t.Skip("filesystem or process privileges do not enforce the read-only directory mode")
-	}
-
-	if err := validateSemanticSQLiteStore(storePath, 0, 0, 0); err != nil {
-		t.Fatalf("validate immutable store in read-only directory: %v", err)
-	}
-}
-
 func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []semanticWarning) Options {
 	t.Helper()
 	env := semanticTestEnv(t, repoDir)
@@ -299,6 +245,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 	manifest := exportManifest{
 		SchemaVersion: brainManifestSchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
+			StoreOwner:       "graph",
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
 			SchemaVersion:    "1.0",
@@ -364,7 +311,7 @@ func TestBuildBrainRetrievalStatus(t *testing.T) {
 	// declared index has to exist for these cases to describe freshness rather
 	// than availability.
 	brainDir := t.TempDir()
-	if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"generated_at":"2026-07-21T12:00:00Z","records":[]}`), 0o600); err != nil {
 		t.Fatalf("write doc index: %v", err)
 	}
 	tests := []struct {
@@ -432,6 +379,28 @@ func TestBrainStatusReleaseFreshnessRequiresSemanticAssessment(t *testing.T) {
 	report.Semantic = &brainStatusSemantic{}
 	if got := brainStatusFreshnessSeverity(report); got != "" {
 		t.Fatalf("semantic status without freshness passed as release-ready: %q", got)
+	}
+}
+
+// TestBrainStatusFreshnessSurfacesRetrievalProblemsWithoutSemantic: with no
+// semantic assessment the severity stays unset for a HEALTHY retrieval report
+// (retrieval is additive, not a substitute — the release gate must keep
+// failing), but a retrieval PROBLEM must not be discarded with it: a brain
+// without a graph provider still has seed/docs freshness worth gating on, and
+// dropping it made `--fail-on degraded` pass vacuously on a tree the brain
+// itself reported as dirty-unindexed.
+func TestBrainStatusFreshnessSurfacesRetrievalProblemsWithoutSemantic(t *testing.T) {
+	for _, severity := range []string{"degraded", "unsafe"} {
+		report := brainStatusReport{
+			Retrieval: &brainStatusRetrieval{Freshness: &staleReport{Severity: severity}},
+		}
+		if got := brainStatusFreshnessSeverity(report); got != severity {
+			t.Fatalf("retrieval %s without semantic = %q, want %s", severity, got, severity)
+		}
+		report.Semantic = &brainStatusSemantic{}
+		if got := brainStatusFreshnessSeverity(report); got != severity {
+			t.Fatalf("retrieval %s with unassessed semantic = %q, want %s", severity, got, severity)
+		}
 	}
 }
 
@@ -579,7 +548,7 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 // intentionally legacy: status must resolve live metadata from Graph instead.
 func registerStatusGraphFixture(t *testing.T, runner *fakeCommandRunner, repo, path string, s *semanticSourceManifest) {
 	t.Helper()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -147,3 +147,49 @@ func assertInternalSemanticServed(t *testing.T, report brainBriefJSONReport) {
 		t.Fatalf("internal semantic context missing expected symbol: %+v (warnings: %v)", report.Semantic.Context.Symbols, report.Warnings)
 	}
 }
+
+// TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy pins COR-2257: when
+// the graph plugin answers but has no store for the current commit, and no
+// internal semantic source exists either, the brief's warning must carry
+// graph's own remedy (build the graph-owned store) instead of advising a full
+// `brain refresh`, which rebuilds the brain-side snapshot the architecture
+// retired with COR-2217.
+func TestBrainBriefStoreUnavailableWarningCarriesGraphRemedy(t *testing.T) {
+	detail := "search store not built for this commit: run `entire graph index --head` with ENTIRE_GRAPH_SEARCH_STORE=1"
+	for name, c := range map[string]struct{ detail, want string }{
+		"graph detail carried":               {detail: detail, want: detail},
+		"empty detail falls back to brain's": {detail: "", want: "refresh index"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			opts, repoDir, _ := commandRegressionFixture(t)
+			runner := opts.Runner.(*fakeCommandRunner)
+			response, err := json.Marshal(graphTaskContext{SchemaVersion: "1.1", StoreUnavailable: true, Detail: c.detail})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runner.responses[fakeCommandKey("entire", "graph", "context", "--repo", repoDir,
+				"--task", "metadata", "--limit", "3", "--tests-limit", "3")] = fakeCommandResponse{stdout: string(response)}
+
+			out, err := execute(t, NewRootCommand(opts), "brief", "metadata", "--json", "--limit", "3")
+			if err != nil {
+				t.Fatalf("brief: %v\n%s", err, out)
+			}
+			var report brainBriefJSONReport
+			if err := json.Unmarshal([]byte(out), &report); err != nil {
+				t.Fatal(err)
+			}
+			carried := false
+			for _, warning := range report.Warnings {
+				if strings.Contains(warning, "semantic index missing") {
+					t.Fatalf("stale brain-side advice survived: %q", warning)
+				}
+				if strings.Contains(warning, "code context unavailable") && strings.Contains(warning, c.want) {
+					carried = true
+				}
+			}
+			if !carried {
+				t.Fatalf("graph remedy not carried into warnings: %v", report.Warnings)
+			}
+		})
+	}
+}

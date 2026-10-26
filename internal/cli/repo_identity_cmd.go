@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +83,7 @@ sibling directory, so nothing is lost and the choice can be undone with mv.`,
 }
 
 func runRepoIdentity(ctx context.Context, cmd *cobra.Command, opts Options, identityOpts repoIdentityOptions, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -114,7 +115,7 @@ func reportRepoIdentity(cmd *cobra.Command, set repoStorageSet) error {
 		for _, storage := range set.Populated {
 			fmt.Fprintf(out, "  %s\n    brain: %s\n    head:  %s\n", storage.Key, storage.BrainDir, storage.HeadPath)
 		}
-		fmt.Fprintf(out, "keep one with: %s repo-identity --keep <repo-key>\n", setupCommandPrefix(os.LookupEnv))
+		fmt.Fprintf(out, "keep one with: %s repo-identity --keep <repo-key>\n", base.SetupCommandPrefix(os.LookupEnv))
 	}
 	return nil
 }

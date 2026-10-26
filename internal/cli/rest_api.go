@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"net/http"
 	"os"
 	"strconv"
@@ -191,7 +192,7 @@ func restGuardedFacts(brainDir, branch string) ([]factRecord, retrievalPrivacyPo
 	}
 	facts = guardFactRecords(guard, facts)
 	afterRESTFactsPrivacyFilter()
-	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
+	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}, nil
 }
 
 func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -290,11 +291,17 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	}
 	// Read the policy before the slow phase so an unreadable tombstone file
 	// fails the request up front instead of after a full retrieval. The
-	// session-exclusion identity is refreshed after ranking, when rows are
-	// re-cleared. Keep the issue identity pinned through delivery so a racing
-	// disconnect or purge cannot expose previously assembled issue evidence.
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	// session-exclusion identity captured here does not govern the write: a
+	// clean exclusion landing during ranking legitimately moves it, and the
+	// rows are re-cleared against the fresh guard below. The issue identity
+	// stays pinned through delivery so a racing disconnect or purge cannot
+	// expose previously assembled issue evidence.
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
+		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+	if policy.IssueIdentity, err = issueVisibilityIdentity(brainDir); err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}

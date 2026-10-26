@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -18,12 +20,12 @@ import (
 )
 
 func issueStore(brainDir string) issues.Store {
-	return issues.Store{Root: filepath.Join(brainDir, "issues"), Lock: func(fn func() error) error { return withBrainWriteLock(brainDir, fn) }, Write: func(path string, b []byte) error {
+	return issues.Store{Root: filepath.Join(brainDir, "issues"), Lock: func(fn func() error) error { return brainstore.WithBrainWriteLock(brainDir, fn) }, Write: func(path string, b []byte) error {
 		rel, err := filepath.Rel(brainDir, path)
 		if err != nil {
 			return err
 		}
-		return writeBrainRelativeFileAtomic(brainDir, rel, b, 0600)
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, b, 0600)
 	}, Read: func(path string) ([]byte, error) {
 		rel, err := filepath.Rel(brainDir, path)
 		if err != nil {
@@ -37,12 +39,12 @@ func issueStore(brainDir string) issues.Store {
 			return nil, os.ErrNotExist
 		}
 		defer f.Close()
-		return safeReadAll(f, defaultMaxReadBytes, path)
+		return base.SafeReadAll(f, base.DefaultMaxReadBytes, path)
 	}, CleanDerived: func() error {
-		if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+		if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 			return err
 		}
-		if err := rejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
 			return err
 		}
 		return os.RemoveAll(filepath.Join(brainDir, "issues", "derived"))
@@ -284,7 +286,7 @@ func retrieveIssues(brainDir, query string, limit int) ([]unifiedResult, error) 
 	idx.GeneratedAt = time.Unix(0, stamp)
 	var ranked []scoredDocRecord
 	var ok bool
-	_ = withBrainWriteLock(brainDir, func() error {
+	_ = brainstore.WithBrainWriteLock(brainDir, func() error {
 		current, err := issueStore(brainDir).Records()
 		if err != nil {
 			return err
@@ -297,7 +299,7 @@ func retrieveIssues(brainDir, query string, limit int) ([]unifiedResult, error) 
 				return nil
 			}
 		}
-		if err := rejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, "issues/derived"); err != nil {
 			return err
 		}
 		ranked, ok = rankDocsViaFTS(filepath.Join(brainDir, "issues", "derived"), idx, query, len(records))

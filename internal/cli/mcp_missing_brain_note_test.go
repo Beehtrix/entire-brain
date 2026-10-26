@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // TestEmptyResultBlindSpotNamesAMissingBrain: the blind-spot line exists to stop
@@ -25,7 +27,7 @@ func TestEmptyResultBlindSpotNamesAMissingBrain(t *testing.T) {
 	if !strings.Contains(note, "no brain has been built") {
 		t.Fatalf("note must name the missing brain, got %q", note)
 	}
-	if !strings.Contains(note, brainInvocation(os.LookupEnv, "setup")) {
+	if !strings.Contains(note, base.BrainInvocation(os.LookupEnv, "setup")) {
 		t.Fatalf("note must name the command that builds one, got %q", note)
 	}
 

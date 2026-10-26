@@ -7,6 +7,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // semanticSummary is the authoritative trailing record emitted by entire-graph
@@ -58,7 +60,7 @@ const maxDroppedSemanticRecords = 1000
 // from the untrusted entire-graph stream should not fail the entire index — and
 // re-enabled with ENTIRE_BRAIN_STRICT_INGEST for validation/debugging.
 func semanticStrictIngest() bool {
-	return envBool("ENTIRE_BRAIN_STRICT_INGEST")
+	return base.EnvBool("ENTIRE_BRAIN_STRICT_INGEST")
 }
 
 type semanticStreamResult struct {

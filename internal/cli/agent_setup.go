@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ func newInitAgentsTombstoneCommand() *cobra.Command {
 		Hidden:             true,
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("init-agents was removed; its behavior moved into `%s` (--strict/--normal now live there)", brainInvocation(os.LookupEnv, "setup"))
+			return fmt.Errorf("init-agents was removed; its behavior moved into `%s` (--strict/--normal now live there)", base.BrainInvocation(os.LookupEnv, "setup"))
 		},
 	}
 	return cmd

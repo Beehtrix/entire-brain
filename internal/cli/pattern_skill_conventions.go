@@ -8,6 +8,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Capability-skill source (PR #44 follow-up): skills from durable conventions.
@@ -65,14 +68,14 @@ type proposedConvention struct {
 // group related facts into capability skills, and stores accepted ones as deep
 // dossiers (archetype "capability") under `convention:` ids. Egress-gated; cached
 // by the sample fingerprint; never from refresh.
-func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run distillAgentRunner, now time.Time) (dossierVerifyStats, error) {
-	var stats dossierVerifyStats
-	if err := rejectAgentForNoEgress(agent); err != nil {
+func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
+	var stats patterncore.VerifyStats
+	if err := base.RejectAgentForNoEgress(agent); err != nil {
 		return stats, err
 	}
 	sample, factText, sampleIDs := sampleCapabilityFacts(db, brainDir)
 	count := func() int {
-		return corpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
+		return patterncore.CorpusScalar(db, `SELECT COUNT(*) FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
 	}
 	if len(sample) == 0 {
 		_, _ = db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`)
@@ -83,20 +86,20 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 	// invalidates the cache even when the set of fact ids is unchanged.
 	payload, _ := json.Marshal(map[string]any{"facts": sample})
 	sampleFP := knowledgeSampleFingerprint(payload)
-	if corpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
+	if patterncore.CorpusMeta(db, "conventions_sample_fingerprint") == sampleFP && count() > 0 {
 		stats.Cached = count()
 		stats.Considered = stats.Cached
 		return stats, nil // unchanged sample → reuse prior proposals
 	}
 
-	args, err := distillAgentCommandArgs(agent, nil, conventionProposeSystemPrompt)
+	args, err := base.DistillAgentCommandArgs(agent, nil, conventionProposeSystemPrompt)
 	if err != nil {
 		return stats, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 
-	out, err := run(ctx, repoDir, args, []byte(redactText(string(payload))), dossierVerifyTimeout)
+	out, err := run(ctx, repoDir, args, []byte(base.RedactText(string(payload))), patterncore.DossierVerifyTimeout)
 	if err != nil {
 		return stats, fmt.Errorf("convention proposal agent: %w", err)
 	}
@@ -105,7 +108,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		return stats, err
 	}
 
-	repoKey := corpusMeta(db, "repo_key")
+	repoKey := patterncore.CorpusMeta(db, "repo_key")
 	ts := now.UTC().Format(time.RFC3339)
 	if _, err := db.Exec(`DELETE FROM deep_dossiers WHERE pattern_id LIKE 'convention:%'`); err != nil {
 		return stats, err
@@ -118,7 +121,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		stats.Considered++
 		members := uniqueStrings(filterValidKeys(pc.MemberFactIDs, valid))
 		verdict := strings.ToLower(strings.TrimSpace(pc.Verdict))
-		if !allowedVerdicts[verdict] {
+		if !patterncore.AllowedVerdicts[verdict] {
 			verdict = "low_confidence"
 		}
 		if len(members) == 0 || verdict == "rejected" {
@@ -133,7 +136,7 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 		blob, _ := json.Marshal(rec)
 		if _, err := db.Exec(`INSERT OR REPLACE INTO deep_dossiers
 			(pattern_id, fingerprint, json_redacted, verdict, status, created_at, updated_at)
-			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, redactText(string(blob)), verdict, ts, ts); err != nil {
+			VALUES (?,?,?,?, 'current', ?, ?)`, rec.PatternID, rec.Fingerprint, base.RedactText(string(blob)), verdict, ts, ts); err != nil {
 			return stats, err
 		}
 		if verdict == "accepted" {
@@ -148,27 +151,27 @@ func proposeSkillConventions(ctx context.Context, db *sql.DB, brainDir, repoDir,
 // capability-archetype deep dossier. Facts carries the member rule texts so the
 // writer converts real knowledge, not the agent's paraphrase alone.
 func conventionRecord(pc proposedConvention, members []string, factText map[string]string, repoKey string) deepDossierRecord {
-	id := "convention:" + hexSHA("convention\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
+	id := "convention:" + base.HexSHA("convention\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 	var knowledge []string
 	for _, k := range pc.Knowledge {
 		if s := strings.TrimSpace(k); s != "" {
-			knowledge = append(knowledge, truncateString(s, 280))
+			knowledge = append(knowledge, base.TruncateString(s, 280))
 		}
 	}
 	var facts []string
 	for _, m := range members {
 		if txt := strings.TrimSpace(factText[m]); txt != "" {
-			facts = append(facts, truncateString(txt, 280))
+			facts = append(facts, base.TruncateString(txt, 280))
 		}
 	}
 	return deepDossierRecord{
 		SchemaVersion:    deepSchemaVersion,
 		PatternID:        id,
 		Archetype:        "capability",
-		Fingerprint:      "sha256:" + hexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            truncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
-		Trigger:          truncateString(strings.TrimSpace(pc.Trigger), 280),
-		NotWhen:          truncateString(strings.TrimSpace(pc.NotWhen), 280),
+		Fingerprint:      "sha256:" + base.HexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
+		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
+		Trigger:          base.TruncateString(strings.TrimSpace(pc.Trigger), 280),
+		NotWhen:          base.TruncateString(strings.TrimSpace(pc.NotWhen), 280),
 		Knowledge:        knowledge,
 		Facts:            facts,
 		EvidenceEpisodes: len(members),
@@ -178,7 +181,7 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 // conventionSourceAnchors resolves the episodes that referenced the member facts
 // (via episode_facts) into source anchors with redacted excerpts where available
 // — the episode corroboration provenance for the convention.
-func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []dossierAnchor {
+func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []patterncore.DossierAnchor {
 	if len(factIDs) == 0 {
 		return nil
 	}
@@ -190,20 +193,20 @@ func conventionSourceAnchors(db *sql.DB, brainDir string, factIDs []string) []do
 		return nil
 	}
 	defer rows.Close()
-	var anchors []dossierAnchor
+	var anchors []patterncore.DossierAnchor
 	for rows.Next() {
 		var session, path, outcome string
 		var start, end int
 		if rows.Scan(&session, &path, &start, &end, &outcome) != nil {
 			continue
 		}
-		a := dossierAnchor{SessionID: session, Transcript: redactText(path), StartLine: start, EndLine: end, Outcome: outcome}
+		a := patterncore.DossierAnchor{SessionID: session, Transcript: base.RedactText(path), StartLine: start, EndLine: end, Outcome: outcome}
 		lines := end - start + 1
 		if lines <= 0 || lines > themeMemberExcerptLines {
 			lines = themeMemberExcerptLines
 		}
 		if t := transcriptExcerpt(brainDir, episodeAnchor{Path: path, Line: start}, lines, themeMemberExcerptBytes); t != "" {
-			a.Excerpt = redactText(t)
+			a.Excerpt = base.RedactText(t)
 		}
 		anchors = append(anchors, a)
 	}
@@ -280,16 +283,16 @@ func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, ma
 			break
 		}
 		// Retain fact provenance: the rule text plus its code locus.
-		prov := redactText(e.f.Text)
+		prov := base.RedactText(e.f.Text)
 		if locus := strings.Join(e.f.Locus, ", "); strings.TrimSpace(locus) != "" {
-			prov += " @ " + redactText(locus)
+			prov += " @ " + base.RedactText(locus)
 		}
 		factText[e.f.ID] = prov
 		sample = append(sample, map[string]string{
 			"fact_id":  e.f.ID,
 			"kind":     e.f.Kind,
-			"text":     redactText(truncateString(e.f.Text, 280)),
-			"locus":    redactText(strings.Join(e.f.Locus, ", ")),
+			"text":     base.RedactText(base.TruncateString(e.f.Text, 280)),
+			"locus":    base.RedactText(strings.Join(e.f.Locus, ", ")),
 			"episodes": fmt.Sprintf("%d", e.count),
 		})
 		ids = append(ids, e.f.ID)

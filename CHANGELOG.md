@@ -14,6 +14,24 @@ All notable changes to `entire-brain` are recorded here. The format follows
   back up and remove the brain directory and refresh to rebuild. Legacy vector
   detection remains in place for health and privacy checks.
 
+### Changed
+
+- Releases no longer re-prove retained performance evidence at tag time. The
+  `release-evidence` job moved from the `test` workflow (where it ran on `v*`
+  tags and blocked publishing) to a dispatch-only `evidence` workflow. Evidence
+  is a point-in-time record: each manifest names the `source_head` it measured,
+  every `mise run <lane>:evidence:update` audits with `--fail-on-flags` before
+  writing reports, and the timed distill lanes' corpora are machine-bound, so
+  re-measuring at every tag made releases wait on measurements the release did
+  not change. Tagging now only builds, verifies, and publishes binaries.
+
+- Re-recorded the Radar tool-contract evidence and the current-repo distill
+  scheduler evidence against current main (median 1.89x of five pairs vs the
+  1.25x floor, measured on a fresh zero-fact store so reconcile stays quiet).
+  The large-repo distill lane still carries its September record; its corpus
+  (a 2,375-session local brain store) exists only on the original recorder's
+  machine.
+
 ### Fixed
 
 - A first `setup` no longer ends on `freshness: degraded`. The agent wiring

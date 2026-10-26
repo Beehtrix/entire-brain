@@ -229,7 +229,7 @@ func TestRoutedDetailFanoutDoesNotPrefetchCoveredCheckpoints(t *testing.T) {
 		"ddd444ddd444": `{"checkpoint_id":"ddd444ddd444","branch":"main","sessions":[{"index":0,"session_id":"only-remote","branch":"main"}]}`,
 	}
 	runner := newExplainFanoutRunner(details)
-	got := prefetchCheckpointDetails(context.Background(), runner, "/repo", "entire-test", checkpoints, local, nil)
+	got := prefetchCheckpointDetails(context.Background(), runner, "/repo", "entire-test", checkpoints, local, nil, newCheckpointDetailBreaker())
 	if got != nil {
 		t.Fatalf("one uncovered checkpoint is not enough work to fan out, yet it did: %d results", len(got))
 	}
@@ -242,7 +242,7 @@ func TestRoutedDetailFanoutDoesNotPrefetchCoveredCheckpoints(t *testing.T) {
 	local2, _ := newLocalCheckpointMetadata(snap2, checkpoints)
 	details["ccc333ccc333"] = `{"checkpoint_id":"ccc333ccc333","branch":"main","sessions":[{"index":0,"session_id":"also-remote","branch":"main"}]}`
 	runner2 := newExplainFanoutRunner(details)
-	if got := prefetchCheckpointDetails(context.Background(), runner2, "/repo", "entire-test", checkpoints, local2, nil); got == nil {
+	if got := prefetchCheckpointDetails(context.Background(), runner2, "/repo", "entire-test", checkpoints, local2, nil, newCheckpointDetailBreaker()); got == nil {
 		t.Fatal("two uncovered checkpoints should fan out")
 	}
 	calls, _ := runner2.observed()

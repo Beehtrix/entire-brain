@@ -277,7 +277,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			localSnapshot.Cleanup()
 		}
 
-		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress, localMetadata)
+		breaker := newCheckpointDetailBreaker()
+		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessionsWithBreaker(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress, localMetadata, breaker)
 		warnings = append(warnings, routedWarnings...)
 		if selectErr != nil {
 			return selectErr
@@ -286,7 +287,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// cleanup would hide retained sessions from the manifest and index.
 		// Explicit one-shot exports may still publish the readable subset.
 		if !metadataComplete && !outputExplicit {
-			return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, strings.Join(routedWarnings, "; "))
+			return routedMetadataRefusal(breaker.opened(), routedWarnings)
 		}
 		selected = routedSelected
 	}
@@ -3103,11 +3104,18 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 }
 
 func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata) (map[string]selectedSession, []string, bool, error) {
+	return selectRoutedCheckpointSessionsWithBreaker(ctx, runner, repoDir, entireBinary, checkpoints, branchDestinations, progress, local, newCheckpointDetailBreaker())
+}
+
+// selectRoutedCheckpointSessionsWithBreaker is the seam tests inject a
+// fake-clock breaker through; production always enters via the wrapper above.
+func selectRoutedCheckpointSessionsWithBreaker(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata, breaker *checkpointDetailBreaker) (map[string]selectedSession, []string, bool, error) {
 	selected := make(map[string]selectedSession)
 	var warnings []string
 	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
+	breakerSkipped := 0
 
 	// Whatever the local store already accounts for is taken from it; the rest
 	// is asked of Entire below, checkpoint by checkpoint as before.
@@ -3120,7 +3128,7 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	// mature repository — and they are independent of one another. A runner
 	// that allows it reads them several at a time; the pass below still walks
 	// the list in order and takes every decision from it sequentially.
-	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress)
+	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress, breaker)
 	loopProgress := progress
 	if details != nil {
 		// Already reported while the details were read; reporting again here
@@ -3151,10 +3159,18 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		if i < len(details) && details[i].fetched {
 			detail, detailErr = details[i].detail, details[i].err
 		} else {
-			detail, detailErr = checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+			detail, detailErr = breaker.do(func() (checkpointExportEnvelope, error) {
+				return checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+			})
 		}
 		if detailErr != nil {
 			complete = false
+			// One slow host is one problem: the skips fold into a single
+			// counted warning after the loop, not a line per checkpoint.
+			if errors.Is(detailErr, errCheckpointDetailBreakerOpen) {
+				breakerSkipped++
+				continue
+			}
 			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
 			continue
 		}
@@ -3201,6 +3217,11 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 	if details != nil {
 		reportExportProgress(progress, len(checkpoints), len(checkpoints), len(selected))
 	}
+	if breakerSkipped > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: skipped %d checkpoints without asking: %d consecutive `checkpoint explain` reads each ran over %s, the shape of the host CLI's remote metadata fetch timing out per checkpoint (entireio/cli#2902) — land that fetch once (the issue names the workaround), then retry",
+			checkpointScopeIncompleteCode, breakerSkipped, checkpointDetailSlowTrip, checkpointDetailSlowRead))
+	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
 		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
 	}
@@ -3208,6 +3229,20 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 		warnings = append(warnings, fmt.Sprintf("resolved metadata for %d of %d checkpoints from the local checkpoint store; asked Entire about the remaining %d", served, len(checkpoints), requestedCheckpointDetails))
 	}
 	return selected, warnings, complete, nil
+}
+
+// routedMetadataRefusal names why a persistent export was refused. The
+// invariant is the caller's: an incomplete catalog cannot replace durable
+// history, and the published brain stays exactly as it was. What differs is
+// the remedy — unreadable metadata is repaired per checkpoint, while a tripped
+// slow-host breaker has one useful next step, and "repair unreadable
+// checkpoint metadata" would send the reader to hundreds of checkpoints that
+// are not broken (entireio/cli#2902).
+func routedMetadataRefusal(breakerOpened bool, routedWarnings []string) error {
+	if breakerOpened {
+		return fmt.Errorf("%s: stopped asking for routed checkpoint details after %d consecutive reads each ran over %s — the host CLI's remote metadata fetch is timing out per checkpoint (entireio/cli#2902); the persistent brain is unchanged. Land that fetch once (the issue names the workaround) and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, checkpointDetailSlowTrip, checkpointDetailSlowRead, strings.Join(routedWarnings, "; "))
+	}
+	return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, strings.Join(routedWarnings, "; "))
 }
 
 func shouldReplaceSession(current, candidate selectedSession) bool {

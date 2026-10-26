@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -2131,7 +2132,7 @@ func TestBuildBranchDirectoriesStableAcrossSlugCollisions(t *testing.T) {
 	base := buildBranchDirectories([]exportSession{{Branch: "a/b"}}, "main")
 	withCollision := buildBranchDirectories([]exportSession{{Branch: "a/b"}, {Branch: "a-b"}}, "main")
 
-	if base["main"] != filepath.Join(exportSessionsDirectory, "main") {
+	if base["main"] != filepath.Join(brainstore.SessionsDirName, "main") {
 		t.Fatalf("default branch directory changed: %q", base["main"])
 	}
 	if base["a/b"] != withCollision["a/b"] {
@@ -2140,7 +2141,7 @@ func TestBuildBranchDirectoriesStableAcrossSlugCollisions(t *testing.T) {
 	if withCollision["a/b"] == withCollision["a-b"] {
 		t.Fatalf("colliding branches share a transcript directory: %+v", withCollision)
 	}
-	if !strings.HasPrefix(withCollision["a/b"], filepath.Join(exportSessionsDirectory, exportBranchesDirectory, "a-b-")) {
+	if !strings.HasPrefix(withCollision["a/b"], filepath.Join(brainstore.SessionsDirName, exportBranchesDirectory, "a-b-")) {
 		t.Fatalf("unexpected stable branch directory: %q", withCollision["a/b"])
 	}
 }
@@ -2167,11 +2168,11 @@ func TestReadBrainRelativeFileRejectsSymlinkComponents(t *testing.T) {
 func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
 	outputDir := t.TempDir()
 	outsideDir := t.TempDir()
-	if err := os.Symlink(outsideDir, filepath.Join(outputDir, exportSessionsDirectory)); err != nil {
+	if err := os.Symlink(outsideDir, filepath.Join(outputDir, brainstore.SessionsDirName)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	err := writeTranscriptFile(outputDir, filepath.Join(exportSessionsDirectory, "main", "session.jsonl"), []byte("safe\n"))
+	err := writeTranscriptFile(outputDir, filepath.Join(brainstore.SessionsDirName, "main", "session.jsonl"), []byte("safe\n"))
 	if err == nil {
 		t.Fatal("expected writeTranscriptFile to reject symlink directory")
 	}
@@ -2182,7 +2183,7 @@ func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
 
 func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 	outputDir := t.TempDir()
-	relPath := filepath.Join(exportSessionsDirectory, "main", "session.jsonl")
+	relPath := filepath.Join(brainstore.SessionsDirName, "main", "session.jsonl")
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(outputDir, relPath)), 0700); err != nil {
 		t.Fatal(err)
 	}

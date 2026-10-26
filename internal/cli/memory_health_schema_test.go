@@ -32,7 +32,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 			},
 		},
 		{
-			name: "unknown newer overlay", section: "overlay", observed: "overlay", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer overlay", section: "overlay", observed: "overlay", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte(fmt.Sprintf(`{"version":%d,"reconciler_version":%d,"future":true,"files":{}}`, historyShortTermVersion+1, historyShortTermReconcilerVersion)+"\n"))
 			},
@@ -44,7 +44,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 			},
 		},
 		{
-			name: "unknown newer job", section: "job_inventory", observed: "job", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer job", section: "job_inventory", observed: "job", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(memoryJobsDirRel, "future.json")), []byte(fmt.Sprintf(`{"schema_version":%d,"job_id":"future","future":true}`, memoryJobSchemaVersion+1)+"\n"))
 			},
@@ -56,7 +56,7 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 			},
 		},
 		{
-			name: "unknown newer FTS", section: "fts", observed: "fts", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer FTS", section: "fts", observed: "fts", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFTSMetaFixture(t, brainDir, fmt.Sprint(mustAtoi(t, historyFTSSchema)+1), "future")
 			},
@@ -172,7 +172,7 @@ func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing
 
 	t.Run("unknown newer egress", func(t *testing.T) {
 		brainDir := t.TempDir()
-		ref := conversationSessionIDPrefix + strings.Repeat("b", 64)
+		ref := brainstore.ConversationSessionIDPrefix + strings.Repeat("b", 64)
 		writeHealthFixtureFile(t, brainDir, abstractEgressReceiptRel(ref), []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, abstractEgressSchemaVersion+1)+"\n"))
 		snapshot := memoryReadOnlyHealth(brainDir, now)
 		install, _ := snapshot.Payload["install"].(map[string]any)
@@ -188,7 +188,7 @@ func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing
 		receipt := abstractEgressReceipt{
 			SchemaVersion: abstractEgressLegacyVersion,
 			OperationID:   "0123456789abcdefabcd",
-			SessionRef:    conversationSessionIDPrefix + strings.Repeat("c", 64),
+			SessionRef:    brainstore.ConversationSessionIDPrefix + strings.Repeat("c", 64),
 			SessionDigest: "sha256:" + strings.Repeat("d", 64),
 			Provider:      "codex",
 			Model:         "legacy",

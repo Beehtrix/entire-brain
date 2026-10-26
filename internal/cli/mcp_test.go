@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -794,7 +795,7 @@ func TestMCPDebugLogReviewToolsRedactAndLogSuccess(t *testing.T) {
 		if err != nil {
 			t.Fatalf("storage: %v", err)
 		}
-		sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+		sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 		if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 			t.Fatalf("mkdir session dir: %v", err)
 		}
@@ -888,7 +889,7 @@ func TestMCPBrainRegressionsTool(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	// History asserts the invariant and names the file; the current tree has the regressed literal.
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
@@ -947,7 +948,7 @@ func TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites(t *testi
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
@@ -1001,7 +1002,7 @@ func TestMCPBrainReviewTool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
@@ -1385,7 +1386,7 @@ func TestMCPBrainBriefAndQueryToolsUseIndexedHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}

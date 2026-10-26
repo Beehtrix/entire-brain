@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,7 @@ func TestStatusSkipsDirtySnapshotFingerprints(t *testing.T) {
 			} else {
 				manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: opts.Now(), Commit: "aaa111", WorktreeMode: "worktree", WorktreeHash: hash}
 				manifest.Sources.Docs = &docSourceManifest{GeneratedAt: opts.Now(), IndexPath: docIndexPath}
-				if err := writeBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"records":[]}`), 0o600); err != nil {
+				if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, docIndexPath, []byte(`{"records":[]}`), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

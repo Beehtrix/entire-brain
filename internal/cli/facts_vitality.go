@@ -162,7 +162,7 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 }
 
 // appendBrainRelativeFile appends data to a brain-relative file with the same
-// symlink/hardlink discipline as writeBrainRelativeFileAtomic. Appends are not
+// symlink/hardlink discipline as brainstore.WriteBrainRelativeFileAtomic. Appends are not
 // fsynced — a torn tail line on power loss is tolerated by the log parser. A
 // later append first terminates that torn line so it cannot consume a new event.
 func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
@@ -380,7 +380,7 @@ func writeVitalityRollup(brainDir, branch string, rollup vitalityRollup) error {
 		return err
 	}
 	data = append(data, '\n')
-	return writeBrainRelativeFileAtomic(brainDir, factsVitalityRollupRelPath(branch), data, 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsVitalityRollupRelPath(branch), data, 0o600)
 }
 
 func readVitalityLog(brainDir, branch string) ([]byte, error) {
@@ -533,7 +533,7 @@ func compactVitalityLocked(brainDir, branch string) (vitalityRollup, vitalityCom
 		if err := writeVitalityRollup(brainDir, branch, rollup); err != nil {
 			return rollup, stats, err
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, factsVitalityLogRelPath(branch), nil, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, factsVitalityLogRelPath(branch), nil, 0o600); err != nil {
 			return rollup, stats, err
 		}
 		rollup.Log = vitalityLogMarker{}

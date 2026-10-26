@@ -43,9 +43,9 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 			hook: func(t *testing.T, brainDir string) func() {
 				return func() {
 					if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-						stones := emptySessionTombstones()
+						stones := brainstore.EmptySessionTombstones()
 						stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "race"}
-						return saveSessionTombstones(brainDir, stones)
+						return brainstore.SaveSessionTombstones(brainDir, stones)
 					}); err != nil {
 						t.Fatalf("land concurrent tombstone: %v", err)
 					}
@@ -57,9 +57,9 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 			name: "dirty derived state",
 			setup: func(t *testing.T, brainDir string) {
 				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-					stones := emptySessionTombstones()
+					stones := brainstore.EmptySessionTombstones()
 					stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "dirty"}
-					return saveSessionTombstones(brainDir, stones)
+					return brainstore.SaveSessionTombstones(brainDir, stones)
 				}); err != nil {
 					t.Fatal(err)
 				}
@@ -69,12 +69,12 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 		{
 			name: "unknown newer policy",
 			setup: func(t *testing.T, brainDir string) {
-				data := []byte(fmt.Sprintf(`{"version":%d,"excluded":{}}`, sessionTombstonesVersion+1))
-				if err := writeBrainRelativeFileAtomic(brainDir, sessionTombstonesPath, append(data, '\n'), 0o600); err != nil {
+				data := []byte(fmt.Sprintf(`{"version":%d,"excluded":{}}`, brainstore.SessionTombstonesVersion+1))
+				if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, brainstore.SessionTombstonesPath, append(data, '\n'), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},
-			code: memoryErrUnsupportedVersion,
+			code: brainstore.UnsupportedVersionCode,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -118,9 +118,9 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 	originalHook := beforeRetrievalResponsePrivacyEmissionCheck
 	beforeRetrievalResponsePrivacyEmissionCheck = func() {
 		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-			stones := emptySessionTombstones()
+			stones := brainstore.EmptySessionTombstones()
 			stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "late exclusion"}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		}); err != nil {
 			t.Fatalf("land late exclusion: %v", err)
 		}
@@ -169,9 +169,9 @@ func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) 
 		close(purgeStarted)
 		purgeDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
 			return brainstore.WithBrainWriteLock(brainDir, func() error {
-				stones := emptySessionTombstones()
+				stones := brainstore.EmptySessionTombstones()
 				stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "MCP race"}
-				return saveSessionTombstones(brainDir, stones)
+				return brainstore.SaveSessionTombstones(brainDir, stones)
 			})
 		})
 	}()
@@ -381,7 +381,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 	if !found {
 		t.Fatalf("applied retention plan omitted newly eligible session: %+v", result.plan)
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	if _, excluded := stones.Excluded["late-eligible"]; !excluded {
 		t.Fatal("newly eligible session was not excluded")
 	}
@@ -446,7 +446,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	if err == nil || !strings.Contains(err.Error(), injected.Error()) {
 		t.Fatalf("first cleanup error = %v", err)
 	}
-	tx, present, err := loadPrivacyTransactionChecked(brainDir, "secret-sess")
+	tx, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, "secret-sess")
 	if err != nil || !present || len(tx.SessionRefs) == 0 || tx.SessionRefs[0] != secretView.Ref {
 		t.Fatalf("durable cleanup scope = %+v present=%t err=%v", tx.SessionRefs, present, err)
 	}

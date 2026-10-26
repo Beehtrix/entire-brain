@@ -139,9 +139,9 @@ func TestRecallEvidenceExclusionsAndUnsafePaths(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			opts, brain := evidenceFixture(t)
 			if mode == "excluded" {
-				stones := loadSessionTombstones(brain)
+				stones := brainstore.LoadSessionTombstones(brain)
 				stones.Excluded["evidence"] = sessionTombstone{At: opts.Now()}
-				if err := saveSessionTombstones(brain, stones); err != nil {
+				if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 					t.Fatal(err)
 				}
 			} else {

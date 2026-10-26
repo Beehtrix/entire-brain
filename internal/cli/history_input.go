@@ -187,14 +187,14 @@ func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, ph
 	// Probe it separately so that case gets a plain not-exist error; a
 	// directory that vanishes DEEPER in the walk stays degraded, because that
 	// is a real integrity signal rather than an empty Brain.
-	if _, err := root.Lstat(exportSessionsDirectory); err != nil {
+	if _, err := root.Lstat(brainstore.SessionsDirName); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, errHistorySessionsRootMissing
 		}
-		return nil, &historySessionInventoryError{Path: exportSessionsDirectory, Reason: "inspect transcript directory", Err: err}
+		return nil, &historySessionInventoryError{Path: brainstore.SessionsDirName, Reason: "inspect transcript directory", Err: err}
 	}
 	count := 0
-	if err := inventory.walkDirectory(ctx, exportSessionsDirectory, nil, &count); err != nil {
+	if err := inventory.walkDirectory(ctx, brainstore.SessionsDirName, nil, &count); err != nil {
 		return nil, err
 	}
 	sort.Slice(inventory.files, func(a, b int) bool {
@@ -507,7 +507,7 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 	}
 	rel = filepath.ToSlash(strings.TrimSpace(rel))
 	clean, err := base.CleanBrainRelativePath(rel)
-	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
+	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, brainstore.SessionsDirName+"/") {
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript path is unsafe", Err: err}
 	}
 	beforeRoot, err := os.Lstat(brainDir)

@@ -42,16 +42,16 @@ func TestPrivacyVerifyRejectsMalformedAndFutureCachesWithoutMutation(t *testing.
 	}{
 		{"overlay invalid JSON", historyShortTermPath, brainstore.StateCorruptCode, []byte("{broken")},
 		{"overlay absent map", historyShortTermPath, brainstore.StateCorruptCode, encoded(shortTermIndex{Version: historyShortTermVersion})},
-		{"overlay future version", historyShortTermPath, memoryErrUnsupportedVersion, encoded(shortTermIndex{Version: historyShortTermVersion + 1, ReconcilerVersion: historyShortTermReconcilerVersion, Files: map[string]shortTermFile{}})},
-		{"overlay future reconciler", historyShortTermPath, memoryErrUnsupportedVersion, encoded(shortTermIndex{Version: historyShortTermVersion, ReconcilerVersion: historyShortTermReconcilerVersion + 1, Files: map[string]shortTermFile{}})},
+		{"overlay future version", historyShortTermPath, brainstore.UnsupportedVersionCode, encoded(shortTermIndex{Version: historyShortTermVersion + 1, ReconcilerVersion: historyShortTermReconcilerVersion, Files: map[string]shortTermFile{}})},
+		{"overlay future reconciler", historyShortTermPath, brainstore.UnsupportedVersionCode, encoded(shortTermIndex{Version: historyShortTermVersion, ReconcilerVersion: historyShortTermReconcilerVersion + 1, Files: map[string]shortTermFile{}})},
 		{"scan invalid gzip", historyScanCachePath, brainstore.StateCorruptCode, []byte("not gzip")},
 		{"scan checksum mismatch", historyScanCachePath, brainstore.StateCorruptCode, brokenCRC},
 		{"scan invalid JSON", historyScanCachePath, brainstore.StateCorruptCode, zipped([]byte("{broken"))},
 		{"scan absent map", historyScanCachePath, brainstore.StateCorruptCode, zipped(encoded(historyScanCache{Version: historyScanCacheVersion}))},
-		{"scan future version", historyScanCachePath, memoryErrUnsupportedVersion, zipped(encoded(historyScanCache{Version: historyScanCacheVersion + 1, Files: map[string]historyScanCacheEntry{}}))},
+		{"scan future version", historyScanCachePath, brainstore.UnsupportedVersionCode, zipped(encoded(historyScanCache{Version: historyScanCacheVersion + 1, Files: map[string]historyScanCacheEntry{}}))},
 		{"distill invalid JSON", distillCachePath, brainstore.StateCorruptCode, []byte("{broken")},
 		{"distill absent map", distillCachePath, brainstore.StateCorruptCode, encoded(distillCache{Version: distillCacheVersion})},
-		{"distill future version", distillCachePath, memoryErrUnsupportedVersion, encoded(distillCache{Version: distillCacheVersion + 1, Sessions: map[string]string{}})},
+		{"distill future version", distillCachePath, brainstore.UnsupportedVersionCode, encoded(distillCache{Version: distillCacheVersion + 1, Sessions: map[string]string{}})},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

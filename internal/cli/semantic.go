@@ -4635,8 +4635,8 @@ var brainBundleLayers = []brainBundleLayer{
 	{name: bundleLayerSeed, dir: seedDirName},
 	{name: bundleLayerDocs, dir: docDirName},
 	{name: bundleLayerFacts, dir: factsDirName},
-	{name: bundleLayerSessions, dir: exportSessionsDirectory, withSessions: true},
-	{name: bundleLayerHistory, dir: historyDirName, skip: []string{sessionTombstonesFileName, "privacy", "work"}, withSessions: true},
+	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
+	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
 }
 

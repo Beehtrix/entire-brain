@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
@@ -398,7 +399,7 @@ func writeBrainTasksFile(outputDir string, tasks []taskCandidate) error {
 			return fmt.Errorf("encode task: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsTasksPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsTasksPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write tasks: %w", err)
 	}
 	return nil

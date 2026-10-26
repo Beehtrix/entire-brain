@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	opts, brainDir := refreshFailureFixture(t)
 	historyMarker := "committed-history-directory-marker"
 	docsMarker := "committed-doc-directory-marker"
-	replaceRefreshComponentDirWithFile(t, brainDir, historyDirName, historyMarker)
+	replaceRefreshComponentDirWithFile(t, brainDir, brainstore.HistoryDirName, historyMarker)
 	replaceRefreshComponentDirWithFile(t, brainDir, docDirName, docsMarker)
 
 	outcomes := map[string]error{}
@@ -76,7 +77,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	if !strings.Contains(stderr.String(), "history index") || !strings.Contains(stderr.String(), "doc index") || !strings.Contains(stdout.String(), "refreshed brain:") {
 		t.Fatalf("best-effort reporting incomplete\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 	}
-	for rel, want := range map[string]string{historyDirName: historyMarker, docDirName: docsMarker} {
+	for rel, want := range map[string]string{brainstore.HistoryDirName: historyMarker, docDirName: docsMarker} {
 		got, err := os.ReadFile(filepath.Join(brainDir, rel))
 		if err != nil || string(got) != want {
 			t.Fatalf("failed %s input was replaced: got=%q err=%v", rel, got, err)
@@ -91,7 +92,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 func TestRefreshStrictHistoryFailureStopsBeforeSuccess(t *testing.T) {
 	opts, brainDir := refreshFailureFixture(t)
 	marker := "strict-history-marker"
-	replaceRefreshComponentDirWithFile(t, brainDir, historyDirName, marker)
+	replaceRefreshComponentDirWithFile(t, brainDir, brainstore.HistoryDirName, marker)
 	cmd := &cobra.Command{}
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
@@ -103,13 +104,13 @@ func TestRefreshStrictHistoryFailureStopsBeforeSuccess(t *testing.T) {
 		seed:      seedCommandOptions{agent: "none"},
 		component: func(string, error) {},
 	})
-	if err == nil || !strings.Contains(err.Error(), historyDirName) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.HistoryDirName) {
 		t.Fatalf("strict history error=%v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
 	}
 	if strings.Contains(stdout.String(), "refreshed brain:") || strings.Contains(stderr.String(), "doc index") {
 		t.Fatalf("strict refresh reported later success after failure\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 	}
-	got, readErr := os.ReadFile(filepath.Join(brainDir, historyDirName))
+	got, readErr := os.ReadFile(filepath.Join(brainDir, brainstore.HistoryDirName))
 	if readErr != nil || string(got) != marker {
 		t.Fatalf("strict failure replaced committed marker: got=%q err=%v", got, readErr)
 	}
@@ -220,7 +221,7 @@ func TestRefreshBestEffortReportsMissingSemanticProvider(t *testing.T) {
 
 func TestRefreshBestEffortDoesNotRequireObserver(t *testing.T) {
 	opts, brainDir := refreshFailureFixture(t)
-	replaceRefreshComponentDirWithFile(t, brainDir, historyDirName, "blocked-history")
+	replaceRefreshComponentDirWithFile(t, brainDir, brainstore.HistoryDirName, "blocked-history")
 	cmd := &cobra.Command{}
 	var out bytes.Buffer
 	cmd.SetOut(&out)

@@ -27,13 +27,12 @@ import (
 )
 
 const (
-	historyDirName           = "history"
 	historyIndexFileName     = "index.json"
-	historyIndexPath         = historyDirName + "/" + historyIndexFileName
-	historyGenerationsDir    = historyDirName + "/generations"
-	historyStagingDir        = historyDirName + "/staging"
+	historyIndexPath         = brainstore.HistoryDirName + "/" + historyIndexFileName
+	historyGenerationsDir    = brainstore.HistoryDirName + "/generations"
+	historyStagingDir        = brainstore.HistoryDirName + "/staging"
 	historyScanCacheFileName = "scan-cache.json.gz"
-	historyScanCachePath     = historyDirName + "/" + historyScanCacheFileName
+	historyScanCachePath     = brainstore.HistoryDirName + "/" + historyScanCacheFileName
 	historyMaxLineBytes      = 1024 * 1024
 	// historyScanCacheVersion gates reuse of cached per-file scan results.
 	// Bump it whenever the history record extraction/classification logic
@@ -225,7 +224,7 @@ type preparedHistoryProjection struct {
 
 type historyProjectionPublishGuard func() error
 
-var historyProjectionWriteFile = writeBrainRelativeFileAtomic
+var historyProjectionWriteFile = brainstore.WriteBrainRelativeFileAtomic
 
 // beforeHistoryProjectionContentDigest is a deterministic audit seam used to
 // prove the commit boundary never performs O(corpus bytes) work.
@@ -537,7 +536,7 @@ func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHisto
 		return
 	}
 	if len(prepared.cacheData) > 0 {
-		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
 	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
@@ -552,7 +551,7 @@ func finalizePreparedHistoryProjectionLocked(outputDir string, prepared *prepare
 		return
 	}
 	if len(prepared.cacheData) > 0 {
-		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
 	pruneInactiveHistoryGenerations(outputDir)
 }
@@ -665,7 +664,7 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 	}
 	// Never enumerate or remove below an aliased history directory. This check
 	// covers both legacy fixed-path cleanup and the generations root.
-	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyDirName); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, brainstore.HistoryDirName); err != nil {
 		return
 	}
 	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
@@ -754,7 +753,7 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 // caller-supplied subtree.
 func validHistoryProjectionDirectoryPath(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) != 3 || parts[0] != historyDirName || (parts[1] != "generations" && parts[1] != "staging") || len(parts[2]) != 40 {
+	if len(parts) != 3 || parts[0] != brainstore.HistoryDirName || (parts[1] != "generations" && parts[1] != "staging") || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])
@@ -1109,7 +1108,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 }
 
 func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, string, error) {
-	stones, state, err := loadSessionTombstonesChecked(outputDir)
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return sessionTombstones{}, state.Identity, err
 	}
@@ -1170,7 +1169,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
-	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
@@ -1822,7 +1821,7 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 	if err != nil {
 		return
 	}
-	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0o600)
+	_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0o600)
 }
 
 func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
@@ -3364,7 +3363,7 @@ func validateHistoryIndexPath(indexPath string) (string, error) {
 
 func validHistoryGenerationArtifactPath(rel, fileName string) bool {
 	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
+	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])
@@ -3373,7 +3372,7 @@ func validHistoryGenerationArtifactPath(rel, fileName string) bool {
 
 func validHistoryStagingArtifactPath(rel, fileName string) bool {
 	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
+	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])

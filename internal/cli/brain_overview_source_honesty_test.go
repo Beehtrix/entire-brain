@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +39,7 @@ func overviewHistoryFixture(t *testing.T) (Options, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(storage.BrainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{

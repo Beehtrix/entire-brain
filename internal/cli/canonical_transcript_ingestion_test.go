@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -100,7 +101,7 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 			if err := os.WriteFile(external, []byte("outside"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(external, filepath.Join(brainDir, exportSessionsDirectory, "irrelevant.bin")); err != nil {
+			if err := os.Symlink(external, filepath.Join(brainDir, brainstore.SessionsDirName, "irrelevant.bin")); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -156,9 +157,9 @@ func TestHistoryProjectionDoesNotReadExcludedTranscriptContent(t *testing.T) {
 	if secretRel == "" {
 		t.Fatal("privacy fixture has no secret session")
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	var digested []string

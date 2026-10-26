@@ -41,7 +41,6 @@ const (
 	routedCheckpointListUnlimited = math.MaxInt32
 	exportManifestFileName        = "manifest.json"
 	exportReadmeFileName          = "README.md"
-	exportSessionsDirectory       = "sessions"
 	exportBranchesDirectory       = "branches"
 	exportUnknownDirectory        = "unknown"
 
@@ -626,7 +625,7 @@ func prepareExportDir(path string, allowExisting bool) (string, error) {
 		return "", fmt.Errorf("create output directory: %w", err)
 	}
 
-	sessionsDir := filepath.Join(abs, exportSessionsDirectory)
+	sessionsDir := filepath.Join(abs, brainstore.SessionsDirName)
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		return "", fmt.Errorf("create sessions directory: %w", err)
 	}
@@ -3683,7 +3682,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		sort.Strings(branches)
 		branches = compactSortedStrings(branches)
 	}
-	defaultDir := filepath.Join(exportSessionsDirectory, safePathComponent(defaultBranch, "main", 80))
+	defaultDir := filepath.Join(brainstore.SessionsDirName, safePathComponent(defaultBranch, "main", 80))
 
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
@@ -3691,9 +3690,9 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		case branch == defaultBranch:
 			dirs[branch] = defaultDir
 		case branch == "":
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportUnknownDirectory)
+			dirs[branch] = filepath.Join(brainstore.SessionsDirName, exportUnknownDirectory)
 		default:
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, stableBranchDirComponent(branch))
+			dirs[branch] = filepath.Join(brainstore.SessionsDirName, exportBranchesDirectory, stableBranchDirComponent(branch))
 		}
 	}
 	return dirs
@@ -4375,7 +4374,7 @@ func partitionTombstonedSessions(ctx context.Context, opts Options, repoDir stri
 // partitionTombstonedSessionsAt is the brainDir-addressable half, so the
 // exemption can be tested without resolving a repository's storage.
 func partitionTombstonedSessionsAt(brainDir string, sessions []exportSession) ([]exportSession, int, error) {
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return sessions, 0, err
 	}

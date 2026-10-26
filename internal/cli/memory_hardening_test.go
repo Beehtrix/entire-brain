@@ -35,7 +35,7 @@ func checkedProjectionFixture(t *testing.T, state projectionState) (string, *his
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	source := &historySourceManifest{
@@ -76,11 +76,11 @@ func TestProjectionStateCheckedClassifiesFailures(t *testing.T) {
 		before, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(projectionStateRel)))
 		_, state, err := loadProjectionStateChecked(brainDir, source)
 		after, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(projectionStateRel)))
-		if state != projectionStateUnsupported || err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) || string(before) != string(after) {
+		if state != projectionStateUnsupported || err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) || string(before) != string(after) {
 			t.Fatalf("state=%s unchanged=%v err=%v", state, string(before) == string(after), err)
 		}
 		_, health := projectionReceiptHealth(brainDir, source)
-		if health["state"] != projectionStateUnsupported || health["error_code"] != memoryErrUnsupportedVersion || health["action"] == "" {
+		if health["state"] != projectionStateUnsupported || health["error_code"] != brainstore.UnsupportedVersionCode || health["action"] == "" {
 			t.Fatalf("unsupported health=%+v", health)
 		}
 	})
@@ -155,7 +155,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 		}
 	}
 	corruptProgress := []byte("{broken")
-	if err := writeBrainRelativeFileAtomic(storage.BrainDir, memoryMigrationProgressRel, corruptProgress, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, memoryMigrationProgressRel, corruptProgress, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, newMemoryStatusCommand(opts), "--json")
@@ -172,7 +172,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"corrupt.json": brainstore.StateCorruptCode, "future.json": memoryErrUnsupportedVersion}
+	want := map[string]string{"corrupt.json": brainstore.StateCorruptCode, "future.json": brainstore.UnsupportedVersionCode}
 	for _, issue := range payload.Issues {
 		base := filepath.Base(issue.Path)
 		if expected, ok := want[base]; ok && issue.Code == expected && issue.Action != "" {
@@ -204,12 +204,12 @@ func TestMemoryMigrationProgressFailsClosed(t *testing.T) {
 	}{
 		{name: "malformed", data: "{broken", code: brainstore.StateCorruptCode},
 		{name: "trailing", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[]} {}`, code: brainstore.StateCorruptCode},
-		{name: "newer", data: `{"schema_version":999,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[],"future_field":true}`, code: memoryErrUnsupportedVersion},
+		{name: "newer", data: `{"schema_version":999,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":[],"future_field":true}`, code: brainstore.UnsupportedVersionCode},
 		{name: "duplicate completed", data: `{"schema_version":1,"operation_id":"op:0123456789abcdef","started_at":"2026-08-09T00:00:00Z","completed":["history/short-term-v1.json","history/short-term-v1.json"]}`, code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryMigrationProgressRel, []byte(tc.data), 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryMigrationProgressRel, []byte(tc.data), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, present, err := loadMemoryMigrationProgress(brainDir); !present || err == nil || !strings.Contains(err.Error(), tc.code) {
@@ -372,9 +372,9 @@ func TestAbstractResolverScansInventoryOncePerGet(t *testing.T) {
 
 func TestPrivacyVerifyFailsClosedOnUnsafeAbstractInventory(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(brainDir, filepath.FromSlash(abstractsDirRel))
@@ -450,9 +450,9 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, now.Add(-time.Hour), nil); err != nil {
 		t.Fatal(err)
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["private-session"] = sessionTombstone{At: now, Reason: "excluded"}
-	if err := saveSessionTombstones(storage.BrainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(storage.BrainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	pre, err := verifySessionPrivacy(storage.BrainDir)

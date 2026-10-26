@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"path/filepath"
@@ -221,7 +222,7 @@ func writeBrainSkillMemory(brainDir string, records []skillMemoryRecord) error {
 			return fmt.Errorf("encode skill-memory: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, patternsSkillMemoryPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, patternsSkillMemoryPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write skill-memory: %w", err)
 	}
 	return nil

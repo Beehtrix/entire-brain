@@ -183,7 +183,7 @@ func TestAbstractResolverPreservesCorruptAndUnsupportedJobCodes(t *testing.T) {
 		{name: "unsupported", contents: func(jobID, ref string) []byte {
 			data, _ := json.Marshal(map[string]any{"schema_version": memoryJobSchemaVersion + 1, "job_id": jobID, "session_ref": ref})
 			return data
-		}, want: memoryErrUnsupportedVersion},
+		}, want: brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _ := writeSessionNavigationFixture(t)
@@ -574,7 +574,7 @@ func TestHostedReceiptUsesCompletionClock(t *testing.T) {
 func TestAbstractEgressPathsScaleBeyondFlatInventoryCeiling(t *testing.T) {
 	seen := make(map[string]bool, abstractEgressHealthMaxReceipts+257)
 	for i := 0; i < abstractEgressHealthMaxReceipts+257; i++ {
-		ref := conversationSessionIDPrefix + "scale-" + strconv.Itoa(i)
+		ref := brainstore.ConversationSessionIDPrefix + "scale-" + strconv.Itoa(i)
 		rel := abstractEgressReceiptRel(ref)
 		if seen[rel] {
 			t.Fatalf("path collision for %s", ref)
@@ -590,7 +590,7 @@ func TestAbstractEgressPathsScaleBeyondFlatInventoryCeiling(t *testing.T) {
 
 func TestAbstractEgressReceiptAtomicallyReplacesPerSession(t *testing.T) {
 	brainDir := t.TempDir()
-	ref := conversationSessionIDPrefix + "replace"
+	ref := brainstore.ConversationSessionIDPrefix + "replace"
 	now := time.Date(2026, 8, 9, 19, 0, 0, 0, time.UTC)
 	receipt := abstractEgressReceipt{
 		OperationID: strings.Repeat("a", 20), SessionRef: ref,
@@ -624,8 +624,8 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 	}
 	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
 	digest := "sha256:" + strings.Repeat("d", 64)
-	completedRef := conversationSessionIDPrefix + "completed-truth"
-	orphanRef := conversationSessionIDPrefix + "orphan-truth"
+	completedRef := brainstore.ConversationSessionIDPrefix + "completed-truth"
+	orphanRef := brainstore.ConversationSessionIDPrefix + "orphan-truth"
 	for i, ref := range []string{completedRef, orphanRef} {
 		receipt := abstractEgressReceipt{
 			OperationID: strings.Repeat(string("ef"[i]), 20), SessionRef: ref, SessionDigest: digest,
@@ -672,8 +672,8 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 func TestAbstractEgressTargetedPurgePreservesOtherSessions(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 9, 21, 0, 0, 0, time.UTC)
-	target := conversationSessionIDPrefix + "target"
-	other := conversationSessionIDPrefix + "other"
+	target := brainstore.ConversationSessionIDPrefix + "target"
+	other := brainstore.ConversationSessionIDPrefix + "other"
 	for i, ref := range []string{target, other} {
 		receipt := abstractEgressReceipt{
 			OperationID: strings.Repeat(string("ab"[i]), 20), SessionRef: ref,
@@ -697,7 +697,7 @@ func TestAbstractEgressTargetedPurgePreservesOtherSessions(t *testing.T) {
 
 func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T) {
 	brainDir := t.TempDir()
-	ref := conversationSessionIDPrefix + "legacy"
+	ref := brainstore.ConversationSessionIDPrefix + "legacy"
 	now := time.Date(2026, 8, 9, 22, 0, 0, 0, time.UTC)
 	receipt := abstractEgressReceipt{
 		SchemaVersion: abstractEgressLegacyVersion, OperationID: strings.Repeat("a", 20), SessionRef: ref,
@@ -709,7 +709,7 @@ func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T
 		t.Fatal(err)
 	}
 	legacyRel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, receipt.OperationID+".json"))
-	if err := writeBrainRelativeFileAtomic(brainDir, legacyRel, append(data, '\n'), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyRel, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	inventory := loadAbstractEgressInventory(brainDir)
@@ -758,7 +758,7 @@ func TestUnknownNewerAbstractEgressReceiptsStayTypedAndReadOnly(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			ref := conversationSessionIDPrefix + "future-" + name
+			ref := brainstore.ConversationSessionIDPrefix + "future-" + name
 			receipt := abstractEgressReceipt{
 				SchemaVersion: abstractEgressSchemaVersion + 1, OperationID: strings.Repeat("a", 20), SessionRef: ref,
 				SessionDigest: "sha256:" + strings.Repeat("b", 64), Provider: "codex", Model: "future",
@@ -769,26 +769,26 @@ func TestUnknownNewerAbstractEgressReceiptsStayTypedAndReadOnly(t *testing.T) {
 				rel = filepath.ToSlash(filepath.Join(abstractEgressDirRel, receipt.OperationID+".json"))
 			}
 			want := futureEgressBytesForTest(t, receipt)
-			if err := writeBrainRelativeFileAtomic(brainDir, rel, want, 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, want, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if legacy {
-				if _, err := loadLegacyAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if _, err := loadLegacyAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("legacy newer error=%v", err)
 				}
 			} else {
-				if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("canonical newer error=%v", err)
 				}
 				current := receipt
 				current.SchemaVersion = abstractEgressSchemaVersion
 				current.OperationID = strings.Repeat("c", 20)
-				if err := writeAbstractEgressReceipt(brainDir, current); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if err := writeAbstractEgressReceipt(brainDir, current); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("guarded upsert error=%v", err)
 				}
 			}
 			inventory := loadAbstractEgressInventory(brainDir)
-			if len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrUnsupportedVersion {
+			if len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.UnsupportedVersionCode {
 				t.Fatalf("newer inventory=%+v", inventory)
 			}
 			got, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(rel)))
@@ -820,7 +820,7 @@ func TestUnknownNewerSessionAbstractIsReadOnlyForAutomaticAndManualGeneration(t 
 	}
 	want = append(want, '\n')
 	writeAbstractBytesForTest(t, brainDir, digest, want)
-	if _, state, err := loadSessionAbstractChecked(brainDir, digest); state != sessionAbstractUnsupported || err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, state, err := loadSessionAbstractChecked(brainDir, digest); state != sessionAbstractUnsupported || err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("newer state=%s err=%v", state, err)
 	}
 	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Automatic: true, Provider: "codex", Model: "test", HostedEgressAllowed: true}}); err != nil {
@@ -832,7 +832,7 @@ func TestUnknownNewerSessionAbstractIsReadOnlyForAutomaticAndManualGeneration(t 
 	if request, err := automaticAbstractWorkRequest(brainDir, view); err != nil || request != nil {
 		t.Fatalf("automatic request=%+v err=%v", request, err)
 	}
-	if _, _, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "codex", Model: "test", HostedEgressAllowed: true}, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, _, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "codex", Model: "test", HostedEgressAllowed: true}, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("manual newer error=%v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(abstractRel(digest))))
@@ -849,12 +849,12 @@ func TestMemoryConfigClassifiesAdditiveFieldsBySchemaVersion(t *testing.T) {
 		code    string
 	}{
 		{name: "current strict", version: memoryConfigSchemaVersion, state: memoryConfigCorrupt, code: brainstore.StateCorruptCode},
-		{name: "newer read-only", version: memoryConfigSchemaVersion + 1, state: memoryConfigUnsupported, code: memoryErrUnsupportedVersion},
+		{name: "newer read-only", version: memoryConfigSchemaVersion + 1, state: memoryConfigUnsupported, code: brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
 			data := []byte(`{"schema_version":` + strconv.Itoa(tc.version) + `,"abstracts":{"enabled":false},"future_config":true}`)
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryConfigRel, data, 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryConfigRel, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, state, err := loadMemoryConfigChecked(brainDir); state != tc.state || err == nil || !strings.Contains(err.Error(), tc.code) {
@@ -891,7 +891,7 @@ func TestAbstractEgressTargetReaderRejectsShardAndLeafSymlinks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			ref := conversationSessionIDPrefix + "symlink-" + tc.name
+			ref := brainstore.ConversationSessionIDPrefix + "symlink-" + tc.name
 			target := filepath.Join(brainDir, filepath.FromSlash(abstractEgressReceiptRel(ref)))
 			outside := filepath.Join(t.TempDir(), "canary.json")
 			want := []byte("external-canary")

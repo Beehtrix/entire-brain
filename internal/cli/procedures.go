@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
@@ -292,7 +293,7 @@ func writeBrainProceduresFile(outputDir string, procedures []procedureRecord) er
 			return fmt.Errorf("encode procedure: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsProceduresPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsProceduresPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write procedures: %w", err)
 	}
 	return nil

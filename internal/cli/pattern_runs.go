@@ -98,7 +98,7 @@ func appendPatternRun(brainDir string, run patternRun) error {
 			return err
 		}
 	}
-	return writeBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
 }
 
 // loadPatternRunsChecked returns recorded runs oldest-first. A genuinely absent

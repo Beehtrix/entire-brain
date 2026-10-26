@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,7 +100,7 @@ func BenchmarkHistoryTranscriptRefreshPaired(b *testing.B) {
 func historyRefreshBenchmarkFixture(tb testing.TB, fileCount int) (string, int64) {
 	tb.Helper()
 	brainDir := tb.TempDir()
-	sessionsDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	sessionsDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		tb.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func historyRefreshBenchmarkFixture(tb testing.TB, fileCount int) (string, int64
 		sessions = append(sessions, exportSession{
 			SessionID:      fmt.Sprintf("session-%04d", i),
 			Branch:         "main",
-			TranscriptPath: filepath.ToSlash(filepath.Join(exportSessionsDirectory, "main", name)),
+			TranscriptPath: filepath.ToSlash(filepath.Join(brainstore.SessionsDirName, "main", name)),
 		})
 	}
 	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)

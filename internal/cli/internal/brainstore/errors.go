@@ -8,3 +8,7 @@ const (
 	StateCorruptCode = "memory_state_corrupt"
 	StateUnsafeCode  = "memory_state_unsafe"
 )
+
+// UnsupportedVersionCode reports persisted state written at a schema version
+// newer than this build supports; the bytes are read-only, not corrupt.
+const UnsupportedVersionCode = "memory_unsupported_version"

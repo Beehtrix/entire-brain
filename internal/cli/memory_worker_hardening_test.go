@@ -367,12 +367,12 @@ func TestMemoryVectorProgressRejectsNewerUnknownAndTrailingState(t *testing.T) {
 	brainDir := t.TempDir()
 	write := func(data string) {
 		t.Helper()
-		if err := writeBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, []byte(data), 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, []byte(data), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	write(`{"schema_version":3,"future":true}`)
-	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, _, err := loadMemoryVectorProgress(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("newer schema error = %v", err)
 	}
 	validPrefix := fmt.Sprintf(`{"schema_version":%d,"model_id":"model","source_digest":"sha256:%s","complete_source_digest":"sha256:%s","reset_complete":true,"pending":false,"updated_at":"2026-08-09T00:00:00Z"`, memoryVectorSchema, strings.Repeat("1", 64), strings.Repeat("1", 64))
@@ -392,12 +392,12 @@ func TestMemoryMigrationDetectionClassifiesVectorProgressState(t *testing.T) {
 		data string
 		code string
 	}{
-		{name: "unknown-newer", data: `{"schema_version":3,"future":true}`, code: memoryErrUnsupportedVersion},
+		{name: "unknown-newer", data: `{"schema_version":3,"future":true}`, code: brainstore.UnsupportedVersionCode},
 		{name: "corrupt", data: `{`, code: brainstore.StateCorruptCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, []byte(tc.data), 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryVectorProgressRel, []byte(tc.data), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			found := false

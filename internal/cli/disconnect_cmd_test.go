@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"strings"
 	"testing"
 	"time"
@@ -137,7 +138,7 @@ func TestDisconnectIsIdempotent(t *testing.T) {
 
 func TestDisconnectHealsACorruptStateFile(t *testing.T) {
 	opts, storage := disconnectTestOptions(t, t.TempDir())
-	if err := writeBrainRelativeFileAtomic(storage.BrainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 

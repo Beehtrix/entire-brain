@@ -549,14 +549,14 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, transcriptRel, transcript, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, transcriptRel, transcript, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest.Sources.Sessions = fixtureManifest.Sources.Sessions
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	vectorRel := filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable))
+	vectorRel := filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable))
 	vectorPath := filepath.Join(brainDir, filepath.FromSlash(vectorRel))
 	if err := os.MkdirAll(filepath.Dir(vectorPath), 0o700); err != nil {
 		t.Fatal(err)

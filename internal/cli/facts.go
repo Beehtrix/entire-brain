@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -290,7 +291,7 @@ func writeFacts(brainDir, branch string, records []factRecord) error {
 	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), buf.Bytes(), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), buf.Bytes(), 0o600)
 }
 
 // --- taxonomy -------------------------------------------------------------
@@ -349,7 +350,7 @@ func writeFactTaxonomy(brainDir string, taxonomy factTaxonomy) error {
 		return err
 	}
 	data = append(data, '\n')
-	return writeBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
 }
 
 // factTaxonomyTopLevels returns the set of top-level categories the taxonomy

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -117,7 +118,7 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := loadBrainManifest(fixture.brainDir)
@@ -252,7 +253,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := loadBrainManifest(fixture.brainDir)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,7 +29,7 @@ func liveGraphProviderAvailable(t *testing.T) bool {
 	// store under the real home. The installed CLI finds its plugins under the
 	// data root, so this one test — the only one that drives the REAL provider —
 	// gets the machine's own data root back for its duration.
-	useHostXDGDataHome(t)
+	clitest.UseHostXDGDataHome(t)
 	binary, err := exec.LookPath("entire")
 	if err != nil {
 		return false

@@ -1,13 +1,13 @@
 // Package clitest holds test support shared by the internal/cli package
-// tree. It exists for the COR-2268 split: every extracted test package pins
-// the XDG roots exactly like internal/cli's own TestMain, so no test can
-// resolve a store under the developer's real home.
+// tree. It exists for the COR-2268 split: every package in the tree —
+// including internal/cli itself — pins the XDG roots through PinXDGRoots, so
+// no test can resolve a store under the developer's real home.
 //
-// The pin logic is a deliberate copy of internal/cli/main_test.go, which
-// cannot be edited yet: the Windows sharding harness pins that file's
+// The Windows sharding harness pins internal/cli's TestMain declaration by
 // normalized source SHA-256 (tools/ci-bench/windows-production/settings.json,
-// expectedTestMainDeclarations). The copies converge when the harness entry
-// is updated alongside a later extraction.
+// expectedTestMainDeclarations); that declaration now delegates here, so pin
+// behavior changes land in this package and the harness entry only changes
+// when the one-line TestMain does.
 package clitest
 
 import (

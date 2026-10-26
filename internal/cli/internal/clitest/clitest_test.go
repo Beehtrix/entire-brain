@@ -35,3 +35,36 @@ func TestUseHostXDGDataHomeIsScoped(t *testing.T) {
 		t.Fatalf("host override leaked: got %q, want %q", got, original)
 	}
 }
+
+func TestHostDataHomeSelection(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no host home directory")
+	}
+	abs := t.TempDir()
+	for _, tt := range []struct{ name, value, want string }{
+		{"absolute", abs, abs},
+		{"unset", "", filepath.Join(home, ".local", "share")},
+		{"relative", "relative-data", filepath.Join(home, ".local", "share")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("XDG_DATA_HOME", tt.value)
+			if got := hostDataHome(); got != tt.want {
+				t.Fatalf("hostDataHome() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostXDGDataHomeOverrideIsScoped(t *testing.T) {
+	original := os.Getenv("XDG_DATA_HOME")
+	t.Run("live provider", func(t *testing.T) {
+		UseHostXDGDataHome(t)
+		if got := os.Getenv("XDG_DATA_HOME"); got != hostXDGDataHome {
+			t.Fatalf("live provider data root = %q, want %q", got, hostXDGDataHome)
+		}
+	})
+	if got := os.Getenv("XDG_DATA_HOME"); got != original {
+		t.Fatalf("live provider override leaked: got %q, want %q", got, original)
+	}
+}

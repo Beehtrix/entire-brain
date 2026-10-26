@@ -534,3 +534,62 @@ func TestDistillTentativeEntryAndLegacyKeyDoNotInteract(t *testing.T) {
 		t.Fatalf("grandfathered session counts as distilled: %+v", status)
 	}
 }
+
+// A grown session whose only NEW chunks come back empty: the tentative entry
+// keeps the chunk hashes the cache had already seen succeed, so the retry
+// re-sends only the empty chunk, and the second empty result finalises the
+// entry with the full chunk record.
+func TestDistillTentativeEntryKeepsReusedChunks(t *testing.T) {
+	now := time.Date(2026, 10, 26, 12, 0, 0, 0, time.UTC)
+	brainDir := writeSingleSessionFixture(t, now, "turn one\nturn two\n")
+	key := distillSessionCacheKey("main", "s1")
+	runWith := func(output string) (calls int) {
+		t.Helper()
+		opts := distillCommandOptions{agent: "command", agentCommand: []string{"fake"}, maxChunkBytes: 1, timeout: time.Minute,
+			run: func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
+				calls++
+				return output, nil
+			}}
+		if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
+			t.Fatalf("runDistillForBrain: %v", err)
+		}
+		return calls
+	}
+	// maxChunkBytes=1: one chunk per line. Two chunks, both with facts.
+	if calls := runWith("workflow.testing.rules\tRun go test before pushing.\n"); calls != 2 {
+		t.Fatalf("seed: want 2 agent calls, got %d", calls)
+	}
+	if cache := loadDistillCache(brainDir); len(cache.Chunks[key]) != 2 {
+		t.Fatalf("seed: want 2 chunk hashes, got %v", cache.Chunks[key])
+	}
+
+	// Grow by one line; the agent now returns nothing for the new chunk.
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash("sessions/main/s1.jsonl")), []byte("turn one\nturn two\na new turn\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if calls := runWith(""); calls != 1 {
+		t.Fatalf("grown session must re-send only its new chunk, got %d agent calls", calls)
+	}
+	cache := loadDistillCache(brainDir)
+	if !isDistillEmptyFingerprint(cache.Sessions[key]) {
+		t.Fatalf("an all-empty run over the dispatched chunks must be tentative, got %q", cache.Sessions[key])
+	}
+	if len(cache.Chunks[key]) != 2 {
+		t.Fatalf("tentative entry must keep the two reused chunk hashes and drop the empty one, got %v", cache.Chunks[key])
+	}
+
+	// The retry re-sends only the empty chunk; a second empty result finalises.
+	if calls := runWith(""); calls != 1 {
+		t.Fatalf("retry must re-send only the empty chunk, got %d agent calls", calls)
+	}
+	cache = loadDistillCache(brainDir)
+	if isDistillEmptyFingerprint(cache.Sessions[key]) {
+		t.Fatalf("second empty result must finalise, got %q", cache.Sessions[key])
+	}
+	if len(cache.Chunks[key]) != 3 {
+		t.Fatalf("final entry must record all three chunks, got %v", cache.Chunks[key])
+	}
+	if calls := runWith(""); calls != 0 {
+		t.Fatalf("finalised session must be cached, got %d agent calls", calls)
+	}
+}

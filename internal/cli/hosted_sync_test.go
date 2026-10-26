@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -751,7 +752,7 @@ func TestSetHostedOptOutKeepsCoordinatesAndHealsCorruption(t *testing.T) {
 		t.Fatalf("opt-out must keep the coordinates: present=%v err=%v binding=%+v", present, err, binding)
 	}
 
-	if err := writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, []byte("{not json"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := setHostedOptOut(brainDir); err != nil {

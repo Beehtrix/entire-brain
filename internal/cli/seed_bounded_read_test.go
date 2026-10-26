@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // seedLargeDocBytes is comfortably larger than any legitimate seed input and far
@@ -135,7 +137,7 @@ func TestSeedManifestReadsAreBounded(t *testing.T) {
 	// grows by doubling, so a bounded read costs at most a small multiple of the
 	// ceiling. An unbounded os.ReadFile preallocates the stat size exactly, so it
 	// cannot come in under the file's own 64 MiB. That gap is what this asserts.
-	bound := uint64(maxManifestBytes) * 5 / 2
+	bound := uint64(base.MaxManifestBytes) * 5 / 2
 
 	var pkgErr error
 	usedPkg := allocatedBy(t, func() { _, pkgErr = packageJSONCommands(pkg, "package.json") })

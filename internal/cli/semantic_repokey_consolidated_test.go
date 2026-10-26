@@ -137,31 +137,6 @@ func TestDoctorReportedRepoKeyIsAuthoritative(t *testing.T) {
 	}
 }
 
-// TestDoctorReportedRepoKeyStillRejectsAForeignSnapshot: the handshake widens
-// what is accepted, it does not disable the guard. When the doctor names this
-// repository's key, a snapshot carrying a DIFFERENT key is still refused — and
-// the refusal names the doctor's answer, since that is now the authority.
-func TestDoctorReportedRepoKeyStillRejectsAForeignSnapshot(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticMultiRemoteFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"), map[string]string{}) // header says gh/example/repo
-	runner.responses[fakeCommandKey("entire", "graph", "doctor", "--json")] = fakeCommandResponse{
-		stdout: `{"no_egress":true,"repo_key":"local/somewhere-else"}`,
-	}
-	cmd := &cobra.Command{Use: "index"}
-	opts := Options{Env: env, Runner: runner, Now: time.Now}
-
-	err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err == nil {
-		t.Fatal("a snapshot whose repo_key contradicts the provider's own doctor answer was accepted")
-	}
-	for _, want := range []string{"gh/example/repo", "local/somewhere-else", "--graph-binary"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("mismatch error is not actionable: %q missing from %q", want, err.Error())
-		}
-	}
-}
-
 // TestLiveHeaderRepoKeyCheckCannotFail documents why validateLiveSemanticHeader
 // no longer compares repo_key.
 //

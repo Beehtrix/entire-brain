@@ -65,7 +65,7 @@ func TestSemanticBoundaryRootTextJSONAndLimits(t *testing.T) {
 func TestSemanticBoundaryRootEmptyAndInvalidState(t *testing.T) {
 	opts := boundaryRegressionFixture(t, semanticFixtureSnapshot("1.0"))
 	out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route")
-	if err != nil || !strings.Contains(out, "no routes found in the semantic index") {
+	if err != nil || !strings.Contains(out, "no routes found in the code index") {
 		t.Fatalf("empty boundary text: err=%v output=%q", err, out)
 	}
 	out, err = execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route", "--json")
@@ -102,31 +102,29 @@ func TestSemanticBoundaryRootMissingStaleAndCorruptIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 		manifest.Sources.Semantic = nil
+		opts.Runner.(*fakeCommandRunner).graphStoreFixtures = nil
 		if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 			t.Fatal(err)
 		}
 		out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries")
-		if err == nil || !strings.Contains(err.Error(), "semantic index missing") || strings.Contains(out, "handler ") {
+		if err == nil || !strings.Contains(err.Error(), "Graph store unavailable") || strings.Contains(out, "handler ") {
 			t.Fatalf("missing source should fail without boundaries: err=%v output=%q", err, out)
 		}
 	})
 	t.Run("stale index remains explicitly labelled", func(t *testing.T) {
 		opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
 		runner := opts.Runner.(*fakeCommandRunner)
-		runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "bbb222\n"}
+		runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " M internal/http/routes.go\n"}
 		out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--kind", "route")
-		if err != nil || !strings.Contains(out, "semantic freshness: unsafe") || !strings.Contains(out, "GET /tokens/{id}") {
+		if err != nil || !strings.Contains(out, "code index freshness: degraded") || !strings.Contains(out, "GET /tokens/{id}") {
 			t.Fatalf("stale index should label retained results: err=%v output=%q", err, out)
 		}
 	})
 	t.Run("corrupt store cannot report an empty successful result", func(t *testing.T) {
 		opts := boundaryRegressionFixture(t, semanticBoundaryFixtureSnapshot())
 		brainDir := filepath.Join(opts.Env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-		manifest, err := loadBrainManifest(brainDir)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath)), []byte("not sqlite"), 0o600); err != nil {
+		_ = brainDir
+		if err := os.WriteFile(opts.Runner.(*fakeCommandRunner).graphStoreFixtures[opts.Env.RepoRoot+"\x00full"].Path, []byte("not sqlite"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		out, err := execute(t, NewRootCommand(opts), "inspect", "boundaries", "--json")

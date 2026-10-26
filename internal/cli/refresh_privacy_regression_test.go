@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,7 +16,7 @@ func TestHistoryFreshnessRejectsCorruptPrivacyWithoutPanic(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = os.WriteFile(filepath.Join(b, sessionTombstonesPath), []byte("{broken"), 0600); e != nil {
+	if e = os.WriteFile(filepath.Join(b, brainstore.SessionTombstonesPath), []byte("{broken"), 0600); e != nil {
 		t.Fatal(e)
 	}
 	if historyIndexCurrent(b, m) {

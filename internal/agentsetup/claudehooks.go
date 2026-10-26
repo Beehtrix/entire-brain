@@ -40,7 +40,7 @@ const preEditHookCommand = "hook pre-edit"
 // have hand-edited it. So this MERGES: it parses what is there, appends one
 // entry if an equivalent is absent, and writes the rest back untouched. It
 // never rewrites, reorders, or reformats another product's entries, and it is
-// idempotent, so running init-agents repeatedly cannot accumulate duplicates.
+// idempotent, so running setup repeatedly cannot accumulate duplicates.
 //
 // Any shape it does not recognise is left strictly alone and reported, rather
 // than overwritten: silently replacing a user's hook config to install our own

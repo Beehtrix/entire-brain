@@ -9,12 +9,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"hash"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // conversation.go is Phase 1 of the conversational-memory plan: a deterministic,
@@ -71,7 +74,7 @@ func conversationSourceStaleCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceStale,
 		Message: "The source transcript is missing or changed since indexing; showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index, then fetch this id again.",
+		Action:  "Run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to re-index, then fetch this id again.",
 	}
 }
 
@@ -89,7 +92,7 @@ func conversationSourceUnreadableCaveat(path string) retrievalCaveat {
 		Kind:    retrievalCaveatConversationSourceUnreadable,
 		Message: "The source transcript could not be re-parsed (malformed or unreadable); showing the stored search projection, not faithful full content.",
 		Paths:   []string{path},
-		Action:  "Run `" + brainInvocation(os.LookupEnv, "refresh") + "` to re-index; if the state persists, inspect the transcript for corruption.",
+		Action:  "Run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to re-index; if the state persists, inspect the transcript for corruption.",
 	}
 }
 
@@ -142,7 +145,7 @@ func scanConversationTranscriptContext(ctx context.Context, path string) (conver
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return conversationScanResult{}, fmt.Errorf("transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return conversationScanResult{}, err
 	}
@@ -174,7 +177,7 @@ func scanConversationTranscriptFileContext(ctx context.Context, f io.ReadSeeker,
 	firstLine, _, _ := strings.Cut(strings.TrimSpace(string(probe[:n])), "\n")
 	if strings.HasPrefix(firstLine, "{") && !json.Valid([]byte(firstLine)) {
 		// Document-form candidate: one pretty-printed JSON document.
-		data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+path)
+		data, err := base.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, base.MaxDocumentTranscriptBytes, "document transcript "+path)
 		if err != nil {
 			return conversationScanResult{}, err
 		}
@@ -608,10 +611,10 @@ func validateConversationSourcePath(brainDir, rel string) (string, error) {
 	if filepath.ToSlash(clean) != rel || filepath.IsAbs(clean) {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must be canonical and Brain-relative"}
 	}
-	if !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
+	if !strings.HasPrefix(rel, brainstore.SessionsDirName+"/") {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path must remain under sessions/"}
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return "", &historySessionInventoryError{Path: rel, Reason: "conversation source path is unsafe", Err: err}
 	}
 	return filepath.Join(brainDir, clean), nil
@@ -683,7 +686,7 @@ func expandConversationExchangeContext(ctx context.Context, brainDir string, rec
 		// Document form cannot be range-decoded line by line; use the existing
 		// bounded document reader so input stays capped (same ceiling as the
 		// index-time scan) instead of an unbounded slurp.
-		data, readErr := safeReadAll(br, maxDocumentTranscriptBytes, "document transcript "+record.Path)
+		data, readErr := base.SafeReadAll(br, base.MaxDocumentTranscriptBytes, "document transcript "+record.Path)
 		if readErr != nil {
 			// Only a genuine bound violation is reported as one. An I/O failure
 			// or a cancelled context reaches here through the same return, and

@@ -2,11 +2,10 @@
 
 ## Install and discover agent instructions
 
-Run `entire brain init-agents` in the consuming project to install
+`entire brain setup` installs the agent instructions as part of its run:
 `.entire/agent-guide.md` plus managed pointers in `AGENTS.md` and
 `CLAUDE.md`. Reruns reconcile Graph and Brain blocks into one shared workflow and preserve your own text.
-Use `--repo <path>` for another project. Installation does not build indexes,
-call an agent, or start services.
+Pass a path to target another project.
 
 `entire brain agent-guide` prints the same guide; `guide` remains an alias.
 Use `entire brain capabilities --json` to discover compiled features and their
@@ -285,7 +284,7 @@ after `setup` works too, and the next backfill pass picks the new sessions up.
 
 **Entire's own config no longer blocks the install.** `entire enable` writes
 `.entire/settings.json` and your agent's hook settings (`.claude/settings.json`
-for Claude Code, `.codex/hooks.json` for Codex); `entire graph init-agents`
+for Claude Code, `.codex/hooks.json` for Codex); `entire graph setup`
 writes `AGENTS.md` and `CLAUDE.md`.
 A `setup` run immediately afterwards used to find that dirty worktree and refuse
 to seed or index it — two red `x` on a first run, caused by the command directly
@@ -408,7 +407,7 @@ Every result carries an `id` you can fetch in full with `get`.
 ```sh
 entire brain overview                          # what the project is: stack, commands, recent decisions
 entire brain brief "add rate limiting to the API"   # a bounded, task-shaped context packet
-entire brain query "how does checkpointing work"    # hybrid lexical + vector search across the brain
+entire brain query "how does checkpointing work"    # BM25 lexical search across the brain
 entire brain query --keyword "checkpoint"               # exact keyword search
 entire brain recall "why did we pick this default"  # durable facts for the current branch
 entire brain get fact:<id>                     # fetch one item in full
@@ -606,8 +605,8 @@ repo-wide text search until the brain's targeted context has been used.
 ### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
 
 `entire-brain` also has a hook surface for harness integrations. A harness must
-be configured to invoke a hook before it can have any effect, and `init-agents`
-— which `setup` runs for you — wires the one that matters for Claude Code: it
+be configured to invoke a hook before it can have any effect, and `setup`
+wires the one that matters for Claude Code: it
 merges a `PreToolUse` entry for `Edit`/`Write`/`MultiEdit`/`NotebookEdit` into
 the repository's `.claude/settings.json`, running
 `entire-brain hook pre-edit --claude-hook`. That flag is the wired spelling: it
@@ -711,30 +710,27 @@ available to the next agent.
 ### Ask Across Facts, History, And Docs
 
 When the question is not tied to one symbol, use the unified retrieval layer.
-`query` is the normal hybrid path over durable facts, indexed history, and docs.
-Use `query --keyword` for exact keywords, `query --semantic` for semantic matches, and
-`get`/`multi-get` when a result returns an id worth reading in full.
+`query` searches durable facts, indexed history, and docs with BM25 lexical
+ranking — the only ranking; semantic (embedding) retrieval was removed (trail
+#278). Use `get`/`multi-get` when a result returns an id worth reading in full.
 
 ```sh
 entire brain query "how does checkpointing work" --json
-entire brain query --keyword "checkpoint" --json
-entire brain query --semantic "preventing data races" --json
 entire brain get fact:<id> --json
 ```
 
-Use `entire brain query "text"` for default hybrid retrieval. Select keyword
-matching with `--keyword` or semantic matching with `--semantic`; the two
-flags are mutually exclusive and belong only to the query command.
-Text may instead be supplied as `--query "text"`. Flags work before or after
-positional text; combining positional text and `--query` is an error.
-For example: `entire brain query --keyword --query "RetryPolicy" --json`.
+`--keyword` and `--semantic` are accepted for compatibility and are mutually
+exclusive; both run the same BM25 ranking (`--semantic` prints a stderr
+notice). Text may instead be supplied as `--query "text"`. Flags work before
+or after positional text; combining positional text and `--query` is an error.
+For example: `entire brain query --query "RetryPolicy" --json`.
 
 Workspace retrieval supports the same forms:
-`entire brain workspace query <workspace> --semantic --query "retry policy"`.
+`entire brain workspace query <workspace> --query "retry policy"`.
 The old `search` and `vsearch` commands remain hidden compatibility aliases.
-MCP agents should use `brain_query` with optional, mutually exclusive
-`keyword: true` or `semantic: true` arguments; `brain_search` and
-`brain_vsearch` remain compatibility tools.
+MCP agents should use `brain_query`; its `keyword` and `semantic` booleans and
+the `brain_search` / `brain_vsearch` tools are compatibility aliases for the
+same BM25 ranking.
 
 For durable facts specifically, use `recall`. `recall --expand` is an
 agent-assisted query expansion path, so it belongs behind the same egress
@@ -928,28 +924,22 @@ entire brain history-eval-gen > history-tasks.json
 entire brain history-eval --tasks history-tasks.json --json
 ```
 
-For semantic performance and provider output, use the semantic benchmark and
+For indexing performance and provider output, use the index benchmark and
 status audit instead of relying on anecdotes:
 
 ```sh
-entire brain bench semantic .
+entire brain bench index .
 entire brain status --json
 ```
 
-### Tune Retrieval
+### Retrieval Ranking
 
-The default vector arm uses the bundled local Model2Vec embedder. For higher
-semantic recall, opt into a local transformer embedder served by Ollama or a
-compatible loopback endpoint:
-
-```sh
-ollama pull embeddinggemma
-ENTIRE_BRAIN_EMBEDDER=ollama entire brain query "preventing data races" --json
-```
-
-Keep this distinction clear: changing the embedder changes retrieval behavior,
-not the underlying source of truth. Facts, history, docs, and semantic records
-still come from the local brain.
+Memory retrieval (facts, history, docs) is ranked by BM25 lexical scoring —
+there is no embedder to tune. Semantic (embedding) retrieval was removed after
+a 1,748-run agent eval measured BM25 matching or beating it end-to-end (see
+`docs/eval_ledger.md` and trail #278). Graph's semantic code retrieval
+(`brain_code`, `brain_context`, `brain_impact`) is a separate layer and is
+unaffected.
 
 ## Privacy And Egress
 

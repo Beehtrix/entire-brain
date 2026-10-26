@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,14 +61,14 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 		"refresh: export sessions: unavailable, using seed baseline done",
 		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: history index: 0 records, 0 decisions, 0 tool calls done",
-		"refresh: semantic index: 1 symbol, 1 relation, 1 file done",
+		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 		"refreshed brain:",
 		// refresh closes with the SHORT status report: the phase lines above
 		// already said what was built, so repeating the full dump here was the
 		// wall this command's output is being rescued from.
-		"Brain  gh/example/repo",
-		"Onboarding",
-		"+ seed",
+		"Brain | gh/example/repo",
+		"  Memories",
+		"  Sources",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh output missing %q:\n%s", want, out)
@@ -102,7 +103,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 	runner := seedFixtureRunner(repoDir)
-	runner.responses[fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{stdout: "[]\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	opts := Options{
 		Version: "test-version",
@@ -133,7 +134,7 @@ func TestRefreshSkipsCurrentSemanticIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("warm refresh with unsupported version probe: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "cannot verify semantic provider identity") || !strings.Contains(out, "refreshed brain:") {
+	if !strings.Contains(out, "refreshed brain:") {
 		t.Fatalf("missing warning or pipeline completion: %s", out)
 	}
 	for _, call := range runner.calls {
@@ -232,7 +233,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 			TranscriptPath:   "sessions/main/session-one.jsonl",
 		}},
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatalf("create history dir: %v", err)
 	}
 	indexData := []byte(`{"records":[]}`)
@@ -489,6 +490,7 @@ func TestRefreshAllBranchesRequiresSemanticBeforeMutation(t *testing.T) {
 }
 
 func TestRefreshSemanticWorktreeAliasIsSeparateFromSeedWorktree(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // CI need not have the Entire host installed.
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	runner := seedFixtureRunner(repoDir)
@@ -514,22 +516,8 @@ func TestRefreshSemanticWorktreeAliasIsSeparateFromSeedWorktree(t *testing.T) {
 		Now:    time.Now,
 	}
 	cmd := NewRootCommand(cmdOpts)
-	if _, err := execute(t, cmd, "refresh", "--worktree", "--semantic-worktree"); err != nil {
-		t.Fatalf("refresh --worktree --semantic-worktree: %v", err)
-	}
-	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network", "--worktree") {
-		t.Fatalf("semantic snapshot was not called with --worktree: %+v", runner.calls)
-	}
-	storage, err := repoStoragePaths(context.Background(), runner, cmdOpts.Env, repoDir)
-	if err != nil {
-		t.Fatalf("storage paths: %v", err)
-	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		t.Fatalf("load manifest: %v", err)
-	}
-	if manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Seed.WorktreeMode != "worktree" || manifest.Sources.Seed.WorktreeHash == "" {
-		t.Fatalf("seed was not refreshed from a verifiable worktree snapshot: %+v", manifest.Sources)
+	if _, err := execute(t, cmd, "refresh", "--worktree", "--semantic-worktree"); err == nil || !strings.Contains(err.Error(), "committed HEAD") {
+		t.Fatalf("working-tree persistent index should direct users to Graph queries: %v", err)
 	}
 }
 
@@ -557,7 +545,7 @@ func TestRefreshWorktreeSkipsImplicitSemanticRebuild(t *testing.T) {
 		t.Fatalf("refresh --worktree: %v", err)
 	}
 	for _, call := range runner.calls {
-		if call.name == "entire" && len(call.args) >= 2 && call.args[0] == "graph" {
+		if call.name == "entire" && len(call.args) >= 2 && call.args[0] == "graph" && call.args[1] == "index" {
 			t.Fatalf("seed/docs --worktree unexpectedly rebuilt semantic index: %+v", runner.calls)
 		}
 	}

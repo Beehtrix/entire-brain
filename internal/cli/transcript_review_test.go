@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"os/exec"
@@ -176,9 +177,9 @@ func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 	if _, handled, err := reader(filepath.Join(brain, "docs", "source.md")); err != nil || handled {
 		t.Fatalf("ordinary file intercepted: %v %v", handled, err)
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[session.SessionID] = sessionTombstone{At: opts.Now(), Reason: "purged"}
-	if err := saveSessionTombstones(brain, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brain, stones); err != nil {
 		t.Fatal(err)
 	}
 	for _, target := range targets {

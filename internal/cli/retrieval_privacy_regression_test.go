@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,7 +57,7 @@ func TestRetrievalPrivacyRecheckDoesNotTreatCorruptionAsEmptyEvidence(t *testing
 			}
 			rel := exportManifestFileName
 			if kind == "tombstones" {
-				rel = sessionTombstonesPath
+				rel = brainstore.SessionTombstonesPath
 			}
 			if kind == "history" {
 				manifest, err := loadBrainManifest(dir)

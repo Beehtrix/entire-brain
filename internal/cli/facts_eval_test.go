@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -156,7 +157,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
@@ -250,10 +251,10 @@ func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -311,10 +312,10 @@ func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -512,17 +513,17 @@ func TestFactsEvalRejectsJudgeSourceMatchesWithoutJudge(t *testing.T) {
 	}
 }
 
-func TestFactsEvalRejectsSemanticForNonFactsRetrievers(t *testing.T) {
+func TestFactsEvalRejectsSemanticAsRemoved(t *testing.T) {
 	dir := t.TempDir()
 	tasksPath := filepath.Join(dir, "tasks.json")
 	if err := os.WriteFile(tasksPath, []byte(`[{"id":"t1","task":"check retrieval"}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, retriever := range []string{evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
+	for _, retriever := range []string{evalRetrieverFacts, evalRetrieverHistory, evalRetrieverQuery, evalRetrieverRawSessions} {
 		cmd := newFactsEvalCommand(Options{})
 		_, err := execute(t, cmd, "--tasks", tasksPath, "--retriever", retriever, "--semantic")
-		if err == nil || !strings.Contains(err.Error(), "--semantic requires --retriever facts") {
-			t.Fatalf("%s: expected --semantic retriever validation error, got %v", retriever, err)
+		if err == nil || !strings.Contains(err.Error(), "--semantic was removed") {
+			t.Fatalf("%s: expected --semantic removal error, got %v", retriever, err)
 		}
 	}
 }

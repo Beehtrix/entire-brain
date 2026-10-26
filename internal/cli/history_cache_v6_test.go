@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -132,7 +133,7 @@ func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 	for _, mode := range []string{"deleted", "inode replacement", "symlink swap"} {
 		t.Run(mode, func(t *testing.T) {
 			brainDir := t.TempDir()
-			sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+			sessionDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 			if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -195,7 +196,7 @@ func TestHistoryCacheEmptyRejectsOpenAndIdentityRaces(t *testing.T) {
 // deterministic regardless of directory enumeration order.
 func TestHistoryCacheEmptyFailuresUseSortedScanOrder(t *testing.T) {
 	brainDir := t.TempDir()
-	sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +234,7 @@ func TestHistoryCacheEmptyFailuresUseSortedScanOrder(t *testing.T) {
 func historyMutationRaceFixture(t *testing.T) (string, string, os.FileInfo, time.Time) {
 	t.Helper()
 	brainDir := t.TempDir()
-	sessionDir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +259,7 @@ func historyMutationRaceFixture(t *testing.T) (string, string, os.FileInfo, time
 
 func TestHistoryCacheEmptyFingerprintsButDoesNotCacheParseLimitFailure(t *testing.T) {
 	brainDir := t.TempDir()
-	path := filepath.Join(brainDir, exportSessionsDirectory, "main", "20260717T010000Z-oversized.txt")
+	path := filepath.Join(brainDir, brainstore.SessionsDirName, "main", "20260717T010000Z-oversized.txt")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -2,9 +2,10 @@ package cli
 
 import (
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // factScopeCrossCutting marks facts about how work is done (preferences,
@@ -155,7 +156,7 @@ func reclassifyFacts(facts []factRecord, force bool) int {
 				dirty = true
 			}
 		}
-		if want := nilIfEmpty(factLocus(facts[i].Text)); !equalStrings(facts[i].Locus, want) {
+		if want := nilIfEmpty(base.FactLocus(facts[i].Text)); !equalStrings(facts[i].Locus, want) {
 			facts[i].Locus = want
 			dirty = true
 		}
@@ -205,82 +206,6 @@ func filterFactsByKind(facts []factRecord, kind string) []factRecord {
 	return out
 }
 
-// locusIdentifierPattern matches code-identifier-like tokens: backtick spans are
-// handled separately; this catches dotted paths (settings.Load), file paths
-// (internal/cli/facts.go), CamelCase, and snake_case identifiers.
-//
-// A path segment is `[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*` — interior hyphens are
-// part of the name. Without that, `website/scripts/pre-build.ts` was cut at the
-// hyphen and emitted as TWO tokens, "website/scripts/pre" and "build.ts",
-// neither of which names anything in the repo. That is worse than emitting
-// nothing: a fragment looks like a path, so it anchors a fact to a file that
-// does not exist, and locusTokenIsFilePath cannot even flag the drift (the
-// first fragment has no extension, the second has no slash). Hyphenated names
-// are not exotic here — .github/workflows/*, pre-build.ts, 20260320-no-raft.md.
-//
-// The hyphen must be INTERIOR (followed by more name), so a trailing dash is
-// left out of the token, and a separator (. or /) is still required for the
-// first alternative to fire at all — which is what keeps ordinary hyphenated
-// English ("state-of-the-art") out of the locus.
-//
-// The leading `\.?` is the same defect for dot-directories: ".github/..." was
-// emitted as "github/...", a path that resolves nowhere and would be reported
-// as drifted on every recall.
-var locusIdentifierPattern = regexp.MustCompile(`\.?[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*(?:[./][A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*)+|[A-Za-z_]*[a-z][A-Za-z0-9]*[A-Z][A-Za-z0-9_]*|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+`)
-
-// factLocus extracts the set of code identifiers a fact is about — the symbols,
-// packages, file paths, and refs named in its text (including backtick-quoted
-// spans). Returned lowercased and deduped. This is the locus signal: it lets
-// retrieval boost facts that name the same code the query names, and is the
-// hook for tying facts to the semantic index in a later slice.
-func factLocus(text string) []string {
-	set := map[string]struct{}{}
-	add := func(tok string) {
-		// Trimmed asymmetrically: a LEADING dot is part of the name
-		// (".github/workflows/ci.yml", ".entire/settings.json"), a trailing one
-		// is sentence punctuation. Trimming both ends, as this did, silently
-		// renamed every dot-directory path in the corpus.
-		tok = strings.ToLower(strings.TrimRight(strings.TrimLeft(tok, locusLeadingTrimCutset), locusTrailingTrimCutset))
-		if len(tok) >= 3 {
-			set[tok] = struct{}{}
-		}
-	}
-	// Backtick-quoted spans are almost always code; take each whitespace token.
-	for _, span := range backtickSpanPattern.FindAllStringSubmatch(text, -1) {
-		for _, tok := range strings.Fields(span[1]) {
-			add(tok)
-		}
-	}
-	for _, tok := range locusIdentifierPattern.FindAllString(text, -1) {
-		add(tok)
-	}
-	out := make([]string, 0, len(set))
-	for tok := range set {
-		out = append(out, tok)
-	}
-	sort.Strings(out)
-	return out
-}
-
-const (
-	// locusLeadingTrimCutset omits "." on purpose; see add in factLocus.
-	locusLeadingTrimCutset  = "`,;:([{'\""
-	locusTrailingTrimCutset = "`.,;:)]}'\""
-)
-
-var backtickSpanPattern = regexp.MustCompile("`([^`]+)`")
-
-// factLocusOf returns a fact's stored locus, falling back to deriving it from
-// the text for facts authored before the locus field existed (or never
-// backfilled). Read surfaces use this so locus matching works regardless of
-// whether `reclassify` has run.
-func factLocusOf(f factRecord) []string {
-	if len(f.Locus) > 0 {
-		return f.Locus
-	}
-	return factLocus(f.Text)
-}
-
 // factsRelevantToChange ranks active facts whose locus names a changed file or a
 // symbol defined in those files — the "changed files → relevant facts" tie-in
 // between the durable-facts locus and the semantic graph. files are the changed
@@ -317,7 +242,7 @@ func factsRelevantToChange(files []string, symbols []semanticRecord, facts []fac
 			continue
 		}
 		n := 0
-		for _, tok := range factLocusOf(f) {
+		for _, tok := range base.FactLocusOf(f) {
 			if _, ok := target[tok]; ok {
 				n++
 			}
@@ -352,12 +277,12 @@ func filterFactsByLocus(facts []factRecord, locus string) []factRecord {
 		return facts
 	}
 	want := map[string]struct{}{strings.ToLower(locus): {}}
-	for _, t := range factLocus(locus) {
+	for _, t := range base.FactLocus(locus) {
 		want[t] = struct{}{}
 	}
 	out := facts[:0:0]
 	for _, f := range facts {
-		for _, t := range factLocusOf(f) {
+		for _, t := range base.FactLocusOf(f) {
 			if _, ok := want[t]; ok {
 				out = append(out, f)
 				break
@@ -371,7 +296,7 @@ func filterFactsByLocus(facts []factRecord, locus string) []factRecord {
 // locus derived from its text — the strength of the "they name the same code"
 // signal. Prefer locusOverlapTokens when the fact's locus is already stored.
 func locusOverlap(queryLocus []string, factText string) int {
-	return locusOverlapTokens(queryLocus, factLocus(factText))
+	return locusOverlapTokens(queryLocus, base.FactLocus(factText))
 }
 
 // locusOverlapTokens counts identifiers shared between two locus token sets.

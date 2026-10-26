@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"sort"
 	"strings"
@@ -18,7 +19,6 @@ import (
 // and every source read stays behind the trusted-ID and byte-bound contract.
 
 const (
-	conversationSessionIDPrefix = "conversation-session:"
 
 	// conversationContextMax bounds --context-before/--context-after.
 	conversationContextMax = 3
@@ -50,7 +50,7 @@ func conversationSessionRef(repoKey, canonicalBranch, sessionID, sourceDigest st
 	h.Write([]byte(canonicalBranch))
 	h.Write([]byte{0})
 	h.Write([]byte(identity))
-	return conversationSessionIDPrefix + hex.EncodeToString(h.Sum(nil)), degraded
+	return brainstore.ConversationSessionIDPrefix + hex.EncodeToString(h.Sum(nil)), degraded
 }
 
 // conversationCanonicalBranch resolves a record's canonical branch: the
@@ -90,7 +90,7 @@ type conversationSessionView struct {
 func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
-		if record.Kind != conversationKind || guard.blocksRecord(record) {
+		if record.Kind != conversationKind || guardBlocksRecord(guard, record) {
 			continue
 		}
 		ref, degraded := recordSessionRef(record, repoKey, manifest)

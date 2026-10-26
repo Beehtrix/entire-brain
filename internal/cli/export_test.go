@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 type fakeCommandRunner struct {
+	graphStoreFixtures  map[string]graphStoreDescriptor
 	responses           map[string]fakeCommandResponse
 	sequences           map[string][]fakeCommandResponse
 	semanticSnapshotAny *fakeCommandResponse
@@ -76,6 +82,9 @@ func (r *fakeCommandRunner) run(ctx context.Context, dir string, env map[string]
 
 	response, ok := r.responses[key]
 	if !ok {
+		if response, handled := r.fakeGraphStoreCommand(dir, name, args); handled {
+			return []byte(response.stdout), []byte(response.stderr), response.err
+		}
 		if r.semanticSnapshotAny != nil && fakeCommandIsSemanticSnapshotAnyRepo(name, args) {
 			response := *r.semanticSnapshotAny
 			return []byte(response.stdout), []byte(response.stderr), response.err
@@ -169,6 +178,23 @@ func (s *fakeCommandStream) Close() error          { return nil }
 
 func fakeCommandKey(name string, args ...string) string {
 	return name + "\x00" + strings.Join(args, "\x00")
+}
+
+// routedCheckpointListArgs is how listRoutedCheckpoints spells a request for
+// the whole catalog, including the explicit unlimited --limit that "all" has
+// to be expressed as. Both the fixtures and the assertions go through here, so
+// a change to how the brain asks for an uncapped list cannot quietly turn
+// fifteen stubs into misses and a guard into a no-op.
+func routedCheckpointListArgs(searchAll bool) []string {
+	args := []string{"checkpoint", "explain", "--json"}
+	if searchAll {
+		args = append(args, "--search-all")
+	}
+	return append(args, "--limit", strconv.Itoa(routedCheckpointListUnlimited))
+}
+
+func fakeRoutedCheckpointListKey(name string, searchAll bool) string {
+	return fakeCommandKey(name, routedCheckpointListArgs(searchAll)...)
 }
 
 func fakeCommandIsSemanticSnapshotAnyRepo(name string, args []string) bool {
@@ -441,9 +467,14 @@ func TestDiscoverCheckpointsUnknownBackendCombinesLocalAndRoutedResults(t *testi
 	}
 }
 
-func TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded(t *testing.T) {
+// Renamed from TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded, which
+// asserted the defect: that an unbounded list omits --limit. The host reads an
+// absent --limit as 100, so omitting it asked for a hundred checkpoints rather
+// than all of them. What this still uniquely covers is the --search-all form
+// and a clean run reporting no warnings.
+func TestListAllRoutedCheckpointsAsksEntireForTheWholeCatalog(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[{"checkpoint_id":"01KVBJCWYA4YW6J5M9GP655HZN","is_logs_only":true}]`,
 		},
 	}}
@@ -451,15 +482,16 @@ func TestListAllRoutedCheckpointsOmitsLimitWhenUnbounded(t *testing.T) {
 	if err != nil || len(warnings) != 0 || len(checkpoints) != 1 {
 		t.Fatalf("unbounded routed list = checkpoints:%+v warnings:%v err:%v", checkpoints, warnings, err)
 	}
-	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != "checkpoint explain --json --search-all" {
-		t.Fatalf("unexpected routed argv: %+v", runner.calls)
+	want := strings.Join(routedCheckpointListArgs(true), " ")
+	if len(runner.calls) != 1 || strings.Join(runner.calls[0].args, " ") != want {
+		t.Fatalf("unexpected routed argv: want %q, got %+v", want, runner.calls)
 	}
 }
 
 func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.T) {
 	stderr := entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"checkpoint_remote_enumeration_failed","count":1}]}` + "\n"
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[{"checkpoint_id":"aaa111aaa111","is_logs_only":true}]`, stderr: stderr,
 		},
 	}}
@@ -481,7 +513,7 @@ func TestListAllRoutedCheckpointsClassifiesStructuredIncompleteScope(t *testing.
 // brains that already hold sessions.
 func TestDiscoverCheckpointsTreatsIncompleteZeroResultAsEmpty(t *testing.T) {
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
-		fakeCommandKey("entire-test", "checkpoint", "explain", "--json", "--search-all"): {
+		fakeRoutedCheckpointListKey("entire-test", true): {
 			stdout: `[]`,
 			stderr: entireCheckpointScopePrefix + `{"schema_version":1,"code":"checkpoint_scope_incomplete","complete":false,"issues":[{"code":"local_checkpoint_unreadable","count":1}]}` + "\n",
 		},
@@ -515,7 +547,7 @@ func TestSelectRoutedCheckpointSessionsSkipsUnreadableDetailSibling(t *testing.T
 			stdout: `{"checkpoint_id":"bbb222bbb222","branch":"main","sessions":[{"index":0,"session_id":"readable-session","branch":"main"}]}`,
 		},
 	}}
-	selected, warnings, complete, err := selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil)
+	selected, warnings, complete, err := selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints, checkpointBranchDestinations{}, nil, nil)
 	if err != nil || len(selected) != 1 || complete {
 		t.Fatalf("partial routed detail selection = selected:%+v warnings:%v err:%v", selected, warnings, err)
 	}
@@ -526,7 +558,7 @@ func TestSelectRoutedCheckpointSessionsSkipsUnreadableDetailSibling(t *testing.T
 		t.Fatalf("backend content leaked through warning: %v", warnings)
 	}
 
-	selected, warnings, complete, err = selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints[:1], checkpointBranchDestinations{}, nil)
+	selected, warnings, complete, err = selectRoutedCheckpointSessions(context.Background(), runner, "/repo", "entire-test", checkpoints[:1], checkpointBranchDestinations{}, nil, nil)
 	if err == nil || complete || len(selected) != 0 || !strings.Contains(err.Error(), checkpointScopeIncompleteCode) {
 		t.Fatalf("all-unreadable routed details = selected:%+v warnings:%v err:%v", selected, warnings, err)
 	}
@@ -561,11 +593,85 @@ func TestRemoveForcedOutputDirRejectsArbitraryJSONManifest(t *testing.T) {
 	}
 
 	err := removeForcedOutputDir(outputDir, "")
-	if err == nil || !strings.Contains(err.Error(), "schema_version") {
+	// Normalized SchemaVersion 0 -> 1 is within the supported read range, so an
+	// arbitrary file with no recognized brain sources is now rejected on that
+	// basis, not on schema_version.
+	if err == nil || !strings.Contains(err.Error(), "missing recognized brain sources") {
 		t.Fatalf("expected arbitrary manifest rejection, got %v", err)
 	}
 	if _, statErr := os.Stat(oldPath); statErr != nil {
 		t.Fatalf("arbitrary manifest output was removed: %v", statErr)
+	}
+}
+
+// --force must still be able to discard a manifest an older build wrote: a v3
+// store from before the v4 schema bump is exactly the "store we promise not to
+// break" that memory_admin.go's own remedy for an unrewritable manifest sends
+// a user to --force rebuild from. Equality against the current schema version
+// once refused this.
+func TestRemoveForcedOutputDirAcceptsOlderSupportedSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	v3Manifest := []byte(`{"schema_version":3,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), v3Manifest, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "stale.txt")
+	if err := os.WriteFile(marker, []byte("stale"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	if err := removeForcedOutputDir(outputDir, ""); err != nil {
+		t.Fatalf("removeForcedOutputDir rejected a v3 manifest: %v", err)
+	}
+	if _, statErr := os.Stat(outputDir); !os.IsNotExist(statErr) {
+		t.Fatalf("v3 output directory was not removed: %v", statErr)
+	}
+}
+
+// --force is the deliberate destructive discard-and-rebuild escape hatch, and
+// for a manifest a NEWER build wrote it is the only recovery available: this
+// build cannot parse the rest of it, let alone rewrite it. The schema check
+// here only confirms the target is a genuine brain store; a newer
+// schema_version still satisfies that, so --force must not refuse it.
+func TestRemoveForcedOutputDirAcceptsNewerSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	newer := []byte(fmt.Sprintf(`{"schema_version":%d,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}`, brainManifestSchemaVersion+1) + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), newer, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "marker.txt")
+	if err := os.WriteFile(marker, []byte("marker"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	if err := removeForcedOutputDir(outputDir, ""); err != nil {
+		t.Fatalf("removeForcedOutputDir rejected a newer manifest: %v", err)
+	}
+	if _, statErr := os.Stat(outputDir); !os.IsNotExist(statErr) {
+		t.Fatalf("newer-schema output directory was not removed: %v", statErr)
+	}
+}
+
+// A version below the oldest this build has ever read is the genuine
+// not-a-brain-store signal validateForcedOutputManifest exists to catch --
+// unlike a newer schema_version, --force must still refuse this.
+func TestRemoveForcedOutputDirRejectsBelowMinimumSchemaVersion(t *testing.T) {
+	outputDir := t.TempDir()
+	tooOld := []byte(`{"schema_version":-1,"sources":{"sessions":{"generated_at":"2026-01-01T00:00:00Z"}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), tooOld, 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	marker := filepath.Join(outputDir, "marker.txt")
+	if err := os.WriteFile(marker, []byte("marker"), 0o600); err != nil {
+		t.Fatalf("write marker file: %v", err)
+	}
+
+	err := removeForcedOutputDir(outputDir, "")
+	if err == nil || !strings.Contains(err.Error(), "older than the first supported version") {
+		t.Fatalf("expected below-minimum rejection, got %v", err)
+	}
+	if _, statErr := os.Stat(marker); statErr != nil {
+		t.Fatalf("below-minimum manifest output was removed: %v", statErr)
 	}
 }
 
@@ -1797,7 +1903,7 @@ func TestCheckpointIDsFromCommitMessageText(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got := checkpointIDsFromCommitMessageText(test.message)
+			got := base.CheckpointIDsFromCommitMessageText(test.message)
 			if strings.Join(got, "\x00") != strings.Join(test.want, "\x00") {
 				t.Fatalf("checkpoint IDs = %q, want %q", got, test.want)
 			}
@@ -1814,7 +1920,7 @@ func TestBuildCheckpointBranchDestinationsRoutesCanonicalULIDToDefaultBranch(t *
 	repoDir := t.TempDir()
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 		fakeCommandKey("git", "show-ref", "--verify", "--quiet", defaultRef): {},
-		fakeCommandKey("git", "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef): {
+		fakeCommandKey("git", "log", "--format=%B", "--grep", base.CheckpointTrailerKey+":", defaultRef): {
 			stdout: "Merge checkpoints\n\nEntire-Checkpoint: " + ulid + "\nEntire-Checkpoint: " + legacyID + "\n",
 		},
 	}}
@@ -2026,7 +2132,7 @@ func TestBuildBranchDirectoriesStableAcrossSlugCollisions(t *testing.T) {
 	base := buildBranchDirectories([]exportSession{{Branch: "a/b"}}, "main")
 	withCollision := buildBranchDirectories([]exportSession{{Branch: "a/b"}, {Branch: "a-b"}}, "main")
 
-	if base["main"] != filepath.Join(exportSessionsDirectory, "main") {
+	if base["main"] != filepath.Join(brainstore.SessionsDirName, "main") {
 		t.Fatalf("default branch directory changed: %q", base["main"])
 	}
 	if base["a/b"] != withCollision["a/b"] {
@@ -2035,7 +2141,7 @@ func TestBuildBranchDirectoriesStableAcrossSlugCollisions(t *testing.T) {
 	if withCollision["a/b"] == withCollision["a-b"] {
 		t.Fatalf("colliding branches share a transcript directory: %+v", withCollision)
 	}
-	if !strings.HasPrefix(withCollision["a/b"], filepath.Join(exportSessionsDirectory, exportBranchesDirectory, "a-b-")) {
+	if !strings.HasPrefix(withCollision["a/b"], filepath.Join(brainstore.SessionsDirName, exportBranchesDirectory, "a-b-")) {
 		t.Fatalf("unexpected stable branch directory: %q", withCollision["a/b"])
 	}
 }
@@ -2062,11 +2168,11 @@ func TestReadBrainRelativeFileRejectsSymlinkComponents(t *testing.T) {
 func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
 	outputDir := t.TempDir()
 	outsideDir := t.TempDir()
-	if err := os.Symlink(outsideDir, filepath.Join(outputDir, exportSessionsDirectory)); err != nil {
+	if err := os.Symlink(outsideDir, filepath.Join(outputDir, brainstore.SessionsDirName)); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	err := writeTranscriptFile(outputDir, filepath.Join(exportSessionsDirectory, "main", "session.jsonl"), []byte("safe\n"))
+	err := writeTranscriptFile(outputDir, filepath.Join(brainstore.SessionsDirName, "main", "session.jsonl"), []byte("safe\n"))
 	if err == nil {
 		t.Fatal("expected writeTranscriptFile to reject symlink directory")
 	}
@@ -2077,7 +2183,7 @@ func TestWriteTranscriptFileRejectsSymlinkDirectory(t *testing.T) {
 
 func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 	outputDir := t.TempDir()
-	relPath := filepath.Join(exportSessionsDirectory, "main", "session.jsonl")
+	relPath := filepath.Join(brainstore.SessionsDirName, "main", "session.jsonl")
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(outputDir, relPath)), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -2088,7 +2194,7 @@ func TestTranscriptCacheSweepRejectsSymlinkedTranscript(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(outputDir, relPath)); err != nil {
 		t.Skip(err)
 	}
-	if inventory, err := planTranscriptCacheSweep(context.Background(), ExecRunner{}, outputDir, ""); err == nil {
+	if inventory, err := planTranscriptCacheSweep(context.Background(), ExecRunner{}, outputDir, "", nil); err == nil {
 		if inventory != nil {
 			inventory.Close()
 		}

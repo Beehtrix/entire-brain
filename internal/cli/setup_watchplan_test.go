@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // setup_watchplan_test.go pins the one-watcher invariant setup.go states in its
@@ -244,17 +246,17 @@ func TestDescribeDaemonStateSurfacesADriftedUnit(t *testing.T) {
 	}
 	drifted := base
 	drifted.Running = true
-	got := describeDaemonState(drifted, setupBrainBinaryName)
+	got := describeDaemonState(drifted, clibase.SetupBrainBinaryName)
 	if !strings.Contains(got, "not current") {
 		t.Fatalf("a running-but-not-current daemon must not be described as plain %q", got)
 	}
 	current := drifted
 	current.Current = true
-	if got := describeDaemonState(current, setupBrainBinaryName); strings.Contains(got, "not current") {
+	if got := describeDaemonState(current, clibase.SetupBrainBinaryName); strings.Contains(got, "not current") {
 		t.Fatalf("a current, running daemon must not be reported as stale: %q", got)
 	}
 	stopped := base
-	if got := describeDaemonState(stopped, setupBrainBinaryName); !strings.Contains(got, "not current") {
+	if got := describeDaemonState(stopped, clibase.SetupBrainBinaryName); !strings.Contains(got, "not current") {
 		t.Fatalf("an installed, stopped, drifted daemon must say so: %q", got)
 	}
 }
@@ -546,7 +548,7 @@ func TestSupervisedWatchBudgetSurvivesOuterPasses(t *testing.T) {
 // turns it off — used to be printed AFTER the detached child was already
 // running, so the first thing the number was good for was reading it about a
 // spend already underway.
-func TestSetupSaysWhatTheBackfillCostsBeforeItSpends(t *testing.T) {
+func TestSetupVerboseSaysWhatTheBackfillCostsBeforeItSpends(t *testing.T) {
 	f := newSetupTestFixture(t, "s1", "s2", "s3")
 	rec := &recordedSetup{agent: "claude"}
 	steps := rec.steps(f)
@@ -563,6 +565,7 @@ func TestSetupSaysWhatTheBackfillCostsBeforeItSpends(t *testing.T) {
 	opts := defaultSetupOptions()
 	// The fact phase asks before it spends; a test with no terminal consents
 	// by flag, exactly as a CI run must.
+	opts.verbose = true // detailed spend announcement belongs to the verbose view
 	opts.yes = true
 	opts.noDaemon = true
 	opts.model = "haiku"

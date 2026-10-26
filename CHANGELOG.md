@@ -5,7 +5,115 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-26
+
+### Removed
+
+- The one-time migrations for Brain's old code stores. Refresh, code inspection,
+  and bundle operations now refuse old layouts with recovery instructions;
+  status and doctor report the same problem. Run `entire brain refresh index`
+  with entire-brain 0.2.0 once before upgrading to preserve runtime traces, or
+  back up and remove the brain directory and refresh to rebuild. Legacy vector
+  detection remains in place for health and privacy checks.
+
 ### Changed
+
+- Releases no longer re-prove retained performance evidence at tag time. The
+  `release-evidence` job moved from the `test` workflow (where it ran on `v*`
+  tags and blocked publishing) to a dispatch-only `evidence` workflow. Evidence
+  is a point-in-time record: each manifest names the `source_head` it measured,
+  every `mise run <lane>:evidence:update` audits with `--fail-on-flags` before
+  writing reports, and the timed distill lanes' corpora are machine-bound, so
+  re-measuring at every tag made releases wait on measurements the release did
+  not change. Tagging now only builds, verifies, and publishes binaries.
+
+- Re-recorded the Radar tool-contract evidence and the current-repo distill
+  scheduler evidence against current main (median 1.89x of five pairs vs the
+  1.25x floor, measured on a fresh zero-fact store so reconcile stays quiet).
+  The large-repo distill lane still carries its September record; its corpus
+  (a 2,375-session local brain store) exists only on the original recorder's
+  machine.
+
+### Fixed
+
+- The sessions export no longer stalls for hours on a host CLI whose remote
+  metadata fetch times out per checkpoint (entireio/cli#2902: 319 routed
+  checkpoints × a 120s fetch deadline read as a `setup` hang). After three
+  consecutive `checkpoint explain` reads each over 60 seconds, a circuit
+  breaker stops asking, folds every skipped checkpoint into one counted
+  warning naming the cause and the remedy, and the export finishes degraded
+  in minutes. Validation tracked in COR-2277.
+
+- A first `setup` no longer ends on `freshness: degraded`. The agent wiring
+  files setup itself writes — `AGENTS.md`, `CLAUDE.md`, and the PreToolUse
+  entry in `.claude/settings.json` — no longer count as a dirty worktree in the
+  live state report, the same exemption the dirty-worktree gate already
+  applied. The files stay in the indexed corpus.
+
+- `status --fail-on degraded` and `--fail-on unsafe` no longer pass without
+  looking when the brain has no semantic assessment: a degraded or unsafe
+  retrieval freshness now trips the gate even when no graph provider is
+  installed. A healthy retrieval report still does not substitute for the
+  missing assessment, so `--fail-on release` keeps failing on unindexed brains.
+
+- `mise run release:smoke` leg 1 gates on `--fail-on release` instead of
+  `--fail-on degraded`, so a runner without the entire-graph provider fails
+  loudly ("freshness is unset") instead of passing a gate that assessed
+  nothing — which is how the gate silently weakened on machines without the
+  provider. The honest gate immediately caught a second suite bug: the
+  per-machine brain state dirs lived inside the scratch repo, so the brain's
+  own writes dirtied the tree and the seed never built; the state dirs now
+  live beside the repo.
+
+## [0.2.0] - 2026-10-23
+
+### Removed
+
+- The `init-agents` command. `setup` already ran the same installer; the
+  command's two unique behaviors moved onto `setup`: `--strict` / `--normal`
+  save the guidance mode, and the nested-repository warning prints before any
+  phase runs. The agent wiring stays best-effort — a repository that will not
+  accept the instruction files still gets a working brain and one warning
+  naming a `setup` re-run as the repair. `agent-guide` remains the read-only
+  preview. The removed command fails with an error naming `setup` as the
+  replacement (#453).
+
+- Semantic (embedding) memory retrieval. A 1,748-run agent eval measured BM25
+  lexical ranking matching or beating the embedder stack end-to-end (see
+  `docs/eval_ledger.md` and trail #278), so the Model2Vec vector arm is gone
+  and the cgo build dependency was stripped (#416). BM25 lexical is the only
+  ranking. `query --semantic`, `vsearch`, MCP `brain_vsearch`, and
+  `recall --no-semantic` are accepted as no-op compatibility aliases that run
+  the same BM25 ranking; `--semantic` and `vsearch` print a stderr notice.
+  `entire brain capabilities --json` reports `semantic_compiled: false`.
+  Graph's semantic code retrieval (`brain_code`, `brain_context`,
+  `brain_impact`) is unaffected.
+
+- The gitmeta memory-sync backend and the branch-head CAS sync client: the
+  `--memories-backend` flag, the hosted proposals queue, and the
+  `memories proposals` command. One sync mechanism remains — the hosted
+  per-fact wire. A connected repository syncs hosted by default (connecting is
+  the consent); an unconnected repository keeps memories local and
+  `memories sync` fails with an error naming `connect`. Removed flag values
+  fail with a clear message (#452).
+
+### Changed
+
+- Code inspection reads Graph's shared committed-tree store. `refresh index`
+  asks Graph to build it and migrates runtime observations before retiring
+  Brain's duplicate code snapshots and SQLite generations. Briefs still work
+  without Graph; code context requires Graph's read-only store interface.
+- Bundles carry Brain data and runtime observations without copying code indexes.
+  Persistent worktree code indexes are retired; use Graph queries without
+  `--head` to inspect uncommitted code.
+
+- An installed Graph that predates the read-only store contract is reported as
+  a skipped optional capability, not a failure. `setup` records the semantic
+  component as skipped with the upgrade remedy, `status` renders it with the
+  skipped glyph, and the verdict names the Graph upgrade instead of pairing
+  "semantic failed" with a dirty-worktree remedy that cannot fix it. A store
+  contract newer than the running build still reports as failed: that one is
+  fixed by upgrading entire-brain.
 
 - Durable facts are now called memories on the command surface: the `facts`
   command group is renamed to `memories`, and help text, flag names
@@ -14,6 +122,26 @@ All notable changes to `entire-brain` are recorded here. The format follows
   alias and the old flag names are accepted. JSON output keys, record ids
   (`fact:<hex>`), on-disk file names, the sync wire, and the eval harness are
   unchanged (tracked in COR-2190).
+- The brain manifest schema is v4. Older stores migrate forward on first use;
+  destructive migrations run only in the foreground, never from background
+  jobs (#459).
+- Bundle import rejects a bundle whose schema is newer than the binary and
+  announces discarded code indexes instead of silently dropping them (#454).
+- Every degraded-state warning names the command that repairs it, including
+  the previously dead-end "history index must not be hardlinked" failure, and
+  Graph-store version errors name the right binary and the command that
+  installs it (#457, #458, #461).
+- The default terminal theme is the Entire CLI palette, so brain output
+  matches the host CLI. The previous neutral 256-color scheme remains
+  available as a named theme via `--theme` / `ENTIRE_BRAIN_THEME` (#460).
+
+### Added
+
+- `mise run release:smoke`: an end-to-end release gate that exercises setup,
+  capture, distill, recall, graph query, hosted upload, and second-clone
+  pull/merge on scratch repositories (#451).
+- Nightly and release publishing are gated on a Windows verification job, so
+  Windows artifacts no longer ship untested (#455).
 
 ## [0.1.0] - 2026-09-19
 

@@ -110,13 +110,13 @@ schema-2 harness was committed as
 - exact product binary SHA-256
   `099253bd8f19522cb3c2a3bb70fe27a0bce572bbae58b77f655a22069484d793`;
 - exhaustive compact-v2 golden SHA-256
-  `e0bc12b75059a7bba809ef1a66739c49d397852a30271da1b3e2ef4f9a6ca982`;
+  `e7dd2b621aba6d0c25ff465e9f7402078b2e8959a4df9a8c972185030de05816`;
 - runner source SHA-256
   `6d4fb8a3abf077fc98b6cc098db32b53d85610067ef8245b3e84fb8c7cef91b4`;
 - imported profile source SHA-256
   `348bce25df0025ec03dfd782734996d942458999c52fa9f372374515c344a91f`;
 - canonical contract fingerprint
-  `df4b35287f95afc8773371006e83506e2f2b729e9a03ccd80f51b961de647d91`;
+  `71293d9cb8379be4a72f821fb0e16272ecea7ae939652d1780dbf44b002917d6`;
   and
 - runner-identity self-hash
   `1f000aabed9d7b0841a87f29cc0f525b5871c40ac87fc42245dafbfd5f3ab0ad`.

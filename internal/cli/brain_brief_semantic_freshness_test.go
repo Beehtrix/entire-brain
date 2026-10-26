@@ -59,11 +59,10 @@ func newBrainBriefSemanticFreshnessFixture(t *testing.T) brainBriefSemanticFresh
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{semBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	// The index describes aaa111, while the clean worktree is now at bbb222.
-	// The current files above remain; the two legacy semantic files departed.
-	runner.responses[fakeCommandKey("git", "rev-parse", "HEAD")] = fakeCommandResponse{stdout: "bbb222\n"}
-	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{}
-	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{}
+	// The Graph store describes HEAD; two files were deleted in the working tree.
+	// Brain must filter those departed records from the packet.
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " D packages/store/legacy_query.ts\n D packages/store/legacy_query.test.ts\n"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: " D packages/store/legacy_query.ts\n D packages/store/legacy_query.test.ts\n"}
 	runner.responses[fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD")] = fakeCommandResponse{}
 	runner.responses[fakeCommandKey("git", "diff", "--name-status", "-M", "-C", "HEAD")] = fakeCommandResponse{}
 	return brainBriefSemanticFreshnessFixtureEnv{repoDir: repoDir, opts: opts}

@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Pattern corpus enrichment (V2, Phase 2): turn episodes into brain events by
@@ -60,7 +63,7 @@ func corpusCommits(workText string) []corpusCommit {
 		out = append(out, corpusCommit{
 			hash:    hash,
 			branch:  m[1],
-			subject: redactText(truncateString(strings.TrimSpace(m[3]), 160)),
+			subject: clibase.RedactText(clibase.TruncateString(strings.TrimSpace(m[3]), 160)),
 			line:    i + 1,
 		})
 	}
@@ -245,7 +248,7 @@ func classifyMetaHits(intent, workText string, nCmds int, validationCmd bool) []
 	li := strings.ToLower(intent)
 	var hits []corpusMetaHit
 	add := func(id, quote string) {
-		hits = append(hits, corpusMetaHit{metaID: id, quote: redactText(truncateString(quote, 160))})
+		hits = append(hits, corpusMetaHit{metaID: id, quote: clibase.RedactText(clibase.TruncateString(quote, 160))})
 	}
 	for _, set := range metaCueSet {
 		for _, cue := range set.cues {
@@ -279,15 +282,9 @@ func classifyMetaHits(intent, workText string, nCmds int, validationCmd bool) []
 	return out
 }
 
-var validationCommandHeads = map[string]bool{
-	"go test": true, "go vet": true, "mise test": true, "mise run": true, "npm test": true,
-	"pnpm test": true, "yarn test": true, "cargo test": true, "pytest": true, "gofmt": true,
-	"make test": true, "make check": true,
-}
-
 func episodeHasValidationCommand(commands []corpusCommand) bool {
 	for _, c := range commands {
-		if validationCommandHeads[c.head] {
+		if patterncore.ValidationCommandHeads[c.head] {
 			return true
 		}
 	}

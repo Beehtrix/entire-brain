@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 const privacyCanary = "CANARY-XYZQ-SECRET-TOKEN"
@@ -90,7 +93,7 @@ func assertCanaryAbsent(t *testing.T, brainDir string) {
 			}
 		}
 	}
-	sessionsRoot := filepath.Join(brainDir, exportSessionsDirectory)
+	sessionsRoot := filepath.Join(brainDir, brainstore.SessionsDirName)
 	_ = filepath.Walk(sessionsRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info == nil || info.IsDir() {
 			return nil
@@ -124,9 +127,9 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 	}
 
 	// Exclude via tombstone + rebuild (the command core, without CLI plumbing).
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	source, err := writeBrainHistoryIndexAndSource(brainDir, now, nil)
@@ -167,7 +170,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 
 	// Include requires explicit action and cleanly rebuilds.
 	delete(stones.Excluded, "secret-sess")
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	source, err = writeBrainHistoryIndexAndSource(brainDir, now.Add(time.Minute), nil)
@@ -222,7 +225,7 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertCanaryAbsent(t, brainDir)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	if _, ok := stones.Excluded["secret-sess"]; !ok {
 		t.Fatal("purge must leave a tombstone")
 	}
@@ -263,37 +266,37 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 
 func TestSessionTombstonesRoundTripAndCorruptFailClosed(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	if len(stones.Excluded) != 0 {
 		t.Fatalf("fresh brain must have no tombstones: %+v", stones)
 	}
 	stones.Excluded["s1"] = sessionTombstone{At: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
-	reloaded := loadSessionTombstones(brainDir)
-	if _, ok := reloaded.Excluded["s1"]; !ok || reloaded.Version != sessionTombstonesVersion {
+	reloaded := brainstore.LoadSessionTombstones(brainDir)
+	if _, ok := reloaded.Excluded["s1"]; !ok || reloaded.Version != brainstore.SessionTombstonesVersion {
 		t.Fatalf("round trip failed: %+v", reloaded)
 	}
 	// The tombstone file must never retain excluded content; only id, time,
 	// and the caller-supplied reason.
-	raw, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)))
+	raw, _ := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)))
 	var generic map[string]any
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		t.Fatal(err)
 	}
 	// A present corrupt policy is not equivalent to an absent policy: failing
 	// open here could disclose or re-index a session excluded before restart.
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)), []byte("{broken"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)), []byte("{broken"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, state, err := loadSessionTombstonesChecked(brainDir)
+	_, state, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var loadErr *sessionTombstoneLoadError
-	if !errors.As(err, &loadErr) || loadErr.Code != memoryErrStateCorrupt || state.State != sessionTombstoneCorrupt {
-		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, memoryErrStateCorrupt)
+	if !errors.As(err, &loadErr) || loadErr.Code != brainstore.StateCorruptCode || state.State != brainstore.SessionTombstoneCorrupt {
+		t.Fatalf("corrupt tombstones state=%+v err=%v, want typed %s", state, err, brainstore.StateCorruptCode)
 	}
 }
 
@@ -340,7 +343,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), []byte(episodesBuf.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patternCorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -365,7 +368,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if plan.FactsDeleted != 1 || plan.FactAnchorsStripped != 1 || plan.Episodes != 1 {
 		t.Fatalf("plan = facts_deleted=%d stripped=%d episodes=%d, want 1/1/1", plan.FactsDeleted, plan.FactAnchorsStripped, plan.Episodes)
 	}
-	wantStores := map[string]bool{patternCorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
+	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
 	for _, store := range plan.DerivedStores {
 		if _, ok := wantStores[store.Path]; ok {
 			wantStores[store.Path] = true
@@ -438,9 +441,9 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 func TestExcludedSessionsProduceNoEpisodesOrCorpusRows(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 7, 15, 0, 0, 0, time.UTC)
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	episodes, _, err := buildBrainEpisodes(brainDir, now)
@@ -474,7 +477,7 @@ func TestPurgeReportsGitmetaSyncCaveat(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := purgeGitmetaSyncCaveats(env, "gh/o/r", plan)
-	if len(got) != 1 || !strings.Contains(got[0], "facts sync") || !strings.Contains(got[0], "no deletion semantics") {
+	if len(got) != 1 || !strings.Contains(got[0], "git-meta store") || !strings.Contains(got[0], "no deletion semantics") {
 		t.Fatalf("caveat = %v", got)
 	}
 
@@ -617,11 +620,11 @@ func TestPrivacyRetentionSelectsByAgeAndBranch(t *testing.T) {
 
 	// Apply exclusion via the same mechanism retention uses and confirm the
 	// projections drop both, while the fresh session survives.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	for _, id := range selected {
 		stones.Excluded[id] = sessionTombstone{At: now, Reason: "retention max-age 20h0m0s"}
 	}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	source, err := writeBrainHistoryIndexAndSource(brainDir, now, nil)
@@ -674,9 +677,9 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 
 	// Tombstone only; deliberately NO rebuild and NO cleanup (the mid-cleanup
 	// window the guard exists for).
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "user requested"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 
@@ -753,7 +756,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), append(line, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternCorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -773,7 +776,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	}
 
 	var plan sessionPurgePlan
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var planErr error
 		plan, planErr = buildSessionPurgePlan(brainDir, "secret-sess")
 		if planErr != nil {
@@ -846,8 +849,8 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 		t.Fatalf("post-exclusion verify must be clean: %+v", report.Findings)
 	}
 	// The durable transaction record ends complete.
-	tx, ok := loadPrivacyTransaction(brainDir, "secret-sess")
-	if !ok || tx.State != privacyStateComplete || tx.Operation != "exclude" {
+	tx, ok := brainstore.LoadPrivacyTransaction(brainDir, "secret-sess")
+	if !ok || tx.State != brainstore.PrivacyStateComplete || tx.Operation != "exclude" {
 		t.Fatalf("transaction record = %+v ok=%v, want complete exclude", tx, ok)
 	}
 }
@@ -866,7 +869,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if err := os.MkdirAll(patternsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusFull := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.WriteFile(corpusFull, []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -889,11 +892,11 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if err == nil {
 		t.Fatal("purge with an undeletable store must fail")
 	}
-	if !strings.Contains(err.Error(), patternCorpusPath) {
+	if !strings.Contains(err.Error(), patterncore.CorpusPath) {
 		t.Fatalf("failure must name the artifact: %v", err)
 	}
 	// The failure is a durable error state naming what stopped it.
-	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateError || !strings.Contains(tx.Error, patternCorpusPath) {
+	if tx, ok := brainstore.LoadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != brainstore.PrivacyStateError || !strings.Contains(tx.Error, patterncore.CorpusPath) {
 		t.Fatalf("transaction record after failure = %+v ok=%v", tx, ok)
 	}
 	// Verification independently flags the survivor.
@@ -903,7 +906,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	}
 	flagged := false
 	for _, finding := range report.Findings {
-		if finding.Artifact == "derived_store" && strings.Contains(finding.Detail, patternCorpusPath) {
+		if finding.Artifact == "derived_store" && strings.Contains(finding.Detail, patterncore.CorpusPath) {
 			flagged = true
 		}
 	}
@@ -929,7 +932,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 	if !report.Clean {
 		t.Fatalf("post-recovery verify must be clean: %+v", report.Findings)
 	}
-	if tx, ok := loadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != privacyStateComplete || tx.Operation != "purge" {
+	if tx, ok := brainstore.LoadPrivacyTransaction(brainDir, "secret-sess"); !ok || tx.State != brainstore.PrivacyStateComplete || tx.Operation != "purge" {
 		t.Fatalf("transaction record after recovery = %+v ok=%v", tx, ok)
 	}
 	assertCanaryAbsent(t, brainDir)
@@ -954,9 +957,9 @@ func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
 	}
 	// Tombstone without cleanup, then make the dirty store LOOK newer than the
 	// tombstone write: the mtime heuristic alone would pass it.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	ftsPath := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))

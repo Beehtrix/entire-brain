@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func assertHistoryManifestUnchanged(t *testing.T, brainDir string, before *historySourceManifest) {
@@ -58,7 +60,7 @@ func TestHistoryProjectionPromotionRejectsFinalGenerationSymlink(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -85,7 +87,7 @@ func TestHistoryProjectionPromotionRejectsSwappedStagingSymlink(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -115,7 +117,7 @@ func TestHistoryProjectionPromotionPreservesUnknownOrphanContents(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -138,7 +140,7 @@ func TestHistoryProjectionCleanupQuarantineRecovery(t *testing.T) {
 		if err := os.Rename(active, quarantine); err != nil {
 			t.Fatal(err)
 		}
-		if err := withBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
+		if err := brainstore.WithBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Lstat(quarantine); !os.IsNotExist(err) {
@@ -160,7 +162,7 @@ func TestHistoryProjectionCleanupQuarantineRecovery(t *testing.T) {
 		if err := os.Rename(staging, quarantine); err != nil {
 			t.Fatal(err)
 		}
-		if err := withBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
+		if err := brainstore.WithBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
 			t.Fatal(err)
 		}
 		for _, path := range []string{staging, quarantine} {
@@ -186,7 +188,7 @@ func TestHistoryProjectionCleanupQuarantineRecovery(t *testing.T) {
 		if err := os.WriteFile(unknown, []byte("keep\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		err = withBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) })
+		err = brainstore.WithBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) })
 		if err == nil || !strings.Contains(err.Error(), "unknown entry") {
 			t.Fatalf("recovery error = %v, want unknown-entry rejection", err)
 		}
@@ -212,7 +214,7 @@ func TestHistoryProjectionCleanupQuarantineRecovery(t *testing.T) {
 		if err := os.WriteFile(receipt, future, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := withBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
+		if err := brainstore.WithBrainWriteLock(brainDir, func() error { return recoverHistoryProjectionQuarantines(brainDir) }); err != nil {
 			t.Fatal(err)
 		}
 		if data, err := os.ReadFile(receipt); err != nil || string(data) != string(future) {
@@ -282,7 +284,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		legacy := *source
@@ -328,12 +330,12 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) || !strings.Contains(err.Error(), "digest") {
+		if _, err := loadBrainHistoryIndex(brainDir, source); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) || !strings.Contains(err.Error(), "digest") {
 			t.Fatalf("tampered index error = %v", err)
 		}
 		found := false
 		for _, finding := range detectMemoryMigrations(brainDir, source) {
-			found = found || finding.Path == source.IndexPath && finding.State == memoryErrStateCorrupt
+			found = found || finding.Path == source.IndexPath && finding.State == brainstore.StateCorruptCode
 		}
 		if !found {
 			t.Fatalf("corrupt index not exposed by status findings: %+v", detectMemoryMigrations(brainDir, source))
@@ -345,7 +347,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		source, _ := activeHistoryProjection(t, brainDir)
 		malformed := *source
 		malformed.IndexDigest = "sha256:not-a-digest"
-		if _, err := loadBrainHistoryIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, err := loadBrainHistoryIndex(brainDir, &malformed); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("malformed digest error = %v", err)
 		}
 	})
@@ -441,11 +443,11 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 
 	assertUnsupported := func(label string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-			t.Fatalf("%s error = %v, want %s", label, err, memoryErrUnsupportedVersion)
+		if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+			t.Fatalf("%s error = %v, want %s", label, err, brainstore.UnsupportedVersionCode)
 		}
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, reconcileErr := reconcileMemoryJobsForTestLocked(brainDir, "test", now)
 		return reconcileErr
 	})
@@ -454,7 +456,7 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 	if snapshotErr != nil {
 		t.Fatal(snapshotErr)
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, maintenanceErr := maintainMemoryWorkerStateLocked(brainDir, now, maintenanceSnapshot)
 		return maintenanceErr
 	})
@@ -464,7 +466,7 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, publishErr := publishBrainHistoryProjectionLocked(brainDir, prepared, nil)
 		return publishErr
 	})
@@ -500,8 +502,8 @@ func TestSessionTranscriptDigestIsContainedRegularAndNoFollow(t *testing.T) {
 		"directory": "sessions/main",
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := sessionTranscriptDigest(brainDir, unsafeRel); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-				t.Fatalf("digest error = %v, want %s", err, memoryErrStateUnsafe)
+			if _, err := sessionTranscriptDigest(brainDir, unsafeRel); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+				t.Fatalf("digest error = %v, want %s", err, brainstore.StateUnsafeCode)
 			}
 		})
 	}

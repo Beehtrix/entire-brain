@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Brain could export and could not import, which is the friction a switcher
@@ -304,7 +307,7 @@ func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 	if err := os.MkdirAll(brainDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return updateFactSourceManifestLocked(brainDir, now.Add(-72*time.Hour))
 	}); err != nil {
 		t.Fatalf("seed manifest: %v", err)
@@ -461,14 +464,14 @@ func TestImportRefusesAnOversizedExport(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Sparse: the size is what matters, not the bytes.
-	if err := f.Truncate(maxManifestBytes + 1); err != nil {
+	if err := f.Truncate(base.MaxManifestBytes + 1); err != nil {
 		f.Close()
 		t.Skipf("cannot create a sparse file: %v", err)
 	}
 	f.Close()
 
 	if _, err := readImportFile(path); err == nil {
-		t.Fatalf("an export over the %d-byte limit was read in full", maxManifestBytes)
+		t.Fatalf("an export over the %d-byte limit was read in full", base.MaxManifestBytes)
 	}
 }
 
@@ -511,16 +514,16 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 
 	// The limit is overridable; lowering it keeps this test from pushing the
 	// full production bound through the pipe.
-	prevMax := maxManifestBytes
-	maxManifestBytes = 2 << 20
-	t.Cleanup(func() { maxManifestBytes = prevMax })
+	prevMax := base.MaxManifestBytes
+	base.MaxManifestBytes = 2 << 20
+	t.Cleanup(func() { base.MaxManifestBytes = prevMax })
 
 	// Write past the limit. The reader stops early, so the writer will block on
 	// a full pipe and be abandoned — closing the read end in cleanup releases
 	// it, and the write errors are expected rather than checked. The chunk
 	// count is snapshotted because the abandoned writer may re-check its bound
 	// after cleanup has already restored the var.
-	chunks := (maxManifestBytes >> 20) + 2
+	chunks := (base.MaxManifestBytes >> 20) + 2
 	go func() {
 		defer w.Close()
 		chunk := make([]byte, 1<<20)
@@ -539,7 +542,7 @@ func TestImportRefusesAnOversizedStdinExport(t *testing.T) {
 	select {
 	case readErr := <-done:
 		if readErr == nil {
-			t.Fatalf("stdin past the %d-byte limit was read in full", maxManifestBytes)
+			t.Fatalf("stdin past the %d-byte limit was read in full", base.MaxManifestBytes)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("reading oversized stdin did not terminate")
@@ -564,7 +567,7 @@ func TestImportDoesNotSilentlyFailToSupersedeAnExistingFact(t *testing.T) {
 		Text: text, Branch: branch, Status: factStatusActive, Origin: factOriginAuthored,
 		CreatedAt: now, UpdatedAt: now,
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeFacts(brainDir, branch, []factRecord{local})
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -691,7 +694,7 @@ func TestImportedFactsAppearInTheStatusOriginTally(t *testing.T) {
 		{ID: "b", Paths: []string{"architecture.api.ports"}, Text: "Authored.", Branch: branch, Origin: factOriginAuthored, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 		{ID: "c", Paths: []string{"architecture.api.ports"}, Text: "Imported.", Branch: branch, Origin: factOriginImported, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeFacts(brainDir, branch, facts)
 	}); err != nil {
 		t.Fatalf("seed: %v", err)

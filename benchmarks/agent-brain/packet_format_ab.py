@@ -86,6 +86,11 @@ COMPACT_BODY_TAG_ORDER = (
     "edit_file",
     "test_file",
     "likely_file",
+    # Emitted by the Go renderer between likely_file and symbol: an
+    # ancestor-served answer must declare its staleness BEFORE the results it
+    # qualifies, because a reader that caps how much it consumes would never
+    # reach a caveat printed after them.
+    "staleness",
     "symbol",
     "relation",
     "relation_evidence",
@@ -1074,6 +1079,42 @@ def canonical_projection_from_legacy(value: Any) -> list[dict[str, Any]]:
 
     semantic = _object(report.get("semantic"), "semantic")
     context = _object(semantic.get("context"), "semantic.context")
+    # Before the symbols it qualifies, matching the Go renderer: an
+    # ancestor-served answer that looks exact is the misreading this record
+    # exists to prevent, and a reader that caps its intake must meet the caveat
+    # first. excluded_records is emitted even at zero because unreliable is
+    # structurally empty in the common incomplete case, so a count omitted at
+    # zero would be indistinguishable from a renderer that does not report it.
+    staleness_value = semantic.get("staleness")
+    if staleness_value is not None:
+        staleness = _object(staleness_value, "semantic.staleness")
+        records.append(
+            _record(
+                "staleness",
+                (
+                    (
+                        "ancestor_commit",
+                        _string(_get(staleness, "ancestor_commit", ""), "semantic.staleness.ancestor_commit"),
+                    ),
+                    (
+                        "commits_behind",
+                        _integer(_get(staleness, "commits_behind", 0), "semantic.staleness.commits_behind"),
+                    ),
+                    (
+                        "changed_files",
+                        _opt_strings(_get(staleness, "changed_files", []), "semantic.staleness.changed_files"),
+                    ),
+                    (
+                        "unreliable",
+                        _opt_strings(_get(staleness, "unreliable", []), "semantic.staleness.unreliable"),
+                    ),
+                    (
+                        "excluded_records",
+                        _integer(_get(staleness, "excluded_records", 0), "semantic.staleness.excluded_records"),
+                    ),
+                ),
+            )
+        )
     for symbol in _array(_get(context, "symbols", []), "semantic.context.symbols"):
         records.append(_semantic_symbol_record("symbol", symbol))
     for index, relation in enumerate(_array(_get(context, "relations", []), "semantic.context.relations")):

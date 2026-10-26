@@ -17,6 +17,8 @@ import (
 	"strings"
 	"time"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -264,7 +266,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return errors.New("--agent-timeout-action must be keep-quick, continue, or fail")
 	}
 
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -413,7 +415,7 @@ func runSeed(ctx context.Context, cmd *cobra.Command, opts Options, seedOpts see
 		return nil
 	}
 	if persistentSeed {
-		if err := withBrainWriteLock(outputDir, commitSeed); err != nil {
+		if err := brainstore.WithBrainWriteLock(outputDir, commitSeed); err != nil {
 			return err
 		}
 	} else if err := commitSeed(); err != nil {
@@ -621,7 +623,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		// the digest and discard the binary verdict rather than skipping both.
 		// Without it, editing a PDF under docs/ leaves the fingerprint
 		// identical and the packet looks fresh when it is not.
-		if sum, _, hashErr := hashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
+		if sum, _, hashErr := clibase.HashFileDetectingNUL(filepath.Join(repoDir, clean)); hashErr == nil {
 			entry.Hash = sum
 		}
 		entry.Reason = "included as an extracted document"
@@ -638,7 +640,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 	// an ordinary refresh allocate the full size of the largest doc in the repo —
 	// unbounded, and attacker- or accident-controlled. Hashing incrementally keeps
 	// the recorded digest byte-identical while holding only one buffer.
-	if sum, binary, err := hashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
+	if sum, binary, err := clibase.HashFileDetectingNUL(filepath.Join(repoDir, clean)); err == nil {
 		if binary {
 			entry.Included = false
 			entry.Reason = "binary content"
@@ -769,7 +771,7 @@ func isTestPath(path string) bool {
 func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := clibase.SafeReadFile(path, clibase.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -790,7 +792,7 @@ func packageJSONCommands(path, rel string) ([]seedCommand, error) {
 func miseCommands(path, rel string) ([]seedCommand, error) {
 	// A manifest is small; bound the read so a hostile or corrupt one cannot
 	// exhaust memory before the parser ever sees it.
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := clibase.SafeReadFile(path, clibase.MaxManifestBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", rel, err)
 	}
@@ -884,25 +886,25 @@ func writeSeedArtifacts(outputDir string, scan *seedScanResult) error {
 		return err
 	}
 	fileIndexData = append(fileIndexData, '\n')
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "file-index.json")), fileIndexData, 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "repo-overview.md")), []byte(renderSeedOverview(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "architecture.md")), []byte(renderSeedArchitecture(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "commands.md")), []byte(renderSeedCommands(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "conventions.md")), []byte(renderSeedConventions(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "risks.md")), []byte(renderSeedRisks(*scan)), 0o600); err != nil {
 		return err
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")), []byte(renderSeedHistoryGaps(*scan)), 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -974,12 +976,12 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		}
 		dir := filepath.Dir(cleanDst)
 		if dir != "." {
-			if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+			if err := clibase.RejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
 				return fmt.Errorf("validate seed document directory %s: %w", dir, err)
 			}
 		}
 		src := filepath.Join(scan.RepoDir, cleanSrc)
-		if err := rejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, cleanDst); err != nil {
 			return fmt.Errorf("validate seed document path %s: %w", cleanDst, err)
 		}
 		if doc.Extracted {
@@ -987,7 +989,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// zip's central directory both live at the end, so the prefix read
 			// below would hand the extractor a file it cannot parse. The output
 			// is bounded instead, by extractDocumentText.
-			data, err := safeReadFile(src, maxExtractDocumentBytes)
+			data, err := clibase.SafeReadFile(src, maxExtractDocumentBytes)
 			if err != nil {
 				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
@@ -1003,7 +1005,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			}
 			rendered := renderExtractedDocument(doc.Path, text)
 			doc.Bytes = int64(len(rendered))
-			if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), []byte(rendered), 0o600); err != nil {
 				return err
 			}
 			continue
@@ -1012,7 +1014,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		// detect that truncation is needed. Slurping the whole file first made
 		// the peak allocation the SOURCE file's size, which for a doc that is
 		// kept precisely because it is oversized is pure waste.
-		data, truncated, err := readFilePrefix(src, limit)
+		data, truncated, err := clibase.ReadFilePrefix(src, limit)
 		if err != nil {
 			continue
 		}
@@ -1021,7 +1023,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 		if truncated {
 			data = append(data, []byte("\n\n[truncated]\n")...)
 		}
-		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(cleanDst), data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -1396,7 +1398,7 @@ func splitCommitParents(value string) []string {
 
 func checkpointTrailers(body string) []string {
 	var checkpoints []string
-	for _, match := range checkpointTrailerRegex.FindAllStringSubmatch(body, -1) {
+	for _, match := range clibase.CheckpointTrailerRegex.FindAllStringSubmatch(body, -1) {
 		if len(match) > 1 {
 			checkpoints = append(checkpoints, match[1])
 		}
@@ -1418,7 +1420,7 @@ func commitBodyExcerpt(body string) string {
 	var lines []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, checkpointTrailerKey+":") {
+		if line == "" || strings.HasPrefix(line, clibase.CheckpointTrailerKey+":") {
 			continue
 		}
 		lines = append(lines, line)
@@ -1517,7 +1519,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 	if manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		semantic := manifest.Sources.Semantic
 		fmt.Fprintln(&b)
-		fmt.Fprintln(&b, "## Semantic Index")
+		fmt.Fprintln(&b, "## Code Index (Graph-owned)")
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Generated at: `%s`\n", semantic.GeneratedAt.Format(time.RFC3339))
 		fmt.Fprintf(&b, "- Provider: `%s`", semantic.Provider)
@@ -1526,7 +1528,6 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		}
 		fmt.Fprintln(&b)
 		fmt.Fprintf(&b, "- Schema: `%s`\n", semantic.SchemaVersion)
-		fmt.Fprintf(&b, "- Snapshot: `%s`\n", semantic.SnapshotPath)
 		fmt.Fprintf(&b, "- Symbols: %d\n", semantic.Symbols)
 		fmt.Fprintf(&b, "- Relations: %d\n", semantic.Relations)
 		if semantic.Commit != "" {
@@ -1535,7 +1536,7 @@ func renderCombinedBrainReadme(manifest exportManifest) string {
 		if semantic.Branch != "" {
 			fmt.Fprintf(&b, "- Branch: `%s`\n", semantic.Branch)
 		}
-		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific semantic context.")
+		fmt.Fprintln(&b, "- Intake: run `entire brain inspect code <symbol> --json` then `entire brain inspect context <symbol> --json` for task-specific code context.")
 	}
 	var warnings []string
 	warnings = append(warnings, manifest.Warnings...)
@@ -1680,7 +1681,7 @@ func runSeedAgentPhase(ctx context.Context, repoDir, outputDir string, opts seed
 	}
 	// Pin a fast/cheap model + effort for seed synthesis when requested (no-ops when empty),
 	// reusing the same injectors as distill so a full refresh can run cheaply end to end.
-	args = injectAgentEffort(injectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
+	args = clibase.InjectAgentEffort(clibase.InjectAgentModel(args, opts.agent, opts.model), opts.agent, opts.effort)
 	for {
 		runCtx, cancel := context.WithTimeout(ctx, timeout)
 		command := exec.CommandContext(runCtx, args[0], args[1:]...)
@@ -1823,7 +1824,7 @@ func stdinIsTerminal() bool {
 
 func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]string, error) {
 	_ = repoDir
-	if err := rejectAgentForNoEgress(opts.agent); err != nil {
+	if err := clibase.RejectAgentForNoEgress(opts.agent); err != nil {
 		return nil, err
 	}
 	switch opts.agent {
@@ -1904,7 +1905,7 @@ func writeAgentArtifacts(outputDir string, artifacts map[string]string) ([]strin
 			return nil, fmt.Errorf("reject unsafe agent artifact path %q", name)
 		}
 		rel := filepath.Join(seedDirName, seedAgentDirName, clean)
-		if err := writeBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, filepath.ToSlash(rel), []byte(content), 0o600); err != nil {
 			return nil, err
 		}
 		written = append(written, filepath.ToSlash(rel))

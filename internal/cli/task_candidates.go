@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Task candidates (Pattern Consolidation, Phase 2 redo).
@@ -276,7 +279,7 @@ func matchFactsToTask(facts []factRecord, label string, cmdFreq map[string]int) 
 			}
 		}
 		if overlap > 0 {
-			matched = append(matched, scored{truncateString(f.Text, 200), overlap})
+			matched = append(matched, scored{base.TruncateString(f.Text, 200), overlap})
 		}
 	}
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].overlap > matched[j].overlap })
@@ -310,14 +313,14 @@ func loadAllActiveFacts(brainDir string) []factRecord {
 }
 
 func taskStrength(support, withCommands int, r reinforcementCounts, procs []taskProcedure, factCount int) float64 {
-	recurrence := clamp01(math.Log2(1+float64(support)) / math.Log2(1+15))
+	recurrence := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+15))
 	activity := 0.0
 	if support > 0 {
-		activity = clamp01(float64(withCommands) / float64(support))
+		activity = base.Clamp01(float64(withCommands) / float64(support))
 	}
 	reinf := 0.5
 	if support > 0 {
-		reinf = clamp01(0.5 + 0.5*float64(r.Success-r.Corrected)/float64(support))
+		reinf = base.Clamp01(0.5 + 0.5*float64(r.Success-r.Corrected)/float64(support))
 	}
 	// Evidence dominates: best procedure specificity, lifted to 0.6 when repo
 	// facts corroborate even if the commands themselves are common.
@@ -330,7 +333,7 @@ func taskStrength(support, withCommands int, r reinforcementCounts, procs []task
 	if factCount > 0 && evidence < 0.6 {
 		evidence = 0.6
 	}
-	return 0.30*recurrence + 0.10*activity + 0.20*reinf + 0.40*clamp01(evidence)
+	return 0.30*recurrence + 0.10*activity + 0.20*reinf + 0.40*base.Clamp01(evidence)
 }
 
 // representativeIntent picks the longest sample intent (most descriptive),
@@ -342,7 +345,7 @@ func representativeIntent(intents []string) string {
 			best = s
 		}
 	}
-	return truncateString(best, 160)
+	return base.TruncateString(best, 160)
 }
 
 func distinctSample(intents []string, n int) []string {
@@ -354,7 +357,7 @@ func distinctSample(intents []string, n int) []string {
 			continue
 		}
 		seen[key] = true
-		out = append(out, truncateString(s, 160))
+		out = append(out, base.TruncateString(s, 160))
 		if len(out) >= n {
 			break
 		}
@@ -396,7 +399,7 @@ func writeBrainTasksFile(outputDir string, tasks []taskCandidate) error {
 			return fmt.Errorf("encode task: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsTasksPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsTasksPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write tasks: %w", err)
 	}
 	return nil

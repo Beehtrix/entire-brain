@@ -3,11 +3,13 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestFailedCommandDoesNotInventRecovery(t *testing.T) {
-	db := freshCorpusDB(t)
-	insertCorpusEpisode(t, db, "ep", "deploy", "corrected", 1, time.Now())
+	db := patterntest.FreshCorpusDB(t)
+	patterntest.InsertCorpusEpisode(t, db, "ep", "deploy", "corrected", 1, time.Now())
 	if _, err := db.Exec(`INSERT INTO episode_commands(episode_id,ord,head,raw_redacted,line,exit_code,failed) VALUES('ep',0,'go test','go test ./...',2,1,1)`); err != nil {
 		t.Fatal(err)
 	}
@@ -32,8 +34,8 @@ func TestRecoveryRequiresSubsequentKnownSuccessfulValidation(t *testing.T) {
 		{"later_failure", []any{1, 0, 1}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			db := freshCorpusDB(t)
-			insertCorpusEpisode(t, db, "ep", "deploy", "corrected", len(tc.exits), time.Now())
+			db := patterntest.FreshCorpusDB(t)
+			patterntest.InsertCorpusEpisode(t, db, "ep", "deploy", "corrected", len(tc.exits), time.Now())
 			for i, exit := range tc.exits {
 				failed := exit == 1
 				if _, err := db.Exec(`INSERT INTO episode_commands(episode_id,ord,head,raw_redacted,line,exit_code,failed) VALUES('ep',?,'go test','go test ./...',?,?,?)`, i, i+1, exit, failed); err != nil {

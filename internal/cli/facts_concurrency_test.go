@@ -7,12 +7,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const losslessConcurrencyTestLockTimeout = 30 * time.Second
 
 func withBrainWriteLockForLosslessConcurrencyTest(brainDir string, fn func() error) error {
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, losslessConcurrencyTestLockTimeout)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, losslessConcurrencyTestLockTimeout)
 	if err != nil {
 		return err
 	}

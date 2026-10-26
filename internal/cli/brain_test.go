@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,7 +98,7 @@ func TestBrainBriefJSONUsesSemanticContextAndLiveOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir session dir: %v", err)
 	}
@@ -712,10 +713,10 @@ func TestIndexedDecisionsSearchesExportedText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(storage.BrainDir, exportSessionsDirectory, "main"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main"), 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(storage.BrainDir, exportSessionsDirectory, "main", "session.jsonl"), []byte(`{"type":"agent_message","message":"Decision: keep prompt plus local validation instead of output schema."}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main", "session.jsonl"), []byte(`{"type":"agent_message","message":"Decision: keep prompt plus local validation instead of output schema."}`+"\n"), 0o600); err != nil {
 		t.Fatalf("write transcript: %v", err)
 	}
 	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), nil); err != nil {
@@ -750,7 +751,7 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	sessionDir := filepath.Join(storage.BrainDir, exportSessionsDirectory, "main")
+	sessionDir := filepath.Join(storage.BrainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
 	}

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // seedAcceptedDeepDossier builds a deepDossierRecord with the given fields, marks
@@ -15,7 +17,7 @@ func seedAcceptedDeepDossier(t *testing.T, db *sql.DB, patternID string, rec dee
 	t.Helper()
 	rec.PatternID = patternID
 	blob, _ := json.Marshal(rec)
-	verdict := dossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits, EvidenceFingerprint: rec.Fingerprint}
+	verdict := patterncore.DossierVerdict{Verdict: "accepted", Reason: "coherent repo-specific task", RequiredEdits: requiredEdits, EvidenceFingerprint: rec.Fingerprint}
 	vblob, _ := json.Marshal(verdict)
 	if _, err := db.Exec(`INSERT INTO deep_dossiers (pattern_id, fingerprint, json_redacted, verifier_json_redacted, verdict, status, created_at, updated_at)
 		VALUES (?,?,?,?, 'accepted','current','t','t')`, patternID, rec.Fingerprint, string(blob), string(vblob)); err != nil {
@@ -33,7 +35,7 @@ func deployDeepDossier() deepDossierRecord {
 		Parameters:    []string{"mise deploy --env staging"},
 		FailureModes:  []deepFailureMode{{Episode: "s1", Failure: "failed: mise deploy (missing STAGING_TOKEN)", Recovery: "re-ran go test to verify"}},
 		Facts:         []string{"fact:deploy (architecture) @ ops/deploy.go"},
-		SourceAnchors: []dossierAnchor{{SessionID: "s1", Outcome: "corrected", Excerpt: "ZEBRA_GOTCHA: set the staging toggle before mise deploy"}},
+		SourceAnchors: []patterncore.DossierAnchor{{SessionID: "s1", Outcome: "corrected", Excerpt: "ZEBRA_GOTCHA: set the staging toggle before mise deploy"}},
 		Confidence:    0.7,
 	}
 }
@@ -42,7 +44,7 @@ func deployDeepDossier() deepDossierRecord {
 // carries the dossier's failure modes, verification, parameters, evidence refs,
 // and the gotcha that lives only in the transcript span.
 func TestDeepSkillEvidenceFromDossier(t *testing.T) {
-	in := deepSkillInput{rec: deployDeepDossier(), verdict: dossierVerdict{Verdict: "accepted", RequiredEdits: []string{"document the STAGING_TOKEN precondition"}}}
+	in := deepSkillInput{rec: deployDeepDossier(), verdict: patterncore.DossierVerdict{Verdict: "accepted", RequiredEdits: []string{"document the STAGING_TOKEN precondition"}}}
 	ev := buildDeepSkillEvidence(in)
 	for _, want := range []string{
 		"mise build", "mise deploy", // exact workflow commands
@@ -124,7 +126,7 @@ func TestDeepSkillSynthesisPreservesProviderNotASkill(t *testing.T) {
 		{"add-push", []string{"git add", "git push"}, "NOT_A_SKILL: generic git add/push, nothing repo-specific", "generic git add/push"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := deepSkillInput{rec: deepDossierRecord{Title: "commit:push", Trigger: "recurring intent: commit:push", Workflow: tc.workflow}, verdict: dossierVerdict{Verdict: "accepted"}}
+			in := deepSkillInput{rec: deepDossierRecord{Title: "commit:push", Trigger: "recurring intent: commit:push", Workflow: tc.workflow}, verdict: patterncore.DossierVerdict{Verdict: "accepted"}}
 			res, err := synthesizeSkillFromDossier(context.Background(), t.TempDir(), in, "codex", "", "", stubRunner(tc.response))
 			if err != nil {
 				t.Fatal(err)

@@ -11,16 +11,20 @@ import (
 	"testing"
 	"time"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
 func prepareDistinctPatternCorpusPublication(t *testing.T, brainDir string) (string, func()) {
 	t.Helper()
-	path, cleanup, err := preparePatternCorpusStaging(brainDir)
+	path, cleanup, err := patterncore.PrepareCorpusStaging(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		cleanup()
 		t.Fatal(err)
@@ -44,7 +48,7 @@ func prepareDistinctPatternCorpusPublication(t *testing.T, brainDir string) (str
 
 func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) string {
 	t.Helper()
-	db, err := openPatternCorpusReadDB(brainDir)
+	db, err := patterncore.OpenCorpusReadDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,8 +65,9 @@ func patternCorpusPublicationTestGeneration(t *testing.T, brainDir string) strin
 }
 
 func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistence(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +100,13 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 	tombstoneDone := make(chan error, 1)
 	go func() {
 		close(tombstoneAttempted)
-		tombstoneDone <- withBrainWriteLock(brainDir, func() error {
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		})
 	}()
 	<-tombstoneAttempted
@@ -130,18 +135,19 @@ func TestPrivacyLinearizedPatternMutationHoldsPolicyThroughProviderAndPersistenc
 }
 
 func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
-		stones, _, err := loadSessionTombstonesChecked(brainDir)
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+		stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 		if err != nil {
 			return err
 		}
 		stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC()}
-		return saveSessionTombstones(brainDir, stones)
+		return brainstore.SaveSessionTombstones(brainDir, stones)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +161,8 @@ func TestPrivacyLinearizedPatternMutationRejectsChangedPolicyWithoutOutput(t *te
 		_, _ = cmd.OutOrStdout().Write([]byte("private"))
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("changed policy error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("changed policy error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if called || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("rejected mutation leaked work/output: called=%v stdout=%q stderr=%q", called, stdout.String(), stderr.String())
@@ -194,9 +200,9 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantErr := errors.New("injected publication failure")
-	original := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error { return wantErr }
-	t.Cleanup(func() { beforePatternCorpusPublish = original })
+	original := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error { return wantErr }
+	t.Cleanup(func() { patterncore.BeforeCorpusPublish = original })
 	if err := buildPatternCorpus(brainDir, now.Add(time.Minute)); !errors.Is(err, wantErr) {
 		t.Fatalf("build error = %v, want injected failure", err)
 	}
@@ -221,7 +227,7 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), patternCorpusStagingPrefix) {
+		if strings.HasPrefix(entry.Name(), patterncore.CorpusStagingPrefix) {
 			t.Fatalf("failed build left staging artifact %s", entry.Name())
 		}
 	}
@@ -266,26 +272,26 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 			// boundary. They are never opened by SQLite: the durable marker is
 			// already present before the first one can be removed.
 			patternsDir := filepath.Join(brainDir, "patterns")
-			for _, sidecar := range patternCorpusSidecarNames {
+			for _, sidecar := range patterncore.CorpusSidecarNames {
 				if err := os.WriteFile(filepath.Join(patternsDir, sidecar), []byte("old sidecar\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
 			injected := errors.New("injected crash boundary")
-			original := patternCorpusPublishBoundary
-			patternCorpusPublishBoundary = func(step string) error {
+			original := patterncore.CorpusPublishBoundary
+			patterncore.CorpusPublishBoundary = func(step string) error {
 				if step == tc.step {
 					return injected
 				}
 				return nil
 			}
-			err := publishPatternCorpusLocked(brainDir, stage)
-			patternCorpusPublishBoundary = original
+			err := patterncore.PublishCorpusLocked(brainDir, stage, decodePatternCorpusPublication)
+			patterncore.CorpusPublishBoundary = original
 			if !errors.Is(err, injected) {
 				t.Fatalf("publish error = %v, want injected boundary %s", err, tc.step)
 			}
 			left := 0
-			for _, sidecar := range patternCorpusSidecarNames {
+			for _, sidecar := range patterncore.CorpusSidecarNames {
 				if _, err := os.Lstat(filepath.Join(patternsDir, sidecar)); err == nil {
 					left++
 				} else if !os.IsNotExist(err) {
@@ -296,7 +302,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				t.Fatalf("sidecars remaining at %s = %d, want %d", tc.step, left, tc.wantSidecarsLeft)
 			}
 
-			marker := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+			marker := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 			switch tc.wantState {
 			case "old":
 				if _, err := os.Lstat(marker); !os.IsNotExist(err) {
@@ -304,7 +310,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				}
 				// Remove test-only invalid sidecars before asking SQLite to read
 				// the prior, otherwise-complete logical database.
-				for _, sidecar := range patternCorpusSidecarNames {
+				for _, sidecar := range patterncore.CorpusSidecarNames {
 					if err := os.Remove(filepath.Join(patternsDir, sidecar)); err != nil {
 						t.Fatal(err)
 					}
@@ -316,10 +322,10 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				if _, err := os.Lstat(marker); err != nil {
 					t.Fatalf("transactional failure did not retain marker: %v", err)
 				}
-				if _, err := openPatternCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-					t.Fatalf("marked corpus read error = %v, want %s", err, memoryErrStateUnsafe)
+				if _, err := patterncore.OpenCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+					t.Fatalf("marked corpus read error = %v, want %s", err, brainstore.StateUnsafeCode)
 				}
-				if err := recoverPatternCorpusPublicationLocked(brainDir); err != nil {
+				if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
 					t.Fatalf("recover %s: %v", tc.step, err)
 				}
 				if got := patternCorpusPublicationTestGeneration(t, brainDir); got != "new" {
@@ -338,12 +344,15 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 }
 
 func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	for _, action := range []struct {
 		name string
 		run  func(string) error
 	}{
-		{name: "recover", run: recoverPatternCorpusPublicationLocked},
+		{name: "recover", run: func(brainDir string) error {
+			return patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication)
+		}},
 		{name: "build", run: func(brainDir string) error {
 			return buildPatternCorpus(brainDir, now.Add(time.Minute))
 		}},
@@ -367,7 +376,7 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 				t.Fatal(err)
 			}
 
-			candidate := patternCorpusStagingPrefix + "future"
+			candidate := patterncore.CorpusStagingPrefix + "future"
 			candidatePath := filepath.Join(patternsDir, candidate)
 			candidateData := []byte("opaque future pattern corpus candidate\n")
 			if err := os.WriteFile(candidatePath, candidateData, 0o600); err != nil {
@@ -375,17 +384,17 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 			}
 			markerData := []byte(fmt.Sprintf(
 				`{"schema_version":%d,"candidate":%q,"future_layout":{"digest":"opaque"}}`+"\n",
-				patternCorpusPublicationVersion+1, candidate,
+				patterncore.CorpusPublicationVersion+1, candidate,
 			))
-			markerPath := filepath.Join(patternsDir, patternCorpusPublicationMarkerName)
+			markerPath := filepath.Join(patternsDir, patterncore.CorpusPublicationMarkerName)
 			if err := os.WriteFile(markerPath, markerData, 0o600); err != nil {
 				t.Fatal(err)
 			}
 
 			err = action.run(brainDir)
 			var typed *patternCorpusPublicationLoadError
-			if !errors.As(err, &typed) || typed.Code != memoryErrUnsupportedVersion ||
-				typed.State != patternCorpusPublicationUnsupported || typed.Version != patternCorpusPublicationVersion+1 {
+			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode ||
+				typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
 			for path, want := range map[string][]byte{
@@ -425,8 +434,8 @@ func TestPatternCorpusPublishDirectorySwapCannotTouchExternalTarget(t *testing.T
 	}
 	patternsDir := filepath.Join(brainDir, "patterns")
 	detached := filepath.Join(brainDir, "patterns-detached")
-	original := patternCorpusPublishBoundary
-	patternCorpusPublishBoundary = func(step string) error {
+	original := patterncore.CorpusPublishBoundary
+	patterncore.CorpusPublishBoundary = func(step string) error {
 		if step != "after_marker_create" {
 			return nil
 		}
@@ -435,10 +444,10 @@ func TestPatternCorpusPublishDirectorySwapCannotTouchExternalTarget(t *testing.T
 		}
 		return os.Symlink(external, patternsDir)
 	}
-	t.Cleanup(func() { patternCorpusPublishBoundary = original })
+	t.Cleanup(func() { patterncore.CorpusPublishBoundary = original })
 	err := buildPatternCorpus(brainDir, now.Add(time.Minute))
-	if err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("directory swap publish error = %v, want %s", err, memoryErrStateUnsafe)
+	if err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("directory swap publish error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	for name, want := range externalFiles {
 		got, readErr := os.ReadFile(filepath.Join(external, name))
@@ -460,14 +469,14 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
 	}})
-	originalMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = originalMax })
+	originalMax := clibase.MaxDocumentTranscriptBytes
+	clibase.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { clibase.MaxDocumentTranscriptBytes = originalMax })
 	err := buildPatternCorpus(brainDir, now)
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("oversized pattern transcript error = %v", err)
 	}
-	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(statErr) {
 		t.Fatalf("failed bounded read published a corpus: %v", statErr)
 	}
 	entries, readErr := os.ReadDir(filepath.Join(brainDir, "patterns"))
@@ -480,13 +489,14 @@ func TestPatternCorpusTranscriptReadIsBoundedAndFailClosed(t *testing.T) {
 		t.Fatal(readErr)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), patternCorpusStagingPrefix) {
+		if strings.HasPrefix(entry.Name(), patterncore.CorpusStagingPrefix) {
 			t.Fatalf("failed bounded read left staging artifact %s", entry.Name())
 		}
 	}
 }
 
 func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -503,12 +513,13 @@ func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), memoryErrSessionInventory) {
 		t.Fatalf("symlinked pattern transcript error = %v, want %s", err, memoryErrSessionInventory)
 	}
-	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(statErr) {
 		t.Fatalf("unsafe transcript published a corpus: %v", statErr)
 	}
 }
 
 func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	const rel = "sessions/main/s1.jsonl"
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
@@ -517,7 +528,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	beforeCorpus, err := os.ReadFile(corpusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -543,6 +554,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 }
 
 func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeEpisodeFixture(t, now, "gh/acme/privacy", []sessionFixture{{
 		id: "s1", branch: "main", agent: "Codex", checkpoint: "c1", relPath: "sessions/main/s1.jsonl", author: "Ada", transcript: claudeReviewTranscript,
@@ -550,7 +562,7 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpusPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	beforeCorpus, err := os.ReadFile(corpusPath)
 	if err != nil {
 		t.Fatal(err)
@@ -561,8 +573,8 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = buildPatternCorpus(brainDir, now.Add(time.Minute))
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
-		t.Fatalf("vNext manifest build error = %v, want %s", err, memoryErrUnsupportedVersion)
+	if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
+		t.Fatalf("vNext manifest build error = %v, want %s", err, brainstore.UnsupportedVersionCode)
 	}
 	gotManifest, err := os.ReadFile(manifestPath)
 	if err != nil || !bytes.Equal(gotManifest, vNext) {
@@ -578,11 +590,12 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 }
 
 func TestPatternCorpusStagingArtifactsAreInPrivacyInventory(t *testing.T) {
+	t.Parallel()
 	brainDir := writePrivacyFixture(t)
 	if err := os.MkdirAll(filepath.Join(brainDir, "patterns"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	base := patternCorpusStagingPrefix + "orphan"
+	base := patterncore.CorpusStagingPrefix + "orphan"
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		if err := os.WriteFile(filepath.Join(brainDir, "patterns", base+suffix), []byte("staged private data"), 0o600); err != nil {
 			t.Fatal(err)
@@ -619,29 +632,29 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 	}
 	reachedPublish := make(chan struct{})
 	releasePublish := make(chan struct{})
-	original := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error {
+	original := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error {
 		close(reachedPublish)
 		<-releasePublish
 		return nil
 	}
-	t.Cleanup(func() { beforePatternCorpusPublish = original })
+	t.Cleanup(func() { patterncore.BeforeCorpusPublish = original })
 	buildDone := make(chan error, 1)
 	go func() { buildDone <- buildPatternCorpus(brainDir, now.Add(time.Minute)) }()
 	<-reachedPublish
 
 	tombstoneDone := make(chan error, 1)
 	go func() {
-		tombstoneDone <- withBrainWriteLock(brainDir, func() error {
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+		tombstoneDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["s1"] = sessionTombstone{At: now.Add(2 * time.Minute)}
-			if err := saveSessionTombstones(brainDir, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 				return err
 			}
-			return removeBrainRelativeFile(brainDir, patternCorpusPath)
+			return brainstore.RemoveBrainRelativeFile(brainDir, patterncore.CorpusPath)
 		})
 	}()
 	select {
@@ -656,7 +669,7 @@ func TestPatternCorpusBuildCannotPublishAfterTombstoneLinearizes(t *testing.T) {
 	if err := <-tombstoneDone; err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(err) {
 		t.Fatalf("stale corpus was published after tombstone commit: %v", err)
 	}
 }

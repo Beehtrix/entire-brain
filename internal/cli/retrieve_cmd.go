@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -63,7 +65,8 @@ type retrievalTaskHints struct {
 }
 
 // retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
-// search (lexical), vsearch (vector), query (hybrid), and get/multi-get (fetch by
+// search (lexical), query (BM25 lexical; semantic retrieval was removed in
+// trail #278), vsearch (compatibility alias for query), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
 // text). What remains under `inspect` is only what the verbs can't do: symbol-graph
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
@@ -77,7 +80,7 @@ func newVsearchCommand(opts Options) *cobra.Command {
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (hybrid by default)")
+	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (BM25 lexical ranking)")
 }
 
 func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
@@ -202,7 +205,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -316,7 +319,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				fmt.Fprintf(out, "action %s %s: %s\n", action.File, action.Symbol, action.Action)
 			}
 			for _, result := range results {
-				ex := truncateString(strings.Join(strings.Fields(result.Text), " "), 200)
+				ex := base.TruncateString(strings.Join(strings.Fields(result.Text), " "), 200)
 				label := result.Source
 				if result.VerificationRequired {
 					label += " verify"
@@ -713,7 +716,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	if err != nil {
 		return nil, err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return nil, err
 	}

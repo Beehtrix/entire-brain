@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,7 +67,7 @@ func privacyCommandFixture(t *testing.T) (Options, string) {
 	}
 	// The exported sessions root must exist for the history projection to be
 	// buildable at all; it is legitimately empty here.
-	if err := os.MkdirAll(filepath.Join(brainDir, exportSessionsDirectory, "feature"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.SessionsDirName, "feature"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, opts.Now(), nil); err != nil {
@@ -214,40 +215,6 @@ func doctorFindingsByName(findings []doctorCheckResult) map[string]doctorCheckRe
 	return byName
 }
 
-// TestDoctorFailsOnUnreadableSemanticStore is the gate defect. "file is not a
-// database" is the strongest broken signal this tool has, and it was reported
-// as a warning, so the default `--fail-on error` gate exited 0 on a corrupt
-// brain.
-func TestDoctorFailsOnUnreadableSemanticStore(t *testing.T) {
-	report := staleReport{Severity: "unsafe", Axes: map[string]staleAxis{
-		"snapshot":              {State: "ok", Detail: "semantic/snapshots/a/snapshot.ndjson"},
-		"store":                 {State: "unsafe", Detail: "validate semantic sqlite integrity: file is not a database (26)"},
-		"head":                  {State: "ok"},
-		"branch_tip":            {State: "ok"},
-		"worktree":              {State: "clean"},
-		"provider":              {State: "ok", Detail: "entire-graph 1.2.3"},
-		"semantic_completeness": {State: "ok"},
-	}}
-	findings := semanticDoctorFindings(report)
-	byName := doctorFindingsByName(findings)
-	semantic, ok := byName["semantic"]
-	if !ok {
-		t.Fatalf("doctor dropped the semantic finding: %+v", findings)
-	}
-	if semantic.State != "error" {
-		t.Fatalf("semantic state = %q for an unreadable store, want error: %+v", semantic.State, semantic)
-	}
-	if semantic.scope() != doctorScopeBrain {
-		t.Fatalf("semantic scope = %q, want %q", semantic.scope(), doctorScopeBrain)
-	}
-	if !strings.Contains(semantic.Detail, "file is not a database") {
-		t.Fatalf("semantic detail lost the reason: %q", semantic.Detail)
-	}
-	if err := doctorGateFailure(doctorReport{Checks: findings}, doctorFailOnError); err == nil {
-		t.Fatalf("the default --fail-on error gate must fire on an unreadable semantic store")
-	}
-}
-
 // TestDoctorDoesNotFailOnDegradedProvider is the constraint that made #239
 // leave this check alone: the provider axis fires on any machine without the
 // host CLI, and failing a gate on it would break CI everywhere.
@@ -319,43 +286,6 @@ func TestDoctorKeepsNeverBuiltSemanticIndexAtWarn(t *testing.T) {
 	}
 }
 
-// --- defect 4a: facts proposals --json printed help text -------------------
-
-// TestFactsProposalsJSONDoesNotPrintHelp pins the one --json violation out of
-// the 92 nodes that advertise the flag: the group node printed human help to
-// stdout and exited 0, so a machine caller got prose labelled as success.
-func TestFactsProposalsJSONDoesNotPrintHelp(t *testing.T) {
-	opts := Options{Version: "test"}
-	stdout, stderr, err := executeSplit(t, NewRootCommand(opts), "facts", "proposals", "--json")
-	if err == nil {
-		t.Fatalf("facts proposals --json must not exit 0 with no result\nstdout:\n%s", stdout)
-	}
-	if strings.TrimSpace(stdout) != "" {
-		t.Fatalf("facts proposals --json wrote non-JSON to stdout:\n%s", stdout)
-	}
-	var envelope commandJSONError
-	if jsonErr := json.Unmarshal([]byte(stderr), &envelope); jsonErr != nil {
-		t.Fatalf("facts proposals --json did not emit a JSON error envelope: %v\n%s", jsonErr, stderr)
-	}
-	if !strings.Contains(envelope.Message, "requires a subcommand") {
-		t.Fatalf("JSON error does not say what is missing: %+v", envelope)
-	}
-	for _, verb := range []string{"list", "show", "apply", "reject", "repair"} {
-		if !strings.Contains(envelope.Message, verb) {
-			t.Fatalf("JSON error does not name the %q verb: %+v", verb, envelope)
-		}
-	}
-
-	// Without --json the human help is unchanged and still exits 0.
-	humanOut, _, humanErr := executeSplit(t, NewRootCommand(opts), "facts", "proposals")
-	if humanErr != nil {
-		t.Fatalf("facts proposals (human) must still exit 0: %v", humanErr)
-	}
-	if !strings.Contains(humanOut, "Usage:") {
-		t.Fatalf("facts proposals (human) stopped printing help:\n%s", humanOut)
-	}
-}
-
 // --- defect 4b: refresh index exited 1 when there was nothing to do --------
 
 // TestRefreshIndexIsIdempotent is the scripted-loop defect: `refresh index`
@@ -393,14 +323,13 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := bundleTestBrainDir(env)
-	source := mustSemanticSource(t, env)
-	storePath := filepath.Join(brainDir, filepath.FromSlash(source.StorePath))
-	if err := os.WriteFile(storePath, []byte("this is not a database"), 0o600); err != nil {
+	d := runner.graphStoreFixtures[repoDir+"\x00full"]
+	if err := os.WriteFile(d.Path, []byte("this is not a database"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := semanticIndexAlreadyCurrent(brainDir, source, semanticIndexOptions{graphBinary: "entire"}, source.Commit, source.Tree, ""); ok {
-		t.Fatalf("an index whose store is not a database must not be reported as current")
+	if db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath); err == nil {
+		db.Close()
+		t.Fatal("corrupt Graph store was readable")
 	}
 
 	rebuild := &cobra.Command{Use: "index"}
@@ -408,10 +337,13 @@ func TestRefreshIndexRebuildsUnreadableStore(t *testing.T) {
 	if err := runSemanticIndex(rebuild.Context(), rebuild, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("refresh index over an unreadable store must rebuild: %v", err)
 	}
-	rebuilt := mustSemanticSource(t, env)
-	if err := validateSemanticSQLiteStore(filepath.Join(brainDir, filepath.FromSlash(rebuilt.StorePath)), rebuilt.Symbols, rebuilt.Relations); err != nil {
-		t.Fatalf("store was not rebuilt: %v", err)
+	d = runner.graphStoreFixtures[repoDir+"\x00full"]
+	db, err := openSemanticReadDB(graphStoreSource(d, "").StorePath)
+	if err != nil {
+		t.Fatalf("Graph store was not rebuilt: %v", err)
 	}
+	db.Close()
+
 }
 
 // --- defect 4c: no --version flag ------------------------------------------

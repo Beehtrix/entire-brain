@@ -9,6 +9,7 @@ import (
 )
 
 func TestSemanticTestSuggestionRankingFindsLateStrongCandidateAfterSaturation(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{
 		ID: "source:token", Name: "ValidateToken", QualifiedName: "auth.ValidateToken",
 		FilePath: "internal/auth/token.go",
@@ -56,6 +57,7 @@ func TestSemanticTestSuggestionRankingFindsLateStrongCandidateAfterSaturation(t 
 }
 
 func TestSemanticTestSuggestionRankingPreservesStrongEvidenceClasses(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{
 		ID: "source:token", Name: "ValidateToken", QualifiedName: "auth.ValidateToken",
 		FilePath: "internal/auth/token.go",
@@ -95,6 +97,7 @@ func TestSemanticTestSuggestionRankingPreservesStrongEvidenceClasses(t *testing.
 }
 
 func TestSemanticTestSuggestionExactAndRelationInheritTaskAlignedRoot(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:parser", Name: "ParseDocument", FilePath: "src/parser.go"}
 	exact := semanticTestSuggestionFixture("test:exact-eof", "TestHandlesEOF", "src/parser_test.go", 10)
 	related := semanticTestSuggestionFixture("test:related-sentinel", "TestHandlesSentinel", "integration/eof_test.go", 20)
@@ -115,6 +118,7 @@ func TestSemanticTestSuggestionExactAndRelationInheritTaskAlignedRoot(t *testing
 }
 
 func TestSemanticTestSuggestionUnalignedRelationRemainsWeak(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:engine", Name: "RunEngine", FilePath: "src/engine.go"}
 	related := semanticTestSuggestionFixture("test:related-eof", "TestHandlesEOF", "integration/eof_test.go", 20)
 	got := rankSemanticTestSuggestions(
@@ -131,6 +135,7 @@ func TestSemanticTestSuggestionUnalignedRelationRemainsWeak(t *testing.T) {
 }
 
 func TestSemanticTestSuggestionPrimaryEvidenceSuppressesInheritedFallback(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:parser", Name: "ParseDocument", FilePath: "src/parser.go"}
 	fallback := semanticTestSuggestionFixture("test:fallback-eof", "TestHandlesEOF", "src/parser_test.go", 10)
 	primary := semanticTestSuggestionFixture("test:primary-recovery", "TestParserRecovery", "integration/recovery_test.go", 20)
@@ -151,6 +156,7 @@ func TestSemanticTestSuggestionPrimaryEvidenceSuppressesInheritedFallback(t *tes
 }
 
 func TestSemanticTestSuggestionFreshnessFilterRefillsBeforeCap(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	currentPath := "internal/auth/token_test.go"
 	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "auth"), 0o700); err != nil {
@@ -180,57 +186,8 @@ func TestSemanticTestSuggestionFreshnessFilterRefillsBeforeCap(t *testing.T) {
 	}
 }
 
-func TestSemanticTestSuggestionEmptyLegacyStreamRemainsAuthoritative(t *testing.T) {
-	repoDir := t.TempDir()
-	currentPath := "src/processor.go"
-	for rel, content := range map[string]string{
-		currentPath: "package processor\n",
-		"semantic/snapshots/test/snapshot.ndjson": `{"schema_version":"1.1","provider":"entire-graph"}
-{"record_type":"symbol","id":"source:processor","kind":"function","name":"SourceProcessor","qualified_name":"processor.SourceProcessor","file_path":"src/processor.go","start_line":1,"end_line":8,"signature":"func SourceProcessor() // repair checksum","language":"Go","stable_id_version":"1"}
-{"record_type":"symbol","id":"test:checksum","kind":"test","name":"TestRepairChecksum","qualified_name":"integration.TestRepairChecksum","file_path":"integration/checksum_test.go","start_line":1,"end_line":8,"signature":"func TestRepairChecksum()","language":"Go","stable_id_version":"1"}
-`,
-	} {
-		path := filepath.Join(repoDir, filepath.FromSlash(rel))
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatalf("mkdir %s: %v", rel, err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-			t.Fatalf("write %s: %v", rel, err)
-		}
-	}
-
-	tests, err := semanticTestFactsReservoir(repoDir, &semanticSourceManifest{
-		SnapshotPath: "semantic/snapshots/test/snapshot.ndjson",
-	}, "repair checksum", 4)
-	if err != nil {
-		t.Fatalf("semantic test reservoir: %v", err)
-	}
-	if len(tests.Suggestions) != 1 || tests.Suggestions[0].Symbol.ID != "test:checksum" {
-		t.Fatalf("public suggestions = %+v, want ranked public-only candidate", tests.Suggestions)
-	}
-	if tests.synthesisSuggestions == nil || len(tests.synthesisSuggestions) != 0 {
-		t.Fatalf("private legacy stream = %#v, want authoritative present-empty stream", tests.synthesisSuggestions)
-	}
-	if got := semanticTestSuggestionsForSynthesis(tests); len(got) != 0 {
-		t.Fatalf("public-only candidate leaked into synthesis: %+v", got)
-	}
-
-	semantic := brainBriefSemantic{
-		RuntimeTraces: []semanticRecord{{
-			FromID: "test:checksum", ToID: "external:trace", FilePath: currentPath,
-		}},
-		Tests: tests,
-	}
-	brainBriefFilterDepartedSemantic(repoDir, brainLiveState{}, &semantic)
-	if len(semantic.Tests.Suggestions) != 0 {
-		t.Fatalf("departed public suggestion survived freshness: %+v", semantic.Tests.Suggestions)
-	}
-	if len(semantic.RuntimeTraces) != 1 {
-		t.Fatalf("public-only ID perturbed private-stream graph filtering: %+v", semantic.RuntimeTraces)
-	}
-}
-
 func TestSemanticTestSuggestionLegacyStreamOwnsFreshnessGraphFiltering(t *testing.T) {
+	t.Parallel()
 	repoDir := t.TempDir()
 	currentPath := "internal/auth/token.go"
 	if err := os.MkdirAll(filepath.Join(repoDir, "internal", "auth"), 0o700); err != nil {
@@ -274,6 +231,7 @@ func TestSemanticTestSuggestionLegacyStreamOwnsFreshnessGraphFiltering(t *testin
 }
 
 func TestSemanticTestSuggestionNoMatchAndNoOpProjectionPreservePacketBytes(t *testing.T) {
+	t.Parallel()
 	report := brainBriefReport{Task: "update parser documentation"}
 	before := renderBrainBriefCompactV3ForTest(t, report)
 	root := semanticRecord{ID: "source:token", Name: "ValidateToken", FilePath: "internal/auth/token.go"}
@@ -295,6 +253,7 @@ func TestSemanticTestSuggestionNoMatchAndNoOpProjectionPreservePacketBytes(t *te
 }
 
 func TestSemanticTestSuggestionRankingIsDeterministicWithBoundedOutput(t *testing.T) {
+	t.Parallel()
 	root := semanticRecord{ID: "source:token", Name: "ValidateToken", FilePath: "internal/auth/token.go"}
 	symbols := make(map[string]semanticRecord, 2_000)
 	for i := 0; i < 2_000; i++ {

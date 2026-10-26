@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Dossier-driven skill synthesis (PR #44 follow-up).
@@ -20,7 +23,7 @@ import (
 // the writer has the full verified source material (including required fixes).
 type deepSkillInput struct {
 	rec     deepDossierRecord
-	verdict dossierVerdict
+	verdict patterncore.DossierVerdict
 }
 
 // loadAcceptedDeepDossier returns the accepted deep dossier for a pattern (with
@@ -31,7 +34,7 @@ func loadAcceptedDeepDossier(brainDir, patternID string) (deepSkillInput, bool) 
 }
 
 func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(brainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(brainDir)
 	if err != nil {
 		return deepSkillInput{}, false, err
 	}
@@ -39,7 +42,7 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 		return deepSkillInput{}, false, nil
 	}
 	defer db.Close()
-	if ok, err := patternCorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
+	if ok, err := patterncore.CorpusHasTable(db.DB, "deep_dossiers"); err != nil || !ok {
 		return deepSkillInput{}, false, err
 	}
 	var jsonRedacted, verifierJSON, verdict, fingerprint, status string
@@ -63,7 +66,7 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 		if !ok || knowledgeDossierFingerprint(in.rec, sampleFP) != fingerprint {
 			return deepSkillInput{}, false, nil
 		}
-		in.verdict = dossierVerdict{Verdict: verdict, EvidenceFingerprint: fingerprint}
+		in.verdict = patterncore.DossierVerdict{Verdict: verdict, EvidenceFingerprint: fingerprint}
 	} else {
 		if json.Unmarshal([]byte(verifierJSON), &in.verdict) != nil || in.verdict.Verdict != verdict || in.verdict.EvidenceFingerprint != fingerprint {
 			return deepSkillInput{}, false, nil
@@ -77,7 +80,7 @@ func loadAcceptedDeepDossierChecked(brainDir, patternID string) (deepSkillInput,
 		}
 		storedJSON, _ := json.Marshal(in.rec)
 		currentJSON, _ := json.Marshal(current)
-		if current.Fingerprint != fingerprint || redactText(string(storedJSON)) != redactText(string(currentJSON)) {
+		if current.Fingerprint != fingerprint || base.RedactText(string(storedJSON)) != base.RedactText(string(currentJSON)) {
 			return deepSkillInput{}, false, nil
 		}
 	}
@@ -92,11 +95,11 @@ func knowledgeDossierFingerprint(rec deepDossierRecord, sampleFP string) string 
 	if err != nil {
 		return ""
 	}
-	return "sha256:" + hexSHA("knowledge/v2\x00"+sampleFP+"\x00"+redactText(string(payload)))
+	return "sha256:" + base.HexSHA("knowledge/v2\x00"+sampleFP+"\x00"+base.RedactText(string(payload)))
 }
 
 func knowledgeSampleFingerprint(payload []byte) string {
-	return proposalSampleFingerprint(append([]byte("knowledge/v2\x00"), payload...))
+	return patterncore.ProposalSampleFingerprint(append([]byte("knowledge/v2\x00"), payload...))
 }
 
 func currentKnowledgeSampleFingerprint(db *sql.DB, brainDir, patternID string) (string, bool) {
@@ -118,7 +121,7 @@ func currentKnowledgeSampleFingerprint(db *sql.DB, brainDir, patternID string) (
 		key = "conventions_sample_fingerprint"
 	}
 	fp := knowledgeSampleFingerprint(payload)
-	return fp, fp == corpusMeta(db, key)
+	return fp, fp == patterncore.CorpusMeta(db, key)
 }
 
 const deepSkillSynthesisSystemPrompt = `You convert a VERIFIED skill dossier into a SKILL.md for THIS repository. The dossier was assembled from real session evidence and already PASSED an adversarial verifier (verdict: accepted). Your job is to render it faithfully — NOT to invent or infer new content.
@@ -137,13 +140,13 @@ Otherwise output ONLY a complete SKILL.md (no surrounding prose, no code fences)
 
 // synthesizeSkillFromDossier converts an accepted deep dossier into a SKILL.md
 // via the agent. The agent renders the verified dossier; it does not re-discover.
-func synthesizeSkillFromDossier(ctx context.Context, repoDir string, in deepSkillInput, agent, model, effort string, run distillAgentRunner) (skillSynthesisResult, error) {
-	args, err := distillAgentCommandArgs(agent, nil, deepSkillSynthesisSystemPrompt)
+func synthesizeSkillFromDossier(ctx context.Context, repoDir string, in deepSkillInput, agent, model, effort string, run base.DistillAgentRunner) (skillSynthesisResult, error) {
+	args, err := base.DistillAgentCommandArgs(agent, nil, deepSkillSynthesisSystemPrompt)
 	if err != nil {
 		return skillSynthesisResult{}, err
 	}
-	args = injectAgentModel(args, agent, model)
-	args = injectAgentEffort(args, agent, effort)
+	args = base.InjectAgentModel(args, agent, model)
+	args = base.InjectAgentEffort(args, agent, effort)
 	out, err := run(ctx, repoDir, args, []byte(buildDeepSkillEvidence(in)), skillSynthesisTimeout)
 	if err != nil {
 		return skillSynthesisResult{}, fmt.Errorf("dossier synthesis agent: %w", err)
@@ -247,8 +250,8 @@ func buildDeepSkillEvidence(in deepSkillInput) string {
 		if a.Excerpt == "" || excerpts >= 3 {
 			continue
 		}
-		fmt.Fprintf(&b, "Evidence (%s, %s):\n%s\n", a.SessionID, a.Outcome, truncateString(a.Excerpt, 1200))
+		fmt.Fprintf(&b, "Evidence (%s, %s):\n%s\n", a.SessionID, a.Outcome, base.TruncateString(a.Excerpt, 1200))
 		excerpts++
 	}
-	return redactText(b.String())
+	return base.RedactText(b.String())
 }

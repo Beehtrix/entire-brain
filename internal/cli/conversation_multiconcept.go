@@ -117,7 +117,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	// The predicate is always non-nil here: complete enumeration rides the
 	// same exhaustive-scan machinery as filtered single-concept search.
 	pred := func(r historyRecord) bool {
-		if guard.blocksRecord(r) {
+		if guardBlocksRecord(guard, r) {
 			return false
 		}
 		if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {

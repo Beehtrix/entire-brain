@@ -44,6 +44,23 @@ build host.
 The `brain_cgo` build tag still exists for the native embedder. It is not part
 of a release build.
 
+### Windows verification
+
+Cross-compiling from one runner means the release path never executes a
+Windows binary, and `test.yml`'s Windows suite runs with `CGO_ENABLED=1`
+because the race detector needs cgo — not the pure-Go configuration that
+ships. Both `release.yml` and `nightly.yml` therefore gate publishing on a
+`verify windows` job on a Depot Windows runner (hosted `windows-latest` is
+2-core on private repos and cannot finish `internal/cli` in one binary within
+a reasonable budget — note this puts a Depot dependency on the publish path):
+it runs `go test ./...` with
+`CGO_ENABLED=0` and smoke-runs the CLI (`version`, `capabilities --json`, a
+`remember`/`recall` roundtrip in a scratch repo) via `tools/windows-sanity.ps1`.
+The release job runs the script against the actual `windows/amd64` artifact it
+is about to publish; the nightly verifies its own equivalent build, because the
+nightly builds and publishes in a single job. `windows/arm64` is still only
+cross-compiled — no amd64 runner can execute it.
+
 ## Nightlies
 
 `.github/workflows/nightly.yml` runs at 06:00 UTC, matching Graph, and tags

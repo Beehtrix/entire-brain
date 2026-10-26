@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,15 +39,15 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	writeBundleTestFile(t, filepath.Join(brainDir, docDirName, docIndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "taxonomy.json"), `{"version":1}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "main-0000", factsFileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, exportSessionsDirectory, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, historyDirName, "generations", "gen1", historyIndexFileName), `{"records":[]}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.SessionsDirName, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historyIndexFileName), `{"records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainPatternsDirName, "episodes.ndjson"), `{"id":"episode:1"}`+"\n")
 
 	// Privacy policy and operational state: present in the brain, and never in
 	// a bundle.
-	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)), `{"version":1,"excluded":{"session:secret":{"at":"2026-02-03T04:05:06Z"}}}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, historyDirName, "privacy", "session%3Asecret.json"), `{"schema_version":1,"session_id":"session:secret"}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, historyDirName, "work", "v1", "worker.log"), "local worker log\n")
+	writeBundleTestFile(t, filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)), `{"version":1,"excluded":{"session:secret":{"at":"2026-02-03T04:05:06Z"}}}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "privacy", "session%3Asecret.json"), `{"schema_version":1,"session_id":"session:secret"}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "work", "v1", "worker.log"), "local worker log\n")
 
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
@@ -58,10 +59,10 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: now, SummaryPath: seedDirName + "/repo-overview.md", WorktreeMode: "head"}
 	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docDirName + "/" + docIndexFileName, Records: 0, Files: 1}
 	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factsDirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
-	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: historyDirName + "/generations/gen1/" + historyIndexFileName}
+	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName}
 	manifest.Sources.Patterns = &patternSourceManifest{GeneratedAt: now, EpisodesPath: brainPatternsDirName + "/episodes.ndjson", Episodes: 1}
 	manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, TranscriptMode: "full", Scope: "repo"}
-	manifest.Branches = []exportBranch{{Branch: "main", Directory: exportSessionsDirectory + "/main", SessionCount: 1, Default: true}}
+	manifest.Branches = []exportBranch{{Branch: "main", Directory: brainstore.SessionsDirName + "/main", SessionCount: 1, Default: true}}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
@@ -213,8 +214,8 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	}
 	entries := bundleTestEntries(t, output)
 	for _, forbidden := range []string{
-		exportSessionsDirectory + "/main/session.jsonl",
-		historyDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.SessionsDirName + "/main/session.jsonl",
+		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if slicesContainsString(entries, forbidden) {
@@ -227,8 +228,8 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	}
 	sessionEntries := bundleTestEntries(t, withSessions)
 	for _, want := range []string{
-		exportSessionsDirectory + "/main/session.jsonl",
-		historyDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.SessionsDirName + "/main/session.jsonl",
+		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if !slicesContainsString(sessionEntries, want) {
@@ -238,9 +239,9 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	// Privacy policy and operational state stay out of BOTH bundles.
 	for _, entries := range [][]string{entries, sessionEntries} {
 		for _, forbidden := range []string{
-			sessionTombstonesPath,
-			historyDirName + "/privacy/session%3Asecret.json",
-			historyDirName + "/work/v1/worker.log",
+			brainstore.SessionTombstonesPath,
+			brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
+			brainstore.HistoryDirName + "/work/v1/worker.log",
 			semanticDirName + "/" + semanticAuditLogName,
 		} {
 			if slicesContainsString(entries, forbidden) {
@@ -284,7 +285,7 @@ func TestBundleRoundTripPreservesAuthoredFacts(t *testing.T) {
 		t.Fatalf("imported manifest lost seed/docs sources: %+v", manifest.Sources)
 	}
 	// The destination's own privacy policy is untouched by an import.
-	if _, err := os.Stat(filepath.Join(importedBrain, filepath.FromSlash(sessionTombstonesPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(importedBrain, filepath.FromSlash(brainstore.SessionTombstonesPath))); !os.IsNotExist(err) {
 		t.Fatalf("import wrote privacy policy into the destination brain: %v", err)
 	}
 }
@@ -317,9 +318,9 @@ func TestBundleImportRefusesToOverwriteExistingLayers(t *testing.T) {
 // crafted archive must not be able to overwrite the destination's tombstones.
 func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 	for _, name := range []string{
-		sessionTombstonesPath,
-		historyDirName + "/privacy/session%3Asecret.json",
-		historyDirName + "/work/v1/worker.log",
+		brainstore.SessionTombstonesPath,
+		brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
+		brainstore.HistoryDirName + "/work/v1/worker.log",
 		semanticDirName + "/" + semanticAuditLogName,
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err == nil {
@@ -330,7 +331,7 @@ func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 		exportManifestFileName,
 		seedDirName + "/repo-overview.md",
 		factsDirName + "/main-0000/" + factsFileName,
-		historyDirName + "/generations/gen1/index.json",
+		brainstore.HistoryDirName + "/generations/gen1/index.json",
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err != nil {
 			t.Fatalf("bundle entry %q must be accepted: %v", name, err)

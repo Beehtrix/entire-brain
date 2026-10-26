@@ -84,8 +84,6 @@ func FuzzClientResponses(f *testing.F) {
 		_, _ = c.Get(ctx, "repo", "main", "fact:aa")
 		_, _ = c.MultiGet(ctx, "repo", "main", []string{"fact:aa"})
 		_, _ = c.Status(ctx, "repo", "main")
-		_, _ = c.ListProposals(ctx, "repo", "main")
-		_, _ = c.GetProposal(ctx, "repo", "main", "prop-0123456789abcdef")
 	})
 }
 

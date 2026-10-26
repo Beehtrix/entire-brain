@@ -12,6 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // history_fts.go builds a derived FTS5 BM25 index over the history records and
@@ -50,11 +54,11 @@ const (
 const historyFTSRelevanceCutoff = 0.30
 
 func historyFTSDBPath(brainDir string) string {
-	return filepath.Join(brainDir, historyDirName, historyFTSFileName)
+	return filepath.Join(brainDir, brainstore.HistoryDirName, historyFTSFileName)
 }
 
 func historyFTSDBRelPath() string {
-	return filepath.ToSlash(filepath.Join(historyDirName, historyFTSFileName))
+	return filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, historyFTSFileName))
 }
 
 // historyFTSContent is the searchable text for a record. It indexes two forms so
@@ -139,7 +143,7 @@ func openHistoryFTS(brainDir string, index historyIndex) (*sql.DB, error) {
 		return db, nil
 	}
 	var db *sql.DB
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var runErr error
 		db, runErr = openHistoryFTSLockedIdentity(brainDir, index, identity)
 		return runErr
@@ -154,11 +158,11 @@ func openHistoryFTSIfFresh(brainDir string, index historyIndex) (*sql.DB, error)
 }
 
 func openHistoryFTSIfFreshIdentity(brainDir string, identity historyFTSIdentity) (*sql.DB, error) {
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+	path, err := clibase.PrepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return nil, err
 	}
@@ -181,11 +185,11 @@ func openHistoryFTSLocked(brainDir string, index historyIndex) (*sql.DB, error) 
 }
 
 func openHistoryFTSLockedIdentity(brainDir string, index historyIndex, identity historyFTSIdentity) (*sql.DB, error) {
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+	path, err := clibase.PrepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return nil, err
 	}
@@ -334,12 +338,12 @@ func buildHistoryFTSIdentity(db *sql.DB, index historyIndex, identity historyFTS
 // openHistoryFTS's cheaper double-checked rebuild; this path is only for a v3
 // database whose metadata claimed freshness but whose hydrated rows were invalid.
 func rebuildHistoryFTSFromTruth(brainDir string, index historyIndex) error {
-	return withBrainWriteLock(brainDir, func() error {
-		path, err := prepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
+		path, err := clibase.PrepareBrainRelativeSQLiteFile(brainDir, historyFTSDBRelPath())
 		if err != nil {
 			return err
 		}
-		db, err := sql.Open(sqliteDriverName, path)
+		db, err := sql.Open(sqlitedriver.Name, path)
 		if err != nil {
 			return err
 		}
@@ -380,7 +384,7 @@ func validateHistoryFTSDirectSource(brainDir string, source *historySourceManife
 		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
 	}
 	path := filepath.Join(brainDir, clean)
-	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
+	if err := clibase.RejectUnsafeExistingRegularFile(path, "history index"); err != nil {
 		return historyFTSIdentity{}, false, false, historyIndexReadError(source, err)
 	}
 	info, err := os.Stat(path)
@@ -398,10 +402,10 @@ func validateHistoryFTSDirectSource(brainDir string, source *historySourceManife
 // path. Unsafe or absent SQLite artifacts are cache misses; the authoritative
 // JSON fallback decides whether the user-visible request can still succeed.
 func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := clibase.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return nil, err
 	}
-	clean, err := cleanBrainRelativePath(historyFTSDBRelPath())
+	clean, err := clibase.CleanBrainRelativePath(historyFTSDBRelPath())
 	if err != nil {
 		return nil, err
 	}
@@ -410,12 +414,12 @@ func openHistoryFTSReadOnly(brainDir string) (*sql.DB, error) {
 	}
 	path := filepath.Join(brainDir, clean)
 	for _, candidate := range []string{path, path + "-wal", path + "-shm", path + "-journal"} {
-		if err := rejectUnsafeExistingRegularFile(candidate, "history sqlite cache"); err != nil {
+		if err := clibase.RejectUnsafeExistingRegularFile(candidate, "history sqlite cache"); err != nil {
 			return nil, err
 		}
 	}
-	dsn := sqliteLiveReadOnlyDSN(path)
-	db, err := sql.Open(sqliteDriverName, dsn)
+	dsn := brainstore.SQLiteLiveReadOnlyDSN(path)
+	db, err := sql.Open(sqlitedriver.Name, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +488,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 	// corruption. Wait once on the writer lock as a publication barrier, then
 	// re-read the manifest. The normal long rebuild path never waits here: while
 	// it runs, the old committed FTS metadata still matches and the read proceeds.
-	unlock, lockErr := acquireBrainWriteLock(brainDir)
+	unlock, lockErr := brainstore.AcquireBrainWriteLock(brainDir)
 	if lockErr != nil {
 		return nil, false, lockErr
 	}
@@ -497,7 +501,7 @@ func rankHistoryViaFreshFTSCutoffDetailed(brainDir string, source *historySource
 		out, used, _, err = rankHistoryViaFreshFTSCutoffOnce(brainDir, current, kind, query, limit, cutoff, predicates...)
 		return out, used, err
 	}
-	return nil, false, errors.New("history index size does not match manifest; run `" + brainInvocation(os.LookupEnv, "refresh history") + "` to rebuild it")
+	return nil, false, errors.New("history index size does not match manifest; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh history") + "` to rebuild it")
 }
 
 func currentHistorySource(brainDir string) (*historySourceManifest, error) {
@@ -520,7 +524,7 @@ func sameHistoryDirectSource(a, b *historySourceManifest) bool {
 }
 
 func historyBrainWriteInProgress(brainDir string) (bool, error) {
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 0)
 	if err == nil {
 		unlock()
 		return false, nil
@@ -780,7 +784,7 @@ func historyFTSContainsPathPhrase(brainDir, rel string) (bool, error) {
 }
 
 func historyFTSContainsPathPhraseAt(path, rel string) (bool, error) {
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return false, err
 	}

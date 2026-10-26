@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +39,7 @@ func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 func runRegressionPrivacySurface(cmd *cobra.Command, f retrievalEmissionPrivacyFixture, surface string, json bool) error {
 	ro := regressionDetectorOptions{limit: 10, json: json}
 	query := "fix scopeBaseRef"
-	manifest := workspaceManifest{Name: "privacy", Repos: []workspaceRepo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
+	manifest := workspace.Manifest{Name: "privacy", Repos: []workspace.Repo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
 	switch surface {
 	case "regressions":
 		return runRegressionDetect(context.Background(), cmd, f.Options, ro, query)
@@ -69,7 +71,7 @@ func TestRegressionPrivacySurfaces(t *testing.T) {
 				if !strings.Contains(out.String(), "..PRIVATE") {
 					t.Fatalf("positive control missing assertion: %s", out.String())
 				}
-				if err := withBrainWriteLock(f.BrainDir, func() error {
+				if err := brainstore.WithBrainWriteLock(f.BrainDir, func() error {
 					plan, err := buildSessionPurgePlan(f.BrainDir, f.SessionID)
 					if err != nil {
 						return err
@@ -121,7 +123,7 @@ func TestRegressionPrivacyOutputLock(t *testing.T) {
 			writes := 0
 			cmd.SetOut(evidenceInspectWriter(func(b []byte) (int, error) {
 				writes++
-				unlock, err := acquireBrainWriteLockTimeout(f.BrainDir, 10*time.Millisecond)
+				unlock, err := brainstore.AcquireBrainWriteLockTimeout(f.BrainDir, 10*time.Millisecond)
 				if err == nil {
 					unlock()
 					t.Error("output emitted without privacy lock")
@@ -165,13 +167,13 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				stones := loadSessionTombstones(f.BrainDir)
+				stones := brainstore.LoadSessionTombstones(f.BrainDir)
 				stones.Excluded[f.SessionID] = sessionTombstone{At: time.Now()}
-				if err := saveSessionTombstones(f.BrainDir, stones); err != nil {
+				if err := brainstore.SaveSessionTombstones(f.BrainDir, stones); err != nil {
 					t.Fatal(err)
 				}
 				// A malformed policy must never turn exclusion into an unguarded scan.
-				if err := os.WriteFile(filepath.Join(f.BrainDir, sessionTombstonesPath), []byte("{"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.BrainDir, brainstore.SessionTombstonesPath), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}

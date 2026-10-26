@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -50,7 +51,7 @@ func TestAbstractHealthSeparatesSchemaFromUsability(t *testing.T) {
 			}
 			writeAbstractBytesForTest(t, b, d, data)
 			if kind == "unverifiable" {
-				if err := os.WriteFile(filepath.Join(b, sessionTombstonesPath), []byte("{broken"), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(b, brainstore.SessionTombstonesPath), []byte("{broken"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -60,7 +61,7 @@ func TestAbstractHealthSeparatesSchemaFromUsability(t *testing.T) {
 			}
 			if kind == "unverifiable" {
 				issues := h["issues"].([]memoryHealthIssue)
-				if len(issues) != 1 || issues[0].Kind != "tombstones" || issues[0].Path != sessionTombstonesPath {
+				if len(issues) != 1 || issues[0].Kind != "tombstones" || issues[0].Path != brainstore.SessionTombstonesPath {
 					t.Fatalf("wrong prerequisite issue: %+v", issues)
 				}
 			}

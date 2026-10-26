@@ -54,10 +54,10 @@ func TestStatusJSONAndMCPDiscloseMissingAgentWiring(t *testing.T) {
 			if hasWarning == wired {
 				t.Fatalf("%s wiring warning (wired=%t): %s", surface, wired, warnings)
 			}
-			if !wired && (!strings.Contains(string(warnings), "agent-guide.md") || !strings.Contains(string(warnings), "init-agents")) {
+			if !wired && (!strings.Contains(string(warnings), "agent-guide.md") || !strings.Contains(string(warnings), "setup")) {
 				t.Fatalf("%s warning lacks missing files or repair command: %s", surface, warnings)
 			}
-			if !wired && !strings.Contains(string(warnings), "entire-brain init-agents") {
+			if !wired && !strings.Contains(string(warnings), "entire-brain setup") {
 				t.Fatalf("%s standalone repair names an unavailable host command: %s", surface, warnings)
 			}
 		}

@@ -62,7 +62,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"Set up the brain & agents:",
 		"Search & explore the brain:",
 		"Durable memories & patterns:",
-		"Code & semantic index:",
+		"Code index & context:",
 		"Brain state & maintenance:",
 		"Workspaces & sharing:",
 		"Troubleshooting & operations:",
@@ -83,7 +83,7 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"Set up the brain & agents:",
 		"Search & explore the brain:",
 		"Durable memories & patterns:",
-		"Code & semantic index:",
+		"Code index & context:",
 		"Brain state & maintenance:",
 		"Workspaces & sharing:",
 		"Troubleshooting & operations:",
@@ -133,14 +133,14 @@ func TestRootHelpAllShowsDeveloperCommands(t *testing.T) {
 		}
 		// Include previously hidden machine surfaces as well as the newly
 		// hidden developer paths. All-help must not mutate dispatch visibility.
-		for _, path := range []string{"bench", "bench semantic", "bench scale", "memories eval", "memories eval-gen", "memories eval-compare", "memories reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
+		for _, path := range []string{"bench", "bench index", "bench scale", "memories eval", "memories eval-gen", "memories eval-compare", "memories reclassify", "inspect graph-schema", "docs formats", "history-eval", "hook", "review"} {
 			if !strings.Contains(out, "\n  "+path+" ") {
 				t.Errorf("all-help missing %q", path)
 			}
 			c, _, err := root.Find(strings.Fields(path))
 			// Bench children remain visible within the hidden family so
 			// explicit `bench --help` can describe its subcommands.
-			wantHidden := path != "bench semantic" && path != "bench scale"
+			wantHidden := path != "bench index" && path != "bench scale"
 			if err != nil || c.Hidden != wantHidden {
 				t.Errorf("%q hidden should remain %v after all-help: %v", path, wantHidden, err)
 			}
@@ -169,7 +169,7 @@ func TestBenchmarkHelpKeepsHiddenFamilyDiscoverable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"entire-brain bench [command]", "Available Commands:", "\n  semantic ", "\n  scale "} {
+	for _, want := range []string{"entire-brain bench [command]", "Available Commands:", "\n  index ", "\n  scale "} {
 		if !strings.Contains(out, want) {
 			t.Errorf("bench help missing %q:\n%s", want, out)
 		}
@@ -187,7 +187,7 @@ func TestBenchmarkHelpKeepsHiddenFamilyDiscoverable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"bench", "bench semantic", "bench scale"} {
+	for _, path := range []string{"bench", "bench index", "bench scale"} {
 		if strings.Contains(out, "\n  "+path+" ") {
 			t.Errorf("default root help should not list %q:\n%s", path, out)
 		}
@@ -205,13 +205,13 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 	if start < 0 || end <= start {
 		t.Fatalf("missing operations group before miscellaneous:\n%s", out)
 	}
-	for _, family := range []string{"memories import", "memories sync", "memories proposals", "memories gc", "memories vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "gc", "reset"} {
+	for _, family := range []string{"memories import", "memories sync", "memories gc", "memories vitality", "memory", "privacy", "docs", "refresh", "watch", "entities", "repo-identity", "repair", "reset"} {
 		if !strings.Contains(out[start:end], "\n  "+family+" ") {
 			t.Errorf("operations group missing %q", family)
 		}
 	}
 	factsStart := strings.Index(out, "Durable memories & patterns:")
-	factsEnd := strings.Index(out, "Code & semantic index:")
+	factsEnd := strings.Index(out, "Code index & context:")
 	if factsStart < 0 || factsEnd <= factsStart {
 		t.Fatalf("missing durable facts group before code:\n%s", out)
 	}
@@ -220,7 +220,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("durable facts group missing everyday verb %q", verb)
 		}
 	}
-	for _, path := range []string{"memories import", "memories sync", "memories proposals", "memories gc", "memories vitality"} {
+	for _, path := range []string{"memories import", "memories sync", "memories gc", "memories vitality"} {
 		if strings.Contains(out[factsStart:factsEnd], "\n  "+path+" ") {
 			t.Errorf("fact operator path %q should appear only in operations", path)
 		}
@@ -230,7 +230,7 @@ func TestOperatorCommandFamiliesRemainDiscoverable(t *testing.T) {
 			t.Errorf("operations group should not list %q", absent)
 		}
 	}
-	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories import", "memories sync", "memories proposals", "memories gc", "memories vitality", "docs extract"} {
+	for _, path := range []string{"memory migrate", "entities migrate", "memories status", "memories tree", "memories map", "memories retract", "memories review", "memories promote", "memories import", "memories sync", "memories gc", "memories vitality", "docs extract"} {
 		root := NewRootCommand(Options{Version: "test"})
 		c, _, err := root.Find(strings.Fields(path))
 		if err != nil || c.Hidden || c.Parent().Hidden {
@@ -260,6 +260,44 @@ func TestRedundantAliasesAreRemoved(t *testing.T) {
 		if _, err := execute(t, cmd, alias); err == nil || !strings.Contains(err.Error(), "unknown command") {
 			t.Fatalf("alias %q should be removed (expected unknown-command error)", alias)
 		}
+	}
+}
+
+func TestInitAgentsTombstone(t *testing.T) {
+	// brainInvocation renders the host-dispatched spelling ("entire brain
+	// setup") only when the plugin dispatcher's env var is set; pin that mode
+	// so the assertions below don't depend on ambient environment.
+	t.Setenv(envCLIVersion, "0.3.0")
+
+	for _, args := range [][]string{
+		{"init-agents"},
+		// The removed command's main invocation shapes carried flags. Cobra
+		// parses flags before RunE, so without DisableFlagParsing these would
+		// die as a generic "unknown flag" instead of naming the replacement.
+		{"init-agents", "--strict"},
+	} {
+		cmd := NewRootCommand(Options{Version: "test-version"})
+		_, err := execute(t, cmd, args...)
+		if err == nil {
+			t.Fatalf("%v should fail; the command was removed", args)
+		}
+		for _, want := range []string{"entire brain setup", "--strict", "--normal"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%v error should mention %q, got: %v", args, want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "unknown flag") {
+			t.Errorf("%v should reach the removal remedy, not cobra's unknown-flag error: %v", args, err)
+		}
+	}
+
+	cmd := NewRootCommand(Options{Version: "test-version"})
+	out, err := execute(t, cmd, "--help")
+	if err != nil {
+		t.Fatalf("root --help: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "init-agents") {
+		t.Fatalf("init-agents should stay hidden from --help:\n%s", out)
 	}
 }
 

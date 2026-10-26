@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_staleness.go is Phase 2 item 4 (agent-utility plan): the per-fact
@@ -33,7 +35,7 @@ func factLocusDrift(repoDir string, f factRecord) []string {
 		return nil
 	}
 	var drift []string
-	for _, tok := range factLocusOf(f) {
+	for _, tok := range base.FactLocusOf(f) {
 		if !locusTokenIsFilePath(tok) {
 			continue
 		}

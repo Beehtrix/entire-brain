@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -47,7 +48,7 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 	if err := cmd.Context().Err(); err != nil {
 		return err
 	}
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}

@@ -12,6 +12,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // memory_receipts.go is the projection receipt: the durable, content-free
@@ -23,7 +26,7 @@ import (
 
 const (
 	projectionStateFileName = "projection-state-v1.json"
-	projectionStateRel      = historyDirName + "/" + projectionStateFileName
+	projectionStateRel      = brainstore.HistoryDirName + "/" + projectionStateFileName
 	projectionSchemaVersion = 1
 	// projectionReconcilerVersion mirrors the overlay's reconciliation rule
 	// version: receipts from a different rule are stale.
@@ -92,16 +95,16 @@ func (e *projectionStateLoadError) Error() string {
 // agent_surface.go read it -- these printers sit too deep in the health/error
 // path to be handed one.
 func projectionStateAction(state projectionStateReadState) string {
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := base.SetupCommandPrefix(os.LookupEnv)
 	switch state {
 	case projectionStateAbsent:
 		return "run `" + brainCmd + " memory repair` to rebuild the missing disposable receipt"
 	case projectionStateStale:
 		return "run `" + brainCmd + " memory repair` to atomically publish a receipt matching current canonical sessions"
 	case projectionStateUnsafe:
-		return "inspect the manifest receipt path; remove the unsafe pointer before repair"
+		return "run `" + brainCmd + " memory repair` — the unsafe receipt is never read; a fresh generation is rebuilt from canonical sessions"
 	case projectionStateUnsupported:
-		return "upgrade entire-brain; this newer receipt is left untouched"
+		return "this newer receipt is left untouched; upgrade entire-brain with `entire plugin upgrade brain` (local-dev installs: rebuild and reinstall)"
 	case projectionStateCorrupt:
 		return "inspect the reported receipt, then run `" + brainCmd + " memory repair` to rebuild disposable state"
 	default:
@@ -110,14 +113,14 @@ func projectionStateAction(state projectionStateReadState) string {
 }
 
 func newProjectionStateLoadError(state projectionStateReadState, path, detail string, version int) error {
-	code := memoryErrStateCorrupt
+	code := brainstore.StateCorruptCode
 	switch state {
 	case projectionStateUnsupported:
-		code = memoryErrUnsupportedVersion
+		code = brainstore.UnsupportedVersionCode
 	case projectionStateStale:
 		code = memoryErrSourceStale
 	case projectionStateUnsafe:
-		code = memoryErrStateUnsafe
+		code = brainstore.StateUnsafeCode
 	}
 	return &projectionStateLoadError{
 		State: state, Code: code, Path: path, Version: version,
@@ -141,7 +144,7 @@ func sessionTranscriptDigest(brainDir, rel string) (string, error) {
 // receipt. An unreadable transcript simply has no receipt: reconciliation
 // keeps its job open.
 func buildProjectionReceipts(brainDir string, manifest *exportManifest, index historyIndex, now time.Time) (projectionState, error) {
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return projectionState{}, err
 	}
@@ -195,7 +198,7 @@ func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManife
 }
 
 func writeProjectionState(brainDir string, state projectionState) (digest string, err error) {
-	if existing, present, readErr := readMemoryStateFile(brainDir, projectionStateRel, "projection receipt", maxManifestBytes); readErr != nil {
+	if existing, present, readErr := readMemoryStateFile(brainDir, projectionStateRel, "projection receipt", base.MaxManifestBytes); readErr != nil {
 		return "", readErr
 	} else if present {
 		_, readState, decodeErr := decodeProjectionStateDocument(existing, projectionStateRel)
@@ -207,7 +210,7 @@ func writeProjectionState(brainDir string, state projectionState) (digest string
 	if err != nil {
 		return "", err
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, projectionStateRel, data, 0o600); err != nil {
 		return "", err
 	}
 	return digest, nil
@@ -260,7 +263,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if !validSHA256Identity(source.ProjectionStateDigest) {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "manifest content digest is invalid", 0)
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, "path contains a symlink", 0)
 	}
 	path := filepath.Join(brainDir, clean)
@@ -274,15 +277,15 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, "receipt must be a regular file and must not be a symlink", 0)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "cannot open the receipt without following links", 0)
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
+	if err := base.RejectOpenFileAlias(path, f, "projection receipt"); err != nil {
 		return projectionState{}, projectionStateUnsafe, newProjectionStateLoadError(projectionStateUnsafe, rel, err.Error(), 0)
 	}
-	data, err := safeReadAll(f, maxManifestBytes, path)
+	data, err := base.SafeReadAll(f, base.MaxManifestBytes, path)
 	if err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "cannot read a bounded regular file", 0)
 	}
@@ -304,7 +307,7 @@ func loadProjectionStateCheckedOnce(brainDir string, source *historySourceManife
 // supported decoding, so additive fields from a vNext producer cannot turn a
 // read-only receipt into disposable "corruption".
 func decodeProjectionStateDocument(data []byte, rel string) (projectionState, projectionStateReadState, error) {
-	version, err := checkedVersionedJSONHeader(data, projectionSchemaVersion, "projection receipt")
+	version, err := brainstore.CheckedVersionedJSONHeader(data, projectionSchemaVersion, "projection receipt")
 	if err != nil {
 		if version > projectionSchemaVersion {
 			return projectionState{}, projectionStateUnsupported, newProjectionStateLoadError(projectionStateUnsupported, rel, "schema is newer than this binary", version)
@@ -312,7 +315,7 @@ func decodeProjectionStateDocument(data []byte, rel string) (projectionState, pr
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "invalid JSON", version)
 	}
 	var state projectionState
-	if _, err := decodeStrictVersionedJSON(data, &state, projectionSchemaVersion, "projection receipt"); err != nil {
+	if _, err := brainstore.DecodeStrictVersionedJSON(data, &state, projectionSchemaVersion, "projection receipt"); err != nil {
 		return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "invalid JSON or unknown fields", version)
 	}
 	if state.SchemaVersion != projectionSchemaVersion {
@@ -323,7 +326,7 @@ func decodeProjectionStateDocument(data []byte, rel string) (projectionState, pr
 	}
 	previousRef := ""
 	for _, receipt := range state.Sessions {
-		if !strings.HasPrefix(receipt.SessionRef, conversationSessionIDPrefix) || strings.TrimSpace(receipt.SessionID) == "" ||
+		if !strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(receipt.SessionID) == "" ||
 			!validSHA256Identity(receipt.InputDigest) || receipt.ExchangeCount < 0 || receipt.CompletedAt.IsZero() || receipt.CompletedAt.After(state.GeneratedAt) {
 			return projectionState{}, projectionStateCorrupt, newProjectionStateLoadError(projectionStateCorrupt, rel, "receipt has invalid identity or timestamp", state.SchemaVersion)
 		}

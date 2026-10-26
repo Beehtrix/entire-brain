@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestCorpusEpisodeOpsCodex(t *testing.T) {
@@ -112,10 +114,10 @@ func TestCorpusEnrichmentIntegration(t *testing.T) {
 	if fails < 1 {
 		t.Error("expected a failed command recorded")
 	}
-	if n := corpusCount(t, db, "episode_files"); n < 1 {
+	if n := patterntest.CorpusCount(t, db, "episode_files"); n < 1 {
 		t.Error("expected an episode_files row from apply_patch")
 	}
-	if n := corpusCount(t, db, "episode_facts"); n < 1 {
+	if n := patterntest.CorpusCount(t, db, "episode_facts"); n < 1 {
 		t.Error("expected an episode_facts link to the worktree-fingerprint fact")
 	}
 	var metaLoop int

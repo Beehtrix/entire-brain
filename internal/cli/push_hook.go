@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // push_hook.go installs the plugin's own git pre-push hook. The host CLI's
@@ -146,7 +149,7 @@ func installPushHook(ctx context.Context, opts Options, repoDir string) (pushHoo
 				if err := os.Rename(backup, rotated); err != nil {
 					return "", "", fmt.Errorf("rotate stale backup: %w", err)
 				}
-				fmt.Fprintf(os.Stderr, "entire-brain: %s changed since it was backed up; the older copy was kept as %s and no longer runs\n", pushHookName, rotated)
+				tui.Warnf(os.Stderr, "entire-brain: %s changed since it was backed up; the older copy was kept as %s and no longer runs", pushHookName, rotated)
 			} else if err := os.Remove(backup); err != nil {
 				return "", "", fmt.Errorf("replace identical backup: %w", err)
 			}
@@ -298,7 +301,7 @@ func movedPushHookCandidates(hooksDir string) []string {
 // random temp name can never collide with a concurrent installer or match
 // movedPushHookCandidates' glob.
 func writePushHookFile(path, content string) error {
-	return writeFileAtomic(path, []byte(content), 0o755) //nolint:gosec // git hooks must be executable
+	return brainstore.WriteFileAtomic(path, []byte(content), 0o755) //nolint:gosec // git hooks must be executable
 }
 
 // gitHooksDir is realGitHooksDir (git_harden.go — the resolver lives beside

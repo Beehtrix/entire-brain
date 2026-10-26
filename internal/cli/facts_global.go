@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -132,7 +133,7 @@ func globalFactsEnabled(noGlobalFlag bool) bool {
 	if noGlobalFlag {
 		return false
 	}
-	return !securityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
+	return !base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
 }
 
 // globalFactsForRead loads the global store for a read surface, honouring the
@@ -188,7 +189,7 @@ func inARepository(ctx context.Context, opts Options) (bool, error) {
 		}
 		return false, nil
 	}
-	inside, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--is-inside-work-tree")
+	inside, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "--is-inside-work-tree")
 	if err != nil {
 		return false, nil
 	}

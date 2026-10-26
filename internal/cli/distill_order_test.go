@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // writeOrderedDistillFixture lays down N same-branch sessions whose transcripts
@@ -50,7 +52,7 @@ func writeOrderedDistillFixture(t *testing.T, now time.Time, ids ...string) stri
 
 // recordingDistillRunner returns a fake agent whose calls append the marker of
 // the session being distilled, in visit order.
-func recordingDistillRunner(visited *[]string) distillAgentRunner {
+func recordingDistillRunner(visited *[]string) clibase.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		for _, line := range strings.Split(string(input), "\n") {
 			if _, marker, ok := strings.Cut(line, "marker "); ok {

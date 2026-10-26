@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // brainStatusHosted is the status report's hosted-brain connection section,
@@ -43,7 +45,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
-		warning = "hosted binding unreadable (run '" + brainInvocation(os.LookupEnv, "connect") + "' to rebind): " + err.Error()
+		warning = "hosted binding unreadable (run '" + base.BrainInvocation(os.LookupEnv, "connect") + "' to rebind): " + err.Error()
 	case present && binding.OptedOut:
 		// Coordinates survive an opt-out (reconnect needs no placement
 		// resolution), so the target stays visible here too.
@@ -75,7 +77,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 			warning = fmt.Sprintf("hosted sync marker unreadable for branch(es) %s: %v", strings.Join(broken, ", "), brokenErr)
 		}
 	}
-	hosted.NoEgress = brainNoEgressMode()
+	hosted.NoEgress = base.BrainNoEgressMode()
 	hosted.State = hosted.RepoState
 	if hosted.NoEgress {
 		hosted.State = hostedStateLocalOnly
@@ -110,11 +112,11 @@ func hostedStatusLine(h *brainStatusHosted) string {
 		}
 		return "Connected to Brainstore (no branches synced yet)"
 	case hostedStateDisconnected:
-		return "Disconnected from Brainstore (run '" + brainInvocation(os.LookupEnv, "connect") + "' to join)"
+		return "Disconnected from Brainstore (run '" + base.BrainInvocation(os.LookupEnv, "connect") + "' to join)"
 	default:
 		// Local-only: name the variable actually set, and keep the underlying
 		// repo state visible so unsetting the variable is predictable.
 		return fmt.Sprintf("Local-only (%s set — unset it to resume; repo is %s)",
-			noEgressToggleName(), hostedStateLabel(h.RepoState))
+			base.NoEgressToggleName(), hostedStateLabel(h.RepoState))
 	}
 }

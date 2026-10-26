@@ -12,7 +12,6 @@ import (
 
 func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 	overlay := filepath.Join(semanticDirName, "overlays", testPublishCommit+".."+testPublishHead+".json")
-	snapshot := filepath.Join(semanticDirName, semanticSnapshotsDir, testPublishCommit, semanticSnapshotName)
 	facts := filepath.FromSlash(factsFileRelPath("main"))
 	for _, tc := range []struct {
 		name, rel string
@@ -20,9 +19,6 @@ func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 	}{
 		{"facts-root", factsDirName, collectFactArtifacts},
 		{"facts-leaf", facts, collectFactArtifacts},
-		{"snapshot-semantic-parent", semanticDirName, collectSnapshotArtifacts},
-		{"snapshot-root", filepath.Join(semanticDirName, semanticSnapshotsDir), collectSnapshotArtifacts},
-		{"snapshot-leaf", snapshot, collectSnapshotArtifacts},
 		{"overlay-semantic-parent", semanticDirName, collectOverlayArtifacts},
 		{"overlay-root", filepath.Join(semanticDirName, "overlays"), collectOverlayArtifacts},
 		{"overlay-leaf", overlay, collectOverlayArtifacts},
@@ -104,7 +100,7 @@ func TestPublishBlobSizeErrorUsesOpenedPath(t *testing.T) {
 	t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", "3")
 	_, _, err := readBrainBlob(brainDir, "  facts//sample.ndjson  ")
 	bound, ok := err.(*readBoundExceededError)
-	if !ok || bound.source != path {
+	if !ok || bound.Source != path {
 		t.Fatalf("size error should name opened path %q: %v", path, err)
 	}
 }

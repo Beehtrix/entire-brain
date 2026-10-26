@@ -8,6 +8,11 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // promotableCorpusDir builds a brain dir containing a corpus with one
@@ -22,23 +27,23 @@ func promotableCorpusDir(t *testing.T, now time.Time) string {
 	if err := os.WriteFile(transcriptPath, []byte("deploy release\nmise build\nmise deploy\nverify release\ndone\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, patternCorpusPath)
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, s := range patternCorpusSchema {
+	for _, s := range patterncore.CorpusSchema {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("schema: %v", err)
 		}
 	}
 	for i := 0; i < 12; i++ {
 		id := fmt.Sprintf("episode:d%d", i)
-		insertCorpusEpisode(t, db, id, "deploy:release", "success", 2, now)
-		insertCorpusShape(t, db, id, "mise build", "mise deploy")
+		patterntest.InsertCorpusEpisode(t, db, id, "deploy:release", "success", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "mise build", "mise deploy")
 		if _, err := db.Exec(`INSERT INTO episode_facts (episode_id, fact_id, kind, paths, weight) VALUES (?,?,?,?,2)`,
 			id, "fact:deploy", "architecture", "ops/deploy.go"); err != nil {
 			t.Fatal(err)
@@ -46,10 +51,10 @@ func promotableCorpusDir(t *testing.T, now time.Time) string {
 	}
 	for i := 0; i < 200; i++ {
 		id := fmt.Sprintf("episode:u%d", i)
-		insertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
-		insertCorpusShape(t, db, id, "ls", "cat")
+		patterntest.InsertCorpusEpisode(t, db, id, "other:thing", "neutral", 2, now)
+		patterntest.InsertCorpusShape(t, db, id, "ls", "cat")
 	}
-	if err := buildPatternCandidates(db, "gh/acme/cli", now); err != nil {
+	if err := patterncore.BuildCandidates(db, "gh/acme/cli", now); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -117,7 +122,7 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 	for i, confidence := range []float64{0.91, 0.73, 0.55, 0.42} {
 		pid := fmt.Sprintf("pattern:overview-%d", i)
 		cluster := fmt.Sprintf("overview:%d", i)
-		rec := dossierRecord{SchemaVersion: dossierSchemaVersion, PatternID: pid, ClusterKey: cluster, Fingerprint: "sha256:test", Title: cluster, Confidence: confidence}
+		rec := patterncore.DossierRecord{SchemaVersion: patterncore.DossierSchemaVersion, PatternID: pid, ClusterKey: cluster, Fingerprint: "sha256:test", Title: cluster, Confidence: confidence}
 		blob, err := json.Marshal(rec)
 		if err != nil {
 			t.Fatal(err)

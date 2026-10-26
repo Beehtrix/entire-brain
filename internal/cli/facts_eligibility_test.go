@@ -10,6 +10,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestFilterFactsByTemporalEligibilityFailsClosedAndCountsReasons(t *testing.T) {
@@ -175,7 +177,7 @@ func treeContentHash(t *testing.T, root string) string {
 		if !entry.IsDir() {
 			rel, _ := filepath.Rel(root, path)
 			rel = filepath.ToSlash(rel)
-			vitalityLock := filepath.ToSlash(filepath.Join(brainLockDirName, factsVitalityLockName))
+			vitalityLock := filepath.ToSlash(filepath.Join(brainstore.BrainLockDirName, factsVitalityLockName))
 			if filepath.Base(path) == factsVitalityLogFileName ||
 				filepath.Base(path) == factsVitalityRollupFileName ||
 				rel == vitalityLock ||
@@ -184,7 +186,7 @@ func treeContentHash(t *testing.T, root string) string {
 				// the timestamp that used to live INSIDE the lock file, so
 				// excluding the lock without its sidecar would make this hash
 				// sensitive to the clock rather than to the brain.
-				rel == vitalityLock+fileLockOwnerSuffix {
+				rel == vitalityLock+brainstore.FileLockOwnerSuffix {
 				return nil
 			}
 			paths = append(paths, path)

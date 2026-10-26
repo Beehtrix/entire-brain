@@ -2,14 +2,15 @@ package cli
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"os"
 	"sort"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
 
@@ -25,8 +26,6 @@ import (
 // Strength rewards breadth (fraction of members sharing the pattern) on top of
 // total support and reinforcement; practices also keep the kind weighting.
 // Workspace pattern files live under the workspace dir, a sibling of repos/.
-
-const workspaceMinRepos = 2 // a workspace pattern must be shared across ≥2 repos
 
 func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 	var list patternsListOptions
@@ -70,7 +69,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 		Use:   "verify <workspace>",
 		Short: "Agent-judge cross-repo families: merge equivalent workflows across repos by meaning (explicit, egress-gated, cached)",
 		Long: "Add the workspace judgment layer on top of exact aggregation: group member-repo task " +
-			"candidates into cross-repo families by semantic trigger + procedure purpose (equivalent workflows " +
+			"candidates into cross-repo families by trigger meaning + procedure purpose (equivalent workflows " +
 			"with different command names/order merge; generic git workflows are rejected). An accepted family " +
 			"dossier is required before `workspace patterns skills form`. The only agent path for workspaces; " +
 			"egress-gated and cached by the member-candidate fingerprint.",
@@ -90,7 +89,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, name, agent, model, effort string, asJSON bool) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -98,7 +97,7 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	if err := rejectAgentForNoEgress(agent); err != nil {
+	if err := clibase.RejectAgentForNoEgress(agent); err != nil {
 		return err
 	}
 	resolved := agent
@@ -174,9 +173,9 @@ type memberPatterns struct {
 	warnings    []string
 }
 
-func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPatterns, error) {
+func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatterns, error) {
 	m := memberPatterns{procsByRepo: map[string][]procedureRecord{}, pracsByRepo: map[string][]practiceRecord{}, tasksByRepo: map[string][]taskCandidate{}}
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
+	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
 		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
@@ -197,7 +196,7 @@ func loadMemberPatterns(opts Options, manifest workspaceManifest) (memberPattern
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: tasks: %v", repo.RepoKey, err))
 		}
 		if len(procs) == 0 && len(pracs) == 0 && len(tasks) == 0 {
-			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `"+brainInvocation(os.LookupEnv, "refresh")+"` in that repo)", repo.RepoKey))
+			m.warnings = append(m.warnings, fmt.Sprintf("%s: no patterns (run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"` in that repo)", repo.RepoKey))
 		}
 		m.procsByRepo[repo.RepoKey] = procs
 		m.pracsByRepo[repo.RepoKey] = pracs
@@ -246,7 +245,7 @@ func buildWorkspaceProcedures(byRepo map[string][]procedureRecord, repoOrder []s
 	var out []procedureRecord
 	for _, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspaceProcedureStrength(repos, memberCount, a.support, a.reinf)
@@ -302,7 +301,7 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 	var out []practiceRecord
 	for _, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspacePracticeStrength(a.base.Kind, repos, memberCount, a.support)
@@ -325,18 +324,18 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 
 func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforcementCounts) float64 {
 	breadth := repoBreadthScore(repos, memberCount)
-	supportScore := clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
+	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
 	reinfScore := 0.5
 	if support > 0 {
-		reinfScore = clamp01(0.5 + 0.5*float64(reinf.Success-reinf.Corrected)/float64(support))
+		reinfScore = clibase.Clamp01(0.5 + 0.5*float64(reinf.Success-reinf.Corrected)/float64(support))
 	}
 	return 0.45*breadth + 0.30*supportScore + 0.25*reinfScore
 }
 
 func workspacePracticeStrength(kind string, repos, memberCount, support int) float64 {
-	kindScore := clamp01(float64(factKindPriority[kind]) / 6.0)
+	kindScore := clibase.Clamp01(float64(factKindPriority[kind]) / 6.0)
 	breadth := repoBreadthScore(repos, memberCount)
-	supportScore := clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
+	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
 	return 0.40*kindScore + 0.35*breadth + 0.25*supportScore
 }
 
@@ -347,7 +346,7 @@ func repoBreadthScore(repos, memberCount int) float64 {
 	if denom < 1 {
 		denom = 1
 	}
-	return clamp01(float64(repos-1) / float64(denom))
+	return clibase.Clamp01(float64(repos-1) / float64(denom))
 }
 
 func addReinf(a, b reinforcementCounts) reinforcementCounts {
@@ -361,11 +360,6 @@ func sortedBreakdown(m map[string]*patternRepoStat) []patternRepoStat {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].RepoKey < out[j].RepoKey })
 	return out
-}
-
-func hexSHA(s string) string {
-	sum := sha256.Sum256([]byte(s))
-	return hex.EncodeToString(sum[:])
 }
 
 func sortedSetKeys(m map[string]bool) []string {
@@ -409,7 +403,7 @@ func sortPatternsByStrength[T any](items []T, key func(i int) (float64, int, str
 }
 
 func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -423,7 +417,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -475,7 +469,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 }
 
 func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -483,11 +477,11 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(wsDir)
@@ -496,7 +490,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	if !corpusBacked {
 		return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
+			fmt.Fprintf(cmd.OutOrStdout(), "workspace %s: no cross-repo corpus (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		})
 	}
@@ -520,7 +514,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
-			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `"+brainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no cross-repo patterns (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns refresh")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, v := range filtered {
@@ -531,7 +525,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 }
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -539,11 +533,11 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	procs, err := loadBrainProcedures(wsDir)
@@ -649,12 +643,12 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 	var out []taskCandidate
 	for sig, a := range aggs {
 		repos := len(a.repos)
-		if repos < workspaceMinRepos {
+		if repos < patterncore.WorkspaceMinRepos {
 			continue
 		}
 		strength := workspacePracticeStrength("", repos, memberCount, a.support) // breadth+support blend
 		out = append(out, taskCandidate{
-			ID:              "task:ws:" + hexSHA(workspace+"\x00"+sig),
+			ID:              "task:ws:" + clibase.HexSHA(workspace+"\x00"+sig),
 			Workspace:       workspace,
 			IntentSignature: sig,
 			Label:           a.base.Label,
@@ -683,7 +677,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -694,11 +688,11 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	families, err := loadAcceptedWorkspaceFamiliesChecked(wsDir)
@@ -714,7 +708,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 		}
 		out := cmd.OutOrStdout()
 		if len(families) == 0 {
-			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s`)\n", name, name)
+			fmt.Fprintf(out, "workspace %s: no accepted cross-repo families (run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns verify")+" %s`)\n", name, name)
 			return nil
 		}
 		for _, f := range families {
@@ -722,8 +716,8 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			for _, v := range f.PerRepo {
 				repos = append(repos, v.RepoKey)
 			}
-			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", redactText(f.Title), f.repoCount(), strings.Join(repos, ", "))
-			fmt.Fprintf(out, "    trigger: %s\n", redactText(f.Trigger))
+			fmt.Fprintf(out, "[family] %s  (%d repos: %s)\n", clibase.RedactText(f.Title), f.RepoCount(), strings.Join(repos, ", "))
+			fmt.Fprintf(out, "    trigger: %s\n", clibase.RedactText(f.Trigger))
 			fmt.Fprintf(out, "    id %s\n", f.ID)
 		}
 		return nil
@@ -731,7 +725,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
-	manifest, err := loadWorkspaceManifest(opts.Env, name)
+	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -739,11 +733,11 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceDir(opts.Env, name)
+	wsDir, err := workspaceStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
-	if err := validatePatternCorpusReadSafety(wsDir); err != nil {
+	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
 	agent := s.agent
@@ -762,7 +756,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 		if !ok {
-			return fmt.Errorf("no accepted workspace family %q: run `"+brainInvocation(os.LookupEnv, "workspace patterns verify")+" %s` (explicit, egress-gated), then `"+brainInvocation(os.LookupEnv, "workspace patterns skills")+" %s`", s.taskID, name, name)
+			return fmt.Errorf("no accepted workspace family %q: run `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns verify")+" %s` (explicit, egress-gated), then `"+clibase.BrainInvocation(os.LookupEnv, "workspace patterns skills")+" %s`", s.taskID, name, name)
 		}
 		// A synthetic candidate carries id/name/scope + per-repo breakdown for
 		// the skill-memory record; synthesis itself runs from the family.
@@ -771,8 +765,8 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 			breakdown = append(breakdown, patternRepoStat{RepoKey: v.RepoKey, Support: 1})
 		}
 		cand := taskCandidate{
-			ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.repoCount(),
-			RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.repoCount(),
+			ID: fam.ID, Label: fam.Title, Workspace: name, Repos: fam.RepoCount(),
+			RepoBreakdown: breakdown, Commands: fam.CommonWorkflow, Support: fam.RepoCount(),
 			Strength: 0.7, StrengthLabel: "high",
 		}
 		return synthesizeAndForm(ctx, cmd, cand, nil, &fam, wsDir, ".", agent, defaultDistillAgentRunner(agent), s, opts.Now().UTC())

@@ -7,6 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // memoryStateInventoryMaxEntries bounds every operational directory scan. It
@@ -59,9 +62,9 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 		return nil, present, err
 	}
 	defer f.Close()
-	data, err := safeReadAll(f, maxBytes, filepath.Join(brainDir, rel))
+	data, err := base.SafeReadAll(f, maxBytes, filepath.Join(brainDir, rel))
 	if err != nil {
-		return nil, true, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(rel), err)
+		return nil, true, fmt.Errorf("%s: read %s %s: %w", brainstore.StateCorruptCode, label, filepath.ToSlash(rel), err)
 	}
 	return data, true, nil
 }
@@ -69,12 +72,12 @@ func readMemoryStateFileExpected(brainDir, rel, label string, maxBytes int64, ex
 // openMemoryStateFileExpected shares the identity and alias protections with
 // readers that decode directly from the descriptor. The caller closes the file.
 func openMemoryStateFileExpected(brainDir, rel, label string, expected os.FileInfo) (*os.File, bool, error) {
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
-		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
+		return nil, false, fmt.Errorf("%s: %s has an unsafe path %q: %w", brainstore.StateUnsafeCode, label, rel, err)
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), err)
 	}
 	path := filepath.Join(brainDir, clean)
 	before, err := memoryStateLstat(path)
@@ -82,17 +85,17 @@ func openMemoryStateFileExpected(brainDir, rel, label string, expected os.FileIn
 		if os.IsNotExist(err) {
 			return nil, false, nil
 		}
-		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
+		return nil, false, fmt.Errorf("%s: inspect %s %s: %w", brainstore.StateCorruptCode, label, filepath.ToSlash(clean), err)
 	}
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
-		return nil, true, fmt.Errorf("%s: %s is not a regular file: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return nil, true, fmt.Errorf("%s: %s is not a regular file: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
 	if expected != nil && !os.SameFile(expected, before) {
-		return nil, true, fmt.Errorf("%s: %s changed after directory enumeration: %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), errMemoryStateEnumerationStale)
+		return nil, true, fmt.Errorf("%s: %s changed after directory enumeration: %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), errMemoryStateEnumerationStale)
 	}
-	f, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := memoryStateOpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
-		return nil, true, fmt.Errorf("%s: open %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+		return nil, true, fmt.Errorf("%s: open %s %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), err)
 	}
 	success := false
 	defer func() {
@@ -102,14 +105,14 @@ func openMemoryStateFileExpected(brainDir, rel, label string, expected os.FileIn
 	}()
 	opened, err := f.Stat()
 	if err != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
 	after, err := memoryStateLstat(path)
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
-		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return nil, true, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
-	if err := rejectOpenFileAlias(path, f, label); err != nil {
-		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+	if err := base.RejectOpenFileAlias(path, f, label); err != nil {
+		return nil, true, fmt.Errorf("%s: validate opened %s %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), err)
 	}
 	success = true
 	return f, true, nil
@@ -130,12 +133,12 @@ func readMemoryStateDirectory(brainDir, rel, label string, ceiling int) (memoryS
 	if ceiling < 1 {
 		ceiling = memoryStateInventoryMaxEntries
 	}
-	clean, err := cleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
+	clean, err := base.CleanBrainRelativePath(filepath.ToSlash(strings.TrimSpace(rel)))
 	if err != nil {
-		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: %s has an unsafe path %q: %w", memoryErrStateUnsafe, label, rel, err)
+		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: %s has an unsafe path %q: %w", brainstore.StateUnsafeCode, label, rel, err)
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
-		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: inspect %s %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), err)
 	}
 	path := filepath.Join(brainDir, clean)
 	before, err := memoryStateLstat(path)
@@ -143,27 +146,27 @@ func readMemoryStateDirectory(brainDir, rel, label string, ceiling int) (memoryS
 		if os.IsNotExist(err) {
 			return memoryStateDirectory{}, nil
 		}
-		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: inspect %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
+		return memoryStateDirectory{Degraded: true}, fmt.Errorf("%s: inspect %s %s: %w", brainstore.StateCorruptCode, label, filepath.ToSlash(clean), err)
 	}
 	if before.Mode()&os.ModeSymlink != 0 || !before.IsDir() {
-		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s is not a directory: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s is not a directory: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
-	dir, err := memoryStateOpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := memoryStateOpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
-		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: open %s %s: %w", memoryErrStateUnsafe, label, filepath.ToSlash(clean), err)
+		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: open %s %s: %w", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean), err)
 	}
 	defer dir.Close()
 	opened, err := dir.Stat()
 	if err != nil || !opened.IsDir() || !os.SameFile(before, opened) {
-		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
 	after, err := memoryStateLstat(path)
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
-		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", memoryErrStateUnsafe, label, filepath.ToSlash(clean))
+		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: %s changed or became unsafe while opening: %s", brainstore.StateUnsafeCode, label, filepath.ToSlash(clean))
 	}
 	entries, err := dir.ReadDir(ceiling + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: read %s %s: %w", memoryErrStateCorrupt, label, filepath.ToSlash(clean), err)
+		return memoryStateDirectory{Present: true, Degraded: true}, fmt.Errorf("%s: read %s %s: %w", brainstore.StateCorruptCode, label, filepath.ToSlash(clean), err)
 	}
 	result := memoryStateDirectory{Entries: entries, Present: true, Total: len(entries)}
 	if len(entries) > ceiling {

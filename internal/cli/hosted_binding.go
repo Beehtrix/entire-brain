@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // hostedRepoBinding is the repo-level hosted-brain connection state, written
@@ -24,7 +27,7 @@ type hostedRepoBinding struct {
 const hostedRepoBindingFile = "hosted.json"
 
 func writeHostedRepoBinding(brainDir string, binding hostedRepoBinding) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeHostedRepoBindingLocked(brainDir, binding)
 	})
 }
@@ -37,7 +40,7 @@ func writeHostedRepoBindingLocked(brainDir string, binding hostedRepoBinding) er
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedRepoBindingFile, append(data, '\n'), 0600)
 }
 
 // setHostedOptOut records an explicit disconnect as one locked
@@ -47,7 +50,7 @@ func writeHostedRepoBindingLocked(brainDir string, binding hostedRepoBinding) er
 // a bare one. Returns the binding as written.
 func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
 	var binding hostedRepoBinding
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		existing, _, readErr := readHostedRepoBinding(brainDir)
 		if readErr != nil {
 			existing = hostedRepoBinding{}
@@ -61,7 +64,7 @@ func setHostedOptOut(brainDir string) (hostedRepoBinding, error) {
 
 func readHostedRepoBinding(brainDir string) (hostedRepoBinding, bool, error) {
 	var binding hostedRepoBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, hostedRepoBindingFile, "hosted repo binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}

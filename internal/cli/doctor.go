@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -206,29 +207,6 @@ func doctorDirectoryFinding(label string, health memoryInstallDirectoryHealth) d
 // neither installs nor repairs -- rather than any artifact in this brain.
 const doctorSemanticProviderAxis = "provider"
 
-// doctorSemanticArtifactAxes are the freshness axes that describe persisted
-// semantic artifacts this brain CLAIMS to have: the provider snapshot on disk
-// and the derived SQLite store. An `unsafe` reading on one of these is not a
-// staleness observation and not a host-environment observation -- it is this
-// brain's own recorded data failing to load.
-//
-// The `semantic` axis is deliberately NOT here. Its only state is "missing"
-// ("no semantic source in manifest"), which is the ordinary condition of a
-// brain that has not run `refresh index` yet. Promoting never-built to `error`
-// would fail the gate on every fresh brain, which is the same mistake in the
-// opposite direction.
-var doctorSemanticArtifactAxes = map[string]bool{
-	"snapshot": true,
-	"store":    true,
-}
-
-// semanticAxisBroken reports an axis state that means "what the manifest points
-// at could not be read", as opposed to "this is behind" (stale, dirty-*),
-// "this is incomplete" (degraded), or "this was never built" (missing).
-func semanticAxisBroken(state string) bool {
-	return state == "unsafe"
-}
-
 // semanticAxisCurrent mirrors freshnessSummary's notion of an axis with nothing
 // to say.
 func semanticAxisCurrent(state string) bool {
@@ -285,7 +263,7 @@ func semanticDoctorFindings(report staleReport) []doctorCheckResult {
 			continue
 		}
 		brainParts = append(brainParts, semanticAxisPart(name, axis))
-		if doctorSemanticArtifactAxes[name] && semanticAxisBroken(axis.State) {
+		if name == "brain_layout" && axis.State == "unsafe" {
 			brainState = "error"
 		} else if brainState != "error" {
 			brainState = "warn"
@@ -322,7 +300,7 @@ func doctorSemanticCoverage(ctx context.Context, opts Options, repoDir string, f
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +446,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 // does not see is always one documented command away.
 // A func, not a const: the spelling is only knowable at call time.
 func doctorVerboseInvocation() string {
-	return brainInvocation(os.LookupEnv, "doctor --verbose")
+	return base.BrainInvocation(os.LookupEnv, "doctor --verbose")
 }
 
 // doctorActionableDetailBudget caps one short line's detail. The blind-spot
@@ -755,13 +733,13 @@ func doctorRemedy(check doctorCheckResult) string {
 	// on the truncated text, which only doctorActionableLine.detail sees.
 	// `setup <component>` findings are one per failed setup component.
 	if strings.HasPrefix(check.Name, "setup ") {
-		return brainInvocation(os.LookupEnv, "setup")
+		return base.BrainInvocation(os.LookupEnv, "setup")
 	}
 	if check.Name == doctorSemanticProviderFinding {
 		return doctorSemanticProviderRemedy(check.Detail)
 	}
 	if verb, ok := doctorRemedies[check.Name]; ok {
-		return brainInvocation(os.LookupEnv, verb)
+		return base.BrainInvocation(os.LookupEnv, verb)
 	}
 	// A check added later without a table entry still gets a command, because
 	// "no remedy" is the one answer a diagnostic must never give.

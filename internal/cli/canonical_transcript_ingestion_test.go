@@ -4,21 +4,24 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, "0123456789")
 
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	data, err := readCanonicalHistoryTranscript(context.Background(), brainDir, "sessions/main/s1.jsonl")
 	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
@@ -32,9 +35,9 @@ func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
 func TestUnsafeTranscriptNeverInvokesDistillProvider(t *testing.T) {
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	brainDir := writeSingleSessionFixture(t, now, "0123456789")
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 
 	calls := 0
 	opts := distillCommandOptions{
@@ -81,9 +84,9 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 		mutate func(t *testing.T, brainDir string)
 	}{
 		{name: "over limit", mutate: func(t *testing.T, brainDir string) {
-			oldMax := maxDocumentTranscriptBytes
-			maxDocumentTranscriptBytes = 8
-			t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
+			oldMax := base.MaxDocumentTranscriptBytes
+			base.MaxDocumentTranscriptBytes = 8
+			t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
 		}},
 		{name: "inventory ceiling", mutate: func(t *testing.T, brainDir string) {
 			oldLimit := historySessionInventoryMaxEntries
@@ -98,7 +101,7 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 			if err := os.WriteFile(external, []byte("outside"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.Symlink(external, filepath.Join(brainDir, exportSessionsDirectory, "irrelevant.bin")); err != nil {
+			if err := os.Symlink(external, filepath.Join(brainDir, brainstore.SessionsDirName, "irrelevant.bin")); err != nil {
 				t.Fatal(err)
 			}
 		}},
@@ -154,9 +157,9 @@ func TestHistoryProjectionDoesNotReadExcludedTranscriptContent(t *testing.T) {
 	if secretRel == "" {
 		t.Fatal("privacy fixture has no secret session")
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	var digested []string

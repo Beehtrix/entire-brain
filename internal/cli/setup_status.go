@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // entireBinaryName is the Entire CLI that owns the session lifecycle hooks. The
@@ -32,8 +34,14 @@ const entireBinaryName = "entire"
 // factsBackfillStatus is the "facts: <distilled>/<total> sessions distilled"
 // counter plus whatever is known about a running backfill process.
 type factsBackfillStatus struct {
-	Sessions  int       `json:"sessions"`
-	Distilled int       `json:"distilled"`
+	Sessions  int `json:"sessions"`
+	Distilled int `json:"distilled"`
+	// Queued is how many sessions the CURRENT setup run's backfill will
+	// actually distill — Pending() capped by the spend budget. Transient:
+	// populated only while a setup run reports on the backfill it just
+	// started, so the summary can say "2 of 272" instead of claiming the
+	// whole pool.
+	Queued    int       `json:"queued,omitempty"`
 	Running   bool      `json:"running"`
 	PID       int       `json:"pid,omitempty"`
 	StartedAt time.Time `json:"started_at,omitempty"`
@@ -79,9 +87,9 @@ type brainStatusOnboarding struct {
 	// run. Stated in the negative so the zero value is the ordinary machine,
 	// and json:"-" for the same published-contract reason as WatchPlan.
 	HostCLIMissing bool `json:"-"`
-	// AgentsUnwired reports that `init-agents` has not been run: the guide or
-	// the managed pointer in AGENTS.md / CLAUDE.md is absent, so no agent has
-	// been told this brain exists.
+	// AgentsUnwired reports that the agent instructions have not landed: the
+	// guide or the managed pointer in AGENTS.md / CLAUDE.md is absent, so no
+	// agent has been told this brain exists.
 	//
 	// This is the product's worst failure mode and it is SILENT -- setup
 	// succeeds, every source reads healthy, and the brain is simply never
@@ -218,9 +226,17 @@ func componentRebuiltSince(runs map[string]time.Time, name string, recordedAt ti
 
 func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord, componentRuns map[string]time.Time) []brainStatusComponent {
 	failures := map[string]setupComponent{}
+	// Skipped is layered exactly like failed: a component setup deliberately
+	// left out (an installed Graph without the store contract) must keep its
+	// reason and hint on the status row, and a bare "missing" from manifest
+	// absence would drop both.
+	skips := map[string]setupComponent{}
 	for _, component := range record.Components {
 		if component.failed() {
 			failures[component.Name] = component
+		}
+		if component.State == "skipped" {
+			skips[component.Name] = component
 		}
 	}
 	present := map[string]bool{}
@@ -251,9 +267,27 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	manifestBacked := []string{"sessions", "seed", "docs", "semantic", "history"}
 	components := make([]brainStatusComponent, 0, len(manifestBacked)+len(record.Components))
 	for _, name := range manifestBacked {
+		// A recorded failure or skip clears when the source proves itself
+		// newer than the record, and GeneratedAt is that proof — except for
+		// one semantic shape. A semantic source WITH a timestamp is a
+		// persisted snapshot, which can be the exact stale artifact the
+		// record warns about (the repo-key skew), so it keeps the timestamp
+		// rule. A semantic source WITHOUT one is the LIVE `graph store`
+		// descriptor (agent_surface.go), fetched moments ago: its presence IS
+		// current proof the store answers, and the timestamp rule would read
+		// its zero time as "older than the record" and pin a recorded skip
+		// forever, Graph upgrade or not.
+		rebuilt := present[name] && !generated[name].Before(record.UpdatedAt)
+		if name == brainComponentSemantic && present[name] && generated[name].IsZero() {
+			rebuilt = true
+		}
 		failure, hasFailure := failures[name]
-		if hasFailure && present[name] && !generated[name].Before(record.UpdatedAt) {
+		if hasFailure && rebuilt {
 			hasFailure = false
+		}
+		skip, hasSkip := skips[name]
+		if hasSkip && rebuilt {
+			hasSkip = false
 		}
 		switch {
 		case hasFailure:
@@ -262,6 +296,13 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 				State:  "failed",
 				Detail: failure.Detail,
 				Hint:   failure.Hint,
+			})
+		case hasSkip:
+			components = append(components, brainStatusComponent{
+				Name:   name,
+				State:  "skipped",
+				Detail: skip.Detail,
+				Hint:   skip.Hint,
 			})
 		case present[name]:
 			components = append(components, brainStatusComponent{Name: name, State: "built"})
@@ -298,6 +339,8 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 			state = "failed"
 		} else if component.failed() {
 			detail, hint = "", ""
+		} else if component.State == "skipped" {
+			state = "skipped"
 		}
 		components = append(components, brainStatusComponent{
 			Name:   component.Name,
@@ -309,70 +352,19 @@ func instantPhaseComponents(manifest *exportManifest, record setupInstantRecord,
 	return components
 }
 
-// semanticReadabilityAxes are the freshness axes that report whether the
-// semantic index's own bytes on disk can be read at all, as opposed to how far
-// behind the worktree they are.
-var semanticReadabilityAxes = []string{"store", "snapshot"}
-
-// markUnreadableSemanticComponent downgrades the instant phase's `semantic`
-// marker when the index is present on disk but unreadable.
-//
-// instantPhaseComponents answers from manifest PRESENCE, and a shredded SQLite
-// file is still present, so the default report printed `+ semantic` directly
-// above a verdict naming `store=unsafe`: the one line a reader scans for "did
-// every source build" contradicted the line below it. The setup record already
-// wins over presence for exactly this reason — a source that is there but that
-// every query fails against is not built — and store integrity is the same
-// signal arriving from the freshness report instead of from the last setup.
-//
-// Only the readability axes count. A merely stale index still built, and the
-// verdict already says so; marking it failed would report a rebuild as a
-// breakage.
-func markUnreadableSemanticComponent(onboarding *brainStatusOnboarding, freshness *staleReport) {
-	if onboarding == nil || freshness == nil {
-		return
-	}
-	unsafe, ok := staleAxis{}, false
-	for _, name := range semanticReadabilityAxes {
-		if axis, found := freshness.Axes[name]; found && axis.State == "unsafe" {
-			unsafe, ok = axis, true
-			break
-		}
-	}
-	if !ok {
-		return
-	}
-	for i, component := range onboarding.Components {
-		// A component the last setup already recorded as failed keeps that
-		// record: it carries the build's own reason, which is more specific
-		// than "the file will not open now".
-		if component.Name != "semantic" || component.State != "built" {
-			continue
-		}
-		onboarding.Components[i].State = "failed"
-		onboarding.Components[i].Detail = unsafe.Detail
-	}
-}
-
 // markMissingDeclaredIndexes downgrades an instant component whose manifest
 // entry declares an artifact the store no longer holds.
 //
-// Same mechanism as markUnreadableSemanticComponent, one source wider. That
-// function taught the instant line to stop answering from manifest PRESENCE for
-// `semantic`, using the freshness report's readability axes; docs and history
-// have no such axes on this line, so they kept reporting `+ docs  + history`
-// with both directories deleted. The signal here is the weakest and most
-// direct one there is — is the declared file on disk — which is precisely what
-// "report what is on disk, not what the manifest claims" asks for.
+// Manifest presence alone cannot show whether a declared index still exists.
+// Inspect the files so deleted docs and history indexes are not reported as built.
 //
 // "failed", not "missing": missing means never attempted, and a manifest entry
 // is proof it WAS. Reporting a deleted index as never-built is how a corrupt
 // brain reads as a new one, and the new-brain case is protected instead by the
 // only rule that can protect it — an undeclared source is never inspected.
 //
-// A component the last setup already recorded as failed keeps that record, for
-// the same reason as the semantic case: the build's own reason is more specific
-// than "the file is not there now".
+// A component the last setup already recorded as failed keeps that record:
+// the build's own reason is more specific than "the file is not there now".
 func markMissingDeclaredIndexes(onboarding *brainStatusOnboarding, brainDir string, manifest *exportManifest) {
 	if onboarding == nil {
 		return
@@ -391,7 +383,7 @@ func markMissingDeclaredIndexes(onboarding *brainStatusOnboarding, brainDir stri
 // renderBrainOnboardingStatus prints the section `entire-brain status` gained:
 // backfill progress, daemon health, and instant-phase component freshness.
 func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboarding, now time.Time, brainCmd string) {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = clibase.SetupBrainCommand(brainCmd)
 	if onboarding == nil {
 		return
 	}
@@ -400,7 +392,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 	// no agent knows about is healthy on every other line and useless in
 	// practice, and nothing else in this report would say so.
 	if onboarding.AgentsUnwired {
-		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s init-agents` so your agent uses this brain\n", brainCmd)
+		fmt.Fprintf(out, "  agents: NOT WIRED — run `%s setup` so your agent uses this brain\n", brainCmd)
 		if len(onboarding.AgentsMissing) > 0 {
 			fmt.Fprintf(out, "          missing: %s\n", strings.Join(onboarding.AgentsMissing, ", "))
 		}

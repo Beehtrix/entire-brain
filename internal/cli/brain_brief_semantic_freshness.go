@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // brainBriefSemanticFreshnessStats describes the packet-boundary projection,
@@ -285,7 +287,7 @@ func (filter *brainBriefSemanticPathFilter) pathIsCurrentOrLive(candidate string
 			// it still exists but fails the regular-file check, it is a symlink,
 			// directory, or crosses a symlink component and is not trusted.
 			nativeRel := filepath.FromSlash(clean)
-			if err := rejectExistingSymlinkPathComponents(filter.repoRoot, nativeRel); err == nil {
+			if err := base.RejectExistingSymlinkPathComponents(filter.repoRoot, nativeRel); err == nil {
 				_, statErr := os.Lstat(filepath.Join(filter.repoRoot, nativeRel))
 				current = os.IsNotExist(statErr)
 			}

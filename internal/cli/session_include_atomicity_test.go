@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func excludeSessionForIncludeAtomicityTest(t *testing.T, brainDir, sessionID string, now time.Time) {
 	t.Helper()
-	if err := withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			plan, err := buildSessionPurgePlan(brainDir, sessionID)
 			if err != nil {
 				return err
@@ -26,8 +28,8 @@ func excludeSessionForIncludeAtomicityTest(t *testing.T, brainDir, sessionID str
 }
 
 func runIncludeSessionForAtomicityTest(brainDir, sessionID string, now time.Time) error {
-	return withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			return includeSessionLocked(brainDir, sessionID, now)
 		})
 	})
@@ -60,8 +62,8 @@ func TestIncludeSessionPublicationFailureRestoresPrivacyStateAndRetries(t *testi
 		t.Fatal("precondition: excluded session remains in history")
 	}
 
-	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
-	transactionPath := filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID)))
+	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
+	transactionPath := filepath.Join(brainDir, filepath.FromSlash(brainstore.PrivacyTransactionRel(sessionID)))
 	tombstonesBefore, err := os.ReadFile(tombstonePath)
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +106,7 @@ func TestIncludeSessionPublicationFailureRestoresPrivacyStateAndRetries(t *testi
 	if !bytes.Equal(manifestAfterFailure, manifestBefore) {
 		t.Fatal("failed publication changed the active manifest")
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +121,7 @@ func TestIncludeSessionPublicationFailureRestoresPrivacyStateAndRetries(t *testi
 	if err := runIncludeSessionForAtomicityTest(brainDir, sessionID, now.Add(2*time.Minute)); err != nil {
 		t.Fatalf("retry include: %v", err)
 	}
-	stones, _, err = loadSessionTombstonesChecked(brainDir)
+	stones, _, err = brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,13 +166,13 @@ func TestIncludeSessionHoldsPrivacyAndBrainLocksThroughPublication(t *testing.T)
 	privacyDone := make(chan error, 1)
 	go func() {
 		close(privacyAttempted)
-		privacyDone <- withBrainPrivacySideEffectLock(brainDir, func() error { return nil })
+		privacyDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error { return nil })
 	}()
 	brainAttempted := make(chan struct{})
 	brainDone := make(chan error, 1)
 	go func() {
 		close(brainAttempted)
-		brainDone <- withBrainWriteLock(brainDir, func() error { return nil })
+		brainDone <- brainstore.WithBrainWriteLock(brainDir, func() error { return nil })
 	}()
 	<-privacyAttempted
 	<-brainAttempted
@@ -206,8 +208,8 @@ func TestIncludeSessionTransactionRemovalSyncFailureRestoresExactlyAndRetries(t 
 	now := time.Date(2026, 8, 9, 15, 0, 0, 0, time.UTC)
 	excludeSessionForIncludeAtomicityTest(t, brainDir, sessionID, now)
 
-	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath))
-	transactionPath := filepath.Join(brainDir, filepath.FromSlash(privacyTransactionRel(sessionID)))
+	tombstonePath := filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))
+	transactionPath := filepath.Join(brainDir, filepath.FromSlash(brainstore.PrivacyTransactionRel(sessionID)))
 	tombstonesBefore, err := os.ReadFile(tombstonePath)
 	if err != nil {
 		t.Fatal(err)
@@ -246,7 +248,7 @@ func TestIncludeSessionTransactionRemovalSyncFailureRestoresExactlyAndRetries(t 
 	if !bytes.Equal(transactionAfter, transactionBefore) {
 		t.Fatalf("transaction sync failure did not restore exact transaction\n before: %q\n  after: %q", transactionBefore, transactionAfter)
 	}
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

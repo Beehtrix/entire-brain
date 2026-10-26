@@ -66,7 +66,7 @@ func TestVizFactGraphDeduplicatesAndTruncatesWithoutDanglingEdges(t *testing.T) 
 	}
 }
 
-func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
+func TestVizNodePublicResponseUsesGraphStore(t *testing.T) {
 	repo := t.TempDir()
 	env := semanticTestEnv(t, repo)
 	runner := semanticFixtureRunner(repo, semanticFixtureSnapshotWithCallerSymbol())
@@ -77,7 +77,7 @@ func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(dir)
+	manifest, err := loadGraphManifest(context.Background(), Options{Env: env, Runner: runner}, repo, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,12 @@ func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
 		t.Fatalf("node=%+v", store)
 	}
 	manifest.Sources.Facts = &factSourceManifest{Branches: []string{"main"}, Facts: 1}
-	if err := writeBrainManifestAndReadme(dir, *manifest); err != nil {
+	diskManifest, err := loadBrainManifest(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diskManifest.Sources.Facts = manifest.Sources.Facts
+	if err := writeBrainManifestAndReadme(dir, *diskManifest); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFacts(dir, "main", []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
@@ -121,14 +126,9 @@ func TestVizNodePublicResponseAgreesAcrossSQLiteAndSnapshot(t *testing.T) {
 	if missing.Symbol.ID != "" || len(missing.Neighbors) != 0 || len(missing.Relations) != 0 {
 		t.Fatalf("missing node leaked other evidence: %+v", missing)
 	}
-	manifest.Sources.Semantic.StorePath = ""
-	manifest.Sources.Semantic.GenerationPath = ""
-	snapshot := request(id, http.StatusOK)
-	if !reflect.DeepEqual(store, snapshot) {
-		t.Fatalf("store=%+v snapshot=%+v", store, snapshot)
+	if err := os.WriteFile(runner.graphStoreFixtures[repo+"\x00full"].Path, []byte("corrupt provider store"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	request("nonexistent", http.StatusNotFound)
-	manifest.Sources.Semantic.SnapshotPath = "../outside.ndjson"
 	invalid := request(id, http.StatusOK)
 	if invalid.Symbol.ID != "" || len(invalid.Warnings) == 0 {
 		t.Fatalf("unsafe path produced evidence: %+v", invalid)

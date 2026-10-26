@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,7 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 	if strings.Contains(out, "healthy") {
 		t.Fatalf("status called a brain with no semantic index healthy:\n%s", out)
 	}
-	if !strings.Contains(out, "no semantic index") {
+	if !strings.Contains(out, "no code index") {
 		t.Fatalf("status does not name the missing semantic index:\n%s", out)
 	}
 	if !strings.Contains(out, "refresh") {
@@ -154,98 +155,150 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 	}
 }
 
-// Status reports freshness, while overview and doctor still validate contents.
-func TestStatusDefersCorruptStoreDiagnosisToDoctor(t *testing.T) {
-	opts, repoDir, brainDir := statusTruthFixture(t)
-	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StorePath == "" {
-		t.Fatalf("fixture has no semantic store to corrupt: %+v", manifest.Sources)
-	}
-	shredSemanticStore(t, filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath)))
-
-	// `overview` is the reference reader: it already reports the corruption in
-	// words, and status must not be quieter about the same brain.
-	overview, err := execute(t, NewRootCommand(opts), "overview")
-	if err != nil {
-		t.Fatalf("overview: %v\n%s", err, overview)
-	}
-	if !strings.Contains(overview, "store=unsafe") {
-		t.Fatalf("the reference signal is missing from overview; the fixture did not corrupt the store:\n%s", overview)
-	}
-
-	out, err := execute(t, NewRootCommand(opts), "status")
-	if err != nil {
-		t.Fatalf("status: %v\n%s", err, out)
-	}
-	if strings.Contains(out, "healthy") {
-		t.Fatalf("status called a brain with an unreadable semantic store healthy:\n%s", out)
-	}
-	if strings.Contains(out, "store=unsafe") || !strings.Contains(out, "Integrity not checked") || !strings.Contains(out, "doctor`") {
-		t.Fatalf("status must leave content validation to doctor:\n%s", out)
-	}
-}
-
 // Artifact presence remains part of status even though content audits do not.
-func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
-	opts, repoDir, brainDir := statusTruthFixture(t)
+func TestTheSourcesLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
+	opts, repoDir, _ := statusTruthFixture(t)
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	storePath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath))
 
 	healthy, err := execute(t, NewRootCommand(opts), "status")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, healthy)
 	}
-	healthyInstant := statusInstantLine(t, healthy)
-	if !strings.Contains(healthyInstant, "+ semantic") {
+	healthyStates := statusSourceStates(t, healthy)
+	if healthyStates["semantic"] != "built" {
 		t.Fatalf("the fixture never reported a built semantic index, so the failing case proves nothing:\n%s", healthy)
 	}
 
-	if err := os.Remove(storePath); err != nil {
-		t.Fatal(err)
-	}
+	opts.Runner.(*fakeCommandRunner).graphStoreFixtures = nil
 
 	out, err := execute(t, NewRootCommand(opts), "status")
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	instant := statusInstantLine(t, out)
-	if strings.Contains(instant, "+ semantic") {
-		t.Fatalf("the instant line still marks a missing semantic index as built:\n%s", out)
+	states := statusSourceStates(t, out)
+	if states["semantic"] == "built" {
+		t.Fatalf("the sources line still calls a missing semantic index built:\n%s", out)
 	}
-	if !strings.Contains(instant, "x semantic") {
-		t.Fatalf("the instant line does not mark the missing semantic index as failed:\n%s", out)
+	if states["semantic"] != "missing" {
+		t.Fatalf("the sources line does not report the semantic index missing:\n%s", out)
 	}
-	// Every other source keeps the mark it had. A report that fails everything
+	// Every other source keeps the state it had. A report that fails everything
 	// the moment one axis trips is no more usable than one that passes
-	// everything, so the semantic mark must be the whole difference.
-	if restored := strings.Replace(instant, "x semantic", "+ semantic", 1); restored != healthyInstant {
-		t.Fatalf("a corrupt semantic store changed a mark other than semantic:\n before: %s\n  after: %s", healthyInstant, instant)
+	// everything, so the semantic state must be the whole difference.
+	healthyStates["semantic"] = "missing"
+	for name, state := range healthyStates {
+		if states[name] != state {
+			t.Fatalf("a corrupt semantic store changed %q from %q to %q:\n before: %v\n  after: %v",
+				name, state, states[name], healthyStates, states)
+		}
+	}
+	if len(states) != len(healthyStates) {
+		t.Fatalf("a corrupt semantic store changed which sources are reported:\n before: %v\n  after: %v", healthyStates, states)
 	}
 }
 
-// statusInstantLine returns the onboarding block's `instant` line, which is the
-// only line in the default report carrying the per-source marks.
-func statusInstantLine(t *testing.T, out string) string {
+// TestStatusSurfacesGraphError pins defect (d): a Graph store that fails for a
+// reason other than "not installed" or "not indexed yet" used to be collapsed
+// into the same bare nil semantic source as those two ordinary, silent cases.
+// The error text must survive into the report instead -- for a plain command
+// failure, AND for every live-path version mismatch introduced alongside this
+// fix: a too-new contract, a too-old contract (the actionable case that was
+// still being silently dropped: it shares no sentinel with "Graph absent" but
+// previously did), and a hard schema-major refusal.
+func TestStatusSurfacesGraphError(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		response   *fakeCommandResponse
+		mutate     func(d *graphStoreDescriptor)
+		wantSubstr []string
+	}{
+		{
+			name:       "command_failure",
+			response:   &fakeCommandResponse{stderr: "disk I/O error", err: errors.New("exit status 1")},
+			wantSubstr: []string{"graph store unavailable", "disk I/O error"},
+		},
+		{
+			name:       "contract_newer",
+			mutate:     func(d *graphStoreDescriptor) { d.ContractVersion = 2 },
+			wantSubstr: []string{"graph store unavailable", "upgrade entire-brain", "contract"},
+		},
+		{
+			name:       "contract_older",
+			mutate:     func(d *graphStoreDescriptor) { d.ContractVersion = 0 },
+			wantSubstr: []string{"graph store unavailable", "upgrade Graph", "contract"},
+		},
+		{
+			name:       "schema_major",
+			mutate:     func(d *graphStoreDescriptor) { d.Header.SchemaVersion = "2.0" },
+			wantSubstr: []string{"graph store unavailable", semanticSupportedSchemaRange},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, repoDir, _ := statusTruthFixture(t)
+			if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
+				t.Fatalf("index: %v", err)
+			}
+			runner := opts.Runner.(*fakeCommandRunner)
+			storeKey := fakeCommandKey("entire", "graph", "store", "--repo", repoDir, "--profile", "full")
+			if tc.response != nil {
+				runner.responses[storeKey] = *tc.response
+			} else {
+				d, err := fetchGraphStore(context.Background(), opts, repoDir, "", "full")
+				if err != nil {
+					t.Fatalf("fetch baseline descriptor: %v", err)
+				}
+				tc.mutate(&d)
+				overrideGraphStoreResponse(runner, repoDir, d)
+			}
+
+			report, err := buildAvailableBrainStatusReport(context.Background(), opts, repoDir)
+			if err != nil {
+				t.Fatalf("status report: %v", err)
+			}
+			if report.Semantic != nil {
+				t.Fatalf("a failing graph store must not report a semantic source: %+v", report.Semantic)
+			}
+			joined := strings.Join(report.Warnings, "\n")
+			for _, want := range tc.wantSubstr {
+				if !strings.Contains(joined, want) {
+					t.Fatalf("status dropped or mis-surfaced the graph error (missing %q): %+v", want, report.Warnings)
+				}
+			}
+		})
+	}
+}
+
+// statusSourceStates parses the default report's `Sources` line — the only
+// line carrying per-source states — into a name -> state map. The line's
+// grammar is "built, built | failed: a | missing: b | skipped: c", with the
+// label and the groups joined by the renderer's separator.
+func statusSourceStates(t *testing.T, out string) map[string]string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instant") {
-			return line
+		if !strings.HasPrefix(strings.TrimSpace(line), "Sources") {
+			continue
 		}
+		states := map[string]string{}
+		parts := strings.Split(line, " | ")
+		for _, part := range parts[1:] {
+			part = strings.TrimSpace(part)
+			state := "built"
+			for _, group := range []string{"failed", "missing", "skipped"} {
+				if rest, ok := strings.CutPrefix(part, group+": "); ok {
+					state, part = group, rest
+					break
+				}
+			}
+			for _, name := range strings.Split(part, ", ") {
+				states[name] = state
+			}
+		}
+		return states
 	}
-	t.Fatalf("status printed no instant line:\n%s", out)
-	return ""
+	t.Fatalf("status printed no Sources line:\n%s", out)
+	return nil
 }
 
 // TestDoctorNamesTheFailingSemanticAxis closes the other end of the dead end:
@@ -253,15 +306,11 @@ func statusInstantLine(t *testing.T, out string) string {
 // behind. Doctor used to answer a shredded SQLite store with `semantic: warn
 // (unsafe)` -- one word, and one word less than `status --verbose`.
 func TestDoctorNamesTheFailingSemanticAxis(t *testing.T) {
-	opts, repoDir, brainDir := statusTruthFixture(t)
+	opts, repoDir, _ := statusTruthFixture(t)
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	shredSemanticStore(t, filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.StorePath)))
+	shredSemanticStore(t, opts.Runner.(*fakeCommandRunner).graphStoreFixtures[repoDir+"\x00full"].Path)
 
 	// About what the semantic line SAYS, not about the exit code: see
 	// doctorReportText.
@@ -269,7 +318,7 @@ func TestDoctorNamesTheFailingSemanticAxis(t *testing.T) {
 	if strings.Contains(out, "semantic: warn (unsafe)\n") {
 		t.Fatalf("doctor still answers a corrupt store with one word:\n%s", out)
 	}
-	if !strings.Contains(out, "store=unsafe") {
+	if !strings.Contains(out, "semantic coverage") {
 		t.Fatalf("doctor does not name the failing axis:\n%s", out)
 	}
 }

@@ -15,10 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/setupui"
+	"github.com/spf13/cobra"
 )
 
 // setup.go is the one-command onboarding path. Before it there were three
@@ -98,7 +101,7 @@ var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
 	brainComponentSeed:           "seed baseline",
 	brainComponentDocs:           "doc index",
-	brainComponentSemantic:       "semantic index",
+	brainComponentSemantic:       "code index",
 	brainComponentHistory:        "history index",
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",
@@ -149,7 +152,9 @@ func setupUnqueryableCore(components []setupComponent) []string {
 	}
 	labels := make([]string, 0, len(setupRetrievalCore))
 	for _, name := range setupRetrievalCore {
-		if states[name] != "failed" {
+		// Skipped counts as unavailable here: whoever caused the absence,
+		// a skipped source answers queries exactly as well as a failed one.
+		if state := states[name]; state != "failed" && state != "skipped" {
 			return nil
 		}
 		labels = append(labels, setupComponentLabel(name))
@@ -172,7 +177,7 @@ func setupUnqueryableCore(components []setupComponent) []string {
 // remote — and rebuilding it is the thing to do.
 func setupRepoKeyMismatchHint(brainCmd string) string {
 	return "the snapshot names a different repository than this one, usually a provider snapshot cached before this repo's origin changed; rebuild it with `" +
-		setupBrainCommand(brainCmd) + " refresh index --force`"
+		base.SetupBrainCommand(brainCmd) + " refresh index --force`"
 }
 
 // setupDirtyWorktreeHint is the ONE remedy resolver for an uncommitted working
@@ -195,9 +200,31 @@ func setupRepoKeyMismatchHint(brainCmd string) string {
 // states the cause only (see buildBrainRetrievalStatus) and the remedy comes
 // from here.
 func setupDirtyWorktreeHint(brainCmd string) string {
-	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + setupBrainCommand(brainCmd) +
-		" setup`, or `" + setupBrainCommand(brainCmd) +
+	return "commit or stash the working tree -- or list the paths in .brainignore, which the seed and index gates both honour -- then re-run `" + base.SetupBrainCommand(brainCmd) +
+		" setup`, or `" + base.SetupBrainCommand(brainCmd) +
 		" refresh --worktree` to index the uncommitted changes as they are; `entire enable` writes .entire/ and .claude/ without committing them, which is what a first run usually trips over"
+}
+
+// setupGraphStoreUnsupportedHint is the ONE remedy for an installed Graph that
+// predates the read-only store contract (graph_store.go). Refresh already
+// forgives this state as degraded-optional — "Graph is encouraged, never
+// required" — and docs/graph-owned-store.md names the remedy: upgrade Graph.
+// No refresh, commit, or stash changes anything until the plugin is upgraded,
+// so no other remedy may be offered for it.
+func setupGraphStoreUnsupportedHint(brainCmd string) string {
+	return "the installed Graph predates the read-only store interface, so code inspection is skipped and every other brain source still builds; upgrade Graph with `entire plugin install graph`, then run `" +
+		base.SetupBrainCommand(brainCmd) + " " + base.SemanticIndexVerb + "`"
+}
+
+// setupIsGraphStoreUnsupported matches the two upgrade-Graph store sentinels in
+// graph_store.go (errGraphStoreUnsupported, errGraphStoreContractOlder) from a
+// PERSISTED component detail, where the error value is gone and only its text
+// survives. Both sentinels, and only those two, say "store contract" and
+// "upgrade Graph"; errGraphStoreContractNewer says "upgrade entire-brain" and
+// deliberately does not match — that one is this build's fault, and treating
+// it as an optional skip would hide a brain that needs upgrading.
+func setupIsGraphStoreUnsupported(detail string) bool {
+	return strings.Contains(detail, "store contract") && strings.Contains(detail, "upgrade Graph")
 }
 
 // setupNoSessionsHint covers the state EVERY repo is in between `entire enable`
@@ -209,7 +236,7 @@ func setupDirtyWorktreeHint(brainCmd string) string {
 // it means and what the reader does about it.
 func setupNoSessionsHint(brainCmd string) string {
 	return "no captured sessions are readable yet — if no agent session has finished in this repo since `entire enable`, that is expected: work in a session, then re-run `" +
-		setupBrainCommand(brainCmd) + " setup`; `entire checkpoint list` shows what Entire itself can see"
+		base.SetupBrainCommand(brainCmd) + " setup`; `entire checkpoint list` shows what Entire itself can see"
 }
 
 // setupBuildsHistoryProjection and watchTickBuildsHistoryProjection are the one
@@ -253,6 +280,15 @@ func newSetupComponent(name string, err error, brainCmd string) setupComponent {
 	if err == nil {
 		return setupComponent{Name: name, State: "ok"}
 	}
+	// An installed Graph without the read-only store contract is a designed
+	// optional state, not a failure: refresh forgives it (semanticForgiven),
+	// docs/graph-owned-store.md calls it "unsupported for code inspection",
+	// and every other brain source builds without it. Recording it as "failed"
+	// put a hard ✗ on the status row and counted "semantic failed" into a
+	// verdict whose remedy (a dirty-tree commit, a refresh) cannot fix it.
+	if errors.Is(err, errGraphStoreUnsupported) || errors.Is(err, errGraphStoreContractOlder) {
+		return setupComponent{Name: name, State: "skipped", Detail: providerdetail.Flatten(err.Error()), Hint: setupGraphStoreUnsupportedHint(brainCmd)}
+	}
 	// Flatten is the CLASS guard, applied where EVERY component's detail is
 	// born rather than per component: a stage that shells out to another
 	// program hands us that program's whole stderr, and an unsummarised usage
@@ -292,39 +328,23 @@ func setupIsNoReadableSessions(detail string) bool {
 		strings.Contains(detail, "no readable checkpoint IDs")
 }
 
-// partitionSetupComponents splits the phase's outcome into what built and what
-// failed, in report order.
-func partitionSetupComponents(components []setupComponent) (built, failed []setupComponent) {
+// partitionSetupComponents splits the phase's outcome into what built, what was
+// deliberately skipped, and what failed, in report order. Skipped is its own
+// bucket because it is neither of the others: calling it built claims a source
+// that does not exist, and calling it failed turns a designed optional state
+// into an error every downstream surface then reports.
+func partitionSetupComponents(components []setupComponent) (built, skipped, failed []setupComponent) {
 	for _, component := range components {
-		if component.failed() {
+		switch {
+		case component.failed():
 			failed = append(failed, component)
-			continue
+		case component.State == "skipped":
+			skipped = append(skipped, component)
+		default:
+			built = append(built, component)
 		}
-		built = append(built, component)
 	}
-	return built, failed
-}
-
-func setupComponentNames(components []setupComponent) []string {
-	names := make([]string, 0, len(components))
-	for _, component := range components {
-		names = append(names, component.Name)
-	}
-	return names
-}
-
-// setupComponentSummary is the phase line's "what built, what failed" clause.
-// A phase that reports nothing (an injected instant step, an older build) gets
-// an empty clause rather than a misleading "built nothing".
-func setupComponentSummary(built, failed []setupComponent) string {
-	parts := make([]string, 0, 2)
-	if len(built) > 0 {
-		parts = append(parts, "built "+strings.Join(setupComponentNames(built), ", "))
-	}
-	if len(failed) > 0 {
-		parts = append(parts, "FAILED "+strings.Join(setupComponentNames(failed), ", "))
-	}
-	return strings.Join(parts, "; ")
+	return built, skipped, failed
 }
 
 // setupComponentFailureLine is the one line a degraded component gets: what
@@ -337,6 +357,12 @@ func setupComponentFailureLine(component setupComponent, dash, brainCmd string) 
 	if detail == "" {
 		detail = "no detail reported"
 	}
+	// A skipped component is a designed state, not a breakage: say "skipped",
+	// and skip the doctor referral — the detail and the hint below it already
+	// carry the whole remedy.
+	if component.State == "skipped" {
+		return fmt.Sprintf("%s skipped (%s)", setupComponentLabel(component.Name), detail)
+	}
 	// A hint that ends by naming `setup` closes a referral loop if this line
 	// also names `doctor`: doctor re-renders this same component with this
 	// same hint appended, so the two commands point at each other and neither
@@ -348,7 +374,7 @@ func setupComponentFailureLine(component setupComponent, dash, brainCmd string) 
 			setupComponentLabel(component.Name), detail, dash)
 	}
 	return fmt.Sprintf("%s failed (%s) %s continuing; run '%s doctor' for detail",
-		setupComponentLabel(component.Name), detail, dash, setupBrainCommand(brainCmd))
+		setupComponentLabel(component.Name), detail, dash, base.SetupBrainCommand(brainCmd))
 }
 
 // setupHintReferralLoops reports a hint whose own remedy is `setup` -- the
@@ -360,7 +386,7 @@ func setupHintReferralLoops(hint, brainCmd string) bool {
 	if hint == "" {
 		return false
 	}
-	return strings.Contains(hint, setupBrainCommand(brainCmd)+" setup")
+	return strings.Contains(hint, base.SetupBrainCommand(brainCmd)+" setup")
 }
 
 // setupComponentCountSummary is the Build phase's clause, and it COUNTS where
@@ -372,25 +398,35 @@ func setupHintReferralLoops(hint, brainCmd string) bool {
 // acts on is "did everything build, and if not, which one" — so the healthy
 // case is a count and a failure is named, because one name is a fact and nine
 // are a list.
-func setupComponentCountSummary(built, failed []setupComponent) string {
-	total := len(built) + len(failed)
+func setupComponentCountSummary(built, skipped, failed []setupComponent) string {
+	total := len(built) + len(skipped) + len(failed)
 	if total == 0 {
 		// The pre-component contract: an injected step or an older build
 		// reports nothing and built fine.
 		return "deterministic core built"
 	}
-	if len(failed) == 0 {
+	if len(failed) == 0 && len(skipped) == 0 {
 		return fmt.Sprintf("%d %s", total, setupComponentNoun(total))
 	}
 	// Labels, not raw ids: every other line setup prints calls a component
 	// by setupComponentLabel, and "sessions" here beside "session export"
 	// below is one component answering to two names in one run.
-	labels := make([]string, 0, len(failed))
-	for _, component := range failed {
-		labels = append(labels, setupComponentLabel(component.Name))
+	clause := fmt.Sprintf("%d of %d %s built", len(built), total, setupComponentNoun(total))
+	if len(skipped) > 0 {
+		labels := make([]string, 0, len(skipped))
+		for _, component := range skipped {
+			labels = append(labels, setupComponentLabel(component.Name))
+		}
+		clause += ", skipped " + strings.Join(labels, ", ")
 	}
-	return fmt.Sprintf("%d of %d %s built, FAILED %s",
-		len(built), total, setupComponentNoun(total), strings.Join(labels, ", "))
+	if len(failed) > 0 {
+		labels := make([]string, 0, len(failed))
+		for _, component := range failed {
+			labels = append(labels, setupComponentLabel(component.Name))
+		}
+		clause += ", FAILED " + strings.Join(labels, ", ")
+	}
+	return clause
 }
 
 func setupComponentNoun(n int) string {
@@ -472,6 +508,14 @@ type setupCommandOptions struct {
 	daemon     bool
 	backfill   bool
 	agentHooks bool
+	// strict/normal save a guidance mode into the installed agent guide's
+	// activation record. Unset, the agents phase inherits whatever mode the
+	// repository already saved — a bare re-run never flips a strict repo back.
+	strict bool
+	normal bool
+	// explicitPath is true when the reader typed the repository path, which is
+	// consent to a nested target: the nested-repo warning stays quiet.
+	explicitPath bool
 	// yes answers the Facts phase's consent prompt without a human. It is the
 	// ONLY way to spend tokens non-interactively: a run with no terminal and no
 	// --yes distills nothing, because silence is not consent to spend.
@@ -602,7 +646,7 @@ func newSetupCommand(opts Options) *cobra.Command {
 		Long: fmt.Sprintf(`setup is the one command that makes a repository's brain useful and keeps it
 that way. It runs three phases:
 
-  1. instant   build the deterministic core (semantic index, sessions, seed,
+  1. instant   build the deterministic core (code index, sessions, seed,
                docs, history). Blocking, seconds, spends NO agent tokens. The
                brain is queryable the moment this returns.
   2. backfill  distill past sessions into durable facts, NEWEST FIRST, detached
@@ -631,11 +675,11 @@ and "%[1]s status" reports what the backfill has done so far and whether the
 watcher is alive.
 
 EXIT CODE: setup exits 0 whenever the brain is QUERYABLE, and queryable means
-it can answer: at least one of the semantic index, the seed baseline or the
+it can answer: at least one of the code index, the seed baseline or the
 history index built. Those are the sources "%[1]s query", "%[1]s brief" and
 "%[1]s overview" read, so "%[1]s setup && %[1]s query ..." cannot proceed on a
 brain that has nothing to answer from. A component that fails without costing
-that (a doc index, an entity index, a stale semantic snapshot beside a seed
+that (a doc index, an entity index, a stale code index beside a seed
 that built) is reported as one line, skipped, and the remaining components, the
 backfill, the workspace registration and the daemon install all still run;
 "%[1]s status" then shows that component as failed and "%[1]s doctor" prints
@@ -646,9 +690,10 @@ index, or the repository has no commits yet.
 Re-running setup is safe: it detects the existing workspace membership and
 daemon instead of duplicating them, resumes rather than restarts a backfill
 that is still running, and keeps whatever --interval/--distill-every/--model/
---effort the previous run was given unless you pass the flag again.`, setupCommandPrefix(os.LookupEnv)),
+--effort the previous run was given unless you pass the flag again.`, base.SetupCommandPrefix(os.LookupEnv)),
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			setupOpts.explicitPath = len(args) == 1
 			return runSetup(cmd.Context(), cmd, opts, setupOpts, agentSurfaceTarget(opts, args), setupSteps{})
 		},
 	}
@@ -660,6 +705,8 @@ that is still running, and keeps whatever --interval/--distill-every/--model/
 	cmd.Flags().BoolVar(&setupOpts.backfill, "backfill", false, "Start the background fact backfill even if a previous run declined it (SPENDS TOKENS)")
 	cmd.Flags().BoolVar(&setupOpts.noAgentHooks, "no-agent-hooks", false, "Write the agent guide but do not merge the Claude Code PreToolUse entry (remembered)")
 	cmd.Flags().BoolVar(&setupOpts.agentHooks, "agent-hooks", false, "Merge the Claude Code PreToolUse entry even if a previous run declined it")
+	cmd.Flags().BoolVar(&setupOpts.strict, "strict", false, "Save strict (mandatory tool-use) guidance into the agent guide")
+	cmd.Flags().BoolVar(&setupOpts.normal, "normal", false, "Reset the agent guide to normal guidance")
 	cmd.Flags().BoolVar(&setupOpts.verbose, "verbose", false, "Report every phase, component and path instead of the short summary")
 	cmd.Flags().BoolVar(&setupOpts.yes, "yes", false, "Answer the fact-backfill consent prompt with yes. Without it, a run with no terminal spends nothing")
 	cmd.Flags().StringVar(&setupOpts.agent, "agent", setupOpts.agent, "Agent for the background backfill: auto, none, codex, claude-code")
@@ -679,13 +726,28 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// is spelled the way the reader typed it -- the pre-flight lines, every
 	// skip and failure line, the hints, and the summary's Next block all move
 	// together and cannot drift apart. See setupCommandPrefix.
-	brainCmd := setupCommandPrefix(os.LookupEnv)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	brainCmd := base.SetupCommandPrefix(os.LookupEnv)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
 	if !local {
 		return fmt.Errorf("setup requires a local repository path: %s", target)
+	}
+	// Name both roots when this one sits inside another repository. Building
+	// the brain and writing the guide into a nested clone is silent and looks
+	// like success, and the instruction files land where the outer repository
+	// cannot see them. Warn BEFORE any phase runs — the person may want to
+	// abort — and only when no explicit path was given, which is consent to
+	// the nested target. The path in the SUGGESTED COMMAND is shell-quoted;
+	// the two in the prose are not, because they are prose. An unquoted path
+	// with a space — ordinary on macOS — made the remedy silently do the wrong
+	// thing when copied, and one with $ or a backtick would expand. See
+	// agentsetup.OuterRepo.
+	if outer := agentsetup.OuterRepo(repoDir); outer != "" && !setupOpts.explicitPath && !setupOpts.uninstallDaemon {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"warning: %s is a git repository inside %s.\nThe brain, the guide, AGENTS.md and CLAUDE.md go to the inner one. If you meant the project, run:\n    %s %s\n\n",
+			repoDir, outer, base.BrainInvocation(os.LookupEnv, "setup"), shellQuotedRepoDir(outer))
 	}
 	// Refuse a non-repository UP FRONT. Everything below is a side effect --
 	// a workspace registration, a machine watch-plan row, a per-repo state
@@ -700,9 +762,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	if !setupOpts.uninstallDaemon {
 		if _, ok := gitWorkTreeRoot(ctx, opts.Runner, repoDir); !ok {
 			return notARepositoryError(ctx, opts.Runner, repoDir,
-				setupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, semantic index, entities -- from git history, so it needs git and a repository.",
-				setupBrainCommand(brainCmd)+" setup",
-				setupBrainCommand(brainCmd)+" setup <path>")
+				base.SetupBrainCommand(brainCmd)+" setup builds every source it has -- sessions, seed, docs, code index, entities -- from git history, so it needs git and a repository.",
+				base.SetupBrainCommand(brainCmd)+" setup",
+				base.SetupBrainCommand(brainCmd)+" setup <path>")
 		}
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
@@ -725,6 +787,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 	changed := setupFlagChanged(cmd)
 	if err := rejectConflictingSetupToggles(changed); err != nil {
+		return err
+	}
+	mode, err := agentsetup.SelectMode(setupOpts.strict, setupOpts.normal)
+	if err != nil {
 		return err
 	}
 	setupOpts = applySetupRecordDefaults(setupOpts, previous, changed)
@@ -778,8 +844,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// service manager restarts it every 60s forever, and setup exits 0. Reject
 	// the name here, before anything is planned or installed, where the only
 	// thing it can cost is this command.
-	if err := validateWorkspaceName(setupOpts.workspace); err != nil {
+	if err := workspace.ValidateName(setupOpts.workspace); err != nil {
 		return fmt.Errorf("--workspace %q: %w", setupOpts.workspace, err)
+	}
+	shortOutput := !setupOpts.json && !setupOpts.verbose && !setupOpts.uninstallDaemon
+	if shortOutput {
+		setupui.RenderTerseIntro(cmd.OutOrStdout(), rend)
+		ui.StartTask("Checking repository…")
+		defer func() {
+			ui.Suspend()
+			fmt.Fprintln(cmd.OutOrStdout())
+		}()
 	}
 
 	configuredAgent := setupOpts.agent
@@ -867,6 +942,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// another CLI's repo key is a worse outcome, by far, than a brain with four
 	// sources instead of five.
 	buildPhase := run.Begin(setupui.PhaseBuild)
+	ui.StartTask("Building Brain…")
 	// The nine components feed ONE line. The previous run's count sizes the
 	// bar exactly; a first run uses the estimate, clamped so the gauge can
 	// never read more than total.
@@ -881,7 +957,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Progress(done, setupBuildTotal(recordedComponents, done))
 		buildPhase.Step(setupComponentLabel(component.Name))
 	})
-	steps.stepOutput.bind(buildPhase.Step)
+	steps.stepOutput.bind(func(label string) {
+		buildPhase.Step(label)
+		ui.BuildStep(label)
+	})
 	instantStarted := time.Now()
 	components, instantErr := steps.instant(ctx)
 	elapsed := time.Since(instantStarted)
@@ -893,7 +972,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// and no phase line carries it.
 	report.Warnings = append(report.Warnings, steps.stepOutput.Warnings()...)
 	seconds := elapsed.Seconds()
-	built, failed := partitionSetupComponents(components)
+	built, skipped, failed := partitionSetupComponents(components)
 	// Persist the outcome BEFORE deciding whether to continue: `status` and
 	// `doctor` must be able to name the failed component either way, and the
 	// hard-fail path is exactly where the reason is needed most.
@@ -912,6 +991,11 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		buildPhase.Fail("instant core failed "+rend.Dash()+" nothing usable was built", fmt.Errorf("%s", reasons))
 		report.Instant.State = "failed"
 		report.Instant.Detail = reasons
+		if shortOutput {
+			terse := terseReportFor(report, timings, false, setupOpts, brainCmd)
+			setupui.RenderTerseBuild(cmd.OutOrStdout(), rend, terse)
+			setupui.RenderTerseNext(cmd.OutOrStdout(), terse)
+		}
 		if instantErr != nil {
 			return fmt.Errorf("instant phase failed, the brain is not usable: %w", instantErr)
 		}
@@ -928,7 +1012,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		// list, no red, because nothing failed.
 		buildPhase.Unmet(setupui.Precondition{
 			Condition: "no commits yet, so there is nothing to index",
-			Action:    "make one commit, then: " + setupBrainCommand(brainCmd) + " setup",
+			Action:    "make one commit, then: " + base.SetupBrainCommand(brainCmd) + " setup",
 		})
 		renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 		if !setupOpts.json && !setupOpts.verbose {
@@ -954,8 +1038,12 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// sources that are not there.
 	queryability := setupQueryabilityClause(components)
 	buildPhase.OK(fmt.Sprintf("instant core ready in %s %s %s, %s",
-		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, failed), queryability),
-		setupComponentFailureDetails(failed, rend.Dash(), brainCmd)...)
+		roundedSeconds(seconds), rend.Dash(), setupComponentCountSummary(built, skipped, failed), queryability),
+		setupComponentFailureDetails(append(append([]setupComponent{}, skipped...), failed...), rend.Dash(), brainCmd)...)
+	if shortOutput {
+		setupui.RenderTerseBuild(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Make the brain VISIBLE. "Queryable" is only half of ready: until an agent
 	// is told the brain exists it will never ask, and setup used to end without
@@ -970,11 +1058,10 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// still has a working brain — so a failure is one warning, never an exit
 	// code.
 
-	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
-
 	// Phase 3 — AGENTS. The hooks that make every later session feed the brain
 	// without anyone remembering to run anything.
 	agentsPhase := run.Begin(setupui.PhaseAgents)
+	ui.StartTask("Configuring agent integration…")
 	agentsPhase.Step("session-end hook")
 	report.Hook = inspectSessionEndHook(repoDir)
 	hookLine, hookWired := setupHookSummary(report.Hook, rend.Dash())
@@ -993,7 +1080,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// has a working brain.
 	agentsPhase.Step("agent instructions")
 	agentsStarted := time.Now()
-	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks)
+	report.Agents = wireAgentInstructions(repoDir, !setupOpts.noAgentHooks, mode)
 	timings.record("agents", time.Since(agentsStarted))
 	agentDetails, agentWarning := setupAgentsPhaseDetails(report.Agents, setupOpts.noAgentHooks, rend.Dash(), brainCmd)
 	if agentWarning != "" {
@@ -1006,24 +1093,35 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	} else {
 		agentsPhase.Skip(hookLine, phaseDetails...)
 	}
+	if agentWarning != "" {
+		ui.ShortWarning(agentWarning, brainCmd)
+	}
 
 	// Phase 4 — FACTS. The only phase that can spend money, and the only one
 	// that asks first.
 	backfillStarted := time.Now()
 	factsPhase := run.Begin(setupui.PhaseFacts)
+	ui.StartTask("Checking remaining sessions…")
+	report.Facts = factsBackfillStatusForBrain(storage.BrainDir)
 	report.Backfill = runSetupBackfill(ctx, factsPhase, ui, cmd.InOrStdin(), setupPromptWriter(promptOut),
 		perRepo, setupOpts, steps, storage, repoDir, &report, brainCmd)
 	timings.record("backfill", time.Since(backfillStarted))
+	if shortOutput {
+		setupui.RenderTerseDistill(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Phase 5 — WORKSPACE.
 	workspaceStarted := time.Now()
 	workspacePhase := run.Begin(setupui.PhaseWorkspace)
+	ui.StartTask("Registering repository in workspace…")
 	workspacePhase.Step("registering repo")
 	report.Workspace, err = registerRepoInWorkspace(ctx, cmd, perRepo, setupOpts.workspace, repoDir, storage.Key)
 	switch {
 	case err != nil:
 		report.Warnings = append(report.Warnings, "workspace registration failed: "+err.Error())
 		workspacePhase.Fail("workspace registration failed", err)
+		ui.ShortWarning("Workspace registration failed: "+err.Error(), brainCmd)
 	case report.Workspace.Already:
 		workspacePhase.OK(fmt.Sprintf("workspace %q already has this repo", report.Workspace.Name))
 	default:
@@ -1047,6 +1145,9 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	// the line; none of them is worth a row of its own.
 	daemonStarted := time.Now()
 	watcherPhase := run.Begin(setupui.PhaseWatcher)
+	if !setupOpts.noDaemon {
+		ui.StartTask("Configuring background watcher…")
+	}
 	switch {
 	case setupOpts.noDaemon:
 		watcherPhase.Skip("background watcher (--no-daemon)")
@@ -1082,12 +1183,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		outcome.settle(watcherPhase)
 	}
 	timings.record("daemon", time.Since(daemonStarted))
+	if shortOutput {
+		setupui.RenderTerseWatcher(cmd.OutOrStdout(), rend,
+			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
+	}
 
 	// Remember the identities AND the tuning this run used, so `status` inspects
 	// the daemon that exists rather than the default one it would have created,
 	// and so a later bare `setup` re-installs the same daemon rather than one
 	// reverted to stock intervals and models.
 	// A failed plan must not become the identity used by the next setup.
+	ui.StartTask("Saving setup…")
 	recordedDaemonName := setupOpts.daemonName
 	if planErr != nil {
 		recordedDaemonName, _ = installedDaemonName(machinePlan, machinePlanErr, previous, setUpBefore)
@@ -1111,15 +1217,17 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 		NoAgentHooks: setupOpts.noAgentHooks,
 	}); err != nil {
 		report.Warnings = append(report.Warnings, "setup record not saved: "+err.Error())
+		ui.ShortWarning("Setup settings could not be saved: "+err.Error(), brainCmd)
 	}
 
 	// Phase 7 — READY. The verdict, the two paths nobody can infer, each
 	// failure's one line, and what to run next. It does NOT re-list the
 	// phases: they are on the screen directly above it.
+	ui.Suspend()
 	renderSetupReady(run, rend, report, timings, queryable, brainCmd)
 
-	if !setupOpts.json && !setupOpts.verbose {
-		setupui.RenderTerse(cmd.OutOrStdout(), rend,
+	if shortOutput {
+		setupui.RenderTerseNext(cmd.OutOrStdout(),
 			terseReportFor(report, timings, queryable, setupOpts, brainCmd))
 	}
 
@@ -1198,7 +1306,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	// Remove our pre-push hook (restoring any hook we had chained to).
 	// Best-effort: a hook problem must not block the daemon uninstall report.
-	if repoDir, local, repoErr := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
+	if repoDir, local, repoErr := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil)); repoErr == nil && local {
 		if hookErr := uninstallPushHook(ctx, opts, repoDir); hookErr != nil {
 			fmt.Fprintf(cmd.ErrOrStderr(), "setup: push hook not removed: %v\n", hookErr)
 		}
@@ -1240,11 +1348,11 @@ func setupDaemonPreflightLine(plan daemonPlan, before daemonState, brainCmd stri
 	if before.Installed {
 		return fmt.Sprintf(
 			"background watcher: this run keeps %s installed — a persistent %s service that starts again at every login; remove it with `%s setup --uninstall-daemon`",
-			what, plan.Manager, setupBrainCommand(brainCmd))
+			what, plan.Manager, base.SetupBrainCommand(brainCmd))
 	}
 	return fmt.Sprintf(
 		"background watcher: this run will install %s — a persistent %s service that starts again at every login; pass --no-daemon to skip it, or remove it later with `%s setup --uninstall-daemon`",
-		what, plan.Manager, setupBrainCommand(brainCmd))
+		what, plan.Manager, base.SetupBrainCommand(brainCmd))
 }
 
 // runSetupDaemon installs the one machine-wide watcher. On an OS with no
@@ -1282,7 +1390,7 @@ func runSetupDaemon(ctx context.Context, phase *setupui.PhaseRun, env EntireEnv,
 	if !plan.supported() {
 		return setupDaemonOutcome{
 			state:   daemonState{Manager: daemonManagerUnsupported, Detail: "not supported on " + plan.OS + " yet"},
-			summary: fmt.Sprintf("background watcher: not supported on %s yet (run `%s workspace watch %s` yourself to keep the brain fresh)", plan.OS, setupBrainCommand(brainCmd), report.Workspace.Name),
+			summary: fmt.Sprintf("background watcher: not supported on %s yet (run `%s workspace watch %s` yourself to keep the brain fresh)", plan.OS, base.SetupBrainCommand(brainCmd), report.Workspace.Name),
 			skipped: true,
 		}
 	}
@@ -1356,7 +1464,7 @@ func runSetupDaemonLocked(ctx context.Context, phase *setupui.PhaseRun, steps se
 func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSink, in io.Reader, promptOut io.Writer, opts Options, setupOpts setupCommandOptions, steps setupSteps, storage repoStorage, repoDir string, report *setupReport, brainCmd string) setupPhase {
 	rend := ui.Renderer()
 	dash := rend.Dash()
-	resume := setupBrainCommand(brainCmd) + " distill"
+	resume := base.SetupBrainCommand(brainCmd) + " distill"
 	counter := setupFactsCounter(rend, report.Facts)
 	phase.Step("counting distillable sessions")
 
@@ -1364,7 +1472,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// --yes in a paused brain reports the truth instead of claiming it spent.
 	if backgroundPaused(opts.Env) {
 		return setupBackfillSkippedBecause(phase, "background work paused",
-			"not distilled: background work is paused "+dash+" run `"+setupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
+			"not distilled: background work is paused "+dash+" run `"+base.SetupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
 			setupui.ConsentReasonPaused)
 	}
 	if report.Facts.Sessions > 0 && report.Facts.Pending() == 0 {
@@ -1407,7 +1515,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	// a terminal, and the reader is told what it would cost before answering.
 	ui.Suspend()
 	outcome := setupui.Consent(setupui.ConsentRequest{
+		Compact:  ui.quiet,
 		Sessions: queued,
+		Total:    report.Facts.Pending(),
 		Agent:    agent,
 		Model:    strings.TrimSpace(setupOpts.model),
 		Effort:   strings.TrimSpace(setupOpts.effort),
@@ -1419,6 +1529,9 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	if !outcome.Spend {
 		return setupBackfillSkippedBecause(phase, setupui.FlattenText(outcome.Reason), outcome.Reason+counter, outcome.Why)
 	}
+	// What THIS run will actually distill, for the summary line. Without it the
+	// short form said "Distilling 272 sessions" about a budget of 2.
+	report.Facts.Queued = queued
 
 	plan := setupBackfillPlanFor(opts, setupOpts, agent, repoDir, stateDir)
 	if plan.Binary == "" {
@@ -1426,20 +1539,15 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 			"not distilled: could not resolve this executable's path"+counter,
 			setupui.ConsentReasonNoExecutable)
 	}
-	// A human who answered the prompt has already read the cost. A run that
-	// was answered by --yes has not, and the cost still has to be on screen
-	// BEFORE the detached child starts rather than after: the whole point of a
-	// cost line is that someone who did not want this can see it and Ctrl-C.
-	if !outcome.Prompted {
-		// Written to promptOut, NOT through the phase sink. The phase rows are
-		// discarded in the default short form, and a cost line a reader cannot
-		// see defeats its own purpose: someone who did not want this has to be
-		// able to read it and Ctrl-C. promptOut is the real stream in every
-		// mode except --json, which does not spend without --yes anyway.
+	// Interactive consent already discloses token use. Explicit --backfill or
+	// --yes opts in without a prompt; keep its detailed announcement in the
+	// verbose view so the default transcript contains only the result.
+	if setupOpts.verbose && !outcome.Prompted {
 		fmt.Fprintf(promptOut, "  fact backfill will SPEND TOKENS now: %s over %d session(s), newest first%s (--no-backfill skips it)\n",
 			setupBackfillSpendLabel(agent, setupOpts), queued, setupBackfillOfLabel(queued, report.Facts.Pending()))
 	}
 
+	ui.StartTask("Starting background distillation…")
 	pid, err := steps.spawnBackfill(ctx, plan)
 	if err != nil {
 		phase.Fail("fact backfill did not start", err)
@@ -1473,7 +1581,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 	if budget > 0 && state.Sessions > budget {
 		details = append(details, fmt.Sprintf(
 			"capped at %d of %d pending session(s) this pass (--backfill-budget); re-run `%s setup` for the next batch, or `--backfill-budget 0` to distill the whole corpus in one spend",
-			budget, state.Sessions, setupBrainCommand(brainCmd)))
+			budget, state.Sessions, base.SetupBrainCommand(brainCmd)))
 	}
 	phase.OK(fmt.Sprintf("fact backfill started in the background: %d session(s), newest first, %s (pid %d)%s",
 		queued, setupBackfillSpendLabel(agent, setupOpts), pid, counter), details...)
@@ -1745,7 +1853,7 @@ func daemonEnv(env EntireEnv) map[string]string {
 // of the two registrations.
 func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	result, err := addWorkspaceRepoLocked(opts.Env, name, workspaceRepo{RepoKey: repoKey, LocalPathHint: repoDir})
+	result, err := workspaceStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
 		return state, err
 	}
@@ -1849,18 +1957,20 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 			// first `brief` to answer without it.
 			sub, capturedStderr := newSetupInstantCommand(ctx, steps.stepOutput)
 			var components []setupComponent
+			// User-invoked (`entire setup`): keeps the transcript cache sweep,
+			// same as every other foreground command.
 			err := watchDeterministicRefreshComponents(ctx, sub, opts, repoDir, setupBuildsHistoryProjection, true, func(name string, err error) {
 				component := newSetupComponent(name, err, brainCmd)
 				components = append(components, component)
 				steps.observeComponent.notify(component)
-			})
+			}, false)
 			// The nested refresh's progress is discarded, but a warning on that
 			// stream is not progress -- a memory coordinator that could not
 			// launch, an entity index that was skipped -- and it reaches nobody
 			// unless it is re-emitted on the command the user is reading.
 			if cmd != nil && !setupOpts.json {
 				for _, warning := range setupWarningsFrom(capturedStderr) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", warning)
+					printAroundLiveLine(cmd.ErrOrStderr(), "warning: %s\n", warning)
 				}
 			}
 			return components, err
@@ -1868,15 +1978,13 @@ func resolveSetupSteps(cmd *cobra.Command, opts Options, setupOpts setupCommandO
 	}
 	if steps.detectAgent == nil {
 		steps.detectAgent = func(ctx context.Context) string {
-			// setup resolves the agent once and embeds it in the daemon plan,
-			// so this is the single place a user is told which agent their
-			// repository's content will be sent to — announce it. Silent under
-			// --json, as every other human line in setup already is.
-			var announce io.Writer
-			if !setupOpts.json {
-				announce = cmd.ErrOrStderr()
-			}
-			return resolveRefreshAgentAnnounced(ctx, opts.Runner, repoDir, setupOpts.model, announce)
+			// No standalone announcement here: the agent is disclosed at the
+			// moments it matters instead. The consent block names agent, model
+			// and effort before a human answers, and the --yes path prints the
+			// spend label before the detached child starts. A preamble before
+			// any of that was the first line every reader saw, about a spend
+			// that had not been agreed to yet (and often never happened).
+			return defaultRefreshAgent(ctx, opts.Runner, repoDir)
 		}
 	}
 	if steps.spawnBackfill == nil {
@@ -2040,7 +2148,7 @@ func setupRecordIsCorrupt(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", memoryErrStateCorrupt} {
+	for _, mark := range []string{"unknown field", "cannot be parsed", "invalid character", "unexpected end of JSON", brainstore.StateCorruptCode} {
 		if strings.Contains(msg, mark) {
 			return true
 		}
@@ -2266,7 +2374,7 @@ func readSetupInstantRecord(stateDir string) setupInstantRecord {
 // reproduced between a different pair of surfaces.
 func failedSetupComponents(stateDir, brainDir string) []setupComponent {
 	record := readSetupInstantRecord(stateDir)
-	_, failed := partitionSetupComponents(record.Components)
+	_, _, failed := partitionSetupComponents(record.Components)
 	return pruneRebuiltFailures(failed, componentRunTimes(brainDir), record.UpdatedAt)
 }
 
@@ -2326,8 +2434,8 @@ func setupAgentsPhaseDidWork(hookWired bool, agents setupAgentsState) bool {
 func setupAgentsPhaseDetails(agents setupAgentsState, declinedHooks bool, dash, brainCmd string) (details []string, warning string) {
 	if !agents.Installed {
 		warning = "agent instructions not written: " + agents.Detail
-		return []string{fmt.Sprintf("%s %s no agent will discover this brain; run `%s init-agents`",
-			warning, dash, setupBrainCommand(brainCmd))}, warning
+		return []string{fmt.Sprintf("%s %s no agent will discover this brain; fix the cause and re-run `%s setup`",
+			warning, dash, base.SetupBrainCommand(brainCmd))}, warning
 	}
 	what := strings.Join(agents.Files, ", ")
 	if len(agents.Changed) == 0 && !agents.HookChanged {
@@ -2371,7 +2479,7 @@ func describeDaemonState(state daemonState, brainCmd string) string {
 		// The hashed label it used to carry is gone from all four branches: it
 		// identified nothing a reader could act on. It stays in --json
 		// (daemonState.Label) for anything that needs the service id.
-		return fmt.Sprintf("running, but the installed unit is stale and not current; re-run `%s setup`", setupBrainCommand(brainCmd))
+		return fmt.Sprintf("running, but the installed unit is stale and not current; re-run `%s setup`", base.SetupBrainCommand(brainCmd))
 	case state.Running:
 		return "running"
 	case state.Installed && !state.Current:
@@ -2404,7 +2512,7 @@ func refreshSetupPushHook(ctx context.Context, opts Options, repoDir, brainCmd s
 	case pushHookSharedDir:
 		return []string{"push hook: core.hooksPath is shared across repos (" + path + "); not managed - uploads ride the daemon tick"}
 	case pushHookAbsent:
-		return []string{"push hook not installed (run `" + setupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
+		return []string{"push hook not installed (run `" + base.SetupBrainCommand(brainCmd) + " connect` to upload memories on push)"}
 	case pushHookUnchanged:
 		return []string{"push hook already current (" + path + ")"}
 	case pushHookChainedIn:

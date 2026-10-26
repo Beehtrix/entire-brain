@@ -3,11 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
 
@@ -82,7 +85,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -121,17 +124,17 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 		out := cmd.OutOrStdout()
 		if len(tasks) == 0 {
 			if corpusBacked {
-				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-check.")
+				fmt.Fprintln(out, "no skill proposals: promotable tasks need an accepted deep dossier.\nRun `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-check.")
 			} else {
-				fmt.Fprintln(out, "no task candidates (run `"+brainInvocation(os.LookupEnv, "patterns refresh")+"`)")
+				fmt.Fprintln(out, "no task candidates (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")
 			}
 			return nil
 		}
 		for _, t := range tasks {
 			r := t.Reinforcement
-			fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, redactText(t.Label), t.Strength)
+			fmt.Fprintf(out, "[%s] %s  (strength %.2f)\n", t.StrengthLabel, base.RedactText(t.Label), t.Strength)
 			fmt.Fprintf(out, "    %d session(s), %d with commands; %d↑ %d↓ %d·; commands: %s\n",
-				t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, redactText(joinMax(t.Commands, 5)))
+				t.Support, t.WithCommands, r.Success, r.Corrected, r.Neutral, base.RedactText(joinMax(t.Commands, 5)))
 			fmt.Fprintf(out, "    id %s\n", t.ID)
 		}
 		return nil
@@ -139,7 +142,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 }
 
 func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, target string, s skillFormOptions) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -151,7 +154,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 		return err
 	}
 	brainDir := storage.BrainDir
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -170,7 +173,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				return err
 			}
 			if !ok {
-				return fmt.Errorf("no accepted theme %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --themes` first", s.taskID)
+				return fmt.Errorf("no accepted theme %q: run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --themes` first", s.taskID)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title}
@@ -196,7 +199,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				if strings.HasPrefix(s.taskID, "convention:") {
 					channel = "--conventions"
 				}
-				return fmt.Errorf("no accepted proposal %q: run `"+brainInvocation(os.LookupEnv, "patterns verify")+" %s` first", s.taskID, channel)
+				return fmt.Errorf("no accepted proposal %q: run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" %s` first", s.taskID, channel)
 			}
 			deep = &in
 			cand = &taskCandidate{ID: s.taskID, Label: in.rec.Title, Support: in.rec.EvidenceEpisodes}
@@ -223,7 +226,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 				deep = &in
 			} else {
 				return fmt.Errorf("needs deep verification first: %s has no accepted deep dossier.\n"+
-					"Run `"+brainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
+					"Run `"+base.BrainInvocation(os.LookupEnv, "patterns verify")+" --deep` (explicit, egress-gated), then re-run this form.", s.taskID)
 			}
 		} else {
 			// Legacy fallback for repos without a V2 corpus.
@@ -239,7 +242,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 			}
 		}
 		if cand == nil {
-			return fmt.Errorf("task candidate not found: %s (run `"+brainInvocation(os.LookupEnv, "patterns skills")+"`)", s.taskID)
+			return fmt.Errorf("task candidate not found: %s (run `"+base.BrainInvocation(os.LookupEnv, "patterns skills")+"`)", s.taskID)
 		}
 
 		agent := s.agent
@@ -259,7 +262,7 @@ func runPatternsSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options
 // skill-memory decision is recorded. run is injected so tests can stub the agent.
 // Exactly one synthesis source is used: an accepted workspace family (fam), then
 // an accepted deep dossier (deep), else the legacy shallow path.
-func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *workspaceFamily, storeDir, repoDir, agent string, run distillAgentRunner, s skillFormOptions, now time.Time) error {
+func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandidate, deep *deepSkillInput, fam *patterncore.WorkspaceFamily, storeDir, repoDir, agent string, run base.DistillAgentRunner, s skillFormOptions, now time.Time) error {
 	var (
 		res skillSynthesisResult
 		err error
@@ -299,7 +302,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	if name == "" {
 		name = "skill"
 	}
-	skillText := redactText(res.SkillText)
+	skillText := base.RedactText(res.SkillText)
 
 	if s.draftOnly {
 		if s.asJSON {
@@ -402,7 +405,7 @@ func renderCandidateEvidence(out io.Writer, cand taskCandidate) {
 	if len(cand.Examples) > 0 {
 		fmt.Fprintln(out, "Source anchors:")
 		for _, a := range cand.Examples {
-			fmt.Fprintf(out, "  - %s:%d\n", redactText(a.Path), a.Line)
+			fmt.Fprintf(out, "  - %s:%d\n", base.RedactText(a.Path), a.Line)
 		}
 	}
 }

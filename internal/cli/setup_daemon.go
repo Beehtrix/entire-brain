@@ -14,6 +14,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // setup_daemon.go is the install glue behind `setup`: it turns one
@@ -461,10 +464,10 @@ func withDaemonRegistrationLock(env EntireEnv, fn func() error) error {
 		return fn()
 	}
 	stateDir := filepath.Dir(planPath)
-	if err := rejectExistingSymlinkPathComponents(stateDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(stateDir, brainstore.BrainLockDirName); err != nil {
 		return fn()
 	}
-	lock, err := acquireFileLock(filepath.Join(stateDir, brainLockDirName, setupDaemonLockName), "daemon_install_locked", brainWriteLockTimeout)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(stateDir, brainstore.BrainLockDirName, setupDaemonLockName), "daemon_install_locked", brainstore.BrainWriteLockTimeout)
 	if err != nil {
 		return fn()
 	}
@@ -577,7 +580,7 @@ func refreshDaemonUnitBytes(plan daemonPlan) error {
 	if err != nil || string(data) == plan.Contents {
 		return err
 	}
-	return writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600)
+	return brainstore.WriteFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600)
 }
 
 // installDaemon writes the unit and (re)loads it. It is idempotent by
@@ -596,7 +599,7 @@ func installDaemon(ctx context.Context, runner CommandRunner, plan daemonPlan) e
 			return fmt.Errorf("create log directory: %w", err)
 		}
 	}
-	if err := writeFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(plan.UnitPath, []byte(plan.Contents), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", plan.UnitPath, err)
 	}
 	if runner == nil || plan.NoRegister {
@@ -738,7 +741,7 @@ func rotateDaemonLogIfLarge(path string, maxBytes int64) error {
 	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(path+daemonLogArchiveSuffix, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path+daemonLogArchiveSuffix, data, 0o600); err != nil {
 		return err
 	}
 	return os.Truncate(path, 0)

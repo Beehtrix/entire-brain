@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	clitest "github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"github.com/spf13/cobra"
 )
 
@@ -48,14 +49,14 @@ func TestSemanticBenchRootRoutesJSONTextProgressAndCleanup(t *testing.T) {
 	opts, repoDir, marker := semanticBenchFixture(t)
 	var out string
 	var err error
-	progress := captureStderr(t, func() {
-		out, err = execute(t, NewRootCommand(opts), "bench", "semantic", repoDir, "--json", "--profile", "full", "--progress")
+	progress := clitest.CaptureStderr(t, func() {
+		out, err = execute(t, NewRootCommand(opts), "bench", "index", repoDir, "--json", "--profile", "full", "--progress")
 	})
 	if err != nil {
 		t.Fatalf("json bench: %v\n%s", err, out)
 	}
-	for _, phase := range []string{"preparing isolated store", "verifying provider", "parsing sources", "building store"} {
-		if !strings.Contains(progress, "semantic bench: "+phase) {
+	for _, phase := range []string{"preparing isolated store", "building Graph-owned store"} {
+		if !strings.Contains(progress, "index bench: "+phase) {
 			t.Fatalf("progress omitted %q:\n%s", phase, progress)
 		}
 	}
@@ -76,15 +77,15 @@ func TestSemanticBenchRootRoutesJSONTextProgressAndCleanup(t *testing.T) {
 		t.Fatalf("benchmark touched original brain marker: %q err=%v", got, err)
 	}
 
-	out, err = execute(t, NewRootCommand(opts), "bench", "semantic", repoDir, "--profile", "full")
-	if err != nil || !strings.Contains(out, "semantic bench for "+repoDir) || !strings.Contains(out, "profile: full") || strings.Contains(out, "brain_dir:") {
+	out, err = execute(t, NewRootCommand(opts), "bench", "index", repoDir, "--profile", "full")
+	if err != nil || !strings.Contains(out, "index bench for "+repoDir) || !strings.Contains(out, "profile: full") || strings.Contains(out, "brain_dir:") {
 		t.Fatalf("text bench output: err=%v\n%s", err, out)
 	}
 }
 
 func TestSemanticBenchKeepAndFailureCleanupContracts(t *testing.T) {
 	opts, repoDir, _ := semanticBenchFixture(t)
-	out, err := execute(t, NewRootCommand(opts), "bench", "semantic", repoDir, "--json", "--keep")
+	out, err := execute(t, NewRootCommand(opts), "bench", "index", repoDir, "--json", "--keep")
 	if err != nil {
 		t.Fatalf("kept bench: %v\n%s", err, out)
 	}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
 
@@ -23,7 +24,7 @@ func reserveWorkspacesSlug(t *testing.T, configDir, host string) {
 		if cfg.DomainSlugs == nil {
 			cfg.DomainSlugs = make(map[string]string)
 		}
-		cfg.DomainSlugs[host] = workspaceDirName
+		cfg.DomainSlugs[host] = workspace.DirName
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -42,7 +43,7 @@ func TestRepoKeyFromRemoteRefusesReservedSegment(t *testing.T) {
 	if err == nil {
 		t.Fatalf("repoKeyFromRemote minted reserved key %q (ok=%v)", key, ok)
 	}
-	if !strings.Contains(err.Error(), workspaceDirName) {
+	if !strings.Contains(err.Error(), workspace.DirName) {
 		t.Fatalf("error does not name the reserved segment: %v", err)
 	}
 
@@ -77,7 +78,7 @@ func TestPathRefusesReservedRepoKeySegment(t *testing.T) {
 	if err == nil {
 		t.Fatalf("path printed a reserved store location: %q", out)
 	}
-	if strings.Contains(out, filepath.Join(dataDir, repoStoreDirName, workspaceDirName)) {
+	if strings.Contains(out, filepath.Join(dataDir, repoStoreDirName, workspace.DirName)) {
 		t.Fatalf("path leaked the reserved location before failing: %q", out)
 	}
 }
@@ -131,7 +132,7 @@ func TestHeadPathForKeyAppliesTheSameGuardsAsBrainDirForKey(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 
-	if head, err := headPathForKey(env, workspaceDirName+"/acme/repo"); err == nil {
+	if head, err := headPathForKey(env, workspace.DirName+"/acme/repo"); err == nil {
 		t.Fatalf("headPathForKey accepted a reserved repo key: %s", head)
 	}
 	// Traversal out of the head store, with the store root already on disk.

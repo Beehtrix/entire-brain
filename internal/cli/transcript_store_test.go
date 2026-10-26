@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,9 +66,9 @@ func TestTranscriptStoreTombstoneGateIsFreshPerRead(t *testing.T) {
 		t.Fatalf("pre-tombstone read: %v", err)
 	}
 
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["s1"] = sessionTombstone{At: time.Now().UTC(), Reason: "privacy"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 

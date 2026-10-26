@@ -2,11 +2,8 @@ package cli
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -103,7 +100,7 @@ type semanticAuditCoverage struct {
 
 func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest, freshness staleReport) (semanticAuditCoverage, error) {
 	if source == nil || strings.TrimSpace(source.StorePath) == "" {
-		return semanticAuditSnapshotCoverage(brainDir, source, freshness)
+		return semanticAuditCoverage{}, nil
 	}
 	if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
 		return semanticAuditCoverage{}, nil
@@ -114,7 +111,7 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 		// error here is a real inconsistency, not expected staleness.
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}
@@ -151,72 +148,6 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 		return semanticAuditCoverage{}, fmt.Errorf("read semantic relation types: %w", err)
 	}
 	return semanticAuditCoverage{FileLanguages: fileLanguages, Languages: languages, SymbolKinds: kinds, RelationTypes: relationTypes}, nil
-}
-
-func semanticAuditSnapshotCoverage(brainDir string, source *semanticSourceManifest, freshness staleReport) (semanticAuditCoverage, error) {
-	if source == nil || strings.TrimSpace(source.SnapshotPath) == "" {
-		return semanticAuditCoverage{}, nil
-	}
-	if axis, ok := freshness.Axes["snapshot"]; ok && axis.State != "ok" {
-		return semanticAuditCoverage{}, nil
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return semanticAuditCoverage{}, err
-	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshotRel); err != nil {
-		return semanticAuditCoverage{}, err
-	}
-	f, err := os.Open(filepath.Join(brainDir, snapshotRel))
-	if err != nil {
-		return semanticAuditCoverage{}, fmt.Errorf("open semantic snapshot for audit: %w", err)
-	}
-	defer f.Close()
-	files := map[string]string{}
-	languages := map[string]int{}
-	kinds := map[string]int{}
-	relationTypes := map[string]int{}
-	scanner := newSemanticScanner(f)
-	line := 0
-	for scanner.Scan() {
-		line++
-		if line == 1 {
-			continue
-		}
-		var record semanticRecord
-		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
-			return semanticAuditCoverage{}, fmt.Errorf("parse semantic snapshot line %d: %w", line, err)
-		}
-		switch record.RecordType {
-		case "file":
-			if path := record.semanticPath(); path != "" {
-				files[path] = auditCoverageName(record.Language)
-			}
-		case "symbol":
-			languages[auditCoverageName(record.Language)]++
-			kinds[auditCoverageName(record.Kind)]++
-			if path := record.semanticPath(); path != "" {
-				if files[path] == "" || files[path] == "unknown" {
-					files[path] = auditCoverageName(record.Language)
-				}
-			}
-		case "relation":
-			relationTypes[auditCoverageName(record.Type)]++
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return semanticAuditCoverage{}, fmt.Errorf("scan semantic snapshot for audit: %w", err)
-	}
-	fileLanguages := map[string]int{}
-	for _, language := range files {
-		fileLanguages[auditCoverageName(language)]++
-	}
-	return semanticAuditCoverage{
-		FileLanguages: semanticAuditCountsFromMap(fileLanguages),
-		Languages:     semanticAuditCountsFromMap(languages),
-		SymbolKinds:   semanticAuditCountsFromMap(kinds),
-		RelationTypes: semanticAuditCountsFromMap(relationTypes),
-	}, nil
 }
 
 func auditCoverageName(value string) string {

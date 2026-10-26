@@ -5,9 +5,11 @@ import (
 	"io"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -211,6 +213,8 @@ type statusHealth struct {
 	Warnings int
 	Failed   []string
 	Severity string
+	// An old layout needs the migration bridge, even when Graph is absent.
+	BrainLayoutRemedy string
 	// BrainMissing reports that this repository has no brain at all: the
 	// manifest is absent and every source is unbuilt. It is a STATE, not a
 	// problem count, which is why it cannot be folded into Issues — and why
@@ -233,6 +237,17 @@ type statusHealth struct {
 	// the verdict must say so rather than naming a command that cannot repair
 	// what it just listed.
 	HostCLIMissing bool
+	// SemanticProviderAbsent reports that the semantic index is missing AND
+	// the host CLI cannot launch a graph provider, so the refresh remedy alone
+	// cannot build it — the honest next step is the plugin install. Set only
+	// when the host CLI itself is present.
+	SemanticProviderAbsent bool
+	// SemanticStoreUnsupported reports that a graph provider IS installed but
+	// predates the read-only store contract (graph_store.go), so no refresh,
+	// commit, or stash builds the semantic index — the only remedy is the
+	// Graph upgrade. Without this flag the dirty-tree override below claimed
+	// "commit or stash" as the fix for a failure committing cannot touch.
+	SemanticStoreUnsupported bool
 	// DirtyWorktree reports uncommitted changes in the working tree. Both stages
 	// `refresh --agent none` would rebuild REFUSE that state by design — seed
 	// with "dirty_worktree: refusing to seed uncommitted content without
@@ -266,12 +281,29 @@ func buildStatusHealth(report brainStatusReport) statusHealth {
 		BrainMissing: report.Brain.ManifestState == "absent",
 		Cause:        statusFreshnessCause(report),
 	}
+	for _, issue := range report.Issues {
+		if issue.Kind == "brain_layout" {
+			health.BrainLayoutRemedy = issue.Action
+			break
+		}
+	}
 	// Only one of the two: "no brain" already implies "no semantic index", and
 	// a verdict that said both would be reporting one fact twice.
 	health.SemanticMissing = !health.BrainMissing && report.Semantic == nil
+	// Probe only in the state the answer changes: a missing semantic index is
+	// repaired by refresh when a provider is installed and by the plugin
+	// install when none is. With no `entire` on PATH the install hint would be
+	// unfollowable, so HostCLIMissing keeps owning that message.
+	health.SemanticProviderAbsent = health.SemanticMissing && hostCLIOnPath() && !semanticProviderOnHost()
 	if report.Onboarding != nil {
 		health.HostCLIMissing = report.Onboarding.HostCLIMissing
 		for _, component := range report.Onboarding.Components {
+			// Matched on the persisted detail, not the state: new records say
+			// "skipped", but a record written by an older build still says
+			// "failed" for the same condition, and both need the same remedy.
+			if component.Name == brainComponentSemantic && setupIsGraphStoreUnsupported(component.Detail) {
+				health.SemanticStoreUnsupported = true
+			}
 			if component.State == "failed" {
 				health.Failed = append(health.Failed, component.Name)
 				if setupIsNoReadableSessions(component.Detail) {
@@ -361,11 +393,25 @@ func (h statusHealth) repairCommand() string {
 // nextStepMessage gives one actionable next step. Missing brain and blocked
 // repair take precedence; diagnosed faults outrank a missing-host advisory.
 func (h statusHealth) nextStepMessage(brainCmd string) string {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	command := "run `" + brainCmd + " " + h.repairCommand() + "`"
 	switch {
+	case h.BrainLayoutRemedy != "":
+		return h.BrainLayoutRemedy
 	case h.BrainMissing:
 		return command
+	case h.SemanticMissing && h.SemanticProviderAbsent:
+		// Refresh cannot build what no installed provider produces; naming it
+		// anyway sends the reader through an exit that changes nothing.
+		return "the graph provider is not installed, so code context queries are skipped; install it with `entire plugin install graph`, then run `" + brainCmd + " " + base.SemanticIndexVerb + "`"
+	case h.SemanticMissing && h.SemanticStoreUnsupported:
+		// Same shape as the provider-absent case above, and it must outrank
+		// the dirty-tree override below: neither refresh nor a commit builds
+		// a store the installed Graph cannot produce, and pairing "semantic
+		// failed" with "commit or stash" was exactly the misattribution this
+		// case removes. The dirty tree, when present, still states its cause
+		// on the line underneath (statusFreshnessCause).
+		return setupGraphStoreUnsupportedHint(brainCmd)
 	case h.DirtyWorktree && h.repairCommand() == statusRemedyRefresh:
 		// The ONE remedy resolver for a dirty tree. Line() prints h.Cause
 		// directly underneath this, and the cause used to carry a SECOND,
@@ -388,18 +434,20 @@ func (h statusHealth) nextStepMessage(brainCmd string) string {
 	}
 }
 
-// Line renders the verdict.
+// Line renders the verdict as one warning line: the problems, then the one
+// next step, then the cause underneath. It carries its own two-space indent so
+// the caller can print it beside the other warning lines unchanged.
 func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
-	brainCmd = setupBrainCommand(brainCmd)
+	brainCmd = base.SetupBrainCommand(brainCmd)
 	if h.Healthy() {
-		return render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDone, "healthy")
+		return "  " + render.Mark(tui.MarkDone) + " " + render.PhasePaint(tui.PhaseDone, "healthy")
 	}
 	parts := make([]string, 0, 6)
 	if h.BrainMissing {
 		parts = append(parts, "no brain for this repo yet")
 	}
 	if h.SemanticMissing {
-		parts = append(parts, "no semantic index")
+		parts = append(parts, "no code index")
 	}
 	if len(h.Failed) > 0 {
 		parts = append(parts, fmt.Sprintf("%s failed", strings.Join(h.Failed, ", ")))
@@ -413,16 +461,14 @@ func (h statusHealth) Line(render *tui.Renderer, brainCmd string) string {
 	if h.Severity != "" && h.Severity != "ok" {
 		parts = append(parts, "freshness "+h.Severity)
 	}
-	phase := tui.PhaseSkipped
-	mark := tui.MarkSkipped
+	color := render.Theme().Flag
 	if len(h.Failed) > 0 || h.Severity == "unsafe" {
-		phase = tui.PhaseFailed
-		mark = tui.MarkFailed
+		color = render.Theme().Bad
 	}
-	line := render.Mark(mark) + " " + render.PhasePaint(phase, strings.Join(parts, ", ")) +
-		render.Dim(" "+render.Dash()+" "+h.nextStepMessage(brainCmd))
+	line := "  " + render.Paint(color, "! "+strings.Join(parts, ", ")) +
+		statusSep(render) + render.Dim(h.nextStepMessage(brainCmd))
 	if h.Cause != "" {
-		line += "\n  " + render.Dim(h.Cause)
+		line += "\n    " + render.Dim(h.Cause)
 	}
 	return line
 }
@@ -434,58 +480,169 @@ func plural(n int, word string) string {
 	return word + "s"
 }
 
-// statusFactsIdentity renders the fact count on the identity line. A bare
-// "5 facts" is the manifest's CLAIM, and printing it unqualified is how a
-// brain that had lost a fact still said 5 while recall produced 4. When the
-// cross-check fails, both numbers are shown so the claim can never be mistaken
-// for an observation.
-func statusFactsIdentity(f *brainStatusFacts) string {
-	if f.Integrity == nil || f.Integrity.OK() {
-		return fmt.Sprintf("memories: %d", f.Facts)
-	}
-	// A store that would not parse yielded no count at all, so "0 readable"
-	// would be a measurement nobody took. Say what is true: it could not be
-	// read.
-	if f.Integrity.Mode == factStoreDefectUnreadable {
-		return fmt.Sprintf("memories: %d declared, store unreadable", f.Facts)
-	}
-	return fmt.Sprintf("memories: %d declared, %d readable", f.Facts, f.Integrity.Readable)
+// statusLabelWidth aligns the identity block's label column; "Code index" and
+// "Brainstore" are the widest labels.
+const statusLabelWidth = 10
+
+// statusSep is the dim mid-dot that joins facts on one line — the same
+// separator grammar the host `entire status` uses.
+func statusSep(render *tui.Renderer) string {
+	return render.Dim(" " + render.Bullet() + " ")
 }
 
-// statusLabelWidth aligns the short report's left column.
-const statusLabelWidth = 9
-
-// statusBarWidth is the mini bar in the onboarding block.
-const statusBarWidth = 14
-
-// renderBrainStatusShort is the DEFAULT report: who this brain is, how far
-// onboarding has got, and one line of verdict. Everything else is one flag away.
-func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
-	brainCmd = setupBrainCommand(brainCmd)
-	// The leading and trailing blank lines separate the report from the shell
-	// prompt on both sides. The path stays in --verbose; it is machine detail.
-	fmt.Fprintln(out)
-	fmt.Fprintf(out, "%s  %s\n",
-		render.Bold(render.PhasePaint(tui.PhaseInstant, "Brain")),
-		render.Bold(valueOrUnset(report.Repo.Key)))
-	identity := []string{"manifest: " + report.Brain.ManifestState}
-	if s := report.Semantic; s != nil && s.Coverage != nil {
-		identity = append(identity, fmt.Sprintf("semantic: %d files, %d symbols", s.Coverage.Files, s.Coverage.Symbols))
+// statusDot is the verdict glyph on the header line, the signal `entire
+// status` leads with: green when healthy, red when something failed, amber for
+// everything between.
+func statusDot(render *tui.Renderer, health statusHealth) string {
+	glyph := "●"
+	if !render.Caps().Unicode {
+		glyph = "*"
 	}
+	theme := render.Theme()
+	color := theme.Flag
+	switch {
+	case health.Healthy():
+		color = theme.Good
+	case len(health.Failed) > 0 || health.Severity == "unsafe":
+		color = theme.Bad
+	}
+	return render.Paint(color, glyph)
+}
+
+// statusFactLine is one row of the identity block: a dim, aligned label, the
+// dim separator, and the plain value.
+func statusFactLine(render *tui.Renderer, label, value string) string {
+	return "  " + render.Dim(fmt.Sprintf("%-*s %s ", statusLabelWidth, label, render.Bullet())) + value
+}
+
+// groupDigits writes n with comma thousands separators: a five-digit memory
+// count reads as a count, not a typo.
+func groupDigits(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+// statusMemoriesValue merges the manifest's fact count with the backfill
+// progress, which used to be two "memories" lines in two blocks.
+func statusMemoriesValue(render *tui.Renderer, report brainStatusReport) string {
+	parts := make([]string, 0, 2)
 	if f := report.Facts; f != nil {
-		if report.Integrity == "not_checked" {
-			identity = append(identity, fmt.Sprintf("memories: %d declared", f.Facts))
-		} else {
-			identity = append(identity, statusFactsIdentity(f))
+		switch {
+		case report.Integrity == "not_checked":
+			parts = append(parts, groupDigits(f.Facts)+" declared")
+		case f.Integrity == nil || f.Integrity.OK():
+			parts = append(parts, groupDigits(f.Facts))
+		case f.Integrity.Mode == factStoreDefectUnreadable:
+			// A store that would not parse yielded no count at all, so "0
+			// readable" would be a measurement nobody took. Say what is true:
+			// it could not be read.
+			parts = append(parts, groupDigits(f.Facts)+" declared, store unreadable")
+		default:
+			parts = append(parts, fmt.Sprintf("%s declared, %s readable", groupDigits(f.Facts), groupDigits(f.Integrity.Readable)))
 		}
 	}
-	if h := report.Hosted; h != nil {
-		identity = append(identity, "Brainstore: "+hostedStateLabel(h.State))
+	if o := report.Onboarding; o != nil {
+		facts := o.Facts
+		progress := ""
+		switch {
+		case facts.Running:
+			progress = render.PhasePaint(tui.PhaseBackfill,
+				fmt.Sprintf("%d/%d distilled, backfill running, pid %d", facts.Distilled, facts.Sessions, facts.PID))
+		case facts.Sessions == 0:
+			progress = render.Dim("no captured sessions yet")
+		case facts.Pending() > 0:
+			progress = render.Dim(fmt.Sprintf("%d/%d distilled, %d pending", facts.Distilled, facts.Sessions, facts.Pending()))
+		default:
+			progress = render.Dim("all distilled")
+		}
+		if len(parts) > 0 {
+			progress = "(" + progress + ")"
+		}
+		parts = append(parts, progress)
 	}
-	for _, item := range identity {
-		fmt.Fprintf(out, "  %s\n", render.Dim(item))
-	}
+	return strings.Join(parts, " ")
+}
 
+// statusDaemonValue is the watcher's whole story on one line: state, last
+// tick, what it covers, and whether background work is paused. A hashed
+// launchd label answers nothing a reader of `status` came to ask; the
+// workspaces it is watching answer it exactly.
+func statusDaemonValue(render *tui.Renderer, report brainStatusReport, brainCmd string) string {
+	onboarding := report.Onboarding
+	state := describeDaemonState(onboarding.Daemon, brainCmd)
+	if !onboarding.Daemon.Running || !onboarding.Daemon.Current {
+		state = render.Paint(render.Theme().Flag, state)
+	}
+	if !onboarding.LastTickAt.IsZero() {
+		age := humanizeAge(report.GeneratedAt.Sub(onboarding.LastTickAt))
+		if onboarding.Daemon.Running {
+			state += " " + render.Dim("(last tick "+age+" ago)")
+		} else {
+			state += " " + render.Dim("(last watcher tick "+age+" ago)")
+		}
+	}
+	if onboarding.Daemon.Installed {
+		if coverage := describeWatchPlanCoverage(onboarding.WatchPlan); coverage != "" {
+			state += statusSep(render) + render.Dim(coverage)
+		}
+	}
+	if onboarding.Paused {
+		state += statusSep(render) + render.Paint(render.Theme().Flag, "background work: paused")
+	}
+	return state
+}
+
+// statusSourcesValue lists the built sources by name and demotes the rest to
+// labelled groups, replacing the nine-glyph instant row: on a healthy brain
+// the line is just the names, and anything else stands out by being different.
+func statusSourcesValue(render *tui.Renderer, components []brainStatusComponent) string {
+	var built, missing, failed, skipped []string
+	for _, component := range components {
+		switch component.State {
+		case "failed":
+			failed = append(failed, component.Name)
+		case "missing":
+			missing = append(missing, component.Name)
+		case "skipped":
+			skipped = append(skipped, component.Name)
+		default:
+			built = append(built, component.Name)
+		}
+	}
+	parts := make([]string, 0, 4)
+	if len(built) > 0 {
+		parts = append(parts, strings.Join(built, ", "))
+	}
+	if len(failed) > 0 {
+		parts = append(parts, render.Paint(render.Theme().Bad, "failed: "+strings.Join(failed, ", ")))
+	}
+	if len(missing) > 0 {
+		parts = append(parts, render.Dim("missing: "+strings.Join(missing, ", ")))
+	}
+	if len(skipped) > 0 {
+		parts = append(parts, render.Dim("skipped: "+strings.Join(skipped, ", ")))
+	}
+	return strings.Join(parts, statusSep(render))
+}
+
+// statusWarningLines collects everything that deserves a "!" line: unwired
+// agents first (a brain no agent consults reads healthy everywhere else and is
+// never used), the memory-store integrity warning, the verdict with its one
+// next step and its cause, then each failed component's reason.
+func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd string, health statusHealth) []string {
+	theme := render.Theme()
+	lines := make([]string, 0, 4)
+	onboarding := report.Onboarding
+	if onboarding != nil && onboarding.AgentsUnwired {
+		lines = append(lines, "  "+render.Paint(theme.Flag, "! agents not wired")+
+			statusSep(render)+render.Dim(fmt.Sprintf("run `%s setup` so your agent uses this brain", brainCmd)))
+		if len(onboarding.AgentsMissing) > 0 {
+			lines = append(lines, "    "+render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
+		}
+	}
 	if f := report.Facts; f != nil {
 		warning := ""
 		if f.Integrity != nil {
@@ -494,144 +651,111 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 			warning = missingFactStoreWarning(f.MissingBranches)
 		}
 		if warning != "" {
-			fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkFailed), render.PhasePaint(tui.PhaseFailed, warning))
+			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+warning))
 		}
 	}
-
-	// The verdict is computed BEFORE the onboarding block so the block knows
-	// which remedy the screen is already going to state. Without that, the two
-	// halves repeat each other: a dirty tree failing both seed and semantic put
-	// the same sentence on screen three times.
-	health := buildStatusHealth(report)
-	renderStatusOnboardingBlock(out, render, report, brainCmd, health.nextStepMessage(brainCmd))
-
-	// health is already built above, deliberately before the onboarding block.
-	// main added this branch alongside a second `health :=` at this line; the
-	// declaration is dropped here rather than the one above, because the
-	// onboarding block depends on being able to read the verdict first.
-	if report.Integrity == "not_checked" && health.Healthy() {
-		fmt.Fprintf(out, "\n%s up to date\n", render.Mark(tui.MarkDone))
-	} else {
-		fmt.Fprintf(out, "\n%s\n", health.Line(render, brainCmd))
+	// One remedy, one appearance. Two components failing for the same reason
+	// -- the ordinary case for a dirty worktree, which refuses both seed and
+	// semantic -- carry the same hint the verdict already states.
+	said := map[string]bool{}
+	if !health.Healthy() {
+		lines = append(lines, health.Line(render, brainCmd))
+		said[strings.TrimSpace(health.nextStepMessage(brainCmd))] = true
 	}
-	fmt.Fprintf(out, "%s\n", render.Dim("  `"+brainCmd+" status --verbose` for the full report"))
-	fmt.Fprintln(out)
+	if onboarding == nil {
+		return lines
+	}
+	for _, component := range onboarding.Components {
+		// A skipped component with a recorded reason reports too — the reason
+		// is the one thing the sources line cannot say — but dim rather than
+		// as a warning, because a designed skip rendered in failure red is the
+		// contradiction this distinguishes.
+		skippedWithReason := component.State == "skipped" && strings.TrimSpace(component.Detail) != ""
+		if component.State != "failed" && !skippedWithReason {
+			continue
+		}
+		detail := strings.TrimSpace(component.Detail)
+		if detail == "" {
+			// A failure with no recorded reason is itself worth saying:
+			// silence here would read as "no detail needed".
+			detail = "no reason recorded"
+		}
+		if skippedWithReason {
+			lines = append(lines, "  "+render.Dim(render.Dash()+" "+component.Name+": "+detail))
+		} else {
+			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+component.Name+": "+detail))
+		}
+		if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
+			said[hint] = true
+			lines = append(lines, "    "+render.Dim("hint: "+hint))
+		}
+	}
+	return lines
 }
 
-// renderStatusOnboardingBlock is the part a person actually came for: is the
-// backfill moving, is the watcher alive, did every source build.
-// stated is the remedy the verdict will print under this block; a component
-// hint identical to it is dropped rather than said twice.
-func renderStatusOnboardingBlock(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd, stated string) {
-	brainCmd = setupBrainCommand(brainCmd)
-	onboarding := report.Onboarding
-	if onboarding == nil {
-		return
-	}
-	fmt.Fprintf(out, "\n%s\n", render.Bold("Onboarding"))
-	// FIRST, because it decides whether any other line is ever acted on. A
-	// brain no agent knows about reads healthy on every source and is never
-	// consulted; nothing else in this report would say so. The published guide
-	// teaches `setup` then `status` without `init-agents`, so a reader
-	// following it lands here by default.
-	if onboarding.AgentsUnwired {
-		fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "agents",
-			render.Mark(tui.MarkFailed),
-			render.PhasePaint(tui.PhaseFailed,
-				fmt.Sprintf("not wired — run `%s init-agents` so your agent uses this brain", brainCmd)))
-		if len(onboarding.AgentsMissing) > 0 {
-			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "",
-				render.Dim("missing: "+strings.Join(onboarding.AgentsMissing, ", ")))
-		}
-	}
-	facts := onboarding.Facts
-	factsLine := fmt.Sprintf("  %-*s %s %s distilled",
-		statusLabelWidth, "memories",
-		render.Bar(facts.Distilled, facts.Sessions, statusBarWidth),
-		render.Ratio(facts.Distilled, facts.Sessions))
-	switch {
-	case facts.Running:
-		factsLine += render.PhasePaint(tui.PhaseBackfill, fmt.Sprintf("  (backfill running, pid %d)", facts.PID))
-	case facts.Sessions == 0:
-		factsLine += render.Dim("  (no captured sessions yet)")
-	case facts.Pending() > 0:
-		factsLine += render.Dim(fmt.Sprintf("  (%d pending)", facts.Pending()))
-	}
-	fmt.Fprintln(out, factsLine)
+// renderBrainStatusShort is the DEFAULT report, in the host CLI's card
+// grammar: a verdict-coloured dot on the identity line, one aligned fact per
+// line, a blank-line-separated warning block, and the footer hints. Everything
+// else is one flag away.
+func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainStatusReport, brainCmd string) {
+	brainCmd = base.SetupBrainCommand(brainCmd)
+	health := buildStatusHealth(report)
 
-	daemonPhase := tui.PhaseSkipped
-	daemonMark := tui.MarkSkipped
-	if onboarding.Daemon.Running {
-		daemonPhase, daemonMark = tui.PhaseDaemon, tui.MarkDone
+	// The blank lines are the layout: they separate the report from the shell
+	// prompt on both sides and the header, facts, warnings and footer from one
+	// another. The path stays in --verbose; it is machine detail.
+	fmt.Fprintln(out)
+	// The accent on "Brain" matches setup's terse block and the host CLI's
+	// own header, not the instant-phase cyan.
+	fmt.Fprintf(out, "%s %s%s%s\n", statusDot(render, health),
+		render.Bold(render.Paint(render.Theme().Accent, "Brain")),
+		statusSep(render),
+		render.Bold(valueOrUnset(report.Repo.Key)))
+	fmt.Fprintln(out)
+
+	if value := statusMemoriesValue(render, report); value != "" {
+		fmt.Fprintln(out, statusFactLine(render, "Memories", value))
 	}
-	daemonLine := fmt.Sprintf("  %-*s %s %s", statusLabelWidth, "daemon",
-		render.Mark(daemonMark), render.PhasePaint(daemonPhase, describeDaemonState(onboarding.Daemon, brainCmd)))
-	if !onboarding.LastTickAt.IsZero() {
-		age := humanizeAge(report.GeneratedAt.Sub(onboarding.LastTickAt))
-		if onboarding.Daemon.Running {
-			daemonLine += render.Dim(" " + render.Bullet() + " last tick " + age + " ago")
-		} else {
-			daemonLine += render.Dim(" (last watcher tick " + age + " ago)")
+	if onboarding := report.Onboarding; onboarding != nil {
+		fmt.Fprintln(out, statusFactLine(render, "Daemon", statusDaemonValue(render, report, brainCmd)))
+		if len(onboarding.Components) > 0 {
+			fmt.Fprintln(out, statusFactLine(render, "Sources", statusSourcesValue(render, onboarding.Components)))
 		}
 	}
-	if onboarding.Paused {
-		daemonLine += render.PhasePaint(tui.PhaseSkipped, " "+render.Bullet()+" background work: paused")
+	if s := report.Semantic; s != nil && s.Coverage != nil {
+		fmt.Fprintln(out, statusFactLine(render, "Code index",
+			fmt.Sprintf("%s files, %s symbols", groupDigits(s.Coverage.Files), groupDigits(s.Coverage.Symbols))))
 	}
-	fmt.Fprintln(out, daemonLine)
-	// Say what the machine's ONE watcher covers. A hashed launchd label answers
-	// nothing a reader of `status` came to ask; the workspaces it is watching
-	// answer it exactly.
-	if onboarding.Daemon.Installed {
-		if coverage := describeWatchPlanCoverage(onboarding.WatchPlan); coverage != "" {
-			fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "", render.Dim(coverage))
+	fmt.Fprintln(out, statusFactLine(render, "Manifest", report.Brain.ManifestState))
+	if h := report.Hosted; h != nil {
+		fmt.Fprintln(out, statusFactLine(render, "Brainstore", hostedStateLabel(h.State)))
+	}
+
+	if warnings := statusWarningLines(render, report, brainCmd, health); len(warnings) > 0 {
+		fmt.Fprintln(out)
+		for _, line := range warnings {
+			fmt.Fprintln(out, line)
 		}
 	}
 
-	if len(onboarding.Components) > 0 {
-		parts := make([]string, 0, len(onboarding.Components))
-		for _, component := range onboarding.Components {
-			mark := setupComponentMark(component.State)
-			phase := tui.PhaseDone
-			switch component.State {
-			case "failed":
-				phase = tui.PhaseFailed
-			case "missing":
-				phase = tui.PhaseSkipped
-			}
-			parts = append(parts, render.Mark(mark)+" "+render.PhasePaint(phase, component.Name))
+	fmt.Fprintln(out)
+	if health.Healthy() {
+		verdict := "healthy"
+		if report.Integrity == "not_checked" {
+			// The lightweight path never cross-checked the store, so "healthy"
+			// would claim an audit nobody ran; "up to date" claims only what
+			// was measured.
+			verdict = "up to date"
 		}
-		fmt.Fprintf(out, "  %-*s %s\n", statusLabelWidth, "instant", strings.Join(parts, "  "))
-		// A row of names is not a report. Every failed component already
-		// carries the reason it failed and, for the failure modes whose error
-		// text is not actionable on its own, the hint that fixes it -- status
-		// built both and printed neither, so "x semantic" was the whole answer
-		// and the only way to learn why was to run a different command. Say it
-		// here, under the row that names it, in the same shape setup's own
-		// summary uses.
-		// One remedy, one appearance. Two components failing for the same
-		// reason -- the ordinary case for a dirty worktree, which refuses both
-		// seed and semantic -- carry the same hint, and the verdict below
-		// carries it a third time.
-		said := map[string]bool{strings.TrimSpace(stated): true}
-		for _, component := range onboarding.Components {
-			if component.State != "failed" {
-				continue
-			}
-			detail := strings.TrimSpace(component.Detail)
-			if detail == "" {
-				// A failure with no recorded reason is itself worth saying:
-				// silence here would read as "no detail needed".
-				detail = "no reason recorded"
-			}
-			fmt.Fprintf(out, "  %-*s %s %s\n", statusLabelWidth, "",
-				render.Mark(tui.MarkFailed),
-				render.PhasePaint(tui.PhaseFailed, component.Name+": "+detail))
-			if hint := strings.TrimSpace(component.Hint); hint != "" && !said[hint] {
-				said[hint] = true
-				fmt.Fprintf(out, "  %-*s   %s\n", statusLabelWidth, "", render.Dim("hint: "+hint))
-			}
-		}
+		fmt.Fprintf(out, "  %s %s\n", render.Mark(tui.MarkDone), render.PhasePaint(tui.PhaseDone, verdict))
 	}
+	hints := make([]string, 0, 2)
+	if report.Integrity == "not_checked" {
+		hints = append(hints, "Integrity not checked", "`"+brainCmd+" doctor` for a deep audit")
+	}
+	hints = append(hints, "`"+brainCmd+" status --verbose` for the full report")
+	fmt.Fprintf(out, "  %s\n", render.Dim(strings.Join(hints, " "+render.Bullet()+" ")))
+	fmt.Fprintln(out)
 }
 
 // renderStatusBlindSpotGroups prints one line per collapsed group, and (in
@@ -646,7 +770,7 @@ func renderStatusBlindSpotGroups(out io.Writer, render *tui.Renderer, indent str
 		}
 		line := group.Summary()
 		if group.DataFiles {
-			line += " " + render.Dash() + " `" + setupBrainCommand(brainCmd) + " doctor` lists them"
+			line += " " + render.Dash() + " `" + base.SetupBrainCommand(brainCmd) + " doctor` lists them"
 		}
 		fmt.Fprintf(out, "%s%s %s\n", indent, render.Mark(tui.MarkSkipped), render.PhasePaint(phase, line))
 		if !enumerate || group.DataFiles {

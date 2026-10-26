@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // agent_wiring_test.go covers the first-run defect that made a successful
@@ -130,7 +131,7 @@ func TestSetupAgentWiringFailureIsAWarningNotAFailedSetup(t *testing.T) {
 	if !strings.Contains(out, "agent instructions not written") {
 		t.Fatalf("a failed wiring must be reported, not swallowed:\n%s", out)
 	}
-	if !strings.Contains(out, "init-agents") {
+	if !strings.Contains(out, "setup") {
 		t.Fatalf("a failed wiring must name the command that repairs it:\n%s", out)
 	}
 }
@@ -324,10 +325,10 @@ func TestPreEditHookCommandSurvivesAManagedPluginInstall(t *testing.T) {
 	// binary off PATH, and setupCommandPrefix detects that from an environment
 	// marker with no GOOS condition, so windows reaches it too. Only the
 	// interpreter differs -- cmd.exe cannot run the sh pipeline.
-	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupEntireBinaryName+" "+base.SetupBrainPluginVerb+" hook pre-edit") {
 		t.Fatalf("the wired command has no host-CLI fallback for a managed install: %s", command)
 	}
-	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Fatalf("the wired command never tries the brain binary directly: %s", command)
 	}
 	if runtime.GOOS == "windows" {
@@ -651,10 +652,10 @@ func TestAGivenFileIsNotWaitedOnByAnEventRead(t *testing.T) {
 // this test runs on.
 func assertPreEditHookCommand(t *testing.T, goos, command string) {
 	t.Helper()
-	if !strings.Contains(command, setupEntireBinaryName+" "+setupBrainPluginVerb+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupEntireBinaryName+" "+base.SetupBrainPluginVerb+" hook pre-edit") {
 		t.Errorf("%s: no host-CLI fallback for a managed install: %s", goos, command)
 	}
-	if !strings.Contains(command, setupBrainBinaryName+" hook pre-edit") {
+	if !strings.Contains(command, base.SetupBrainBinaryName+" hook pre-edit") {
 		t.Errorf("%s: never tries the brain binary directly: %s", goos, command)
 	}
 	if !commandInvokesPreEditHook(command) {
@@ -706,5 +707,35 @@ func TestAgentsPhaseCountsAgentWiringAsWork(t *testing.T) {
 				t.Errorf("setupAgentsPhaseDidWork(%v, %+v) = %v, want %v", c.hookWired, c.agents, got, c.wantDidWork)
 			}
 		})
+	}
+}
+
+// TestSetupStrictModePersistsAcrossBareReruns: `setup --strict` saves the mode
+// in the guide's activation record — the job the removed init-agents command
+// used to do — and a bare re-run inherits it rather than resetting to normal.
+// `setup --normal` is the explicit way back.
+func TestSetupStrictModePersistsAcrossBareReruns(t *testing.T) {
+	f := newSetupTestFixture(t)
+	opts := defaultSetupOptions()
+	opts.noDaemon = true
+	opts.noBackfill = true
+	opts.strict = true
+
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	guidePath := filepath.Join(f.repoDir, agentsetup.Path)
+	if guide := readFileString(t, guidePath); !strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("--strict did not persist in the activation record:\n%s", guide)
+	}
+
+	opts.strict = false
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	if guide := readFileString(t, guidePath); !strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("a bare re-run reset the saved strict mode:\n%s", guide)
+	}
+
+	opts.normal = true
+	runSetupForTest(t, f, opts, &recordedSetup{})
+	if guide := readFileString(t, guidePath); strings.Contains(guide, `"mode":"strict"`) {
+		t.Fatalf("--normal did not reset the saved mode:\n%s", guide)
 	}
 }

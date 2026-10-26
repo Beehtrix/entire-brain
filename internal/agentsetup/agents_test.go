@@ -24,8 +24,8 @@ func TestAgentGuidePrintsDoctrine(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"MUST be ONE Graph search",
-		"entire graph search",
+		"MUST be a Graph query",
+		"entire graph query",
 		"--profile full",
 		"VERIFY before stopping",
 		"never trade resolution for fewer turns",
@@ -61,7 +61,7 @@ func TestInitAgentsInstallsAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("guide not written: %v", err)
 	}
-	if !strings.Contains(string(guide), "MUST be ONE Graph search") {
+	if !strings.Contains(string(guide), "MUST be a Graph query") {
 		t.Fatalf("guide content wrong:\n%s", guide)
 	}
 
@@ -397,7 +397,7 @@ func TestInitAgentsValidatePointerMarkersRequiresOneOrderedPair(t *testing.T) {
 			if err == nil {
 				t.Fatal("malformed markers were accepted")
 			}
-			for _, want := range []string{"BROKEN.md", "back up", "preserve user-owned text", "rerun init-agents"} {
+			for _, want := range []string{"BROKEN.md", "back up", "preserve user-owned text", "rerun setup"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("error %q missing actionable text %q", err, want)
 				}
@@ -438,7 +438,7 @@ func TestInitAgentsRejectsMalformedMarkersWithoutWrites(t *testing.T) {
 			if err == nil {
 				t.Fatal("init-agents accepted malformed markers")
 			}
-			for _, want := range []string{tt.name, "malformed", "back up", "rerun init-agents"} {
+			for _, want := range []string{tt.name, "malformed", "back up", "rerun setup"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("error %q missing %q", err, want)
 				}
@@ -2371,7 +2371,7 @@ func TestInitAgentsRefusesOversizeInstructionFileWithoutWrites(t *testing.T) {
 			if err == nil {
 				t.Fatalf("init-agents accepted a %d-byte %s", len(oversize), oversizeName)
 			}
-			for _, want := range []string{oversizeName, "larger than", "rerun init-agents"} {
+			for _, want := range []string{oversizeName, "larger than", "rerun setup"} {
 				if !strings.Contains(err.Error(), want) {
 					t.Fatalf("error %q missing %q", err, want)
 				}
@@ -2470,7 +2470,7 @@ func TestInitAgentsRefusesWhenTheManagedBlockWouldCrossTheReadLimit(t *testing.T
 	if err == nil {
 		t.Fatalf("init-agents wrote a file past the %d-byte limit it will read back", maxInstructionFileBytes)
 	}
-	for _, want := range []string{"AGENTS.md", "read back", "rerun init-agents"} {
+	for _, want := range []string{"AGENTS.md", "read back", "rerun setup"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q missing %q", err, want)
 		}

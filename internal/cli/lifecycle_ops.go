@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -212,7 +214,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 					}
 					code, _ := health["error_code"].(string)
 					switch code {
-					case memoryErrUnsupportedVersion, memoryErrStateCorrupt, memoryErrStateUnsafe, memoryErrMigrationRequired:
+					case brainstore.UnsupportedVersionCode, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, memoryErrMigrationRequired:
 						errorCodes[code] = true
 					}
 				}
@@ -270,7 +272,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	if migrations, ok := snapshot.Payload["migrations"].([]memoryMigrationFinding); ok && len(migrations) > 0 {
 		state := "warn"
 		for _, finding := range migrations {
-			if finding.State == memoryErrStateUnsafe || finding.State == memoryErrStateCorrupt {
+			if finding.State == brainstore.StateUnsafeCode || finding.State == brainstore.StateCorruptCode {
 				state = "error"
 				break
 			}
@@ -351,7 +353,13 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// plugin living in a temp directory is about to break every command here,
 	// and that is true whether or not the target is a repository.
 	checkEphemeralInstall(add)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	// Durability says the binary is in a sane place. It does not say a host
+	// can reach the tools through it, and every failure in that class has been
+	// silent (safe-mode stripping MCP, a comma in CLAUDE_CODE_PLUGIN_DIRS, a
+	// purged plugin path reported as CONNECTION_CLOSED). Opt-in, because it
+	// spawns a subprocess.
+	doctorMCPSurfaceCheck(ctx, os.Getenv, os.Executable, add)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil || !local {
 		add("brain", "warn", "not a local repository; brain checks skipped")
 		return checks, payload
@@ -370,7 +378,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	case "current":
 		add("manifest", "ok", brainDir)
 	case "absent":
-		add("manifest", "warn", "absent; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		add("manifest", "warn", "absent; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	default:
 		add("manifest", "error", fmt.Sprintf("%s: %s", snapshot.ManifestHealth.ErrorCode, snapshot.ManifestHealth.RecommendedAction))
@@ -387,7 +395,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// stage ran, so the empty case names what actually produces a session.
 	switch {
 	case manifest.Sources == nil || manifest.Sources.Sessions == nil:
-		add("capture", "warn", "sessions stage has not run; run `"+brainInvocation(os.LookupEnv, "refresh")+"` (sessions stage)")
+		add("capture", "warn", "sessions stage has not run; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` (sessions stage)")
 	case len(manifest.Sources.Sessions.Sessions) == 0:
 		add("capture", "ok", "no captured sessions yet; Entire has recorded none in this repository -- work in an agent session, then refresh; `entire checkpoint list` shows what Entire itself can see")
 	default:
@@ -429,7 +437,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
-			branch, branchErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
+			branch, branchErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current")
 			if branchErr != nil {
 				add("facts_verification", "warn", "branch unavailable: "+branchErr.Error())
 			} else {
@@ -453,7 +461,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// only when it was built from the CURRENT session set (fingerprint match);
 	// a semantic-only refresh must never claim conversation freshness.
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		add("history_index", "warn", "no history index; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		add("history_index", "warn", "no history index; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
 		return checks, payload
 	}
 	history := manifest.Sources.History
@@ -464,7 +472,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 	add("history_index", "ok", fmt.Sprintf("%d records (generated %s)", len(index.Records), history.GeneratedAt.UTC().Format(time.RFC3339)))
 	if history.IndexDigest == "" {
-		add("history_integrity", "warn", "index predates manifest content digests; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		add("history_integrity", "warn", "index predates manifest content digests; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	} else {
 		add("history_integrity", "ok", "index bytes match the manifest content digest")
 	}
@@ -477,25 +485,25 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	shortTermCovers := shortTermCurrentForSources && len(shortTerm.Files) > 0
 	switch {
 	case history.SessionsFingerprint == "":
-		add("history_freshness", "warn", "index predates fingerprinting; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		add("history_freshness", "warn", "index predates fingerprinting; run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	case current == history.SessionsFingerprint:
 		add("history_freshness", "ok", "history and conversation projections were built from the current exported sessions")
 	case shortTermCovers && shortTerm.complete():
-		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+brainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
+		add("history_freshness", "ok", fmt.Sprintf("long-term index is behind, but short-term memory covers the gap (%d changed transcripts; consolidation pending via `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`)", len(shortTerm.Files)))
 	case shortTermCurrentForSources && !shortTerm.complete():
-		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
+		add("history_freshness", "warn", fmt.Sprintf("short-term memory covers the gap only partially (%s); run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate", shortTermIncompleteness(shortTerm)))
 	case shortTermState == shortTermStateCorrupt:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay is corrupt; run `"+base.BrainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	case shortTermState == shortTermStateUnsupported:
-		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
+		add("history_freshness", "warn", "exported sessions changed and the short-term overlay uses an unsupported version; run `"+base.BrainInvocation(os.LookupEnv, "refresh delta")+"` to rebuild it or `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate")
 	default:
-		add("history_freshness", "warn", "exported sessions changed since the last index build; run `"+brainInvocation(os.LookupEnv, "refresh delta")+"` for immediate freshness or `"+brainInvocation(os.LookupEnv, "refresh")+"` to consolidate (a missed session-end hook is repaired the same way)")
+		add("history_freshness", "warn", "exported sessions changed since the last index build; run `"+base.BrainInvocation(os.LookupEnv, "refresh delta")+"` for immediate freshness or `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` to consolidate (a missed session-end hook is repaired the same way)")
 	}
 	switch shortTermState {
 	case shortTermStateCorrupt:
-		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
+		add("short_term_memory", "warn", "overlay unreadable or invalid (corrupt); rebuild with `"+base.BrainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateUnsupported:
-		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `"+brainInvocation(os.LookupEnv, "refresh delta")+"`")
+		add("short_term_memory", "warn", "overlay version unsupported by this binary; rebuild with `"+base.BrainInvocation(os.LookupEnv, "refresh delta")+"`")
 	case shortTermStateCurrent:
 		if len(shortTerm.Files) == 0 && shortTerm.complete() {
 			break
@@ -618,7 +626,7 @@ func newStatsCommand(opts Options) *cobra.Command {
 
 func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOut bool) error {
 	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -782,7 +790,7 @@ func renderBrainStats(out io.Writer, report brainStatsReport) {
 			line += "; state " + s.State
 		}
 		if s.Truncated {
-			line += "; buffer full, consolidate with `" + brainInvocation(os.LookupEnv, "refresh") + "`"
+			line += "; buffer full, consolidate with `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"
 		}
 		if len(s.FailedFiles) > 0 {
 			line += fmt.Sprintf("; %d transcripts failed to scan", len(s.FailedFiles))

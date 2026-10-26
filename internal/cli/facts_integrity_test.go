@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // facts_integrity_test.go pins the cross-check that was missing: the manifest
@@ -122,7 +124,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if !strings.Contains(integrity.Warning(), "5 declared, 4 readable") {
 			t.Fatalf("warning does not carry both counts: %q", integrity.Warning())
 		}
-		if !strings.Contains(integrity.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
+		if !strings.Contains(integrity.Warning(), base.BrainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("warning does not name the repair command: %q", integrity.Warning())
 		}
 	})
@@ -140,7 +142,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "memories: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
+		if !strings.Contains(statusOut, "5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
 			t.Fatalf("status must distinguish declared counts from observations:\n%s", statusOut)
 		}
 	})
@@ -342,7 +344,7 @@ func TestFactStoreIntegrityKeepsFailureModesDistinct(t *testing.T) {
 	// Every mode names a repair.
 	for _, mode := range []factStoreDefectMode{factStoreDefectLossy, factStoreDefectUnreadable, factStoreDefectMissing, factStoreDefectStale, factStoreDefectDuplicated} {
 		got := factStoreIntegrity{Mode: mode, Declared: 5, Readable: 4, Distinct: 3, Missing: []string{"feature"}, DuplicateIDs: []string{"fact:aaaa"}}
-		if !strings.Contains(got.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
+		if !strings.Contains(got.Warning(), base.BrainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("mode %q does not name the repair command: %q", mode, got.Warning())
 		}
 	}
@@ -376,7 +378,7 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "memories: 5 declared") {
+	if !strings.Contains(statusOut, "5 declared") {
 		t.Fatalf("status must label unverified manifest counts:\n%s", statusOut)
 	}
 
@@ -514,7 +516,7 @@ func TestFactStoreIntegrityDetectsCountPreservingOverwrite(t *testing.T) {
 		if !strings.Contains(integrity.Warning(), standin) {
 			t.Fatalf("warning does not name the colliding id: %q", integrity.Warning())
 		}
-		if !strings.Contains(integrity.Warning(), brainInvocation(os.LookupEnv, "refresh")) {
+		if !strings.Contains(integrity.Warning(), base.BrainInvocation(os.LookupEnv, "refresh")) {
 			t.Fatalf("warning does not name the repair command: %q", integrity.Warning())
 		}
 		// The stale wording is the one thing this must never say: `refresh`

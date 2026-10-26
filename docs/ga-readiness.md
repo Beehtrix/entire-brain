@@ -34,20 +34,36 @@ breaking change with a migration note and is out of the P0 `1.x` line.
 
 ## Claim posture (honest — never overclaimed)
 
-- **Semantic usefulness — CLAIMABLE.** Backed by `GraphMark`: Entire beats the
-  comparison baseline on **28 of 30 top languages** at exact-McNemar p<0.05
-  (C# p=0.07 and PHP p=0.18 lead on rate but sit just under significance — more
-  scored repos, not a loss), overall **1,148 vs 802** correct (91% vs 64%,
-  p≈0), with Benjamini-Hochberg multiple-comparisons control. This is the first
-  broad, reproducible, in-repo-gated proof and supersedes the earlier single
-  narrow condition-level result.
+Re-checked 2026-10-22 for the v0.2.0 stable release. No new claims and no new
+numbers enter with this release.
+
+- **Graph code-retrieval usefulness — CLAIMABLE.** This claim is about
+  `entire-graph`'s code retrieval. It is **not** a claim about brain memory
+  search, which has no semantic mode (next bullet). Backed by `GraphMark`:
+  Entire beats the comparison baseline on **28 of 30 top languages** at
+  exact-McNemar p<0.05 (C# p=0.07 and PHP p=0.18 lead on rate but sit just
+  under significance — more scored repos, not a loss), overall **1,148 vs 802**
+  correct (91% vs 64%, p≈0), with Benjamini-Hochberg multiple-comparisons
+  control. This is the first broad, reproducible, in-repo-gated proof and
+  supersedes the earlier single narrow condition-level result. Gate re-checked
+  2026-10-22: `entirehq/graphmark` CI green on current main at `7afbdc2a`.
 - **Distill wall-clock (>24h target-repo timing) — NO CLAIM.** Only ~2× local
-  proof (`audit_distill_perf.py`) exists; the >24h target-repo evidence was never
-  collected. GA makes **no distill-speed claim**; scoped out until measured.
-- **Durable-facts-vs-raw — NO CLAIM.** The four-arm harness exists but there are
-  **zero active durable facts**, so there is no paired proof. Facts ship as a
-  capability with **no comparative-quality claim** until seeded facts + paired
-  evidence land.
+  proof (`audit_distill_perf.py`) exists; the >24h target-repo evidence was
+  never collected, though the instrumentation for it exists. Still **no
+  distill-speed claim**; scoped out until measured.
+- **Memories-vs-raw (durable facts) — NO CLAIM.** The four-arm harness exists
+  but the paired evidence was never produced. Memories ship as a capability
+  with **no comparative-quality claim** until paired harness evidence lands.
+- **Brain semantic/hybrid memory retrieval — REMOVED; nothing to claim.** The
+  embedder stack (Model2Vec vector arm) was removed in trail #278 after a
+  1,748-run agent eval measured BM25 lexical ranking matching or beating it
+  end-to-end (`docs/eval_ledger.md`); the cgo dependency was stripped in #416.
+  BM25 lexical is the only memory ranking. `query --semantic`, `vsearch` /
+  MCP `brain_vsearch`, and `recall --no-semantic` remain as no-op
+  compatibility aliases that run the same BM25 ranking
+  (`entire brain capabilities --json` reports `semantic_compiled: false`).
+  Do not describe brain memory search as semantic, hybrid, vector, or
+  embedding-based anywhere. Graph's semantic code retrieval is unaffected.
 
 These match `docs/release_readiness_audit.md`; nothing here is asserted beyond its
 evidence.

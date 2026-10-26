@@ -213,12 +213,15 @@ func TestConnectRunsInitialPull(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"Connected: repo repo1 is now syncing memories",
+		"is now syncing memories",
 		"sync periodically, at session end, and on git push",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output must contain %q, got:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "repo1") {
+		t.Fatalf("banner must not leak the hosted repo id, got:\n%s", out)
 	}
 	assertHostedBannerLayout(t, out)
 	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)

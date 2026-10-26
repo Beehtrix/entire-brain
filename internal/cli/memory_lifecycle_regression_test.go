@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -97,9 +98,9 @@ func TestMemoryLifecycleMaintenanceConsumesExcludedHintAndRejectsStaleSnapshot(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded["sess-live"] = sessionTombstone{At: now, Reason: "regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats, err := maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
@@ -130,7 +131,7 @@ func TestMemoryLifecycleProjectionFailureRetriesThenCompletes(t *testing.T) {
 			failures++
 			return os.ErrPermission
 		}
-		return writeBrainRelativeFileAtomic(dir, rel, data, mode)
+		return brainstore.WriteBrainRelativeFileAtomic(dir, rel, data, mode)
 	}
 	t.Cleanup(func() { historyProjectionWriteFile = originalWrite })
 	first, err := runMemoryProjectionLane(context.Background(), brainDir, now, "retry-owner")
@@ -470,7 +471,7 @@ func TestMemoryLifecycleAbstractDigestChangeSupersedesCompletedJob(t *testing.T)
 	if _, err := runMemoryProjectionLane(context.Background(), brainDir, now.Add(time.Minute), "projection-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := reconcileAbstractJobsLocked(brainDir, "regression", now.Add(2*time.Minute))
 		return err
 	}); err != nil {
@@ -502,9 +503,9 @@ func TestMemoryLifecycleReconcileDryRunExclusionRecordsTransitionWithoutWrite(t 
 		t.Fatal("fixture created no projection jobs")
 	}
 	target := jobs[0]
-	stones := emptySessionTombstones()
+	stones := brainstore.EmptySessionTombstones()
 	stones.Excluded[target.SessionID] = sessionTombstone{At: now, Reason: "regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	snapshot, err := prepareMemoryReconcileSnapshot(context.Background(), brainDir)
@@ -674,12 +675,12 @@ func TestMemoryLifecycleStatsMergeAndSelectors(t *testing.T) {
 	stats.add(memoryWorkerStats{
 		JobsCreated: 1, JobsCompleted: 2, JobsRetried: 3, JobsRecovered: 4,
 		JobsCancelled: 5, JobsPruned: 6, HintsConsumed: 7, AlreadyActive: true,
-		PrepassFailed: true, PrepassGaveUp: true, VectorPending: true, VectorContinue: true,
+		PrepassFailed: true, PrepassGaveUp: true,
 		HealthDegraded: true, HealthIssues: []string{"first", "second"},
 	})
 	stats.addHealthIssue("")
 	stats.addHealthIssue("second")
-	if stats.JobsCreated != 1 || stats.JobsCompleted != 2 || stats.JobsRetried != 3 || stats.JobsRecovered != 4 || stats.JobsCancelled != 5 || stats.JobsPruned != 6 || stats.HintsConsumed != 7 || !stats.AlreadyActive || !stats.PrepassFailed || !stats.PrepassGaveUp || !stats.VectorPending || !stats.VectorContinue || !stats.HealthDegraded || len(stats.HealthIssues) != 2 {
+	if stats.JobsCreated != 1 || stats.JobsCompleted != 2 || stats.JobsRetried != 3 || stats.JobsRecovered != 4 || stats.JobsCancelled != 5 || stats.JobsPruned != 6 || stats.HintsConsumed != 7 || !stats.AlreadyActive || !stats.PrepassFailed || !stats.PrepassGaveUp || !stats.HealthDegraded || len(stats.HealthIssues) != 2 {
 		t.Fatalf("merged stats=%+v", stats)
 	}
 

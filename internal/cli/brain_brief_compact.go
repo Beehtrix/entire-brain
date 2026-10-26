@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// brainBriefPacketFormat is an internal render choice. MCP exposes the stable
-// names legacy_json, compact_v1, compact_v2, and compact_v3; the CLI keeps its
-// existing text/json flags.
+// brainBriefPacketFormat is an internal render choice with the stable names
+// legacy_json, compact_v1, compact_v2, and compact_v3; the CLI keeps its
+// existing text/json flags and only the profiling path renders compact packets.
 type brainBriefPacketFormat string
 
 const (

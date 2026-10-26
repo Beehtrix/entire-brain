@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +27,7 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 	readme := readRepoDoc(t, "README.md")
 	reference := readRepoDoc(t, "docs/reference.md")
 	threat := readRepoDoc(t, "docs/recall_threat_model.md")
-	guide := readRepoDoc(t, "docs/semantic_mcp_guide.md")
+	guide := readRepoDoc(t, "docs/semantic_features.md")
 
 	opts := Options{Version: "test"}
 
@@ -83,49 +81,8 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 		}
 	}
 
-	// MCP surface: search/query advertise source + conversation filters;
-	// vsearch advertises neither (the guide documents that limit).
-	// mcpAllToolDefinitions, not mcpToolDefinitions: brain_search and
-	// brain_vsearch are hidden compatibility aliases now, so they are routed
-	// and still answer but are no longer advertised. This check is about their
-	// SCHEMAS staying at parity with brain_query, which hiding must not change
-	// -- so it reads the full set deliberately.
-	var searchSchema, vsearchSchema map[string]any
-	for _, tool := range mcpAllToolDefinitions() {
-		switch tool["name"] {
-		case "brain_search":
-			searchSchema = tool["inputSchema"].(map[string]any)
-		case "brain_vsearch":
-			vsearchSchema = tool["inputSchema"].(map[string]any)
-		}
-	}
-	if searchSchema == nil || vsearchSchema == nil {
-		t.Fatal("brain_search/brain_vsearch tool definitions missing")
-	}
-	searchProps, _ := json.Marshal(searchSchema["properties"])
-	vsearchProps, _ := json.Marshal(vsearchSchema["properties"])
-	// All three retrieval tools share one strict schema (source,
-	// structured filters, concepts).
-	for _, arg := range []string{"source", "session_id", "agent", "after", "before", "concepts"} {
-		if !strings.Contains(string(searchProps), `"`+arg+`"`) {
-			t.Fatalf("brain_search schema missing %q: %s", arg, searchProps)
-		}
-		if !strings.Contains(string(vsearchProps), `"`+arg+`"`) {
-			t.Fatalf("brain_vsearch schema missing %q: %s", arg, vsearchProps)
-		}
-	}
 	if !strings.Contains(guide, "Multi-concept session recall") {
 		t.Fatal("semantic guide must document multi-concept recall")
-	}
-	// The multi-get schema advertises the same batch cap the code enforces.
-	for _, tool := range mcpToolDefinitions() {
-		if tool["name"] != "brain_multi_get" {
-			continue
-		}
-		schema, _ := json.Marshal(tool["inputSchema"])
-		if !strings.Contains(string(schema), `"maxItems":`+fmt.Sprint(maxGetBatchIDs)) {
-			t.Fatalf("brain_multi_get schema must advertise maxItems %d: %s", maxGetBatchIDs, schema)
-		}
 	}
 
 	// CLI verbs: --source is registered on search, query, and vsearch.
@@ -139,17 +96,4 @@ func TestDocContractCapabilityMatrix(t *testing.T) {
 		}
 	}
 
-	// Every registered MCP tool must appear in the guide's "Available tools"
-	// catalog. brain_entity_history previously shipped in mcp.go and README.md
-	// but was missing from this catalog; this lock catches the next tool that
-	// registers without a matching guide entry.
-	for _, tool := range mcpToolDefinitions() {
-		name, _ := tool["name"].(string)
-		if name == "" {
-			continue
-		}
-		if !strings.Contains(guide, "`"+name+"`") {
-			t.Fatalf("semantic_mcp_guide.md tool catalog missing registered tool %q", name)
-		}
-	}
 }

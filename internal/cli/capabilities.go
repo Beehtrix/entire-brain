@@ -61,7 +61,7 @@ func compiledBrainCapabilities(version string) brainCapabilities {
 		{retrievalSourceDoc, true, false, true, false, removed},
 		{retrievalSourceConversation, false, true, true, false, removed},
 	}
-	c.Features = []string{"agent_instructions", "bm25_retrieval", "durable_facts", "task_briefs", "workspaces", "mcp", "graph_inspection", "freshness_checks"}
+	c.Features = []string{"agent_instructions", "bm25_retrieval", "durable_facts", "task_briefs", "workspaces", "graph_inspection", "freshness_checks"}
 	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "deterministic_evidence_recall"}
 	c.GraphProvider.CapabilitiesCommand = "entire graph capabilities --json"
 	c.GraphProvider.Note = "Languages and relation types belong to the installed Graph provider; this command does not invoke it."

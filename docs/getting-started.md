@@ -34,7 +34,7 @@ entire brain setup
 `entire-brain` is an external-command plugin for the Entire CLI. Once installed
 it is invoked as `entire brain ...`. It builds a local, inspectable "brain" for a
 repository from retained Entire sessions, seed context, docs, decision history,
-a semantic code graph, and durable facts, then exposes retrieval, review, and MCP
+a semantic code graph, and durable facts, then exposes retrieval and review
 surfaces that agents and humans query. Everything it builds stays on your machine.
 
 ## Requirements
@@ -435,12 +435,8 @@ low-confidence merges are queued for `entire brain facts review`.
 
 ### Use the brain from an agent
 
-For agents that speak MCP, register the brain as a local stdio MCP server. It
-opens no network listener.
-
-```sh
-entire brain mcp
-```
+Agents use the brain through `entire brain ... --json` commands; `entire brain
+setup` writes the agent guide that wires them in.
 
 If you ran `entire brain setup` without `--no-daemon`, a watcher is already
 installed and keeping this repository fresh; the commands below are the manual
@@ -495,62 +491,9 @@ entire status
 entire agent
 ```
 
-### 1. MCP Is The Preferred Agent Tool Surface
+### 1. Intake Instructions Are The File-Based Fallback
 
-For agents that support MCP, register `entire brain mcp` as a local stdio MCP
-server. The server opens no network listener and wraps the local brain's JSON
-contracts as tools.
-
-Once MCP is available, an agent should call MCP tools instead of shelling out to
-the `entire brain` CLI. The normal first call is `brain_brief` for the task.
-Then the agent should make only targeted follow-up calls:
-
-- `brain_brief` for task-shaped context, history hits, likely files, and tests
-- `brain_status` to check freshness, coverage, and blind spots
-- retrieval tools such as `brain_query` and `brain_get` for facts, docs, and
-  history
-- semantic tools such as `brain_code`, `brain_context`, `brain_impact`, and
-  `brain_tests` for code navigation and validation planning
-- `brain_entity_history` for "which checkpoints and sessions changed this
-  function/class", answered from the persisted entity index rather than by
-  re-reading history (build it once with `entire brain entities backfill`)
-- review, workspace, and pattern tools such as `brain_regressions`,
-  `brain_workspace_graph`, `brain_workspace_review`, and `brain_patterns` when
-  the task calls for them
-
-`brain_brief` keeps its existing JSON-in-text response by default. Clients
-experimenting with a smaller agent packet can pass
-`packet_format: "compact_v1"`, `packet_format: "compact_v2"`, or
-`packet_format: "compact_v3"`; these are opt-in serialization changes over the
-same ranked report, not different retrieval treatments. In v2 and v3's hashed
-in-band legend, `~` means absent and `^` means the previous value in the same
-opcode and column, across interleaved records. V2 limits `^` to metadata
-columns; v3 permits it for every exact repeated value. V3 also uses the compact
-`entire.brain_brief c3` marker and an unpadded base64url SHA-256 footer. Both
-formats use positional rows for a repeated family only when its complete
-canonical encoding is strictly smaller than keyed rows; ties remain keyed. Use
-`legacy_json` (or omit the argument) when a consumer depends on the existing
-JSON contract.
-
-Some MCP tools write local state. For example, `brain_ingest_traces` persists
-runtime edges as `RUNTIME_TRACE` facts. Pattern MCP tools are read-only; skill
-formation remains a CLI-only write path.
-
-The benchmark harness treats this as the cleanest agent contract: MCP-backed
-agents call named `brain_*` tools, and in MCP conditions they are explicitly
-kept away from direct `entire brain` shell commands or prewritten history
-excerpt files. See [Semantic MCP Guide](semantic_mcp_guide.md) for the full tool
-surface.
-
-The MCP and CLI surfaces are intentionally close, but they are not perfect
-mirrors. Some CLI-only flows, such as `recall --expand`, have no dedicated MCP
-tool. Some MCP tools, such as `brain_review`, wrap machine contracts that are
-hidden or discouraged as direct human CLI verbs. Prefer the native surface your
-agent client has, then translate only when needed.
-
-### 2. Intake Instructions Are The File-Based Fallback
-
-When MCP is not available, an agent can still use the brain through the intake
+An agent can use the brain through the intake
 instructions in `templates/`. The Codex and Claude templates tell the agent to
 locate the brain with:
 
@@ -568,17 +511,16 @@ Then the agent reads staged context instead of blindly opening everything:
 - `seed/history-gaps.md`, when present
 - only task-relevant transcripts or records selected from the manifest
 
-This is how an agent like Codex can use `entire-brain` without a dedicated MCP
-connection: resolve the local brain, read the manifest and seed context, inspect
+This is how an agent like Codex can use `entire-brain` without shelling out
+to the full verb surface: resolve the local brain, read the manifest and seed context, inspect
 only the relevant retained history, and treat gaps as uncertainty rather than
 inventing rationale.
 
-### 3. Direct CLI Is A Compatibility Surface
+### 2. Direct CLI Is The Agent Tool Surface
 
-For agent clients without MCP, direct `entire brain ... --json` calls are the
-compatibility surface. Humans and scripts can use the same commands. Agents
-using this surface should treat it like a tool API, not as an invitation to run
-a long command tour.
+Direct `entire brain ... --json` calls are the agent surface. Humans and
+scripts use the same commands. Agents should treat it like a tool API, not as
+an invitation to run a long command tour.
 
 A disciplined direct-CLI intake is:
 
@@ -602,7 +544,7 @@ terms, semantic `inspect` subcommands for code graph questions, and `get` or
 `multi-get` when a prior result returned an id. They should not broaden into
 repo-wide text search until the brain's targeted context has been used.
 
-### 4. Hidden Hooks Deliver Context At The Moment Of Relevance
+### 3. Hidden Hooks Deliver Context At The Moment Of Relevance
 
 `entire-brain` also has a hook surface for harness integrations. A harness must
 be configured to invoke a hook before it can have any effect, and `setup`
@@ -634,14 +576,13 @@ and must respect no-egress/local-only policy.
 
 ## Usage Scenarios
 
-The examples below name the preferred MCP tool when there is one. Agent clients
-without MCP should use the equivalent `entire brain ... --json` command from
-the direct-CLI surface above.
+The examples below use `entire brain ... --json` commands from the direct-CLI
+surface above.
 
 ### Orient An Agent On A New Task
 
 The agent should start by asking for task-shaped context, not a generic project
-summary. The normal tool is `brain_brief`. The useful output is the freshness
+summary. The normal tool is `entire brain brief`. The useful output is the freshness
 state, likely files and symbols, relevant history records, durable facts, likely
 tests, and any blind spots.
 
@@ -670,7 +611,7 @@ Freshness is part of every answer. A stale semantic index, missing provider,
 dirty-worktree mismatch, or parser blind spot changes how much an agent should
 trust the brain.
 
-Agents should check freshness through `brain_status` or `status --json` before
+Agents should check freshness through `status --json` before
 relying on semantic answers. If freshness is unsafe, an agent with write
 permission can request a refresh; otherwise it should report the limitation and
 fall back to direct repository inspection.
@@ -700,8 +641,8 @@ indexes.
 
 When the question is "why is this like this?", "what did the previous agent
 try?", or "where did this session leave off?", the agent should search the
-history and facts layers. The normal retrieval tool is `brain_query`,
-followed by `brain_get` for specific ids.
+history and facts layers. The normal retrieval verb is `query`,
+followed by `get` for specific ids.
 
 This is the main reason Entire capture matters: the original prompt, attempts,
 validation, correction, and rationale can survive the code diff and become
@@ -727,10 +668,8 @@ For example: `entire brain query --query "RetryPolicy" --json`.
 
 Workspace retrieval supports the same forms:
 `entire brain workspace query <workspace> --query "retry policy"`.
-The old `search` and `vsearch` commands remain hidden compatibility aliases.
-MCP agents should use `brain_query`; its `keyword` and `semantic` booleans and
-the `brain_search` / `brain_vsearch` tools are compatibility aliases for the
-same BM25 ranking.
+The old `search` and `vsearch` commands remain hidden compatibility aliases
+for the same BM25 ranking.
 
 For durable facts specifically, use `recall`. `recall --expand` is an
 agent-assisted query expansion path, so it belongs behind the same egress
@@ -745,9 +684,9 @@ entire brain recall "MirrorCommittedMetadataRef" --expand
 
 When a task depends on structure rather than text, the agent should use semantic
 tools. The normal path is: find candidate symbols, inspect relation-aware
-context, inspect likely impact, then ask for tests. The normal tools are
-`brain_code`, followed by `brain_context`,
-`brain_impact`, and `brain_tests`.
+context, inspect likely impact, then ask for tests. The normal verbs are
+`inspect code`, followed by `inspect context`, `inspect impact`, and
+`inspect tests`.
 
 This is where `entire-graph` matters. It is not an agent memory layer; it is the
 local parser/provider that gives `entire-brain` the graph the agent queries.
@@ -772,8 +711,8 @@ entire brain inspect changes --json
 ### Review Risk Without A Clean Diff
 
 For long-running sessions, manual edits, or suspected regressions from memory,
-the agent should use diff-less regression review. The normal tools are
-`brain_regressions` or `brain_review`.
+the agent should use diff-less regression review. The normal verbs are
+`inspect regressions` or the review machine contract.
 
 When the goal is a fair investigation, prefer location-only output first. It
 points the agent to suspected files and lines without handing it the expected
@@ -782,7 +721,7 @@ answer text.
 ### Connect Runtime Evidence To Source
 
 When static structure is not enough, import runtime trace edges with
-`brain_ingest_traces` or `inspect ingest-traces`. The brain compares the runtime
+`inspect ingest-traces`. The brain compares the runtime
 edges with known static relations, persists them as `RUNTIME_TRACE` graph facts,
 and makes them available to graph schema, trace-path, and brief/context flows.
 
@@ -796,8 +735,7 @@ an API, a service emits an event another service consumes, one repo imports a
 package from another, or deployment/config resources connect separate projects.
 
 Humans create and refresh the workspace. Agents consume workspace context
-through MCP workspace tools where available, or through direct workspace CLI
-commands when MCP does not expose the required traversal. The workspace brain
+through the workspace CLI commands. The workspace brain
 keeps member repos local and builds cross-repo contracts and graph edges from
 their existing local brains.
 
@@ -868,7 +806,7 @@ There are several evidence paths:
 A human or explicitly authorized automation runs the egress-gated verification
 and formation commands. The agent performs the verification and `SKILL.md`
 synthesis under that explicit request. The verifier is cached. Refresh, watch,
-brief, query, MCP reads, and workspace reads do not silently call it.
+brief, query, and workspace reads do not silently call it.
 
 ```sh
 entire brain patterns
@@ -938,14 +876,13 @@ Memory retrieval (facts, history, docs) is ranked by BM25 lexical scoring —
 there is no embedder to tune. Semantic (embedding) retrieval was removed after
 a 1,748-run agent eval measured BM25 matching or beating it end-to-end (see
 `docs/eval_ledger.md` and trail #278). Graph's semantic code retrieval
-(`brain_code`, `brain_context`, `brain_impact`) is a separate layer and is
-unaffected.
+(`inspect code`, `inspect context`, `inspect impact`) is a separate layer and
+is unaffected.
 
 ## Privacy And Egress
 
 The default brain artifacts are local and inspectable. Deterministic refresh,
-semantic indexing, local history indexing, and MCP tool calls do not require a
-hosted model. The MCP adapter is stdio-only.
+semantic indexing, and local history indexing do not require a hosted model.
 
 Some operations perform network egress, either by sending selected context to a
 model or by fetching over the network:

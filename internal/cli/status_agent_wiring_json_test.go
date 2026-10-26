@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -13,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func TestStatusJSONAndMCPDiscloseMissingAgentWiring(t *testing.T) {
+func TestStatusJSONDisclosesMissingAgentWiring(t *testing.T) {
 	t.Setenv("ENTIRE_CLI_VERSION", "")
 	for _, wired := range []bool{false, true} {
 		opts, repoDir, _ := statusTruthFixture(t)
@@ -39,16 +38,7 @@ func TestStatusJSONAndMCPDiscloseMissingAgentWiring(t *testing.T) {
 		if err := json.Unmarshal([]byte(out), &cliPayload); err != nil {
 			t.Fatal(err)
 		}
-		input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
-		var mcpOut bytes.Buffer
-		if err := runMCP(context.Background(), strings.NewReader(input), &mcpOut, opts); err != nil {
-			t.Fatal(err)
-		}
-		responses := readMCPResponses(t, mcpOut.String())
-		if len(responses) != 1 {
-			t.Fatalf("MCP returned %d responses", len(responses))
-		}
-		for surface, payload := range map[string]map[string]any{"CLI": cliPayload, "MCP": mcpTextJSONPayload(t, responses[0])} {
+		for surface, payload := range map[string]map[string]any{"CLI": cliPayload} {
 			warnings, _ := json.Marshal(payload["warnings"])
 			hasWarning := strings.Contains(string(warnings), "agents not wired")
 			if hasWarning == wired {

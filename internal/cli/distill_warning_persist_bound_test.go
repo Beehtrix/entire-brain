@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -15,7 +16,7 @@ func TestPersistedWarningsAreBoundedButKeepTheExactTotal(t *testing.T) {
 	const produced = maxPersistedDistillWarnings + 357
 	in := make([]string, produced)
 	for i := range in {
-		in[i] = "agent failed on session:" + itoaForTest(i)
+		in[i] = "agent failed on session:" + strconv.Itoa(i)
 	}
 
 	got := distillWarningsForPersist(in)
@@ -25,13 +26,13 @@ func TestPersistedWarningsAreBoundedButKeepTheExactTotal(t *testing.T) {
 			len(got), maxPersistedDistillWarnings)
 	}
 	overflow := got[len(got)-1]
-	if !strings.Contains(overflow, itoaForTest(produced)) {
+	if !strings.Contains(overflow, strconv.Itoa(produced)) {
 		t.Fatalf("the overflow line must state the exact total %d, got: %s", produced, overflow)
 	}
 	// The bug being fixed was a count that disagreed with reality. Bounding the
 	// list is fine; misreporting how many there were is not.
-	if strings.Contains(overflow, itoaForTest(maxPersistedDistillWarnings)) &&
-		!strings.Contains(overflow, itoaForTest(produced)) {
+	if strings.Contains(overflow, strconv.Itoa(maxPersistedDistillWarnings)) &&
+		!strings.Contains(overflow, strconv.Itoa(produced)) {
 		t.Fatal("overflow line reports the kept count as if it were the total")
 	}
 }

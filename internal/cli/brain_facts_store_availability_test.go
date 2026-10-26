@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -107,26 +106,6 @@ func TestStatusReportsDeclaredFactBranchWithMissingStore(t *testing.T) {
 	}
 	if !strings.Contains(statusOut, factsFileName) {
 		t.Fatalf("status output does not report the missing fact store:\n%s", statusOut)
-	}
-
-	// The MCP tool result is the surface an agent actually reads.
-	var mcpOut bytes.Buffer
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
-	if err := runMCP(context.Background(), strings.NewReader(input), &mcpOut, opts); err != nil {
-		t.Fatalf("MCP brain_status: %v", err)
-	}
-	responses := readMCPResponses(t, mcpOut.String())
-	if len(responses) != 1 {
-		t.Fatalf("MCP responses = %d", len(responses))
-	}
-	payload := mcpTextJSONPayload(t, responses[0])
-	mcpFacts, _ := payload["facts"].(map[string]any)
-	if mcpFacts == nil {
-		t.Fatalf("MCP brain_status dropped the facts section: %#v", payload)
-	}
-	branches, _ := mcpFacts["missing_branches"].([]any)
-	if len(branches) != 1 || branches[0] != "feature" {
-		t.Fatalf("MCP brain_status facts.missing_branches = %#v, want [feature]", mcpFacts["missing_branches"])
 	}
 }
 

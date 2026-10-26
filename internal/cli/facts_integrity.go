@@ -143,7 +143,7 @@ type factStoreIntegrity struct {
 	// equals Readable; anything less is a record that overwrote another.
 	Distinct int `json:"distinct,omitempty"`
 	// DuplicateIDs names the ids a single branch stores more than once, sorted
-	// so the report is stable. The full set is kept for JSON and MCP readers;
+	// so the report is stable. The full set is kept for JSON readers;
 	// the one-line warning names only the first few.
 	DuplicateIDs []string `json:"duplicate_ids,omitempty"`
 	// Missing names declared branches whose facts.ndjson is absent.

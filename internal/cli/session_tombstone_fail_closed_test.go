@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -200,7 +199,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 	}
 }
 
-func TestCorruptTombstonesReturnTypedCLIAndMCPRetrievalErrors(t *testing.T) {
+func TestCorruptTombstonesReturnTypedCLIRetrievalErrors(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
@@ -216,14 +215,5 @@ func TestCorruptTombstonesReturnTypedCLIAndMCPRetrievalErrors(t *testing.T) {
 	var envelope commandJSONError
 	if err := json.Unmarshal([]byte(out), &envelope); err != nil || envelope.Code != brainstore.StateCorruptCode {
 		t.Fatalf("CLI error envelope = %+v decode=%v output=%s", envelope, err, out)
-	}
-
-	params, err := json.Marshal(mcpToolCallParams{Name: "brain_search", Arguments: map[string]any{"query": "private canary"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	response := handleMCPMessage(context.Background(), opts, mcpMessage{JSONRPC: "2.0", ID: 1, Method: "tools/call", Params: params})
-	if response.Error == nil || !strings.HasPrefix(response.Error.Message, brainstore.StateCorruptCode+":") {
-		t.Fatalf("MCP response did not carry typed tombstone error: %+v", response)
 	}
 }

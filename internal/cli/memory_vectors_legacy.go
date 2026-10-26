@@ -47,7 +47,7 @@ const (
 
 // memoryVectorProgressLoadError keeps a forward-version or corrupt legacy
 // progress leaf typed for the health surface. Error still begins with the
-// established memory code for CLI/MCP compatibility.
+// established memory code for CLI compatibility.
 type memoryVectorProgressLoadError struct {
 	Code    string
 	State   memoryVectorProgressReadState

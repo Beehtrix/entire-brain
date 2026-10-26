@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+type commandRunnerFunc func(context.Context, string, string, ...string) ([]byte, []byte, error)
+
+func (f commandRunnerFunc) Run(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	return f(ctx, dir, name, args...)
+}
+
 func connectTestEnv(t *testing.T, repoDir string) EntireEnv {
 	t.Helper()
 	return EntireEnv{

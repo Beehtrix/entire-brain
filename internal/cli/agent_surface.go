@@ -55,11 +55,12 @@ type brainBriefOptions struct {
 	noSemantic  bool
 	graphBinary string
 	profileJSON string
-	// packetFormat is set only by the MCP adapter. The CLI continues to select
-	// between its existing text and JSON renderers with json above.
+	// packetFormat selects an experimental compact serialization; the CLI
+	// "brief" verb selects between its text and JSON renderers with json above,
+	// and only the profiling path renders the compact packets.
 	packetFormat brainBriefPacketFormat
 	// surface names the caller for serve receipts; empty means the CLI
-	// "brief" verb (the MCP server passes "mcp:brain_brief").
+	// "brief" verb.
 	surface string
 }
 
@@ -1118,10 +1119,8 @@ func inspectBoundarySpec(kind string) (semanticBoundarySpec, error) {
 	case "workflow", "workflows":
 		return semanticBoundarySpec{Name: "workflows", Use: "boundaries", Short: "List workflow boundaries", SymbolKinds: []string{"workflow", "job", "pipeline"}, RelationTypes: []string{"HANDLES_WORKFLOW", "PART_OF_WORKFLOW"}}, nil
 	default:
-		// Flag-neutral on purpose: this is shared by the `boundaries` CLI
-		// command and the brain_boundaries MCP tool, whose argument is the
-		// JSON field "kind". Naming "--kind" told an MCP caller to correct a
-		// flag that does not exist on the surface it is calling.
+		// Flag-neutral on purpose: callers address this by the field name
+		// "kind", so the error names the field, not a --kind flag.
 		return semanticBoundarySpec{}, fmt.Errorf("kind must be route, tool, or workflow")
 	}
 }
@@ -2832,8 +2831,8 @@ func compactSemanticRecordFrom(record semanticRecord) compactSemanticRecord {
 var brainBriefPathPattern = regexp.MustCompile(`(?:^|[\s"'({\[])([A-Za-z0-9_@./-]+\.[A-Za-z0-9][A-Za-z0-9._-]*)`)
 
 // brainBriefFactsCount sizes the brief's facts section to the requested brief
-// limit so a compact request (e.g. the Opus compact mode's limit 3, or the
-// MCP brain_brief limit) gets fewer facts instead of a fixed block. Facts are a
+// limit so a compact request (e.g. the Opus compact mode's limit 3) gets
+// fewer facts instead of a fixed block. Facts are a
 // supplementary section, so they never exceed brainBriefFactsLimit and shrink
 // with the budget; at least one fact is kept whenever the section is shown.
 func brainBriefFactsCount(limit int) int {
@@ -3502,8 +3501,8 @@ func brainBriefAddSiblingTestFiles(repoRoot string, editFiles, testFiles []strin
 const brainBriefGoTestSourceProbeLimit = 6
 
 // brainBriefAddGoTestSourceCompanions closes the common inverse-layout gap in
-// semantic retrieval: an exact test hit such as mcp_test.go is useful evidence
-// for its existing mcp.go implementation even when no implementation symbol
+// semantic retrieval: an exact test hit such as refresh_test.go is useful
+// evidence for its existing refresh.go implementation even when no implementation symbol
 // matched the task terms. This is an always-live, bounded postprocess over the
 // already-ranked test files; it never scans a directory or trusts an indexed
 // path without checking the current worktree.
@@ -4788,7 +4787,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			onboarding.AgentsUnwired = true
 			onboarding.AgentsMissing = missing
 			// Keep the published JSON shape while exposing the same repair
-			// diagnostic to CLI JSON and MCP consumers through warnings.
+			// diagnostic to JSON consumers through warnings.
 			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+clibase.SetupCommandPrefix(os.LookupEnv)+" setup so your agent uses this brain")
 		}
 	}

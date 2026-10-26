@@ -565,20 +565,6 @@ func TestAvailableStatusPreservesUnsupportedCorruptAndUnsafeManifest(t *testing.
 			if manifestHealth["state"] != tc.state || memoryPayload["install"] == nil || memoryPayload["issues"] == nil {
 				t.Fatalf("partial memory status = %#v", memoryPayload)
 			}
-			var mcpOut bytes.Buffer
-			input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
-			if err := runMCP(context.Background(), strings.NewReader(input), &mcpOut, opts); err != nil {
-				t.Fatalf("MCP brain_status: %v", err)
-			}
-			responses := readMCPResponses(t, mcpOut.String())
-			if len(responses) != 1 {
-				t.Fatalf("MCP responses = %d", len(responses))
-			}
-			payload := mcpTextJSONPayload(t, responses[0])
-			brain, _ := payload["brain"].(map[string]any)
-			if brain["manifest_state"] != tc.state || payload["integrity"] != "not_checked" || payload["issues"] == nil {
-				t.Fatalf("partial MCP brain_status = %#v", payload)
-			}
 			if tc.symlink {
 				if info, err := os.Lstat(manifestPath); err != nil || info.Mode()&os.ModeSymlink == 0 {
 					t.Fatalf("unsafe manifest link changed: info=%v err=%v", info, err)

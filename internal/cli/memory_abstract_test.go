@@ -137,10 +137,6 @@ func TestAbstractRetrievalOptionParity(t *testing.T) {
 	if cmd.Flags().Lookup("include-abstract") == nil {
 		t.Fatal("CLI retrieval must expose --include-abstract")
 	}
-	ropts, err := mcpRetrievalOptions(map[string]any{"source": "conversation", "include_abstract": true}, "")
-	if err != nil || !ropts.IncludeAbstract {
-		t.Fatalf("MCP options = %+v err=%v", ropts, err)
-	}
 	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: retrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
 		t.Fatalf("non-conversation include_abstract must fail, got %v", err)
 	}

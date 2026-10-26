@@ -63,7 +63,7 @@ type transcriptStore struct {
 	repoDir string
 
 	// snapMu guards the memoized snapshot. The store outlives its first caller
-	// (a long-lived MCP server shares it for the process), so memoization must
+	// (a long-lived watch loop shares it for the process), so memoization must
 	// not freeze the first attempt's outcome:
 	//
 	//   - a failure caused by the caller's context is never recorded;
@@ -115,7 +115,7 @@ func newTranscriptStore(runner CommandRunner, brainDir string) *transcriptStore 
 
 // transcriptStores shares resolution for legacy direct-read helpers. Stores
 // revalidate manifest identity and privacy policy across calls, including
-// calls made by long-lived MCP processes.
+// calls made by long-lived processes.
 var transcriptStores sync.Map
 
 func transcriptStoreFor(brainDir string) *transcriptStore {

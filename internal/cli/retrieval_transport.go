@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,7 +15,7 @@ import (
 // retrievalTransportExtras is the already-bounded, optional material carried
 // beside ranked rows. The final response budget is still measured against the
 // complete serialized shape: these fields, query/branch, indentation, and an
-// MCP tool-result envelope all count.
+// envelope all count.
 type retrievalTransportExtras struct {
 	AbstractPreviews          []sessionAbstractPreview
 	AbstractPreviewsTruncated bool
@@ -192,22 +191,6 @@ func jsonOutputBytes(value any) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-// retrievalSerializedSize measures the bytes that this invocation will
-// actually hand to its consumer. MCP carries the indented JSON document as an
-// escaped text item, so measuring only the inner rows undercounts quotes,
-// backslashes, newlines, and the content envelope.
-func retrievalSerializedSize(ctx context.Context, payload map[string]any, surface string) (int, error) {
-	inner, err := jsonOutputBytes(payload)
-	if err != nil {
-		return 0, err
-	}
-	if !strings.HasPrefix(surface, "mcp:") {
-		return len(inner), nil
-	}
-	toolResult := map[string]any{"content": []map[string]any{{"type": "text", "text": string(inner)}}}
-	return mcpToolResultTransportSize(ctx, toolResult)
-}
-
 func filterAbstractPreviewsForRows(previews []sessionAbstractPreview, rows []compactUnifiedResult) ([]sessionAbstractPreview, bool) {
 	if len(previews) == 0 {
 		return nil, false
@@ -336,10 +319,10 @@ func smallestTrimStepsThatFit(maxSteps int, sizeAt func(int) (int, error)) (int,
 }
 
 // boundedRetrievalJSONPayload removes optional extras, then whole tail rows,
-// until the exact CLI or MCP serialization fits. The response_truncated
-// marker is present during every truncated size check, so the marker itself
-// can never push the emitted document over budget.
-func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, results []unifiedResult, extras retrievalTransportExtras, surface string) (map[string]any, error) {
+// until the exact serialization fits. The response_truncated marker is
+// present during every truncated size check, so the marker itself can never
+// push the emitted document over budget.
+func boundedRetrievalJSONPayload(query, branch string, results []unifiedResult, extras retrievalTransportExtras) (map[string]any, error) {
 	allRows := compactUnifiedResults(results, query)
 	extras = cloneRetrievalTransportExtras(extras)
 	extrasSteps := countRetrievalExtrasTrims(extras)
@@ -352,7 +335,11 @@ func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, resu
 		return buildRetrievalJSONPayload(query, branch, rows, ex, steps > 0)
 	}
 	sizeAt := func(steps int) (int, error) {
-		return retrievalSerializedSize(ctx, build(steps), surface)
+		data, err := jsonOutputBytes(build(steps))
+		if err != nil {
+			return 0, err
+		}
+		return len(data), nil
 	}
 	if size, err := sizeAt(0); err != nil {
 		return nil, err

@@ -16,7 +16,7 @@ import (
 // cited evidence and returns a structured verdict. It is the adversarial check
 // that rejects conflated or unsupported consolidations before they can become
 // skills. It is reachable ONLY through explicit write/maintenance surfaces
-// (`patterns verify`), never from refresh/watch/brief/query/MCP/workspace, is
+// (`patterns verify`), never from refresh/watch/brief/query/workspace, is
 // egress-gated, and is cached by evidence fingerprint so unchanged dossiers are
 // not re-sent to an agent.
 
@@ -41,7 +41,7 @@ Verdicts: "accepted" (one coherent, supported, repo-specific pattern), "needs_sp
 // promotable pattern and runs the deep verifier over the ones whose deep
 // fingerprint has no
 // cached verdict. Egress-gated; cached in deep_dossiers; never called from
-// refresh/watch/brief/query/MCP/workspace.
+// refresh/watch/brief/query/workspace.
 func verifyDeepDossiers(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
 	var stats patterncore.VerifyStats
 	if err := base.RejectAgentForNoEgress(agent); err != nil {

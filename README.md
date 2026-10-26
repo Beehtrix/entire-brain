@@ -6,7 +6,7 @@ Every developer builds on what came before: code written, ideas discussed, lesso
 
 Entire Brain combines captured agent sessions and checkpoints with durable facts, documentation, and code understanding from [Entire Graph](https://github.com/entireio/entire-graph). Graph maps how the code fits together; Brain connects that structure to why it exists, what happened before, and how to approach similar work.
 
-Through the CLI and MCP, agents can retrieve earlier decisions, revisit past attempts and their outcomes, assemble context for a task, and turn reviewed lessons into reusable skills. Knowledge stays linked to its supporting evidence, so it can be checked, revised, and applied as the project evolves.
+Through the CLI, agents can retrieve earlier decisions, revisit past attempts and their outcomes, assemble context for a task, and turn reviewed lessons into reusable skills. Knowledge stays linked to its supporting evidence, so it can be checked, revised, and applied as the project evolves.
 
 ## What to ask
 
@@ -38,7 +38,7 @@ reads as "the brain does not know", not "you are on the wrong branch"; pass
 - Save project facts by hand or extract them from past sessions, then check their source references against the repository.
 - Search facts, history, documentation, and conversations by keyword or meaning.
 - Find code, inspect the impact of a change, and investigate regressions with [Entire Graph](https://github.com/entireio/entire-graph).
-- Connect agents through the CLI or MCP, with response size limits and repository instructions.
+- Connect agents through the CLI, with response size limits and repository instructions.
 - Browse saved knowledge in a terminal dashboard or an offline graph view.
 - Record facts globally, not just per repository, so a preference or team convention applies everywhere.
 - Read the documents that are not code: PDFs, Word, Excel and PowerPoint files under `docs/`.
@@ -103,7 +103,7 @@ removing them. If recovery cannot be proven, refresh fails and retains the cache
 | Read a materialized bundle with an older binary | Supported when the older binary supports the bundle's schema. |
 | Run an older binary against a migrated persistent brain | Not supported. Cached search results may still work, while distillation and history rebuild fail because transcript files are absent. |
 
-Upgrade and restart all CLI, MCP, and watcher processes that share a brain before
+Upgrade and restart all CLI and watcher processes that share a brain before
 migrating it. Installing or upgrading Graph does not upgrade Brain.
 
 For rollback, use the upgraded binary to export a bundle containing transcripts,
@@ -120,7 +120,7 @@ the destination's privacy settings before refreshing sessions there.
 ### How Brain compares
 
 [`docs/feature-matrix.md`](docs/feature-matrix.md) — 51 capabilities against five
-alternatives, including the 15 rows where neither Graph nor Brain answers Yes.
+alternatives, including the 18 rows where neither Graph nor Brain answers Yes.
 Our columns are read from the binaries; the competitor columns are not.
 
 Every number we publish, how to reproduce it, and what we deliberately do not claim: [benchmarks](docs/benchmarks.md).
@@ -151,18 +151,6 @@ the two products, so both render the same combined guide; each run only adds its
 own product to the recorded activation.
 
 Review the generated files and commit them together when the instructions should apply to your team. Restart your agent or reload its repository instructions so it picks up the guide.
-
-For an MCP client, print this repository's configuration:
-
-```sh
-entire brain mcp --print-config
-```
-
-Then register it with an MCP-capable client, for example for Claude Code:
-
-```bash
-claude mcp add entire-brain -- entire brain mcp
-```
 
 See the [agent integration guide](docs/reference.md#how-agents-use-the-brain) and [coordination contract](docs/agent-coordination.md) for more setup details.
 
@@ -383,7 +371,6 @@ the binary.
 | `entire brain setup` | Build the brain and start background updates |
 | `entire brain add` | Clone a repository, fetch its Entire history, and build its brain |
 | `entire brain agent-guide` | Preview repository-specific agent instructions |
-| `entire brain mcp` | Serve local brain tools over MCP |
 | `entire brain webhook` | Notify another service when this brain changes |
 | `entire brain config` | Inspect or initialize plugin configuration |
 | `entire brain connect` | Bind this repository to its hosted brain explicitly |
@@ -462,7 +449,7 @@ See the [recall threat model](docs/recall_threat_model.md) for how Brain handles
 - [Complete reference](docs/reference.md)
 - [Installation and operations](docs/operations.md)
 - [Agent activation and coordination](docs/agent-coordination.md)
-- [Semantic features and MCP](docs/semantic_mcp_guide.md)
+- [Semantic features](docs/semantic_features.md)
 - [Storage and configuration](docs/reference.md#storage-and-configuration)
 - [Benchmarks: what we measure, what we found, what we do not claim](docs/benchmarks.md)
 - [Scale: index size and query latency, measured](docs/scale.md)

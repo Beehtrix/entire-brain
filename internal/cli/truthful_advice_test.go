@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -211,112 +209,5 @@ func TestBrainignoredPathsDoNotTriggerTheDirtyRefusal(t *testing.T) {
 		Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
 	if err != nil && strings.Contains(err.Error(), dirtyWorktreeErrorCode) {
 		t.Fatalf("a worktree dirty only in .brainignore'd paths was refused: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// The guide may not contradict the binary it ships with.
-// ---------------------------------------------------------------------------
-
-// mcp_remember_test.go already stops a TOOL DESCRIPTION from naming a tool that
-// does not exist. Nothing stopped the GUIDE from denying one that does, and
-// that is the direction this failed in: both generators told agents "No MCP
-// tool writes a fact, so this is a CLI call; do not go looking for one" while
-// brain_remember was registered, documented and tested. An agent that believed
-// the guide would never call it.
-var guideMCPDenials = []struct {
-	tool    string
-	deny    *regexp.Regexp
-	reality string
-}{
-	{
-		tool:    "brain_remember",
-		deny:    regexp.MustCompile(`(?i)\bno MCP tool\b[^.]*\b(?:writes?|records?|stores?)\b`),
-		reality: "brain_remember records a durable fact over MCP",
-	},
-	{
-		tool:    "brain_remember",
-		deny:    regexp.MustCompile(`(?i)\bdo not go looking for one\b`),
-		reality: "brain_remember is exactly the tool this tells the reader not to look for",
-	},
-}
-
-// reviewedGuideMCPClaims is every sentence in a shipped guide that makes a
-// claim about the MCP surface, each one checked against tools/list by hand.
-// A new or reworded claim fails here until somebody does the same, which is
-// the review step that was missing when the false one was written.
-var reviewedGuideMCPClaims = map[string]string{
-	"Over MCP the same write is the brain_remember tool, which requires path.": "brain_remember is registered and its schema requires fact and path",
-}
-
-var guideSentenceSplit = regexp.MustCompile(`(?:\.|\n\n)`)
-
-func registeredMCPTools(t *testing.T) map[string]bool {
-	t.Helper()
-	repoDir := seedFixtureRepo(t)
-	opts := rememberTestOptions(t, repoDir)
-	var out bytes.Buffer
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`)
-	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
-		t.Fatalf("mcp: %v", err)
-	}
-	var result struct {
-		Tools []struct {
-			Name string `json:"name"`
-		} `json:"tools"`
-	}
-	raw, _ := json.Marshal(readMCPResponses(t, out.String())[0]["result"])
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("tools/list: %v", err)
-	}
-	registered := map[string]bool{}
-	for _, tool := range result.Tools {
-		registered[tool.Name] = true
-	}
-	if len(registered) == 0 {
-		t.Fatal("tools/list returned no tools; the guard would pass vacuously")
-	}
-	return registered
-}
-
-func TestGuideMCPClaimsMatchTheRegisteredToolList(t *testing.T) {
-	registered := registeredMCPTools(t)
-	namedTool := regexp.MustCompile(`\bbrain_[a-z_]+\b`)
-	claims := 0
-	for name, guide := range agentsetup.AllGuides() {
-		for _, sentence := range guideSentenceSplit.Split(guide, -1) {
-			sentence = strings.Join(strings.Fields(sentence), " ")
-			if !strings.Contains(sentence, "MCP") {
-				continue
-			}
-			claims++
-			sentence += "."
-
-			// A tool the guide names has to exist, the same promise
-			// TestMCPToolDescriptionsOnlyNameToolsThatExist holds for
-			// descriptions.
-			for _, named := range namedTool.FindAllString(sentence, -1) {
-				if named == "brain_cgo" || registered[named] {
-					continue
-				}
-				t.Errorf("the %s guide names %q, which is not a registered MCP tool: %q", name, named, sentence)
-			}
-
-			// A tool that exists may not be denied.
-			for _, denial := range guideMCPDenials {
-				if registered[denial.tool] && denial.deny.MatchString(sentence) {
-					t.Errorf("the %s guide denies a capability the binary ships -- %s: %q",
-						name, denial.reality, sentence)
-				}
-			}
-
-			if _, ok := reviewedGuideMCPClaims[sentence]; !ok {
-				t.Errorf("the %s guide makes an MCP claim nobody has checked against tools/list: %q\n"+
-					"add it to reviewedGuideMCPClaims once verified, or remove it", name, sentence)
-			}
-		}
-	}
-	if claims == 0 {
-		t.Fatal("no MCP claims were extracted from any guide; the extractor is probably broken")
 	}
 }

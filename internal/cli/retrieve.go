@@ -87,7 +87,7 @@ const (
 	retrievalSourceDoc          = "doc"
 )
 
-// retrievalOptions is the shared CLI/MCP retrieval-options contract; extend it
+// retrievalOptions is the shared retrieval-options contract; extend it
 // rather than widening positional signatures (cross-cutting rule of the
 // conversational-memory plan).
 type retrievalOptions struct {
@@ -145,7 +145,7 @@ func (o retrievalOptions) hasConversationOnlyFilters() bool {
 		len(o.Concepts) > 0
 }
 
-// parseRetrievalTimeFilter parses a CLI/MCP time filter: RFC3339 or a plain
+// parseRetrievalTimeFilter parses a time filter: RFC3339 or a plain
 // YYYY-MM-DD day (interpreted as UTC midnight). Empty means unset.
 func parseRetrievalTimeFilter(value string) (time.Time, error) {
 	value = strings.TrimSpace(value)
@@ -162,7 +162,7 @@ func parseRetrievalTimeFilter(value string) (time.Time, error) {
 }
 
 // parseRetrievalSource validates a user/client-supplied source selector,
-// normalizing "" to "all". CLI and MCP share these semantics.
+// normalizing "" to "all".
 func parseRetrievalSource(value string) (string, error) {
 	source := strings.ToLower(strings.TrimSpace(value))
 	switch source {
@@ -185,7 +185,7 @@ func retrieveUnified(repoDir, brainDir, branch, query string, limit int, mode re
 }
 
 // errConversationVectorUnsupported answers a direct modeVector call on the
-// conversation source. No CLI/MCP surface produces modeVector anymore (the
+// conversation source. No surface produces modeVector anymore (the
 // verbs alias to the lexical ranking); this guards internal callers.
 var errConversationVectorUnsupported = errors.New(`vector search was removed with semantic retrieval (trail #278); use query --source conversation for lexical recall`)
 
@@ -619,7 +619,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	return out, nil
 }
 
-// maxGetBatchIDs caps one get/multi-get request across CLI, MCP, and
+// maxGetBatchIDs caps one get/multi-get request across CLI and
 // workspace surfaces (the plan's shared result-limit ceiling).
 const maxGetBatchIDs = 50
 
@@ -813,8 +813,8 @@ func sortUnifiedByScore(out []unifiedResult) {
 }
 
 // getUnifiedBatch resolves prefixed ids (fact:/review:/history:/doc:/pattern:/theme:) to full records,
-// loading each corpus at most once and indexing it by id. get/multi-get (and the
-// MCP brain_get/brain_multi_get) route through here so resolving N ids is O(corpus
+// loading each corpus at most once and indexing it by id. get/multi-get
+// route through here so resolving N ids is O(corpus
 // + N), not O(N × corpus) — the latter rescans the full history per id and is
 // pathological on large brains. Results preserve input order.
 func getUnifiedBatch(repoDir, brainDir, branch string, ids []string) (found []unifiedResult, missing []string, err error) {

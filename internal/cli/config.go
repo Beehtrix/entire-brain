@@ -48,10 +48,6 @@ type configReport struct {
 	// alias ENTIRE_BRAIN_LOCAL_ONLY) that hosted publish, fact sync and
 	// non-local agents fail closed against.
 	NoEgress bool `json:"no_egress"`
-	// MCPGraphBinary is the semantic-provider binary the MCP server resolves
-	// from its own environment (ENTIRE_BRAIN_GRAPH_BINARY, else "entire"). It is
-	// named for the surface that reads it: the plain CLI takes --graph-binary.
-	MCPGraphBinary string `json:"mcp_graph_binary"`
 }
 
 type configDirectoriesReport struct {
@@ -86,8 +82,7 @@ func newConfigCommand(env EntireEnv) *cobra.Command {
 		Long: `Show prints the configuration that governs this plugin, resolved: the
 config file and whether it exists, the plugin directories, the brain store root,
 the bound repository, the host slugs brain.json persists, and the operator
-switches this binary reads (the local-only egress gate and the MCP provider
-binary).
+switches this binary reads (the local-only egress gate).
 
 The optional ENTIRE_BRAIN_* tuning variables are documented in the README; they
 are read where they are used and are not reported here.`,
@@ -160,11 +155,10 @@ func buildConfigReport(env EntireEnv) (configReport, error) {
 			State:  dirs.State,
 			Cache:  dirs.Cache,
 		},
-		BrainStore:     filepath.Join(dirs.Data, base.RepoStoreDirName),
-		RepoRoot:       env.RepoRoot,
-		DomainSlugs:    slugs,
-		NoEgress:       base.BrainNoEgressMode(),
-		MCPGraphBinary: mcpGraphBinary(),
+		BrainStore:  filepath.Join(dirs.Data, base.RepoStoreDirName),
+		RepoRoot:    env.RepoRoot,
+		DomainSlugs: slugs,
+		NoEgress:    base.BrainNoEgressMode(),
 	}, nil
 }
 

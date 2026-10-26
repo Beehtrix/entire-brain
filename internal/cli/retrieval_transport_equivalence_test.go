@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -14,7 +13,7 @@ import (
 // functions to byte-identical output so the search can never drift from the
 // stepwise semantics.
 
-func referenceBoundedRetrievalJSONPayload(ctx context.Context, query, branch string, results []unifiedResult, extras retrievalTransportExtras, surface string) (map[string]any, error) {
+func referenceBoundedRetrievalJSONPayload(query, branch string, results []unifiedResult, extras retrievalTransportExtras) (map[string]any, error) {
 	allRows := compactUnifiedResults(results, query)
 	extras = cloneRetrievalTransportExtras(extras)
 	count := len(allRows)
@@ -23,10 +22,11 @@ func referenceBoundedRetrievalJSONPayload(ctx context.Context, query, branch str
 		rows := append([]compactUnifiedResult{}, allRows[:count]...)
 		truncated := anythingTruncated || count != len(allRows)
 		payload := buildRetrievalJSONPayload(query, branch, rows, extras, truncated)
-		size, err := retrievalSerializedSize(ctx, payload, surface)
+		data, err := jsonOutputBytes(payload)
 		if err != nil {
 			return nil, err
 		}
+		size := len(data)
 		if size <= conversationConceptResponseMaxBytes {
 			return payload, nil
 		}
@@ -172,27 +172,21 @@ func TestBoundedTruncationMatchesStepwiseReference(t *testing.T) {
 		{"zero rows fit", big, retrievalTransportExtras{BlindSpot: "nothing indexed"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, surface := range []string{"query", "mcp:brain_query"} {
-				ctx := context.Background()
-				if surface == "mcp:brain_query" {
-					ctx = context.WithValue(ctx, mcpResponseTransportContextKey{}, mcpResponseTransport{ID: "req-1", FrameMode: mcpFrameContentLength})
-				}
-				want, wantErr := referenceBoundedRetrievalJSONPayload(ctx, "query", "main", tc.results, tc.extras, surface)
-				got, gotErr := boundedRetrievalJSONPayload(ctx, "query", "main", tc.results, tc.extras, surface)
-				if (wantErr != nil) != (gotErr != nil) {
-					t.Fatalf("%s: err = %v, reference err = %v", surface, gotErr, wantErr)
-				}
-				if wantErr == nil && !bytes.Equal(jsonPayloadBytes(t, want), jsonPayloadBytes(t, got)) {
-					t.Fatalf("%s: JSON payload diverged from stepwise reference", surface)
-				}
+			want, wantErr := referenceBoundedRetrievalJSONPayload("query", "main", tc.results, tc.extras)
+			got, gotErr := boundedRetrievalJSONPayload("query", "main", tc.results, tc.extras)
+			if (wantErr != nil) != (gotErr != nil) {
+				t.Fatalf("json: err = %v, reference err = %v", gotErr, wantErr)
+			}
+			if wantErr == nil && !bytes.Equal(jsonPayloadBytes(t, want), jsonPayloadBytes(t, got)) {
+				t.Fatalf("JSON payload diverged from stepwise reference")
 			}
 
-			want, wantErr := referenceBoundedSingleRepoRetrievalText("query", tc.results, tc.extras)
-			got, gotErr := boundedSingleRepoRetrievalText("query", tc.results, tc.extras)
-			if (wantErr != nil) != (gotErr != nil) {
-				t.Fatalf("text: err = %v, reference err = %v", gotErr, wantErr)
+			wantText, wantTextErr := referenceBoundedSingleRepoRetrievalText("query", tc.results, tc.extras)
+			gotText, gotTextErr := boundedSingleRepoRetrievalText("query", tc.results, tc.extras)
+			if (wantTextErr != nil) != (gotTextErr != nil) {
+				t.Fatalf("text: err = %v, reference err = %v", gotTextErr, wantTextErr)
 			}
-			if wantErr == nil && !bytes.Equal(want, got) {
+			if wantTextErr == nil && !bytes.Equal(wantText, gotText) {
 				t.Fatalf("text output diverged from stepwise reference")
 			}
 		})

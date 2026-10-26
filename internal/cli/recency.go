@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// withRecencyOptions validates the same opt-in contract for CLI and MCP.
+// withRecencyOptions validates the recency opt-in contract.
 func withRecencyOptions(opts retrievalOptions, enabled bool, halfLife string) (retrievalOptions, error) {
 	opts.Recency = enabled
 	if halfLife != "" {

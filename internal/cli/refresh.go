@@ -42,8 +42,8 @@ type refreshCommandOptions struct {
 	// component observes outcomes without changing failure policy.
 	component func(name string, err error)
 	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
-	// unattended orchestration (the watch daemon's tick, the session-end hook,
-	// MCP's brain_refresh): nobody is watching those paths' stderr to learn
+	// unattended orchestration (the watch daemon's tick, the session-end
+	// hook): nobody is watching those paths' stderr to learn
 	// that files were deleted. User-invoked `entire brain refresh` and `entire
 	// brain path --ensure` leave this false and still sweep.
 	skipTranscriptSweep bool
@@ -1011,9 +1011,9 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 }
 
 func seedNeededForBrain(manifest *exportManifest) bool {
-	// Seed freshness is independent of checkpoint/session availability. MCP's
-	// default refresh intentionally omits sessions, so using an empty session
-	// list as a seed-missing signal rebuilt an otherwise current seed every time.
+	// Seed freshness is independent of checkpoint/session availability: a
+	// refresh may intentionally omit sessions, so an empty session list is no
+	// seed-missing signal (it rebuilt an otherwise current seed every time).
 	return manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil
 }
 

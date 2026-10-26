@@ -59,7 +59,7 @@ const (
 )
 
 // conversationHistoricalEvidenceCaveat is the Phase 1 output-safety contract:
-// it must survive CLI JSON, MCP JSON, and text rendering on every surfaced
+// it must survive CLI JSON and text rendering on every surfaced
 // exchange.
 func conversationHistoricalEvidenceCaveat() retrievalCaveat {
 	return retrievalCaveat{

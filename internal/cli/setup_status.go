@@ -94,8 +94,8 @@ type brainStatusOnboarding struct {
 	//
 	// This is the product's worst failure mode and it is SILENT -- setup
 	// succeeds, every source reads healthy, and the brain is simply never
-	// consulted. These fields are for the text renderer; JSON and MCP receive
-	// the same diagnostic through the status report's existing warnings field.
+	// consulted. These fields are for the text renderer; JSON receives the
+	// same diagnostic through the status report's existing warnings field.
 	AgentsUnwired bool `json:"-"`
 	// AgentsMissing names what is absent, so the line can say which half.
 	AgentsMissing []string `json:"-"`

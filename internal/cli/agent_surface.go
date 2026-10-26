@@ -1235,12 +1235,13 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	brainCmd := clibase.SetupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
-	if report.Integrity == "not_checked" {
-		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
-	}
 	if !verbose {
+		// The short report folds the audit boundary into its own footer.
 		renderBrainStatusShort(out, render, report, brainCmd)
 		return
+	}
+	if report.Integrity == "not_checked" {
+		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
 	}
 	// Everything below is the full report. Blind spots and semantic partial
 	// failures describe the SAME records from two angles, so they are collapsed

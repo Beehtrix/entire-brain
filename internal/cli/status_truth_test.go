@@ -156,7 +156,7 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 }
 
 // Artifact presence remains part of status even though content audits do not.
-func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
+func TestTheSourcesLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	opts, repoDir, _ := statusTruthFixture(t)
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
@@ -166,8 +166,8 @@ func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, healthy)
 	}
-	healthyInstant := statusInstantLine(t, healthy)
-	if !strings.Contains(healthyInstant, "+ semantic") {
+	healthyStates := statusSourceStates(t, healthy)
+	if healthyStates["semantic"] != "built" {
 		t.Fatalf("the fixture never reported a built semantic index, so the failing case proves nothing:\n%s", healthy)
 	}
 
@@ -177,18 +177,25 @@ func TestTheInstantLineDoesNotCallAMissingSemanticIndexBuilt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
-	instant := statusInstantLine(t, out)
-	if strings.Contains(instant, "+ semantic") {
-		t.Fatalf("the instant line still marks a missing semantic index as built:\n%s", out)
+	states := statusSourceStates(t, out)
+	if states["semantic"] == "built" {
+		t.Fatalf("the sources line still calls a missing semantic index built:\n%s", out)
 	}
-	if !strings.Contains(instant, "- semantic") {
-		t.Fatalf("the instant line does not mark the missing semantic index as failed:\n%s", out)
+	if states["semantic"] != "missing" {
+		t.Fatalf("the sources line does not report the semantic index missing:\n%s", out)
 	}
-	// Every other source keeps the mark it had. A report that fails everything
+	// Every other source keeps the state it had. A report that fails everything
 	// the moment one axis trips is no more usable than one that passes
-	// everything, so the semantic mark must be the whole difference.
-	if restored := strings.Replace(instant, "- semantic", "+ semantic", 1); restored != healthyInstant {
-		t.Fatalf("a corrupt semantic store changed a mark other than semantic:\n before: %s\n  after: %s", healthyInstant, instant)
+	// everything, so the semantic state must be the whole difference.
+	healthyStates["semantic"] = "missing"
+	for name, state := range healthyStates {
+		if states[name] != state {
+			t.Fatalf("a corrupt semantic store changed %q from %q to %q:\n before: %v\n  after: %v",
+				name, state, states[name], healthyStates, states)
+		}
+	}
+	if len(states) != len(healthyStates) {
+		t.Fatalf("a corrupt semantic store changed which sources are reported:\n before: %v\n  after: %v", healthyStates, states)
 	}
 }
 
@@ -263,17 +270,35 @@ func TestStatusSurfacesGraphError(t *testing.T) {
 	}
 }
 
-// statusInstantLine returns the onboarding block's `instant` line, which is the
-// only line in the default report carrying the per-source marks.
-func statusInstantLine(t *testing.T, out string) string {
+// statusSourceStates parses the default report's `Sources` line — the only
+// line carrying per-source states — into a name -> state map. The line's
+// grammar is "built, built | failed: a | missing: b | skipped: c", with the
+// label and the groups joined by the renderer's separator.
+func statusSourceStates(t *testing.T, out string) map[string]string {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "instant") {
-			return line
+		if !strings.HasPrefix(strings.TrimSpace(line), "Sources") {
+			continue
 		}
+		states := map[string]string{}
+		parts := strings.Split(line, " | ")
+		for _, part := range parts[1:] {
+			part = strings.TrimSpace(part)
+			state := "built"
+			for _, group := range []string{"failed", "missing", "skipped"} {
+				if rest, ok := strings.CutPrefix(part, group+": "); ok {
+					state, part = group, rest
+					break
+				}
+			}
+			for _, name := range strings.Split(part, ", ") {
+				states[name] = state
+			}
+		}
+		return states
 	}
-	t.Fatalf("status printed no instant line:\n%s", out)
-	return ""
+	t.Fatalf("status printed no Sources line:\n%s", out)
+	return nil
 }
 
 // TestDoctorNamesTheFailingSemanticAxis closes the other end of the dead end:

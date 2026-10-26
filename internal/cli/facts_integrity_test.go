@@ -142,7 +142,7 @@ func TestFactStoreIntegrityDetectsOneLostFactAmongFive(t *testing.T) {
 		if err != nil {
 			t.Fatalf("status: %v\n%s", err, statusOut)
 		}
-		if !strings.Contains(statusOut, "memories: 5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
+		if !strings.Contains(statusOut, "5 declared") || !strings.Contains(statusOut, "Integrity not checked") {
 			t.Fatalf("status must distinguish declared counts from observations:\n%s", statusOut)
 		}
 	})
@@ -378,7 +378,7 @@ func TestFactStoreIntegrityHealthyBrainDoesNotRegress(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, "memories: 5 declared") {
+	if !strings.Contains(statusOut, "5 declared") {
 		t.Fatalf("status must label unverified manifest counts:\n%s", statusOut)
 	}
 

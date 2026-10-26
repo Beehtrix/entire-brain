@@ -15,7 +15,7 @@ import (
 )
 
 // newCorpusAtDir creates an empty corpus (file + schema) at brainDir so
-// openPatternCorpusMutableDB can reopen it; mirrors promotableCorpusDir's setup.
+// patterntest.OpenCorpusMutableDB can reopen it; mirrors promotableCorpusDir's setup.
 func newCorpusAtDir(t *testing.T, brainDir string) {
 	t.Helper()
 	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, patterncore.CorpusPath)

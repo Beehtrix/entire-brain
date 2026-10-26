@@ -85,7 +85,7 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		return patterncore.WithCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
 			_, err := staged.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`)
 			return err
-		}, decodePatternCorpusPublication)
+		}, patterncore.DecodeCorpusPublication)
 	}); err != nil {
 		t.Fatal(err)
 	}

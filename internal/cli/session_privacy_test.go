@@ -343,7 +343,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), []byte(episodesBuf.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patternRunsRelPath, patterncore.CorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patterncore.RunsRelPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -368,7 +368,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if plan.FactsDeleted != 1 || plan.FactAnchorsStripped != 1 || plan.Episodes != 1 {
 		t.Fatalf("plan = facts_deleted=%d stripped=%d episodes=%d, want 1/1/1", plan.FactsDeleted, plan.FactAnchorsStripped, plan.Episodes)
 	}
-	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patternRunsRelPath: false}
+	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patterncore.RunsRelPath: false}
 	for _, store := range plan.DerivedStores {
 		if _, ok := wantStores[store.Path]; ok {
 			wantStores[store.Path] = true

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -280,7 +281,7 @@ func TestCandidateEval(t *testing.T) {
 
 func TestWorkspaceSkillsListJSONRedacts(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	wsDir, err := workspaceStore(env).Dir("platform")
+	wsDir, err := workspace.DefaultStore(env).Dir("platform")
 	if err != nil {
 		t.Fatal(err)
 	}

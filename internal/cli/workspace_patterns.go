@@ -89,7 +89,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, name, agent, model, effort string, asJSON bool) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
 	}
 	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
-		stats, err := proposeWorkspaceFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
+		stats, err := patterncore.ProposeFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
 		if err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 }
 
 func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforcementCounts) float64 {
-	breadth := repoBreadthScore(repos, memberCount)
+	breadth := patterncore.RepoBreadthScore(repos, memberCount)
 	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
 	reinfScore := 0.5
 	if support > 0 {
@@ -334,19 +334,9 @@ func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforce
 
 func workspacePracticeStrength(kind string, repos, memberCount, support int) float64 {
 	kindScore := clibase.Clamp01(float64(factKindPriority[kind]) / 6.0)
-	breadth := repoBreadthScore(repos, memberCount)
+	breadth := patterncore.RepoBreadthScore(repos, memberCount)
 	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
 	return 0.40*kindScore + 0.35*breadth + 0.25*supportScore
-}
-
-// repoBreadthScore is the fraction of OTHER members that also share the pattern:
-// shared by all members -> 1.0, shared by 2 of many -> low.
-func repoBreadthScore(repos, memberCount int) float64 {
-	denom := memberCount - 1
-	if denom < 1 {
-		denom = 1
-	}
-	return clibase.Clamp01(float64(repos-1) / float64(denom))
 }
 
 func addReinf(a, b reinforcementCounts) reinforcementCounts {
@@ -403,27 +393,27 @@ func sortPatternsByStrength[T any](items []T, key func(i int) (float64, int, str
 }
 
 func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
 	// Refresh IS the documented recovery for an interrupted corpus publication,
 	// so it must clear the marker before the derived-read gate below fails
 	// closed on it.
-	if err := recoverWorkspacePatternCorpusPublication(opts.Env, manifest); err != nil {
+	if err := patterncore.RecoverWorkspaceCorpusPublication(opts.Env, manifest); err != nil {
 		return err
 	}
 	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	var (
 		members memberPatterns
-		counts  workspaceCorpusCounts
+		counts  patterncore.WorkspaceCorpusCounts
 	)
 	// Member reads and every aggregate artifact write share one policy-locked
 	// snapshot. A concurrent tombstone either waits until this generation is
@@ -435,7 +425,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 			return lockedErr
 		}
 		// Primary V2 source: aggregate member corpora into the workspace corpus.
-		counts, lockedErr = buildWorkspacePatternCorpusLocked(opts.Env, manifest, opts.Now().UTC())
+		counts, lockedErr = patterncore.BuildWorkspaceCorpusLocked(opts.Env, manifest, opts.Now().UTC())
 		if lockedErr != nil {
 			return lockedErr
 		}
@@ -469,7 +459,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 }
 
 func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -477,7 +467,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -525,7 +515,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 }
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -533,7 +523,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -556,7 +546,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	lastRun, hasLastRun, err := lastPatternRunChecked(wsDir)
+	lastRun, hasLastRun, err := patterncore.LastRunChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -677,7 +667,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -688,14 +678,14 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	families, err := loadAcceptedWorkspaceFamiliesChecked(wsDir)
+	families, err := patterncore.AcceptedFamiliesChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -725,7 +715,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -733,7 +723,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -751,7 +741,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 		// Resolve the accepted source only after every member policy/lock is
 		// pinned. Workspace verification uses the same locks, so a concurrent
 		// family replacement cannot leave synthesis using a stale dossier.
-		fam, ok, err := getAcceptedWorkspaceFamilyChecked(wsDir, s.taskID)
+		fam, ok, err := patterncore.AcceptedFamilyByIDChecked(wsDir, s.taskID)
 		if err != nil {
 			return err
 		}

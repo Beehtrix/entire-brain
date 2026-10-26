@@ -25,3 +25,11 @@ func TruncateString(value string, max int) string {
 	}
 	return value[:cut] + suffix
 }
+
+// NonEmptyOr returns s, or fallback when s is empty.
+func NonEmptyOr(s, fallback string) string {
+	if s == "" {
+		return fallback
+	}
+	return s
+}

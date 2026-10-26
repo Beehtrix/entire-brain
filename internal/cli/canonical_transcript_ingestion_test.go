@@ -48,7 +48,7 @@ func TestUnsafeTranscriptNeverInvokesDistillProvider(t *testing.T) {
 		},
 	}
 	_, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now)
-	if err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.InputTooLargeCode) {
 		t.Fatalf("over-limit distill error = %v", err)
 	}
 	if calls != 0 {

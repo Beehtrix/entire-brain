@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,7 +79,7 @@ func installPromotableCorpus(t *testing.T, brainDir string) {
 
 func seedRegressionDeepDossier(t *testing.T, brainDir, taskID string) {
 	t.Helper()
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

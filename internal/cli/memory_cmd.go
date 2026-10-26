@@ -421,11 +421,11 @@ func reconcileMemoryJobsForAdmin(ctx context.Context, brainDir, trigger string, 
 		} else {
 			err = brainstore.WithBrainWriteLock(brainDir, apply)
 		}
-		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return created, err
 		}
 	}
-	return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
+	return 0, fmt.Errorf("%s: manifest changed during reconciliation", brainstore.SourceStaleCode)
 }
 
 func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot) (created int, err error) {
@@ -442,7 +442,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 		return 0, err
 	}
 	if snapshot == nil || identity != snapshot.manifestIdentity {
-		return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
+		return 0, fmt.Errorf("%s: manifest changed during reconciliation", brainstore.SourceStaleCode)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
@@ -596,7 +596,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 		}
 		preparedDigest, ok := snapshot.digests[rel]
 		if !ok {
-			return created, fmt.Errorf("%s: transcript set changed during reconciliation", memoryErrSourceStale)
+			return created, fmt.Errorf("%s: transcript set changed during reconciliation", brainstore.SourceStaleCode)
 		}
 		digest, digestErr := preparedDigest.digest, preparedDigest.err
 		if digestErr != nil {
@@ -823,7 +823,7 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 		return stats, err
 	}
 	if snapshot == nil || identity != snapshot.manifestIdentity {
-		return stats, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
+		return stats, fmt.Errorf("%s: manifest changed during maintenance", brainstore.SourceStaleCode)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
@@ -915,11 +915,11 @@ func runMemoryMaintenance(brainDir string, now time.Time) (memoryWorkerStats, er
 			stats, applyErr = maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
 			return applyErr
 		})
-		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return stats, err
 		}
 	}
-	return memoryWorkerStats{}, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
+	return memoryWorkerStats{}, fmt.Errorf("%s: manifest changed during maintenance", brainstore.SourceStaleCode)
 }
 
 // runMemoryProjectionLane performs source scanning outside the Brain write
@@ -1915,9 +1915,9 @@ func memoryJobsForSelector(brainDir, jobID, sessionRef string) ([]memoryJob, err
 	}
 	if len(selected) == 0 {
 		if jobID != "" {
-			return nil, fmt.Errorf("%s: job %s not found", memoryErrSourceStale, jobID)
+			return nil, fmt.Errorf("%s: job %s not found", brainstore.SourceStaleCode, jobID)
 		}
-		return nil, fmt.Errorf("%s: no jobs found for session-ref %s", memoryErrSourceStale, sessionRef)
+		return nil, fmt.Errorf("%s: no jobs found for session-ref %s", brainstore.SourceStaleCode, sessionRef)
 	}
 	return selected, nil
 }
@@ -1948,7 +1948,7 @@ func requestRunningMemoryJobCancellationVerified(brainDir string, observed memor
 			if err := removeMemoryCancellationRequest(brainDir, observed.JobID); err != nil {
 				return err
 			}
-			return fmt.Errorf("%s: job %s already crossed its commit boundary", memoryErrCancelTooLate, observed.JobID)
+			return fmt.Errorf("%s: job %s already crossed its commit boundary", brainstore.CancelTooLateCode, observed.JobID)
 		}
 		_, err = requestMemoryJobCancellation(brainDir, current, now)
 		return err
@@ -2033,7 +2033,7 @@ func newMemoryRetryCommand(opts Options) *cobra.Command {
 					}
 				}
 				if eligible == 0 {
-					return fmt.Errorf("%s: no retryable_error, invalid, or already-pending jobs matched", memoryErrSourceStale)
+					return fmt.Errorf("%s: no retryable_error, invalid, or already-pending jobs matched", brainstore.SourceStaleCode)
 				}
 				return nil
 			}
@@ -2103,7 +2103,7 @@ func newMemoryCancelCommand(opts Options) *cobra.Command {
 					receipt.Artifacts = append(receipt.Artifacts, memoryReceiptArtifact{
 						Path: memoryJobRel(jobs[0].JobID), PriorState: memoryJobStateComplete, NewState: memoryJobStateComplete,
 					})
-					return fmt.Errorf("%s: job %s already completed", memoryErrCancelTooLate, jobs[0].JobID)
+					return fmt.Errorf("%s: job %s already completed", brainstore.CancelTooLateCode, jobs[0].JobID)
 				}
 				for _, job := range jobs {
 					switch job.State {

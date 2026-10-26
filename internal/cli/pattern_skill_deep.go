@@ -161,7 +161,7 @@ func synthesizeSkillFromDossier(ctx context.Context, repoDir string, in deepSkil
 func buildDeepSkillEvidence(in deepSkillInput) string {
 	rec := in.rec
 	var b strings.Builder
-	fmt.Fprintf(&b, "VERIFIED SKILL DOSSIER (verifier verdict: %s)\n", nonEmptyOr(in.verdict.Verdict, "accepted"))
+	fmt.Fprintf(&b, "VERIFIED SKILL DOSSIER (verifier verdict: %s)\n", base.NonEmptyOr(in.verdict.Verdict, "accepted"))
 	if rec.Archetype != "" {
 		fmt.Fprintf(&b, "Archetype: %s\n", rec.Archetype)
 	}

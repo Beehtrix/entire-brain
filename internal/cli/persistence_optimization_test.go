@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -18,7 +19,7 @@ import (
 
 func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []string {
 	t.Helper()
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +110,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		t.Fatal("history refresh resurrected the excluded session")
 	}
 
-	runsBefore := len(loadPatternRuns(brainDir))
+	runsBefore := len(patterncore.LoadRuns(brainDir))
 	sidecarsBefore := persistenceOptimizationCorpusSidecars(t, brainDir)
 	privateStagesBefore := make(map[string]bool)
 	for _, path := range persistenceOptimizationPrivateStages(t) {
@@ -148,7 +149,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 	}
 	for _, entry := range entries {
 		rel := filepath.ToSlash(filepath.Join("patterns", entry.Name()))
-		if isPatternCorpusStagingArtifactRel(rel) {
+		if patterncore.IsCorpusStagingArtifactRel(rel) {
 			t.Fatalf("cancelled pre-publication refresh retained Brain staging artifact %s", rel)
 		}
 	}
@@ -164,7 +165,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 	if got, want := persistenceOptimizationCorpusSessionIDs(t, brainDir), []string{"clean-sess", "secret-sess"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("cancelled refresh changed committed corpus: got %v, want %v", got, want)
 	}
-	if got := len(loadPatternRuns(brainDir)); got != runsBefore {
+	if got := len(patterncore.LoadRuns(brainDir)); got != runsBefore {
 		t.Fatalf("cancelled refresh appended a run: before=%d after=%d", runsBefore, got)
 	}
 	if allowed, err := privacyDerivedReadGate(brainDir); err != nil || allowed {

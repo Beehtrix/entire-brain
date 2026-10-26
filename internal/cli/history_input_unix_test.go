@@ -55,8 +55,8 @@ func TestHistorySessionInventoryRejectsFIFOAndSocketWithoutBlocking(t *testing.T
 			}()
 			select {
 			case err := <-done:
-				if !errors.Is(err, errHistorySessionInventoryDegraded) || memoryErrorCode(err) != memoryErrSessionInventory {
-					t.Fatalf("inventory error = %v, code=%q", err, memoryErrorCode(err))
+				if !errors.Is(err, errHistorySessionInventoryDegraded) || brainstore.MemoryErrorCode(err) != brainstore.SessionInventoryCode {
+					t.Fatalf("inventory error = %v, code=%q", err, brainstore.MemoryErrorCode(err))
 				}
 			case <-time.After(2 * time.Second):
 				t.Fatalf("inventory blocked on %s", kind)

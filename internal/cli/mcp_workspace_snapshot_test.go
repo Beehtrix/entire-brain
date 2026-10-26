@@ -72,13 +72,13 @@ func TestMCPWorkspaceNeverExecutesAForgedCheckoutIdentity(t *testing.T) {
 	t.Setenv(mcpAllowCrossRepoEnv, "")
 	for _, member := range []int{0, 1} {
 		opts, _, _ := workspaceSiblingFixture(t, "forged")
-		manifest, err := workspaceStore(opts.Env).LoadManifest("forged")
+		manifest, err := workspace.DefaultStore(opts.Env).LoadManifest("forged")
 		if err != nil {
 			t.Fatal(err)
 		}
 		manifest.Repos[member].RepoKey = "gh/victim/other"
 		victim := writeScopeTestBrain(t, opts.Env, "gh/victim/other")
-		if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+		if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 			t.Fatal(err)
 		}
 		for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
@@ -112,7 +112,7 @@ func TestMCPWorkspaceExecutesValidatedManifestSnapshot(t *testing.T) {
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {
 		t.Run(tool, func(t *testing.T) {
 			opts, _, siblingKey := workspaceSiblingFixture(t, "snapshot")
-			manifest, err := workspaceStore(opts.Env).LoadManifest("snapshot")
+			manifest, err := workspace.DefaultStore(opts.Env).LoadManifest("snapshot")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -123,7 +123,7 @@ func TestMCPWorkspaceExecutesValidatedManifestSnapshot(t *testing.T) {
 			// file then: a second load during execution would consume the foreign key.
 			changed := false
 			opts.Runner = &workspaceScopeRunner{CommandRunner: opts.Runner, beforeRun: func() {
-				if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+				if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 					t.Fatal(err)
 				}
 				changed = true

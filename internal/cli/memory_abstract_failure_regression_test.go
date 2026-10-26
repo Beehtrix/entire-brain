@@ -132,7 +132,7 @@ func TestManualAbstractEnqueueRefusalDryRunAndDurableRetry(t *testing.T) {
 	t.Cleanup(func() { memoryAbstractorFactory = originalFactory })
 	localOverride := memoryAbstractJobOverride{Provider: "ollama", Model: "local-test"}
 	memoryAbstractorFactory = nil
-	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
+	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
 		t.Fatalf("nil factory error = %v", err)
 	}
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) {
@@ -206,7 +206,7 @@ func TestManualAbstractEnqueueRefusalDryRunAndDurableRetry(t *testing.T) {
 	}
 	changed := override
 	changed.Model = "different-model"
-	if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, changed, now.Add(90*time.Second), nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrLockBusy) {
+	if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, changed, now.Add(90*time.Second), nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.LockBusyCode) {
 		t.Fatalf("running provider takeover: created=%v err=%v", created, err)
 	}
 	retryable, err := transitionMemoryJob(brainDir, running, memoryJobStateRetryable, now.Add(2*time.Minute), "provider temporarily unavailable")
@@ -236,7 +236,7 @@ func TestManualAbstractEnqueueRefusalDryRunAndDurableRetry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now.Add(5*time.Minute), nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrSourceStale) || superseded.State != memoryJobStateSuperseded {
+	if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now.Add(5*time.Minute), nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.SourceStaleCode) || superseded.State != memoryJobStateSuperseded {
 		t.Fatalf("superseded job must remain terminal: created=%v job=%+v err=%v", created, superseded, err)
 	}
 }
@@ -256,7 +256,7 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			t.Fatal(err)
 		}
-		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			t.Fatalf("private enqueue: created=%v err=%v", created, err)
 		}
 		if jobs := loadMemoryJobs(brainDir); len(jobs) != 0 {

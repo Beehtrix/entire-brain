@@ -381,7 +381,7 @@ func TestSetupRefusesANonGitDirectory(t *testing.T) {
 	if rec.installCalls != 0 {
 		t.Fatalf("a non-repository must never get a background watcher, installs=%d", rec.installCalls)
 	}
-	if _, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace); err == nil {
+	if _, err := workspace.DefaultStore(f.env).LoadManifest(setupDefaultWorkspace); err == nil {
 		t.Fatal("a non-repository must never be registered into a workspace")
 	}
 }
@@ -555,7 +555,7 @@ func TestRegistrationStillHappensWithoutTheNoRegisterKnob(t *testing.T) {
 func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
-	if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+	if err := workspace.DefaultStore(env).WriteManifest(workspace.Manifest{
 		SchemaVersion: workspace.SchemaVersion,
 		Name:          "ws",
 	}); err != nil {

@@ -125,8 +125,8 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 			markerPath := writeForwardStateFixture(t, brainDir, patterncore.CorpusPublicationMarkerPath, future)
 
 			err := action.run(brainDir)
-			var typed *patternCorpusPublicationLoadError
-			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode || typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
+			var typed *patterncore.PublicationLoadError
+			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode || typed.State != patterncore.PublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
 			requireForwardStateBytes(t, markerPath, future)
@@ -148,8 +148,8 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 		corrupt := []byte(`{"schema_version":1,"candidate":"` + candidate + `","future":true}` + "\n")
 		markerPath := writeForwardStateFixture(t, brainDir, patterncore.CorpusPublicationMarkerPath, corrupt)
 		err := executeSessionCleanup(brainDir, "secret-sess", sessionPurgePlan{}, now, "test", true)
-		var typed *patternCorpusPublicationLoadError
-		if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || typed.State != patternCorpusPublicationCorrupt {
+		var typed *patterncore.PublicationLoadError
+		if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode || typed.State != patterncore.PublicationCorrupt {
 			t.Fatalf("error = %v typed=%+v, want typed corrupt", err, typed)
 		}
 		requireForwardStateBytes(t, markerPath, corrupt)
@@ -177,8 +177,8 @@ func TestPatternCorpusPublicationPrivacyPreservesForwardCorruptAndUnsafeState(t 
 			t.Skipf("symlinks unavailable: %v", err)
 		}
 		err := executeSessionCleanup(brainDir, "secret-sess", sessionPurgePlan{}, now, "test", true)
-		var typed *patternCorpusPublicationLoadError
-		if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patternCorpusPublicationUnsafe {
+		var typed *patterncore.PublicationLoadError
+		if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patterncore.PublicationUnsafe {
 			t.Fatalf("error = %v typed=%+v, want typed unsafe", err, typed)
 		}
 		if info, statErr := os.Lstat(markerPath); statErr != nil || info.Mode()&os.ModeSymlink == 0 {
@@ -201,10 +201,10 @@ func TestPatternCorpusPublicationPrivacyRemovalRejectsIdentityTakeover(t *testin
 		t.Fatal(err)
 	}
 
-	originalLstat := memoryStateLstat
+	originalLstat := brainstore.MemoryStateLstat
 	markerStats := 0
 	var swapErr error
-	memoryStateLstat = func(path string) (os.FileInfo, error) {
+	brainstore.MemoryStateLstat = func(path string) (os.FileInfo, error) {
 		if path == markerPath {
 			markerStats++
 			// The first two observations belong to the descriptor-bound read.
@@ -215,13 +215,13 @@ func TestPatternCorpusPublicationPrivacyRemovalRejectsIdentityTakeover(t *testin
 		}
 		return originalLstat(path)
 	}
-	t.Cleanup(func() { memoryStateLstat = originalLstat })
-	err := removePatternCorpusPublicationForPrivacy(brainDir)
+	t.Cleanup(func() { brainstore.MemoryStateLstat = originalLstat })
+	err := patterncore.RemoveCorpusPublicationForPrivacy(brainDir)
 	if swapErr != nil {
 		t.Fatal(swapErr)
 	}
-	var typed *patternCorpusPublicationLoadError
-	if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patternCorpusPublicationUnsafe {
+	var typed *patterncore.PublicationLoadError
+	if !errors.As(err, &typed) || typed.Code != brainstore.StateUnsafeCode || typed.State != patterncore.PublicationUnsafe {
 		t.Fatalf("identity takeover error = %v typed=%+v, want typed unsafe", err, typed)
 	}
 	requireForwardStateBytes(t, markerPath, replacement)
@@ -231,8 +231,8 @@ func TestPatternCorpusPublicationPrivacyRemovalRejectsIdentityTakeover(t *testin
 func TestPatternCorpusRollbackJournalPrivacyInventoryVerifyAndRemoval(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	journalRel := ""
-	for _, rel := range patternCorpusPrivacyArtifactRels() {
-		if isPatternCorpusRollbackJournalRel(rel) {
+	for _, rel := range patterncore.CorpusPrivacyArtifactRels() {
+		if patterncore.IsCorpusRollbackJournalRel(rel) {
 			journalRel = rel
 			break
 		}

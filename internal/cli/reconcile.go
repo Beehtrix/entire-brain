@@ -27,7 +27,7 @@ func factsProposalsRelPath(branch string) string {
 // loadFactProposals reads a branch's pending proposals; a missing file yields
 // none. A malformed line is a hard error so a corrupt queue is surfaced.
 func loadFactProposals(brainDir, branch string) ([]factProposal, error) {
-	data, present, err := readMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, factsProposalsRelPath(branch), "fact proposals", base.DefaultMaxReadBytes)
 	if err != nil {
 		return nil, err
 	}

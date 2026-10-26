@@ -120,7 +120,7 @@ func TestHistoryIndexRejectsMutationBetweenFingerprintAndScan(t *testing.T) {
 	if err == nil {
 		t.Fatal("a transcript mutated mid-build must abort the index, not warn")
 	}
-	if !errors.Is(err, errHistorySessionInventoryDegraded) && !strings.Contains(err.Error(), memoryErrSourceStale) {
+	if !errors.Is(err, errHistorySessionInventoryDegraded) && !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 		t.Fatalf("mutation error = %v, want a typed degraded/stale refusal", err)
 	}
 }

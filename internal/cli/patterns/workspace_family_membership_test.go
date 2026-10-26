@@ -1,26 +1,28 @@
-package cli
+package patterns_test
 
 import (
 	"context"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"testing"
 	"time"
 )
 
 func TestWorkspaceFamilyWithdrawnAfterMemberRemoval(t *testing.T) {
 	env, m := twoRepoWorkspace(t, "gh/acme/a", "release:build", []string{"mise build", "mise deploy"}, "gh/acme/b", "release:ship", []string{"make build", "make release"})
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	m.Repos = m.Repos[:1]
-	if _, err := buildWorkspacePatternCorpus(env, m, time.Now()); err != nil {
+	if _, err := patterncore.BuildWorkspaceCorpus(env, m, nil, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	stats, err := proposeWorkspaceFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now())
+	stats, err := patterncore.ProposeFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := workspaceStore(env).Dir(m.Name)
-	f := loadAcceptedWorkspaceFamilies(d)
+	d, _ := workspace.DefaultStore(env).Dir(m.Name)
+	f := patterncore.AcceptedFamilies(d)
 	if len(f) != 0 {
 		t.Fatalf("stale two-member family still accepted: %+v", f)
 	}
@@ -29,19 +31,19 @@ func TestWorkspaceFamilyWithdrawnAfterMemberRemoval(t *testing.T) {
 
 func TestWorkspaceFamilyConsumptionChecksCurrentMembership(t *testing.T) {
 	env, m := twoRepoWorkspace(t, "gh/acme/a", "release:build", []string{"mise build", "mise deploy"}, "gh/acme/b", "release:ship", []string{"make build", "make release"})
-	if _, err := proposeWorkspaceFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
+	if _, err := patterncore.ProposeFamilies(context.Background(), env, m, t.TempDir(), "codex", "", "", releaseGroupingAgent(t), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	dir, _ := workspaceStore(env).Dir(m.Name)
-	families, err := loadAcceptedWorkspaceFamiliesChecked(dir)
+	dir, _ := workspace.DefaultStore(env).Dir(m.Name)
+	families, err := patterncore.AcceptedFamiliesChecked(dir)
 	if err != nil || len(families) != 1 {
 		t.Fatalf("valid family: %v %v", families, err)
 	}
 	m.Repos = m.Repos[:1]
-	if err := workspaceStore(env).WriteManifest(m); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(m); err != nil {
 		t.Fatal(err)
 	}
-	families, err = loadAcceptedWorkspaceFamiliesChecked(dir)
+	families, err = patterncore.AcceptedFamiliesChecked(dir)
 	if err != nil || len(families) != 0 {
 		t.Fatalf("stale family consumed without refresh: %v %v", families, err)
 	}

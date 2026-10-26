@@ -63,9 +63,9 @@ func TestMemoryProjectionClaimCapStillSettlesAllReceiptBackedJobs(t *testing.T) 
 }
 
 func TestMemoryInventoriesAreBoundedAndMutationsFailClosed(t *testing.T) {
-	oldLimit := memoryStateInventoryMaxEntries
-	memoryStateInventoryMaxEntries = 2
-	t.Cleanup(func() { memoryStateInventoryMaxEntries = oldLimit })
+	oldLimit := brainstore.MemoryStateInventoryMaxEntries
+	brainstore.MemoryStateInventoryMaxEntries = 2
+	t.Cleanup(func() { brainstore.MemoryStateInventoryMaxEntries = oldLimit })
 
 	brainDir := t.TempDir()
 	jobDir := filepath.Join(brainDir, filepath.FromSlash(memoryJobsDirRel))
@@ -148,7 +148,7 @@ func TestMemoryStateReadersRejectLeafAliases(t *testing.T) {
 		if err := os.Symlink(outside, path); err != nil {
 			t.Skipf("symlinks unavailable: %v", err)
 		}
-		if _, _, err := readMemoryStateFile(brainDir, rel, "test state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		if _, _, err := brainstore.ReadMemoryStateFile(brainDir, rel, "test state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("alias %s read error = %v", rel, err)
 		}
 	}

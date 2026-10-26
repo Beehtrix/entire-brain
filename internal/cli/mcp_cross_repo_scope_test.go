@@ -210,7 +210,7 @@ func TestMCPWorkspaceToolsRefuseReposOutsideBoundRoot(t *testing.T) {
 			{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -243,7 +243,7 @@ func TestMCPWorkspaceToolsHonorCrossRepoGate(t *testing.T) {
 		Name:          "outside",
 		Repos:         []workspace.Repo{{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	t.Setenv(mcpAllowCrossRepoEnv, "1")
@@ -267,7 +267,7 @@ func TestWorkspaceCLIStaysCrossRepoWithoutGate(t *testing.T) {
 		Name:          "cliwide",
 		Repos:         []workspace.Repo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	cmd := NewRootCommand(opts)
@@ -284,7 +284,7 @@ func TestMCPWorkspaceScopeRejectsUnavailableBoundRepository(t *testing.T) {
 	root := filepath.Join(parent, "missing-checkout")
 	opts, env := mcpScopeTestOptions(t, root)
 	manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: "missing-bound", Repos: []workspace.Repo{{RepoKey: "gh/example/bound", LocalPathHint: root}}}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {

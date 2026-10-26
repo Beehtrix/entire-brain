@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"io"
 	"io/fs"
 	"os"
@@ -217,7 +218,7 @@ func TestPrivacyDerivationBlocksDuplicateManifestTranscriptAlias(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +252,7 @@ func TestPrivacyDerivedReadGateInspectsCurrentCorpusRows(t *testing.T) {
 	if err := os.WriteFile(corpus, dirtyCorpus, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dirtyDB, err := openPatternCorpusMutableDB(brainDir)
+	dirtyDB, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +340,7 @@ func TestPrivacyVerifyInspectsCommittedPatternRowsStillInWAL(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO indexed_sessions
 		(id, repo_key, session_id, transcript_path, size, mtime_unix_nano, content_sha, parser_version, episodes)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		"wal-secret", "repo", "mismatched-id", secretPath, 1, 1, "sha256:wal-secret", patternIndexerVersion, 0); err != nil {
+		"wal-secret", "repo", "mismatched-id", secretPath, 1, 1, "sha256:wal-secret", patterncore.IndexerVersion, 0); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(corpus + "-wal"); err != nil || info.Size() == 0 {

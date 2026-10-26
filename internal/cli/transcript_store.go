@@ -400,7 +400,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 }
 
 // classifyTranscriptReadError labels size refusals with the error code
-// consumers degrade on (history treats memoryErrInputTooLarge as skippable),
+// consumers degrade on (history treats brainstore.InputTooLargeCode as skippable),
 // identically for the file and checkpoint-blob branches.
 //
 // It wraps errHistoryTranscriptTooLarge rather than formatting the code as a

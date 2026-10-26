@@ -25,26 +25,7 @@ import (
 // build-beside-then-switch, never delete first). Every mutation returns a
 // versioned, content-free receipt with stable error codes.
 
-// Stable error codes (maintenance taxonomy). An empty result never stands in for any
-// of these states.
 const (
-	memoryErrLockBusy          = "memory_lock_busy"
-	memoryErrSourceStale       = "memory_source_stale"
-	memoryErrCancelled         = "memory_cancelled"
-	memoryErrCancelTooLate     = "memory_cancel_too_late"
-	memoryErrMigrationRequired = "memory_migration_required"
-	memoryErrQueryTooBroad     = "memory_query_too_broad"
-	memoryErrInputTooLarge     = "memory_input_too_large"
-	memoryErrPrivacyExcluded   = "memory_privacy_excluded"
-
-	memoryErrIdentityAmbiguous = "memory_identity_ambiguous"
-	memoryErrProviderUnavail   = "memory_provider_unavailable"
-	memoryErrSessionInventory  = "memory_session_inventory_degraded"
-	// memoryErrWorkerDegraded reports that the last worker pass completed its
-	// projection lanes but could not export new sessions. It is a health issue,
-	// not a crash: the Brain keeps answering from what it already has, while
-	// nothing captured since that failure can reach it.
-	memoryErrWorkerDegraded             = "memory_worker_degraded"
 	memoryOperationReceiptSchemaVersion = 1
 	memoryMigrationProgressRel          = memoryWorkDirRel + "/migration-progress-v1.json"
 )
@@ -143,7 +124,7 @@ func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationRe
 	}
 	finalizeMemoryOperationReceipt(receipt, now)
 	if receipt.ErrorCode == "" {
-		receipt.ErrorCode = memoryErrorCode(cause)
+		receipt.ErrorCode = brainstore.MemoryErrorCode(cause)
 	}
 	if jsonOut {
 		if emitErr := writeJSON(cmd, receipt); emitErr != nil {
@@ -363,7 +344,7 @@ func memoryDerivedArtifactState(brainDir, rel string) string {
 
 func canonicalSessionInputDigest(brainDir string, manifest *exportManifest, wantedRef string) (string, error) {
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
-		return "", fmt.Errorf("%s: canonical session source is unavailable", memoryErrSourceStale)
+		return "", fmt.Errorf("%s: canonical session source is unavailable", brainstore.SourceStaleCode)
 	}
 	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
@@ -389,10 +370,10 @@ func canonicalSessionInputDigest(brainDir string, manifest *exportManifest, want
 			continue
 		}
 		if _, excluded := stones.Excluded[id]; excluded {
-			return "", fmt.Errorf("%s: session %s is excluded", memoryErrPrivacyExcluded, wantedRef)
+			return "", fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, wantedRef)
 		}
 		if found != "" && found != digest {
-			return "", fmt.Errorf("%s: session %s resolves to conflicting source digests", memoryErrIdentityAmbiguous, wantedRef)
+			return "", fmt.Errorf("%s: session %s resolves to conflicting source digests", brainstore.IdentityAmbiguousCode, wantedRef)
 		}
 		found = digest
 	}
@@ -624,7 +605,7 @@ type memoryMigrationProgress struct {
 }
 
 func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryMigrationProgressRel, "migration progress", base.MaxManifestBytes)
 	if err != nil {
 		return memoryMigrationProgress{}, present, err
 	}
@@ -647,7 +628,7 @@ func loadMemoryMigrationProgress(brainDir string) (memoryMigrationProgress, bool
 		}
 		return memoryMigrationProgress{}, true, fmt.Errorf("%s: decode migration progress: %w", brainstore.StateCorruptCode, err)
 	}
-	if progress.SchemaVersion != 1 || !strings.HasPrefix(progress.OperationID, "op:") || progress.StartedAt.IsZero() || len(progress.Completed) > memoryStateInventoryMaxEntries {
+	if progress.SchemaVersion != 1 || !strings.HasPrefix(progress.OperationID, "op:") || progress.StartedAt.IsZero() || len(progress.Completed) > brainstore.MemoryStateInventoryMaxEntries {
 		return memoryMigrationProgress{}, true, fmt.Errorf("%s: migration progress has invalid identity or bounds", brainstore.StateCorruptCode)
 	}
 	seen := make(map[string]bool, len(progress.Completed))
@@ -678,7 +659,7 @@ var saveMemoryMigrationProgressForAdmin = saveMemoryMigrationProgress
 func detectMemoryMigrations(brainDir string, source *historySourceManifest) []memoryMigrationFinding {
 	var findings []memoryMigrationFinding
 	if _, present, err := loadMemoryMigrationProgress(brainDir); err != nil {
-		state := memoryErrorCode(err)
+		state := brainstore.MemoryErrorCode(err)
 		action := "inspect and restore the migration progress file before resuming"
 		if state == brainstore.UnsupportedVersionCode {
 			action = "upgrade the binary; this newer migration progress remains read-only"
@@ -690,7 +671,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 		// instead of trusting completed path names as proof.
 	}
 	if _, present, err := loadMemoryVectorProgress(brainDir); err != nil {
-		state := memoryErrorCode(err)
+		state := brainstore.MemoryErrorCode(err)
 		action := "delete and rebuild this disposable vector progress state from the current history generation"
 		switch state {
 		case brainstore.UnsupportedVersionCode:
@@ -708,11 +689,11 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 			path = historyIndexPath
 		}
 		if source.IndexDigest == "" && validHistoryGenerationArtifactPath(path, historyIndexFileName) {
-			findings = append(findings, memoryMigrationFinding{Path: path, State: memoryErrMigrationRequired, Action: "rebuild the generation and publish its manifest content digest (full refresh)"})
+			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "rebuild the generation and publish its manifest content digest (full refresh)"})
 		} else if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.StateCorruptCode, Action: "rebuild the disposable history projection from canonical sessions"})
 		} else if source.IndexDigest == "" {
-			findings = append(findings, memoryMigrationFinding{Path: path, State: memoryErrMigrationRequired, Action: "publish a manifest-committed index content digest (full refresh)"})
+			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "publish a manifest-committed index content digest (full refresh)"})
 		}
 	}
 	if overlay, state := loadHistoryShortTermRaw(brainDir); state == shortTermStateCurrent {
@@ -720,7 +701,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 		case overlay.Version > historyShortTermVersion:
 			findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: brainstore.UnsupportedVersionCode, Action: "newer-version overlay is read-only for this binary; upgrade the binary or delete the file to rebuild"})
 		case overlay.Version < historyShortTermVersion || overlay.ReconcilerVersion != historyShortTermReconcilerVersion:
-			findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: memoryErrMigrationRequired, Action: "rebuild the overlay (refresh delta)"})
+			findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: brainstore.MigrationRequiredCode, Action: "rebuild the overlay (refresh delta)"})
 		}
 	} else if state == shortTermStateCorrupt {
 		findings = append(findings, memoryMigrationFinding{Path: historyShortTermPath, State: brainstore.StateCorruptCode, Action: "repair or rebuild the disposable overlay from canonical sessions"})
@@ -733,7 +714,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 			receiptPath = projectionStateRel
 		}
 		if source.ProjectionStateDigest == "" {
-			findings = append(findings, memoryMigrationFinding{Path: receiptPath, State: memoryErrMigrationRequired, Action: "publish projection receipts (full refresh)"})
+			findings = append(findings, memoryMigrationFinding{Path: receiptPath, State: brainstore.MigrationRequiredCode, Action: "publish projection receipts (full refresh)"})
 		} else {
 			_, receiptState, receiptErr := loadProjectionStateChecked(brainDir, source)
 			if receiptState != projectionStateCurrent {
@@ -747,10 +728,10 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 					state = brainstore.StateUnsafeCode
 					action = "inspect the unsafe projection receipt path; no file is removed automatically"
 				case projectionStateStale:
-					state = memoryErrSourceStale
+					state = brainstore.SourceStaleCode
 				}
 				if receiptErr != nil {
-					state = memoryErrorCode(receiptErr)
+					state = brainstore.MemoryErrorCode(receiptErr)
 				}
 				findings = append(findings, memoryMigrationFinding{Path: receiptPath, State: state, Action: action})
 			}
@@ -779,16 +760,16 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 			action = "upgrade the binary; this newer abstract remains read-only"
 		case brainstore.StateCorruptCode:
 			action = "delete and regenerate this disposable abstract after verifying its session source"
-		case memoryErrQueryTooBroad:
+		case brainstore.QueryTooBroadCode:
 			action = fmt.Sprintf("reduce the abstract directory below the %d-file inventory ceiling", abstractInventoryMaxFiles)
 		}
 		findings = append(findings, memoryMigrationFinding{Path: path, State: issue.Code, Action: action})
 	}
 	if abstractInventory.Truncated {
-		key := abstractsDirRel + "\x00" + memoryErrQueryTooBroad
+		key := abstractsDirRel + "\x00" + brainstore.QueryTooBroadCode
 		if !seenAbstractIssues[key] {
 			findings = append(findings, memoryMigrationFinding{
-				Path: abstractsDirRel, State: memoryErrQueryTooBroad,
+				Path: abstractsDirRel, State: brainstore.QueryTooBroadCode,
 				Action: fmt.Sprintf("reduce the abstract directory below the %d-file inventory ceiling", abstractInventoryMaxFiles),
 			})
 		}
@@ -796,7 +777,7 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 	for _, issue := range scanMemoryJobSchemas(brainDir) {
 		action := "repair the corrupt content-free job file"
 		switch issue.Code {
-		case memoryErrMigrationRequired:
+		case brainstore.MigrationRequiredCode:
 			action = "rewrite the legacy job record to the current structured-error schema"
 		case brainstore.UnsupportedVersionCode:
 			action = "newer-version job metadata is read-only for this binary; upgrade the binary"
@@ -818,7 +799,7 @@ func rewriteLegacyMemoryJob(brainDir, rel string) error {
 	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return fmt.Errorf("%s: unsafe legacy job path", brainstore.StateCorruptCode)
 	}
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
 	if err != nil {
 		return fmt.Errorf("%s: read legacy job: %w", brainstore.StateCorruptCode, err)
 	}
@@ -887,7 +868,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 			receipt.DryRun = dryRun
 			if dryRun {
 				for _, finding := range findings {
-					if finding.State != memoryErrMigrationRequired {
+					if finding.State != brainstore.MigrationRequiredCode {
 						continue
 					}
 					receipt.Artifacts = append(receipt.Artifacts, memoryReceiptArtifact{
@@ -915,7 +896,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 					completed[path] = true
 				}
 				for _, finding := range findings {
-					if finding.State != memoryErrMigrationRequired {
+					if finding.State != brainstore.MigrationRequiredCode {
 						continue // unsupported-newer stays read-only
 					}
 					var migrateErr error
@@ -946,7 +927,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 						}
 					}
 					if !handled {
-						return fail(fmt.Errorf("%s: no safe migration action exists for %s", memoryErrMigrationRequired, finding.Path))
+						return fail(fmt.Errorf("%s: no safe migration action exists for %s", brainstore.MigrationRequiredCode, finding.Path))
 					}
 					if migrateErr != nil {
 						return fail(migrateErr)
@@ -972,7 +953,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				remaining = detectMemoryMigrationsForAdmin(brainDir, postSource)
 				remainingRequired := false
 				for _, finding := range remaining {
-					if finding.State == memoryErrMigrationRequired {
+					if finding.State == brainstore.MigrationRequiredCode {
 						remainingRequired = true
 						break
 					}
@@ -985,7 +966,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 			}
 			var blocker *memoryMigrationFinding
 			for i := range remaining {
-				if dryRun && remaining[i].State == memoryErrMigrationRequired {
+				if dryRun && remaining[i].State == brainstore.MigrationRequiredCode {
 					continue
 				}
 				blocker = &remaining[i]
@@ -1313,7 +1294,7 @@ func memoryProviderEgressHealth(brainDir string) map[string]any {
 		health["schema_version"] = observedVersion
 	}
 	if err != nil {
-		health["error_code"] = memoryErrorCode(err)
+		health["error_code"] = brainstore.MemoryErrorCode(err)
 		health["effective_state"] = "config_unavailable"
 		health["provider_summary"] = string(state)
 		health["action"] = "inspect the content-free provider configuration; status leaves it untouched"
@@ -1346,7 +1327,7 @@ func memoryProviderEgressHealth(brainDir string) map[string]any {
 		return health
 	}
 	if config.Abstracts.Enabled && strings.TrimSpace(config.Abstracts.Provider) == "" {
-		health["provider_state"] = memoryErrProviderUnavail
+		health["provider_state"] = brainstore.ProviderUnavailCode
 		health["effective_state"] = "provider_unavailable"
 		health["action"] = "configure exactly one abstract provider or disable abstracts"
 	} else {
@@ -1376,7 +1357,7 @@ func memoryProviderEgressHealth(brainDir string) map[string]any {
 // It does not turn a corrupt/unsafe config into a supported one; the strict
 // loader above remains the authority for state and error classification.
 func memoryConfigObservedSchemaVersion(brainDir string) (int, bool) {
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryConfigRel, "memory config", base.MaxManifestBytes)
 	if err != nil || !present {
 		return 0, false
 	}
@@ -1401,10 +1382,10 @@ func memoryAbstractProviderSummary(brainDir string) string {
 		return "enabled but no provider configured"
 	}
 	if memoryAbstractorFactory == nil {
-		return memoryErrProviderUnavail + ": no provider factory available"
+		return brainstore.ProviderUnavailCode + ": no provider factory available"
 	}
 	if _, err := memoryAbstractorFactory(config.Abstracts); err != nil {
-		return memoryErrProviderUnavail + ": " + err.Error()
+		return brainstore.ProviderUnavailCode + ": " + err.Error()
 	}
 	summary := config.Abstracts.Provider
 	if config.Abstracts.HostedEgressAllowed {
@@ -1434,7 +1415,7 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 		egressState = "current"
 	}
 	if len(egress.Migrations) > 0 {
-		egressState = memoryErrMigrationRequired
+		egressState = brainstore.MigrationRequiredCode
 	}
 	if len(egress.Issues) > 0 {
 		egressState, _ = memoryInventoryIssueState(egress.Issues)
@@ -1582,7 +1563,7 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 	health.Present = present
 	health.SchemaVersion = version
 	if err != nil {
-		code := memoryErrorCode(err)
+		code := brainstore.MemoryErrorCode(err)
 		health.ErrorCode = code
 		health.State = "corrupt"
 		health.RecommendedAction = "repair or rebuild the manifest from canonical sources"
@@ -1770,7 +1751,7 @@ func normalizeMemoryObservedState(state string) string {
 		return "unsafe"
 	case brainstore.UnsupportedVersionCode:
 		return "unsupported"
-	case memoryErrMigrationRequired:
+	case brainstore.MigrationRequiredCode:
 		return "migration_required"
 	default:
 		return state
@@ -1833,9 +1814,9 @@ func memoryHealthIssues(issues []memoryStateIssue) []memoryHealthIssue {
 		switch issue.Code {
 		case brainstore.UnsupportedVersionCode:
 			action = "upgrade entire-brain; this newer file is left untouched"
-		case memoryErrMigrationRequired:
+		case brainstore.MigrationRequiredCode:
 			action = "run `" + base.SetupCommandPrefix(os.LookupEnv) + " memory migrate`"
-		case memoryErrQueryTooBroad:
+		case brainstore.QueryTooBroadCode:
 			action = fmt.Sprintf("reduce the directory below the %d-file scan ceiling", abstractInventoryMaxFiles)
 		case brainstore.StateUnsafeCode:
 			action = "remove the symlink or non-regular entry; abstract reads fail closed"
@@ -1930,7 +1911,7 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 	}
 	if progress, present, progressErr := loadMemoryMigrationProgress(brainDir); progressErr != nil {
 		payload["migration_progress"] = map[string]any{
-			"state": "unavailable", "error_code": memoryErrorCode(progressErr),
+			"state": "unavailable", "error_code": brainstore.MemoryErrorCode(progressErr),
 			"action": "inspect the content-free migration progress file before resuming",
 		}
 	} else if present {
@@ -1967,20 +1948,20 @@ func memoryAggregateHealthAt(brainDir string, source *historySourceManifest, now
 			// broken, while no session captured since then can reach it. Make
 			// it an issue so `status` and `doctor` report it instead of showing
 			// a healthy coordinator beside a stalled export.
-			coordinatorHealth["error_code"] = memoryErrWorkerDegraded
+			coordinatorHealth["error_code"] = brainstore.WorkerDegradedCode
 			coordinatorHealth["action"] = "the last worker pass could not export new sessions; run `entire-brain refresh delta` in the repository to see why"
 		}
 		payload["coordinator"] = coordinatorHealth
 	} else if err == nil {
 		payload["coordinator"] = map[string]any{"state": "absent", "heartbeat_present": false, "stale": false, "action": "none"}
 	} else {
-		payload["coordinator"] = map[string]any{"state": "unavailable", "error_code": memoryErrorCode(err), "action": "inspect the coordinator state file; workers will recover it when safe"}
+		payload["coordinator"] = map[string]any{"state": "unavailable", "error_code": brainstore.MemoryErrorCode(err), "action": "inspect the coordinator state file; workers will recover it when safe"}
 	}
 	if logHealth, err := memoryWorkerLogHealth(brainDir); err == nil {
 		logHealth["path"] = filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel))
 		payload["worker_log"] = logHealth
 	} else {
-		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": memoryErrorCode(err), "action": "inspect the worker log path; it holds event names and bounded, redacted reasons"}
+		payload["worker_log"] = map[string]any{"state": "unavailable", "path": filepath.Join(brainDir, filepath.FromSlash(memoryWorkerLogRel)), "max_bytes": memoryWorkerLogMaxBytes, "error_code": brainstore.MemoryErrorCode(err), "action": "inspect the worker log path; it holds event names and bounded, redacted reasons"}
 	}
 	payload["vector_progress"] = memoryVectorProgressHealth(brainDir, source)
 	return payload
@@ -2162,9 +2143,9 @@ func memoryReadOnlyHealth(brainDir string, now time.Time) memoryReadOnlyHealthSn
 	if install, ok := payload["install"].(map[string]any); ok {
 		if provider, ok := install["provider_egress"].(map[string]any); ok {
 			appendMapIssue("provider_config", memoryConfigRel, provider)
-			if providerState, _ := provider["provider_state"].(string); providerState == memoryErrProviderUnavail {
+			if providerState, _ := provider["provider_state"].(string); providerState == brainstore.ProviderUnavailCode {
 				action, _ := provider["action"].(string)
-				recordIssue(memoryHealthIssue{Kind: "provider", Path: memoryConfigRel, Code: memoryErrProviderUnavail, Action: action})
+				recordIssue(memoryHealthIssue{Kind: "provider", Path: memoryConfigRel, Code: brainstore.ProviderUnavailCode, Action: action})
 			}
 			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
 				action, _ := provider["action"].(string)

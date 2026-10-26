@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"regexp"
 	"strings"
 	"testing"
@@ -38,7 +39,7 @@ func memoryAdviceStrings(t *testing.T) []string {
 		Migrations: []memoryStateIssue{{
 			Kind:    "job",
 			File:    "job-0001.json",
-			Code:    memoryErrMigrationRequired,
+			Code:    brainstore.MigrationRequiredCode,
 			Version: 1,
 		}},
 		EntriesObserved: 1,
@@ -55,7 +56,7 @@ func memoryAdviceStrings(t *testing.T) []string {
 	issues := memoryHealthIssues([]memoryStateIssue{{
 		Kind:    "hint",
 		File:    "hint-0001.json",
-		Code:    memoryErrMigrationRequired,
+		Code:    brainstore.MigrationRequiredCode,
 		Version: 1,
 	}})
 	if len(issues) != 1 {

@@ -35,7 +35,7 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 // corrupt); an absent marker is (zero, false, nil).
 func readHostedFactsBinding(brainDir, branch string) (hostedFactsBinding, bool, error) {
 	var binding hostedFactsBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}

@@ -91,7 +91,7 @@ func TestBriefConsolidationsTaskGated(t *testing.T) {
 
 func TestBriefConsolidationsSuppressRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +115,7 @@ func TestBriefConsolidationsGracefulWithoutCorpus(t *testing.T) {
 
 func TestStrongestConsolidationsForOverview(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 		}
 	}
 	// Stale dossiers are excluded from the overview (they no longer hold).
-	db, err = openPatternCorpusMutableDB(brainDir)
+	db, err = patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestStrongestConsolidationsForOverview(t *testing.T) {
 
 func TestGetConsolidationByPatternID(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

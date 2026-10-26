@@ -457,13 +457,13 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 func TestWorkspaceRegistrationKeepsAMemberName(t *testing.T) {
 	f := newSetupTestFixture(t)
 	const key = "aaaaaaaaaaaaaaaa"
-	if _, err := workspaceStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: key, Name: "the-api", LocalPathHint: f.repoDir}); err != nil {
+	if _, err := workspace.DefaultStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: key, Name: "the-api", LocalPathHint: f.repoDir}); err != nil {
 		t.Fatalf("first add: %v", err)
 	}
 	if _, err := registerRepoInWorkspace(context.Background(), nil, f.opts, setupDefaultWorkspace, f.repoDir, key); err != nil {
 		t.Fatalf("re-register: %v", err)
 	}
-	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
+	manifest, err := workspace.DefaultStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestWorkspaceRegistrationKeepsAMemberName(t *testing.T) {
 // error named neither the file nor a way out.
 func TestCorruptWorkspaceManifestNamesTheFileToFix(t *testing.T) {
 	f := newSetupTestFixture(t)
-	dir, err := workspaceStore(f.env).Dir(setupDefaultWorkspace)
+	dir, err := workspace.DefaultStore(f.env).Dir(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestCorruptWorkspaceManifestNamesTheFileToFix(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, workspace.ManifestName), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, addErr := workspaceStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: "bbbbbbbbbbbbbbbb", LocalPathHint: f.repoDir})
+	_, addErr := workspace.DefaultStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspace.Repo{RepoKey: "bbbbbbbbbbbbbbbb", LocalPathHint: f.repoDir})
 	if addErr == nil {
 		t.Fatal("a corrupt manifest must not be silently replaced: the other members would be dropped")
 	}

@@ -198,7 +198,7 @@ func TestPrivacySideEffectLockHasStableBoundedContentionFailure(t *testing.T) {
 	}
 	defer unlock()
 	_, err = brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) || memoryErrorCode(err) != brainstore.PrivacyBusyCode {
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) || brainstore.MemoryErrorCode(err) != brainstore.PrivacyBusyCode {
 		t.Fatalf("contended privacy lock error = %v", err)
 	}
 }

@@ -26,7 +26,7 @@ func TestMemoryStateReaderRejectsFIFOAndSocketWithoutBlocking(t *testing.T) {
 	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
 		t.Skipf("mkfifo unavailable: %v", err)
 	}
-	if _, _, err := readMemoryStateFile(brainDir, fifoRel, "hostile state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, _, err := brainstore.ReadMemoryStateFile(brainDir, fifoRel, "hostile state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("FIFO read = %v", err)
 	}
 	socketRel := filepath.ToSlash(filepath.Join(memoryWorkDirRel, "hostile.sock"))
@@ -36,7 +36,7 @@ func TestMemoryStateReaderRejectsFIFOAndSocketWithoutBlocking(t *testing.T) {
 		t.Skipf("unix sockets unavailable: %v", err)
 	}
 	defer listener.Close()
-	if _, _, err := readMemoryStateFile(brainDir, socketRel, "hostile state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, _, err := brainstore.ReadMemoryStateFile(brainDir, socketRel, "hostile state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("socket read = %v", err)
 	}
 }
@@ -51,9 +51,9 @@ func TestMemoryStateReaderRejectsRegularToFIFOSwap(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"schema_version":1}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	originalOpen := memoryStateOpenFile
+	originalOpen := brainstore.MemoryStateOpenFile
 	var once sync.Once
-	memoryStateOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+	brainstore.MemoryStateOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		if name == path {
 			once.Do(func() {
 				_ = os.Rename(path, path+".original")
@@ -62,8 +62,8 @@ func TestMemoryStateReaderRejectsRegularToFIFOSwap(t *testing.T) {
 		}
 		return originalOpen(name, flag, perm)
 	}
-	t.Cleanup(func() { memoryStateOpenFile = originalOpen })
-	if _, _, err := readMemoryStateFile(brainDir, rel, "swapped state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	t.Cleanup(func() { brainstore.MemoryStateOpenFile = originalOpen })
+	if _, _, err := brainstore.ReadMemoryStateFile(brainDir, rel, "swapped state", base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("swapped FIFO read = %v", err)
 	}
 }
@@ -96,9 +96,9 @@ func TestHistoryProjectionOverlayIdentityRejectsAliasesAndFIFOSwap(t *testing.T)
 		if err := os.WriteFile(path, []byte("{}"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		originalOpen := memoryStateOpenFile
+		originalOpen := brainstore.MemoryStateOpenFile
 		var once sync.Once
-		memoryStateOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+		brainstore.MemoryStateOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 			if name == path {
 				once.Do(func() {
 					_ = os.Rename(path, path+".original")
@@ -107,7 +107,7 @@ func TestHistoryProjectionOverlayIdentityRejectsAliasesAndFIFOSwap(t *testing.T)
 			}
 			return originalOpen(name, flag, perm)
 		}
-		t.Cleanup(func() { memoryStateOpenFile = originalOpen })
+		t.Cleanup(func() { brainstore.MemoryStateOpenFile = originalOpen })
 		if _, err := historyProjectionFileIdentity(brainDir, historyShortTermPath, base.MaxManifestBytes); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			t.Fatalf("overlay swap identity error = %v", err)
 		}

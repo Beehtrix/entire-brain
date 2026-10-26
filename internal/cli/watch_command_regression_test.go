@@ -100,7 +100,7 @@ func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 		Name:          "watch-fixture",
 		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
@@ -123,7 +123,7 @@ func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
 		Name:          "supervised-fixture",
 		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := recordSetupWatchPlan(opts.Env, "test-daemon", setupWatchPlanEntry{Workspace: manifest.Name, Interval: "1h"}); err != nil {

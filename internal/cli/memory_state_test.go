@@ -1286,11 +1286,11 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 	exactComplete := newMemoryCancelCommand(opts)
 	exactComplete.SilenceErrors, exactComplete.SilenceUsage = true, true
 	out, err = execute(t, exactComplete, jobs[3].JobID, "--json")
-	if err == nil || !strings.Contains(err.Error(), memoryErrCancelTooLate) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.CancelTooLateCode) {
 		t.Fatalf("completed exact cancel error=%v out=%s", err, out)
 	}
 	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "cancel" || failure.ErrorCode != memoryErrCancelTooLate || failure.FinishedAt.IsZero() || len(failure.JobIDs) != 1 {
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "cancel" || failure.ErrorCode != brainstore.CancelTooLateCode || failure.FinishedAt.IsZero() || len(failure.JobIDs) != 1 {
 		t.Fatalf("completed exact cancel receipt=%+v decode=%v\n%s", failure, decodeErr, out)
 	}
 	missingRetry := newMemoryRetryCommand(opts)
@@ -1300,7 +1300,7 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 		t.Fatalf("missing retry error=%v out=%s", err, out)
 	}
 	failure = memoryOperationReceipt{}
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "retry" || failure.ErrorCode != memoryErrSourceStale || failure.FinishedAt.IsZero() {
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "retry" || failure.ErrorCode != brainstore.SourceStaleCode || failure.FinishedAt.IsZero() {
 		t.Fatalf("missing retry receipt=%+v decode=%v\n%s", failure, decodeErr, out)
 	}
 }
@@ -1478,11 +1478,11 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	}
 	unlock()
 	cancelErr := <-done
-	if cancelErr == nil || !strings.Contains(cancelErr.Error(), memoryErrCancelTooLate) {
+	if cancelErr == nil || !strings.Contains(cancelErr.Error(), brainstore.CancelTooLateCode) {
 		t.Fatalf("cancel race error = %v", cancelErr)
 	}
-	if code := memoryErrorCode(cancelErr); code != memoryErrCancelTooLate {
-		t.Fatalf("cancel race stable code = %q, want %q", code, memoryErrCancelTooLate)
+	if code := brainstore.MemoryErrorCode(cancelErr); code != brainstore.CancelTooLateCode {
+		t.Fatalf("cancel race stable code = %q, want %q", code, brainstore.CancelTooLateCode)
 	}
 	if request, err := loadMemoryCancellationRequest(brainDir, job.JobID); err != nil || request != nil {
 		t.Fatalf("stale marker after too-late race: request=%+v err=%v", request, err)

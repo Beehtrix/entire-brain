@@ -112,7 +112,7 @@ func TestHistoryIndexSkipsAnOversizeTranscriptAndIndexesTheRest(t *testing.T) {
 
 	// Skipped, not silently dropped.
 	joined := strings.Join(index.Warnings, "\n")
-	if !strings.Contains(joined, oversizeRel) || !strings.Contains(joined, memoryErrInputTooLarge) {
+	if !strings.Contains(joined, oversizeRel) || !strings.Contains(joined, brainstore.InputTooLargeCode) {
 		t.Fatalf("the skip was not reported with its file and reason: %v", index.Warnings)
 	}
 }
@@ -238,7 +238,7 @@ func TestShortTermDeltaRefusesEveryBoundBreachExceptTheTranscriptCap(t *testing.
 	}
 
 	// Any other input-too-large error is NOT a statement about one file.
-	other := fmt.Errorf("%s: bounded abstract input exceeds 16 bytes", memoryErrInputTooLarge)
+	other := fmt.Errorf("%s: bounded abstract input exceeds 16 bytes", brainstore.InputTooLargeCode)
 	if !shortTermCanonicalInputRefusal(other) {
 		t.Fatalf("a non-transcript bound breach stopped refusing the delta: %v", other)
 	}
@@ -246,7 +246,7 @@ func TestShortTermDeltaRefusesEveryBoundBreachExceptTheTranscriptCap(t *testing.
 	if !shortTermCanonicalInputRefusal(errHistorySessionInventoryDegraded) {
 		t.Fatal("a degraded inventory stopped refusing the delta")
 	}
-	if !shortTermCanonicalInputRefusal(fmt.Errorf("%s: membership changed", memoryErrSourceStale)) {
+	if !shortTermCanonicalInputRefusal(fmt.Errorf("%s: membership changed", brainstore.SourceStaleCode)) {
 		t.Fatal("a source-stale race stopped refusing the delta")
 	}
 	if shortTermCanonicalInputRefusal(nil) || !shortTermCanonicalInputRefusal(context.Canceled) {
@@ -325,8 +325,8 @@ func TestStoreSizeRefusalClassifiesAsTheSkippableOversizeError(t *testing.T) {
 
 	// The wording is load-bearing elsewhere: history_delta.go classifies the
 	// same condition by substring, so the code must still appear in the text.
-	if !strings.Contains(classified.Error(), memoryErrInputTooLarge) {
-		t.Fatalf("the classified error lost the %s code that other consumers match on: %v", memoryErrInputTooLarge, classified)
+	if !strings.Contains(classified.Error(), brainstore.InputTooLargeCode) {
+		t.Fatalf("the classified error lost the %s code that other consumers match on: %v", brainstore.InputTooLargeCode, classified)
 	}
 	if !strings.Contains(classified.Error(), "exceeds maximum size of 1024 bytes") {
 		t.Fatalf("the classified error lost the underlying bound detail: %v", classified)
@@ -391,7 +391,7 @@ func TestAGrownTranscriptIsASourceRaceNotASkippableOversize(t *testing.T) {
 	if errors.Is(readErr, errHistoryTranscriptTooLarge) {
 		t.Fatalf("a source race was classified as a skippable oversize transcript, so every inventory reader would skip it and publish: %v", readErr)
 	}
-	if !strings.Contains(readErr.Error(), memoryErrSourceStale) {
+	if !strings.Contains(readErr.Error(), brainstore.SourceStaleCode) {
 		t.Fatalf("the race must survive in the error the readers see: %v", readErr)
 	}
 	// And the delta's classifier must refuse on it.
@@ -404,7 +404,7 @@ func TestAGrownTranscriptIsASourceRaceNotASkippableOversize(t *testing.T) {
 // joined with -- or wrapped around -- a refusal condition.
 func TestTheOversizeSentinelExcusesOnlyItself(t *testing.T) {
 	oversize := historyTranscriptTooLargeError("sessions/main/huge.jsonl")
-	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", brainstore.SourceStaleCode)
 
 	for _, probe := range []struct {
 		name string
@@ -438,7 +438,7 @@ func TestTheOversizeSentinelExcusesOnlyItself(t *testing.T) {
 // whatever else is in the join and publishes the generation.
 func TestOversizeIsTheSoleFaultOnlyWhenItReallyIs(t *testing.T) {
 	bound := fmt.Errorf("canonical transcript sessions/main/huge.jsonl exceeds maximum size of 64 bytes")
-	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", brainstore.SourceStaleCode)
 	containment := &historySessionInventoryError{Path: "sessions/main/huge.jsonl", Reason: "transcript path changed while reading"}
 	closeFail := errors.New("close: input/output error")
 
@@ -470,7 +470,7 @@ func TestOversizeIsTheSoleFaultOnlyWhenItReallyIs(t *testing.T) {
 // validateAfterRead has failed drops a swapped or escaped transcript out of the
 // content identity and publishes the generation.
 func TestOversizeMayBeAttributedToTheFileOnlyWhenNothingElseFailed(t *testing.T) {
-	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", memoryErrSourceStale)
+	stale := fmt.Errorf("%s: transcript changed while reading: sessions/main/huge.jsonl", brainstore.SourceStaleCode)
 	containment := &historySessionInventoryError{Path: "sessions/main/huge.jsonl", Reason: "transcript path changed while reading"}
 
 	for _, probe := range []struct {

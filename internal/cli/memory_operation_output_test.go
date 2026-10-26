@@ -151,7 +151,7 @@ func TestMemoryMaintenanceOutputFailurePreservesSuccessfulMutationOutcome(t *tes
 				if source != nil && strings.TrimSpace(source.ProjectionStatePath) != "" {
 					path = source.ProjectionStatePath
 				}
-				return []memoryMigrationFinding{{Path: path, State: memoryErrMigrationRequired, Action: "rebuild"}}
+				return []memoryMigrationFinding{{Path: path, State: brainstore.MigrationRequiredCode, Action: "rebuild"}}
 			}
 			return nil
 		}

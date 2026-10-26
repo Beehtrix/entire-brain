@@ -689,7 +689,7 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 	if err := rejectSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
 		return
 	}
-	directory, err := readMemoryStateDirectory(outputDir, historyGenerationsDir, "history generation directory", memoryStateInventoryMaxEntries)
+	directory, err := brainstore.ReadMemoryStateDirectory(outputDir, historyGenerationsDir, "history generation directory", brainstore.MemoryStateInventoryMaxEntries)
 	if err != nil || directory.Truncated {
 		return
 	}
@@ -949,7 +949,7 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 		}
 	}
 	for _, rootRel := range []string{historyGenerationsDir, historyStagingDir} {
-		directory, err := readMemoryStateDirectory(outputDir, rootRel, "history projection root", memoryStateInventoryMaxEntries)
+		directory, err := brainstore.ReadMemoryStateDirectory(outputDir, rootRel, "history projection root", brainstore.MemoryStateInventoryMaxEntries)
 		if err != nil {
 			return err
 		}
@@ -1116,7 +1116,7 @@ func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, st
 }
 
 func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
-	data, present, err := readMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
+	data, present, err := brainstore.ReadMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
 	if err != nil {
 		// An externally hardlinked input is unreadable here, but it must not
 		// veto the rebuild that supersedes it: these inputs are disposable
@@ -1418,7 +1418,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 //
 // Its message is deliberately the bare memory_input_too_large code, so
 // wrapping it with %w reproduces the previous wording byte for byte.
-var errHistoryTranscriptTooLarge = errors.New(memoryErrInputTooLarge)
+var errHistoryTranscriptTooLarge = errors.New(brainstore.InputTooLargeCode)
 
 func historyTranscriptTooLargeError(rel string) error {
 	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, clibase.MaxDocumentTranscriptBytes)
@@ -1616,7 +1616,7 @@ func historyScanFingerprintError(path string, err error) error {
 func scanSessionInventoryFileRecords(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (records []historyRecord, incomplete int, warnings []string, ok bool, containmentErr error) {
 	data, _, err := readHistorySessionInventoryFile(ctx, inventory, file)
 	if err != nil {
-		if errors.Is(err, errHistorySessionInventoryDegraded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), memoryErrSourceStale) {
+		if errors.Is(err, errHistorySessionInventoryDegraded) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return nil, 0, nil, false, err
 		}
 		// A size-bound failure means this projection cannot completely consume the
@@ -3175,7 +3175,7 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	}
 	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
 	if generationAddressed && source.IndexDigest == "" {
-		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
+		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`", brainstore.MigrationRequiredCode)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,7 @@ func TestSkillQualityCorrectedEpisodeBecomesFailureMode(t *testing.T) {
 // formable.
 func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestSkillQualityShallowOnlyNotFormable(t *testing.T) {
 // intent_sig.
 func TestSkillQualityThemeCitesPracticeNotIntentSig(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestSkillQualityWorkspaceIncludesRepoVariation(t *testing.T) {
 			{RepoKey: "gh/acme/b", Commands: []string{"make build", "make release"}},
 		},
 	}
-	ev := buildWorkspaceFamilyEvidence(fam)
+	ev := patterncore.BuildWorkspaceFamilyEvidence(fam)
 	if !strings.Contains(ev, "Per-repo variations") {
 		t.Fatalf("workspace skill input must include a per-repo variations section:\n%s", ev)
 	}

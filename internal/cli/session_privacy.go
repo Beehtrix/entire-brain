@@ -1063,7 +1063,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		}
 	}
 	if len(refSet) > brainstore.PrivacyTransactionSessionRefMax {
-		return plan, fmt.Errorf("%s: privacy scope exceeds %d canonical session refs", memoryErrQueryTooBroad, brainstore.PrivacyTransactionSessionRefMax)
+		return plan, fmt.Errorf("%s: privacy scope exceeds %d canonical session refs", brainstore.QueryTooBroadCode, brainstore.PrivacyTransactionSessionRefMax)
 	}
 	for ref := range refSet {
 		plan.SessionRefs = append(plan.SessionRefs, ref)
@@ -1095,9 +1095,9 @@ func privacyDerivedStoreRels() []string {
 		patternsTasksPath,
 		patternsProceduresPath,
 		patternsPracticesPath,
-		patternRunsRelPath,
+		patterncore.RunsRelPath,
 	}
-	rels = append(rels, patternCorpusPrivacyArtifactRels()...)
+	rels = append(rels, patterncore.CorpusPrivacyArtifactRels()...)
 	rels = append(rels, patterncore.CorpusPublicationMarkerPath)
 	return rels
 }
@@ -1110,7 +1110,7 @@ func privacyDerivedStoreRels() []string {
 // reports and cleanup delete exactly the same artifact set, orphans included.
 func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	rels := privacyDerivedStoreRels()
-	publication, _, publicationPresent, err := loadPatternCorpusPublicationForPrivacy(brainDir)
+	publication, _, publicationPresent, err := patterncore.LoadCorpusPublicationForPrivacy(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1271,7 +1271,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	seen := make(map[string]bool, len(rels)*3)
 	for _, rel := range rels {
 		artifacts := []string{rel, rel + "-wal", rel + "-shm"}
-		if rel == patterncore.CorpusPublicationMarkerPath || isPatternCorpusPrivacyArtifactRel(rel) || isPatternCorpusStagingArtifactRel(rel) {
+		if rel == patterncore.CorpusPublicationMarkerPath || patterncore.IsCorpusPrivacyArtifactRel(rel) || patterncore.IsCorpusStagingArtifactRel(rel) {
 			// Pattern publication owns an explicit shared sidecar inventory, and
 			// staging leaves were enumerated exactly. Do not synthesize unrelated
 			// suffixes for its marker, sidecars, or candidate leaves.
@@ -1605,7 +1605,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	// Operational publication state is classified before the transaction or
 	// tombstone changes. A newer/corrupt/unsafe marker is owned by a producer we
 	// cannot safely supersede, so cleanup must preserve both it and its candidate.
-	if _, _, _, markerErr := loadPatternCorpusPublicationForPrivacy(brainDir); markerErr != nil {
+	if _, _, _, markerErr := patterncore.LoadCorpusPublicationForPrivacy(brainDir); markerErr != nil {
 		return markerErr
 	}
 	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
@@ -1656,7 +1656,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	// Remove a supported marker first, with a fresh classification and exact
 	// identity check. This prevents a stale plan from deleting its candidate
 	// before discovering that a forward-version marker took ownership.
-	if err := removePatternCorpusPublicationForPrivacy(brainDir); err != nil {
+	if err := patterncore.RemoveCorpusPublicationForPrivacy(brainDir); err != nil {
 		return fmt.Errorf("delete pattern corpus publication marker: %w", err)
 	}
 	if !keepTranscripts {
@@ -1795,13 +1795,13 @@ func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
 	}
 	rel = filepath.ToSlash(clean)
 	if rel == patterncore.CorpusPublicationMarkerPath {
-		return removePatternCorpusPublicationForPrivacy(brainDir)
+		return patterncore.RemoveCorpusPublicationForPrivacy(brainDir)
 	}
 	var candidates []string
 	switch {
 	case rel == patterncore.CorpusPath:
-		candidates = patternCorpusPrivacyArtifactRels()
-	case isPatternCorpusPrivacyArtifactRel(rel), isPatternCorpusStagingArtifactRel(rel):
+		candidates = patterncore.CorpusPrivacyArtifactRels()
+	case patterncore.IsCorpusPrivacyArtifactRel(rel), patterncore.IsCorpusStagingArtifactRel(rel):
 		candidates = []string{rel}
 	default:
 		candidates = []string{rel, rel + "-wal", rel + "-shm"}
@@ -1814,7 +1814,7 @@ func removePrivacyDerivedStoreArtifact(brainDir, rel string) error {
 		if !present {
 			continue
 		}
-		if err := removeBrainRelativeFileExpected(brainDir, candidate, info); err != nil {
+		if err := brainstore.RemoveBrainRelativeFileExpected(brainDir, candidate, info); err != nil {
 			return err
 		}
 	}

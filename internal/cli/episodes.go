@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,12 +66,6 @@ type patternSourceManifest struct {
 	Warnings            []string            `json:"warnings,omitempty"`
 }
 
-type reinforcementCounts struct {
-	Success   int `json:"success"`
-	Corrected int `json:"corrected"`
-	Neutral   int `json:"neutral"`
-}
-
 // episodeRecord is one episode persisted to patterns/episodes.ndjson.
 type episodeRecord struct {
 	ID              string        `json:"id"`
@@ -90,10 +85,9 @@ type episodeRecord struct {
 	CreatedAt       *time.Time    `json:"created_at,omitempty"`
 }
 
-type episodeAnchor struct {
-	Path string `json:"path"`
-	Line int    `json:"line,omitempty"`
-}
+type reinforcementCounts = patterncore.ReinforcementCounts
+
+type episodeAnchor = patterncore.EpisodeAnchor
 
 // episodeID is a stable content hash over the identity-defining fields only —
 // session, turn position, and normalized intent text. It deliberately excludes
@@ -223,7 +217,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	unchanged := beforeInventory.sameMembership(afterInventory)
 	_ = afterInventory.Close()
 	if !unchanged {
-		return nil, nil, fmt.Errorf("%s: canonical transcript inventory changed while building episodes", memoryErrSourceStale)
+		return nil, nil, fmt.Errorf("%s: canonical transcript inventory changed while building episodes", brainstore.SourceStaleCode)
 	}
 
 	// Deterministic order keeps episodes.ndjson stable across refreshes (small,

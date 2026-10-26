@@ -28,7 +28,7 @@ func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map
 		{RepoKey: "gh/acme/alpha", Name: "alpha"},
 		{RepoKey: "gh/acme/beta", Name: "beta"},
 	}}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	ids := map[string]string{}
@@ -220,7 +220,7 @@ func TestWorkspaceRetrieveGraphGroupSuccessAndMalformedState(t *testing.T) {
 		}
 	}
 
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: "concepts", Repos: []workspace.Repo{{RepoKey: repoKey, Name: "multi-concept"}}}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	opts := Options{Version: "test", Env: env, Now: func() time.Time { return time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC) }}

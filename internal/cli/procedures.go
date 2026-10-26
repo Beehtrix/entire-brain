@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"math"
 	"os"
 	"sort"
@@ -69,12 +70,7 @@ type procedureRecord struct {
 	LastSeen      *time.Time          `json:"last_seen,omitempty"`
 }
 
-// patternRepoStat is one repo's contribution to a workspace pattern.
-type patternRepoStat struct {
-	RepoKey       string              `json:"repo_key"`
-	Support       int                 `json:"support"`
-	Reinforcement reinforcementCounts `json:"reinforcement,omitempty"`
-}
+type patternRepoStat = patterncore.PatternRepoStat
 
 func procedureID(scope, repoKey string, commands []string) string {
 	sum := sha256.Sum256([]byte(scope + "\x00" + repoKey + "\x00" + strings.Join(commands, "\x00")))

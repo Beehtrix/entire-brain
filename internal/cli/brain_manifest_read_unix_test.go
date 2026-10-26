@@ -15,8 +15,8 @@ import (
 func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
 	dir := writeTestManifest(t, `{"schema_version":3}`)
 	path := filepath.Join(dir, exportManifestFileName)
-	originalOpen := memoryStateOpenFile
-	memoryStateOpenFile = func(name string, flags int, perm os.FileMode) (*os.File, error) {
+	originalOpen := brainstore.MemoryStateOpenFile
+	brainstore.MemoryStateOpenFile = func(name string, flags int, perm os.FileMode) (*os.File, error) {
 		if name == path {
 			if err := os.Rename(path, path+".original"); err != nil {
 				t.Fatal(err)
@@ -27,7 +27,7 @@ func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
 		}
 		return originalOpen(name, flags, perm)
 	}
-	t.Cleanup(func() { memoryStateOpenFile = originalOpen })
+	t.Cleanup(func() { brainstore.MemoryStateOpenFile = originalOpen })
 	if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("FIFO swap: %v", err)
 	}

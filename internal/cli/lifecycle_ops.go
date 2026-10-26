@@ -171,7 +171,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 			if blockCode, _ := provider["block_code"].(string); blockCode != "" {
 				detail += "; " + blockCode
 			}
-		} else if providerState, _ := provider["provider_state"].(string); providerState == memoryErrProviderUnavail {
+		} else if providerState, _ := provider["provider_state"].(string); providerState == brainstore.ProviderUnavailCode {
 			state = "warn"
 			detail += "; " + providerState
 		}
@@ -214,7 +214,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 					}
 					code, _ := health["error_code"].(string)
 					switch code {
-					case brainstore.UnsupportedVersionCode, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, memoryErrMigrationRequired:
+					case brainstore.UnsupportedVersionCode, brainstore.StateCorruptCode, brainstore.StateUnsafeCode, brainstore.MigrationRequiredCode:
 						errorCodes[code] = true
 					}
 				}

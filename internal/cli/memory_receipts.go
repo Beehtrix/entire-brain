@@ -118,7 +118,7 @@ func newProjectionStateLoadError(state projectionStateReadState, path, detail st
 	case projectionStateUnsupported:
 		code = brainstore.UnsupportedVersionCode
 	case projectionStateStale:
-		code = memoryErrSourceStale
+		code = brainstore.SourceStaleCode
 	case projectionStateUnsafe:
 		code = brainstore.StateUnsafeCode
 	}
@@ -198,7 +198,7 @@ func buildProjectionReceiptsFromSnapshot(brainDir string, manifest *exportManife
 }
 
 func writeProjectionState(brainDir string, state projectionState) (digest string, err error) {
-	if existing, present, readErr := readMemoryStateFile(brainDir, projectionStateRel, "projection receipt", base.MaxManifestBytes); readErr != nil {
+	if existing, present, readErr := brainstore.ReadMemoryStateFile(brainDir, projectionStateRel, "projection receipt", base.MaxManifestBytes); readErr != nil {
 		return "", readErr
 	} else if present {
 		_, readState, decodeErr := decodeProjectionStateDocument(existing, projectionStateRel)

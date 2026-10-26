@@ -31,10 +31,10 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		"supported_reconciler_version": historyShortTermReconcilerVersion,
 		"action":                       "none",
 	}
-	data, present, err := readMemoryStateFile(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, historyShortTermPath, "short-term history", base.DefaultMaxReadBytes)
 	health["present"] = present
 	if err != nil {
-		code := memoryErrorCode(err)
+		code := brainstore.MemoryErrorCode(err)
 		state := shortTermStateCorrupt
 		if code == brainstore.StateUnsafeCode {
 			state = shortTermStateUnsafe
@@ -70,9 +70,9 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 		health["action"] = "upgrade entire-brain; this newer overlay remains read-only"
 		return health
 	case header.Version < historyShortTermVersion || header.ReconcilerVersion < historyShortTermReconcilerVersion:
-		health["state"] = memoryErrMigrationRequired
-		health["schema_state"] = memoryErrMigrationRequired
-		health["error_code"] = memoryErrMigrationRequired
+		health["state"] = brainstore.MigrationRequiredCode
+		health["schema_state"] = brainstore.MigrationRequiredCode
+		health["error_code"] = brainstore.MigrationRequiredCode
 		health["action"] = "rebuild the disposable overlay with `" + base.BrainInvocation(os.LookupEnv, "refresh delta") + "`"
 		return health
 	}
@@ -94,7 +94,7 @@ func memoryOverlayHealth(brainDir string, source *historySourceManifest) map[str
 	health["scan_warnings"] = len(overlay.ScanWarnings)
 	if source == nil || !overlay.BaseGeneratedAt.Equal(source.GeneratedAt) {
 		health["state"] = shortTermStateStale
-		health["error_code"] = memoryErrSourceStale
+		health["error_code"] = brainstore.SourceStaleCode
 		health["action"] = "rebuild the overlay against the current canonical history source"
 		return health
 	}
@@ -145,7 +145,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		return health
 	}
 	path := filepath.Join(brainDir, clean)
-	before, err := memoryStateLstat(path)
+	before, err := brainstore.MemoryStateLstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return health
@@ -164,7 +164,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		health["action"] = "replace the unsafe FTS leaf with a regular derived store"
 		return health
 	}
-	guard, err := memoryStateOpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
+	guard, err := brainstore.MemoryStateOpenFile(path, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
@@ -174,7 +174,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	}
 	defer guard.Close()
 	opened, statErr := guard.Stat()
-	afterOpen, lstatErr := memoryStateLstat(path)
+	afterOpen, lstatErr := brainstore.MemoryStateLstat(path)
 	if statErr != nil || lstatErr != nil || !opened.Mode().IsRegular() || afterOpen.Mode()&os.ModeSymlink != 0 || !os.SameFile(before, opened) || !os.SameFile(opened, afterOpen) || base.RejectOpenFileAlias(path, guard, "history FTS") != nil {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
@@ -234,7 +234,7 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	if err := db.Close(); err != nil {
 		return finishHistoryFTSReadError(health)
 	}
-	after, err := memoryStateLstat(path)
+	after, err := brainstore.MemoryStateLstat(path)
 	if err != nil || after.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, after) {
 		health["state"] = "unsafe"
 		health["schema_state"] = "unsafe"
@@ -248,9 +248,9 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 		observed, observedErr := strconv.Atoi(schema)
 		supported, supportedErr := strconv.Atoi(historyFTSSchema)
 		if observedErr == nil && supportedErr == nil && observed < supported {
-			health["state"] = memoryErrMigrationRequired
-			health["schema_state"] = memoryErrMigrationRequired
-			health["error_code"] = memoryErrMigrationRequired
+			health["state"] = brainstore.MigrationRequiredCode
+			health["schema_state"] = brainstore.MigrationRequiredCode
+			health["error_code"] = brainstore.MigrationRequiredCode
 			health["action"] = "rebuild the disposable FTS store from the current history index"
 			return health
 		}
@@ -263,20 +263,20 @@ func memoryHistoryFTSHealth(brainDir string, source *historySourceManifest) map[
 	health["schema_state"] = "current"
 	if source == nil {
 		health["state"] = "stale"
-		health["error_code"] = memoryErrSourceStale
+		health["error_code"] = brainstore.SourceStaleCode
 		health["action"] = "publish a current canonical history source, then rebuild FTS"
 		return health
 	}
 	index, err := loadBrainHistoryIndex(brainDir, source)
 	if err != nil {
 		health["state"] = "stale"
-		health["error_code"] = memoryErrSourceStale
+		health["error_code"] = brainstore.SourceStaleCode
 		health["action"] = "repair the canonical history source before validating or rebuilding FTS"
 		return health
 	}
 	if fingerprint != historyFTSIdentityFromIndex(index).RecordsFingerprint {
 		health["state"] = "stale"
-		health["error_code"] = memoryErrSourceStale
+		health["error_code"] = brainstore.SourceStaleCode
 		health["action"] = "rebuild the disposable FTS store from the current history index"
 		return health
 	}
@@ -347,7 +347,7 @@ func memoryJobInventoryHealth(inventory memoryJobInventory) map[string]any {
 		health["action"] = "upgrade entire-brain; newer job records remain read-only"
 	case "corrupt":
 		health["action"] = "repair the named content-free job records before queue mutation"
-	case memoryErrMigrationRequired:
+	case brainstore.MigrationRequiredCode:
 		health["action"] = "run `" + base.SetupCommandPrefix(os.LookupEnv) + " memory migrate` to rewrite previous job schemas"
 	}
 	return health
@@ -375,7 +375,7 @@ func memoryObservedSchemaVersions(current []int, issues []memoryStateIssue) []in
 
 func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 	priority := map[string]int{
-		memoryErrMigrationRequired:        1,
+		brainstore.MigrationRequiredCode:  1,
 		brainstore.StateCorruptCode:       2,
 		brainstore.UnsupportedVersionCode: 3,
 		brainstore.StateUnsafeCode:        4,
@@ -387,8 +387,8 @@ func memoryInventoryIssueState(issues []memoryStateIssue) (string, string) {
 		}
 	}
 	switch selected {
-	case memoryErrMigrationRequired:
-		return memoryErrMigrationRequired, selected
+	case brainstore.MigrationRequiredCode:
+		return brainstore.MigrationRequiredCode, selected
 	case brainstore.UnsupportedVersionCode:
 		return "unsupported", selected
 	case brainstore.StateUnsafeCode:
@@ -410,7 +410,7 @@ func memoryVectorProgressHealth(brainDir string, source *historySourceManifest) 
 	progress, present, err := loadMemoryVectorProgress(brainDir)
 	health["present"] = present
 	if err != nil {
-		code := memoryErrorCode(err)
+		code := brainstore.MemoryErrorCode(err)
 		state := "corrupt"
 		var loadErr *memoryVectorProgressLoadError
 		if errors.As(err, &loadErr) {
@@ -446,7 +446,7 @@ func memoryVectorProgressHealth(brainDir string, source *historySourceManifest) 
 		health["state"] = "current"
 	} else if source != nil && source.IndexDigest != "" && progress.SourceDigest != source.IndexDigest {
 		health["state"] = "stale"
-		health["error_code"] = memoryErrSourceStale
+		health["error_code"] = brainstore.SourceStaleCode
 		health["action"] = "resume vector synchronization against the current history generation"
 	}
 	if progress.ErrorCode != "" {

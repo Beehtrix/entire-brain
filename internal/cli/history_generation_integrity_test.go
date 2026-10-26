@@ -295,7 +295,7 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		}
 		found := false
 		for _, finding := range detectMemoryMigrations(brainDir, &legacy) {
-			found = found || finding.Path == legacy.IndexPath && finding.State == memoryErrMigrationRequired
+			found = found || finding.Path == legacy.IndexPath && finding.State == brainstore.MigrationRequiredCode
 		}
 		if !found {
 			t.Fatalf("legacy index digest migration not reported: %+v", detectMemoryMigrations(brainDir, &legacy))
@@ -307,12 +307,12 @@ func TestHistoryIndexDigestValidationAndLegacyClassification(t *testing.T) {
 		source, _ := activeHistoryProjection(t, brainDir)
 		legacyGeneration := *source
 		legacyGeneration.IndexDigest = ""
-		if _, err := loadBrainHistoryIndex(brainDir, &legacyGeneration); err == nil || !strings.Contains(err.Error(), memoryErrMigrationRequired) {
+		if _, err := loadBrainHistoryIndex(brainDir, &legacyGeneration); err == nil || !strings.Contains(err.Error(), brainstore.MigrationRequiredCode) {
 			t.Fatalf("digestless generation error = %v", err)
 		}
 		found := false
 		for _, finding := range detectMemoryMigrations(brainDir, &legacyGeneration) {
-			found = found || finding.Path == legacyGeneration.IndexPath && finding.State == memoryErrMigrationRequired
+			found = found || finding.Path == legacyGeneration.IndexPath && finding.State == brainstore.MigrationRequiredCode
 		}
 		if !found {
 			t.Fatalf("digestless generation migration not reported: %+v", detectMemoryMigrations(brainDir, &legacyGeneration))

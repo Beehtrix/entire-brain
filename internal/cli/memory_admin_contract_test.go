@@ -21,7 +21,7 @@ import (
 func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 	started := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
 	finished := started.Add(2 * time.Second)
-	cause := fmt.Errorf("%s: injected", memoryErrSourceStale)
+	cause := fmt.Errorf("%s: injected", brainstore.SourceStaleCode)
 
 	for _, jsonOut := range []bool{false, true} {
 		t.Run(map[bool]string{false: "plain", true: "json"}[jsonOut], func(t *testing.T) {
@@ -35,7 +35,7 @@ func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 			if !errors.Is(err, cause) {
 				t.Fatalf("returned error = %v, want original cause", err)
 			}
-			if receipt.FinishedAt != finished || receipt.ErrorCode != memoryErrSourceStale {
+			if receipt.FinishedAt != finished || receipt.ErrorCode != brainstore.SourceStaleCode {
 				t.Fatalf("receipt = %+v", receipt)
 			}
 			if jsonOut {
@@ -43,7 +43,7 @@ func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 				if err := json.Unmarshal(output.Bytes(), &decoded); err != nil {
 					t.Fatalf("decode one JSON receipt: %v\n%s", err, output.String())
 				}
-				if decoded.OperationID != receipt.OperationID || decoded.FinishedAt != finished || decoded.ErrorCode != memoryErrSourceStale {
+				if decoded.OperationID != receipt.OperationID || decoded.FinishedAt != finished || decoded.ErrorCode != brainstore.SourceStaleCode {
 					t.Fatalf("decoded receipt = %+v", decoded)
 				}
 				if strings.Count(output.String(), `"operation_id"`) != 1 {
@@ -225,7 +225,7 @@ func TestManualAbstractMutationReceiptsAndDryRun(t *testing.T) {
 		t.Fatalf("missing abstract error=%v out=%s", err, out)
 	}
 	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "abstract_generate" || failure.ErrorCode != memoryErrSourceStale || failure.FinishedAt.IsZero() {
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "abstract_generate" || failure.ErrorCode != brainstore.SourceStaleCode || failure.FinishedAt.IsZero() {
 		t.Fatalf("missing abstract receipt=%+v decode=%v\n%s", failure, decodeErr, out)
 	}
 }
@@ -288,7 +288,7 @@ func TestMemoryAdminCommandsEmitFailureReceiptAfterCommittedMutation(t *testing.
 		rebuildMemoryProjection = func(string, time.Time) error { committed++; return nil }
 		markMemoryProjectionRefreshStates = oldMark
 		detectMemoryMigrationsForAdmin = func(string, *historySourceManifest) []memoryMigrationFinding {
-			return []memoryMigrationFinding{{Path: projectionStateRel, State: memoryErrMigrationRequired, Action: "rebuild"}}
+			return []memoryMigrationFinding{{Path: projectionStateRel, State: brainstore.MigrationRequiredCode, Action: "rebuild"}}
 		}
 		saveMemoryMigrationProgressForAdmin = func(string, memoryMigrationProgress) error {
 			return errors.New("injected progress failure")
@@ -344,7 +344,7 @@ func TestConfigureAbstractsValidationFailureKeepsPlainSurfaceQuiet(t *testing.T)
 	cmd := newMemoryConfigureCommand(opts)
 	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	out, err := execute(t, cmd, "abstracts", "--enable", "--provider", "codex")
-	if err == nil || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
 		t.Fatalf("configure validation error=%v out=%s", err, out)
 	}
 	if out != "" {

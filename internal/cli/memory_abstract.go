@@ -68,7 +68,7 @@ const (
 	abstractStatusUnavailable = "provider_unavailable"
 	abstractStatusCorrupt     = brainstore.StateCorruptCode
 	abstractStatusUnsupported = brainstore.UnsupportedVersionCode
-	abstractStatusDegraded    = memoryErrQueryTooBroad
+	abstractStatusDegraded    = brainstore.QueryTooBroadCode
 
 	abstractProviderTimeout = 2 * time.Minute
 )
@@ -143,7 +143,7 @@ const (
 // they can no longer misreport damaged state as a disabled feature.
 func loadMemoryConfigChecked(brainDir string) (memoryConfig, memoryConfigReadState, error) {
 	empty := memoryConfig{SchemaVersion: memoryConfigSchemaVersion}
-	data, present, err := readMemoryStateFile(brainDir, memoryConfigRel, "memory config", clibase.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryConfigRel, "memory config", clibase.MaxManifestBytes)
 	if err != nil {
 		if strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 			return empty, memoryConfigUnsafe, err
@@ -294,7 +294,7 @@ func decodeAbstractEgressReceipt(data []byte, version int, expectedRef string) (
 }
 
 func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expectedRef string, expected os.FileInfo) (abstractEgressReceiptFile, bool, error) {
-	data, present, err := readMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", clibase.MaxManifestBytes, expected)
+	data, present, err := brainstore.ReadMemoryStateFileExpected(brainDir, rel, "abstract egress receipt", clibase.MaxManifestBytes, expected)
 	if err != nil || !present {
 		return abstractEgressReceiptFile{}, present, err
 	}
@@ -302,7 +302,7 @@ func readAbstractEgressReceiptExpected(brainDir, rel string, version int, expect
 	if err != nil {
 		return abstractEgressReceiptFile{Path: rel, Receipt: receipt, Info: expected, Legacy: version == abstractEgressLegacyVersion}, true, err
 	}
-	info, err := memoryStateLstat(filepath.Join(brainDir, filepath.FromSlash(rel)))
+	info, err := brainstore.MemoryStateLstat(filepath.Join(brainDir, filepath.FromSlash(rel)))
 	if err != nil || !info.Mode().IsRegular() {
 		return abstractEgressReceiptFile{}, true, fmt.Errorf("%s: abstract egress receipt changed after reading", brainstore.StateUnsafeCode)
 	}
@@ -408,7 +408,7 @@ func purgeAbstractEgressReceiptsForSessionRefs(brainDir string, refs map[string]
 		return err
 	}
 	for _, file := range files {
-		if err := removeBrainRelativeFileExpected(brainDir, file.Path, file.Info); err != nil {
+		if err := brainstore.RemoveBrainRelativeFileExpected(brainDir, file.Path, file.Info); err != nil {
 			return err
 		}
 	}
@@ -432,9 +432,9 @@ type abstractEgressInventory struct {
 func (inventory *abstractEgressInventory) issue(path, code string, version ...int) {
 	inventory.Degraded = true
 	if code == "" {
-		// Several call sites pass memoryErrorCode(readErr) on branches that are
+		// Several call sites pass brainstore.MemoryErrorCode(readErr) on branches that are
 		// also reachable with readErr == nil (a legacy filename that disagrees
-		// with its own operation id; an absent receipt), and memoryErrorCode(nil)
+		// with its own operation id; an absent receipt), and brainstore.MemoryErrorCode(nil)
 		// is "". An empty-coded issue is silently discarded by
 		// memoryReadOnlyHealth's recordIssue WITHOUT incrementing
 		// hiddenIssueCount, so the finding disappeared from the reported issues
@@ -453,9 +453,9 @@ func (inventory *abstractEgressInventory) issue(path, code string, version ...in
 // health/maintenance. Privacy never relies on its completeness.
 func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 	var inventory abstractEgressInventory
-	root, err := readMemoryStateDirectory(brainDir, abstractEgressDirRel, "abstract egress directory", memoryStateInventoryMaxEntries)
+	root, err := brainstore.ReadMemoryStateDirectory(brainDir, abstractEgressDirRel, "abstract egress directory", brainstore.MemoryStateInventoryMaxEntries)
 	if err != nil {
-		inventory.issue(abstractEgressDirRel, memoryErrorCode(err))
+		inventory.issue(abstractEgressDirRel, brainstore.MemoryErrorCode(err))
 		return inventory
 	}
 	if !root.Present {
@@ -485,7 +485,7 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 			}
 			file, present, readErr := readAbstractEgressReceiptExpected(brainDir, rel, abstractEgressLegacyVersion, "", info)
 			if readErr != nil || !present || first.Name() != file.Receipt.OperationID+".json" {
-				inventory.issue(rel, memoryErrorCode(readErr), file.Receipt.SchemaVersion)
+				inventory.issue(rel, brainstore.MemoryErrorCode(readErr), file.Receipt.SchemaVersion)
 				continue
 			}
 			inventory.Receipts = append(inventory.Receipts, file)
@@ -497,11 +497,11 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 			continue
 		}
 		firstRel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, first.Name()))
-		secondLevel, secondErr := readMemoryStateDirectory(brainDir, firstRel, "abstract egress shard", memoryStateInventoryMaxEntries)
+		secondLevel, secondErr := brainstore.ReadMemoryStateDirectory(brainDir, firstRel, "abstract egress shard", brainstore.MemoryStateInventoryMaxEntries)
 		if secondErr != nil || secondLevel.Truncated {
-			code := memoryErrorCode(secondErr)
+			code := brainstore.MemoryErrorCode(secondErr)
 			if secondLevel.Truncated {
-				code = memoryErrQueryTooBroad
+				code = brainstore.QueryTooBroadCode
 			}
 			inventory.issue(firstRel, code)
 			inventory.Truncated = inventory.Truncated || secondLevel.Truncated
@@ -517,11 +517,11 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 				continue
 			}
 			secondRel := filepath.ToSlash(filepath.Join(firstRel, second.Name()))
-			leaves, leafErr := readMemoryStateDirectory(brainDir, secondRel, "abstract egress shard", memoryStateInventoryMaxEntries)
+			leaves, leafErr := brainstore.ReadMemoryStateDirectory(brainDir, secondRel, "abstract egress shard", brainstore.MemoryStateInventoryMaxEntries)
 			if leafErr != nil || leaves.Truncated {
-				code := memoryErrorCode(leafErr)
+				code := brainstore.MemoryErrorCode(leafErr)
 				if leaves.Truncated {
-					code = memoryErrQueryTooBroad
+					code = brainstore.QueryTooBroadCode
 				}
 				inventory.issue(secondRel, code)
 				inventory.Truncated = inventory.Truncated || leaves.Truncated
@@ -541,7 +541,7 @@ func loadAbstractEgressInventory(brainDir string) abstractEgressInventory {
 				}
 				file, present, readErr := readAbstractEgressReceiptExpected(brainDir, rel, abstractEgressSchemaVersion, "", info)
 				if readErr != nil || !present {
-					inventory.issue(rel, memoryErrorCode(readErr), file.Receipt.SchemaVersion)
+					inventory.issue(rel, brainstore.MemoryErrorCode(readErr), file.Receipt.SchemaVersion)
 					continue
 				}
 				if rel != abstractEgressReceiptRel(file.Receipt.SessionRef) {
@@ -561,7 +561,7 @@ func loadAbstractEgressReceiptsChecked(brainDir string) ([]abstractEgressReceipt
 		return nil, memoryStateError(inventory.Issues)
 	}
 	if inventory.Truncated {
-		return nil, fmt.Errorf("%s: abstract egress health inventory is truncated", memoryErrQueryTooBroad)
+		return nil, fmt.Errorf("%s: abstract egress health inventory is truncated", brainstore.QueryTooBroadCode)
 	}
 	if len(inventory.Migrations) > 0 {
 		return inventory.Receipts, fmt.Errorf("memory_migration_required: legacy abstract egress receipts are read-only until migrated or purged")
@@ -935,7 +935,7 @@ func (a *agentConversationAbstractor) call(ctx context.Context, repoDir, prompt 
 		return sessionAbstract{}, err
 	}
 	if len(data) > abstractProviderInputMax {
-		return sessionAbstract{}, fmt.Errorf("%s: bounded abstract input exceeds %d bytes", memoryErrInputTooLarge, abstractProviderInputMax)
+		return sessionAbstract{}, fmt.Errorf("%s: bounded abstract input exceeds %d bytes", brainstore.InputTooLargeCode, abstractProviderInputMax)
 	}
 	args, err := clibase.DistillAgentCommandArgs(a.provider, nil, prompt)
 	if err != nil {
@@ -944,7 +944,7 @@ func (a *agentConversationAbstractor) call(ctx context.Context, repoDir, prompt 
 	args = clibase.InjectAgentModel(args, a.provider, a.model)
 	out, err := a.run(ctx, repoDir, args, data, abstractProviderTimeout)
 	if err != nil {
-		return sessionAbstract{}, fmt.Errorf("%s: abstract provider %s failed", memoryErrProviderUnavail, a.provider)
+		return sessionAbstract{}, fmt.Errorf("%s: abstract provider %s failed", brainstore.ProviderUnavailCode, a.provider)
 	}
 	return decodeSessionAbstractOutput(out)
 }
@@ -1039,7 +1039,7 @@ func loadSessionAbstractChecked(brainDir, sessionDigest string) (sessionAbstract
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: invalid abstract digest identity", brainstore.StateCorruptCode)
 	}
 	rel := abstractRel(sessionDigest)
-	data, present, err := readMemoryStateFile(brainDir, rel, "session abstract", abstractArtifactReadMax)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, rel, "session abstract", abstractArtifactReadMax)
 	if err != nil {
 		state := sessionAbstractCorrupt
 		if strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
@@ -1135,8 +1135,8 @@ func (inventory *sessionAbstractInventory) recordIssue(issue memoryStateIssue) {
 	inventory.Issues = appendMemoryStateIssue(inventory.Issues, issue)
 }
 
-var sessionAbstractReadDirectory = func(brainDir string) (memoryStateDirectory, error) {
-	return readMemoryStateDirectory(brainDir, abstractsDirRel, "abstract directory", abstractInventoryMaxFiles)
+var sessionAbstractReadDirectory = func(brainDir string) (brainstore.MemoryStateDirectory, error) {
+	return brainstore.ReadMemoryStateDirectory(brainDir, abstractsDirRel, "abstract directory", abstractInventoryMaxFiles)
 }
 
 func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
@@ -1145,7 +1145,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 	}
 	directory, err := sessionAbstractReadDirectory(brainDir)
 	if err != nil {
-		inventory.recordIssue(memoryStateIssue{Kind: "abstract_directory", File: abstractsDirRel, Code: memoryErrorCode(err)})
+		inventory.recordIssue(memoryStateIssue{Kind: "abstract_directory", File: abstractsDirRel, Code: brainstore.MemoryErrorCode(err)})
 		return inventory
 	}
 	inventory.EntriesObserved = directory.Total
@@ -1190,7 +1190,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 			continue
 		}
 		rel := abstractRel(digest)
-		data, present, readErr := readMemoryStateFileExpected(brainDir, rel, "session abstract", abstractArtifactReadMax, info)
+		data, present, readErr := brainstore.ReadMemoryStateFileExpected(brainDir, rel, "session abstract", abstractArtifactReadMax, info)
 		var artifact sessionAbstract
 		state := sessionAbstractCurrent
 		var loadErr error
@@ -1220,7 +1220,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		inventory.BySessionRef[artifact.SessionRef] = append(inventory.BySessionRef[artifact.SessionRef], digest)
 	}
 	if inventory.Truncated {
-		inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: abstractsDirRel, Code: memoryErrQueryTooBroad})
+		inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: abstractsDirRel, Code: brainstore.QueryTooBroadCode})
 	}
 	return inventory
 }
@@ -1644,7 +1644,7 @@ func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessi
 	}
 	for _, record := range view.Records {
 		if guardBlocksRecord(guard, record) {
-			return fmt.Errorf("%s: session %s is excluded", memoryErrPrivacyExcluded, view.Ref)
+			return fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, view.Ref)
 		}
 	}
 	return nil
@@ -1655,24 +1655,24 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 		ctx = context.Background()
 	}
 	if !config.Abstracts.Enabled {
-		return sessionAbstract{}, fmt.Errorf("%s: session abstracts are disabled; enable them with `memory configure abstracts --enable --provider <name>`", memoryErrProviderUnavail)
+		return sessionAbstract{}, fmt.Errorf("%s: session abstracts are disabled; enable them with `memory configure abstracts --enable --provider <name>`", brainstore.ProviderUnavailCode)
 	}
 	if err := rejectAbstractProviderNameForGlobalNoEgress(config.Abstracts.Provider); err != nil {
 		return sessionAbstract{}, err
 	}
 	if memoryAbstractorFactory == nil {
-		return sessionAbstract{}, fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
+		return sessionAbstract{}, fmt.Errorf("%s: no abstract provider is available in this build", brainstore.ProviderUnavailCode)
 	}
 	provider, err := memoryAbstractorFactory(config.Abstracts)
 	if err != nil {
-		return sessionAbstract{}, fmt.Errorf("%s: %s", memoryErrProviderUnavail, err.Error())
+		return sessionAbstract{}, fmt.Errorf("%s: %s", brainstore.ProviderUnavailCode, err.Error())
 	}
 	kind, providerName, model := provider.Identity()
 	if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
 		return sessionAbstract{}, err
 	}
 	if kind == "hosted" && !config.Abstracts.HostedEgressAllowed {
-		return sessionAbstract{}, fmt.Errorf("%s: provider %s is hosted and hosted egress is not acknowledged (--allow-hosted-egress)", memoryErrProviderUnavail, providerName)
+		return sessionAbstract{}, fmt.Errorf("%s: provider %s is hosted and hosted egress is not acknowledged (--allow-hosted-egress)", brainstore.ProviderUnavailCode, providerName)
 	}
 	// Provider egress is irreversible, so an epoch token plus a post-call check
 	// cannot provide a privacy boundary. The dedicated side-effect lock is held
@@ -1706,7 +1706,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 			return err
 		}
 		if sessionViewDigest(current) != expectedDigest {
-			return fmt.Errorf("%s: session changed while abstract generation was running", memoryErrSourceStale)
+			return fmt.Errorf("%s: session changed while abstract generation was running", brainstore.SourceStaleCode)
 		}
 		if err := ensureSessionAbstractPrivacyAllowed(brainDir, current); err != nil {
 			return err
@@ -1715,7 +1715,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 			return err
 		}
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("%s: abstract generation cancelled: %w", memoryErrCancelled, err)
+			return fmt.Errorf("%s: abstract generation cancelled: %w", brainstore.CancelledCode, err)
 		}
 
 		windows, ranges, truncated = abstractWindows(current)
@@ -1764,7 +1764,7 @@ func generateSessionAbstractContextGuarded(ctx context.Context, repoDir, brainDi
 			return err
 		}
 		if sessionViewDigest(current) != expectedDigest {
-			return fmt.Errorf("%s: session changed while abstract generation was running", memoryErrSourceStale)
+			return fmt.Errorf("%s: session changed while abstract generation was running", brainstore.SourceStaleCode)
 		}
 		if err := ensureSessionAbstractPrivacyAllowed(brainDir, current); err != nil {
 			return err
@@ -1825,7 +1825,7 @@ func rejectAbstractProviderForGlobalNoEgress(kind, provider string) error {
 	if provider == "" {
 		provider = "unknown"
 	}
-	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", memoryErrProviderUnavail, provider)
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", brainstore.ProviderUnavailCode, provider)
 }
 
 func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
@@ -1839,7 +1839,7 @@ func rejectAbstractProviderNameForGlobalNoEgress(provider string) error {
 	if provider == "" {
 		provider = "unknown"
 	}
-	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", memoryErrProviderUnavail, provider)
+	return fmt.Errorf("%s: no_egress: abstract provider %s is not local Ollama; unset ENTIRE_BRAIN_NO_EGRESS or select provider ollama", brainstore.ProviderUnavailCode, provider)
 }
 
 // rejectAutomaticAbstractReconciliationForGlobalNoEgress runs before the
@@ -1893,7 +1893,7 @@ func runSessionAbstractJobGuardedWithOverride(ctx context.Context, repoDir, brai
 		return err
 	}
 	if digest := sessionViewDigest(view); expectedDigest != "" && digest != expectedDigest {
-		return fmt.Errorf("%s: session digest changed before abstract work started", memoryErrSourceStale)
+		return fmt.Errorf("%s: session digest changed before abstract work started", brainstore.SourceStaleCode)
 	}
 	config, _, err := loadMemoryConfigChecked(brainDir)
 	if err != nil {
@@ -1913,7 +1913,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 		return conversationSessionView{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		return conversationSessionView{}, fmt.Errorf("%s: no history projection", memoryErrSourceStale)
+		return conversationSessionView{}, fmt.Errorf("%s: no history projection", brainstore.SourceStaleCode)
 	}
 	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
@@ -1925,7 +1925,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	}
 	view, ok := buildConversationSessionViews(fresh, manifest.RepoKey, manifest, guard)[ref]
 	if !ok {
-		return conversationSessionView{}, fmt.Errorf("%s: session %s not found", memoryErrSourceStale, ref)
+		return conversationSessionView{}, fmt.Errorf("%s: session %s not found", brainstore.SourceStaleCode, ref)
 	}
 	return view, nil
 }
@@ -2079,7 +2079,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: abstract cleanup entry has an invalid identity: %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		rel := filepath.ToSlash(filepath.Join(abstractsDirRel, entry.Name()))
-		data, artifactPresent, err := readMemoryStateFileExpected(brainDir, rel, "session abstract", abstractArtifactReadMax, info)
+		data, artifactPresent, err := brainstore.ReadMemoryStateFileExpected(brainDir, rel, "session abstract", abstractArtifactReadMax, info)
 		if err != nil {
 			return err
 		}
@@ -2093,7 +2093,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: invalid abstract cleanup artifact %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		if refs[artifact.SessionRef] {
-			if err := removeBrainRelativeFileExpected(brainDir, rel, info); err != nil {
+			if err := brainstore.RemoveBrainRelativeFileExpected(brainDir, rel, info); err != nil {
 				return err
 			}
 		}
@@ -2250,18 +2250,18 @@ func newMemoryConfigureCommand(opts Options) *cobra.Command {
 					return err
 				}
 				if memoryAbstractorFactory == nil {
-					return fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
+					return fmt.Errorf("%s: no abstract provider is available in this build", brainstore.ProviderUnavailCode)
 				}
 				resolved, err := memoryAbstractorFactory(config.Abstracts)
 				if err != nil {
-					return fmt.Errorf("%s: %w", memoryErrProviderUnavail, err)
+					return fmt.Errorf("%s: %w", brainstore.ProviderUnavailCode, err)
 				}
 				kind, providerName, _ := resolved.Identity()
 				if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
 					return err
 				}
 				if kind == "hosted" && !config.Abstracts.HostedEgressAllowed {
-					return fmt.Errorf("%s: provider %s is hosted; enabling it requires --allow-hosted-egress", memoryErrProviderUnavail, providerName)
+					return fmt.Errorf("%s: provider %s is hosted; enabling it requires --allow-hosted-egress", brainstore.ProviderUnavailCode, providerName)
 				}
 			}
 			if dryRun {
@@ -2333,7 +2333,7 @@ func enqueueManualAbstractJob(brainDir, sessionRef string, override memoryAbstra
 
 func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override memoryAbstractJobOverride, now time.Time, detail *manualAbstractEnqueueReceipt, dryRun bool) (memoryJob, bool, error) {
 	if !validMemoryAbstractJobOverride(&override) {
-		return memoryJob{}, false, fmt.Errorf("%s: invalid manual abstract provider selection", memoryErrProviderUnavail)
+		return memoryJob{}, false, fmt.Errorf("%s: invalid manual abstract provider selection", brainstore.ProviderUnavailCode)
 	}
 	// Resolve the provider before creating durable work. Retries remain durable
 	// once accepted, while an impossible selection never creates queue churn.
@@ -2342,18 +2342,18 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 		return memoryJob{}, false, err
 	}
 	if memoryAbstractorFactory == nil {
-		return memoryJob{}, false, fmt.Errorf("%s: no abstract provider is available in this build", memoryErrProviderUnavail)
+		return memoryJob{}, false, fmt.Errorf("%s: no abstract provider is available in this build", brainstore.ProviderUnavailCode)
 	}
 	provider, err := memoryAbstractorFactory(config.Abstracts)
 	if err != nil {
-		return memoryJob{}, false, fmt.Errorf("%s: %w", memoryErrProviderUnavail, err)
+		return memoryJob{}, false, fmt.Errorf("%s: %w", brainstore.ProviderUnavailCode, err)
 	}
 	kind, providerName, _ := provider.Identity()
 	if err := rejectAbstractProviderForGlobalNoEgress(kind, providerName); err != nil {
 		return memoryJob{}, false, err
 	}
 	if kind == "hosted" && !override.HostedEgressAllowed {
-		return memoryJob{}, false, fmt.Errorf("%s: provider %s is hosted and requires --allow-hosted-egress", memoryErrProviderUnavail, providerName)
+		return memoryJob{}, false, fmt.Errorf("%s: provider %s is hosted and requires --allow-hosted-egress", brainstore.ProviderUnavailCode, providerName)
 	}
 
 	var accepted memoryJob
@@ -2364,7 +2364,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 			return err
 		}
 		if len(view.Records) == 0 {
-			return fmt.Errorf("%s: session has no visible evidence", memoryErrSourceStale)
+			return fmt.Errorf("%s: session has no visible evidence", brainstore.SourceStaleCode)
 		}
 		if err := ensureSessionAbstractPrivacyAllowed(brainDir, view); err != nil {
 			return err
@@ -2400,7 +2400,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 			// writer or changing its inputs underneath the provider.
 			if existing.State == memoryJobStateRunning {
 				if !equalMemoryAbstractJobOverride(existing.AbstractOverride, &override) {
-					return fmt.Errorf("%s: abstract job %s is already running with a different provider selection", memoryErrLockBusy, jobID)
+					return fmt.Errorf("%s: abstract job %s is already running with a different provider selection", brainstore.LockBusyCode, jobID)
 				}
 				if detail != nil {
 					detail.Artifact = memoryReceiptArtifact{Path: memoryJobRel(jobID), PriorState: memoryJobStateRunning, NewState: memoryJobStateRunning}
@@ -2461,7 +2461,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 				accepted = updated
 				return nil
 			default:
-				return fmt.Errorf("%s: abstract job %s is %s", memoryErrSourceStale, jobID, existing.State)
+				return fmt.Errorf("%s: abstract job %s is %s", brainstore.SourceStaleCode, jobID, existing.State)
 			}
 		}
 		accepted = memoryJob{

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"testing"
 	"time"
 )
@@ -11,7 +12,7 @@ import (
 func p6Brain(t *testing.T) string {
 	t.Helper()
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestRelatedPatternPointers(t *testing.T) {
 
 func TestHandoffConsolidationsIncludesStaleNotRejected(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestHandoffConsolidationsIncludesStaleNotRejected(t *testing.T) {
 		t.Fatal("handoff should include stale consolidations")
 	}
 
-	db2, err := openPatternCorpusMutableDB(brainDir)
+	db2, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

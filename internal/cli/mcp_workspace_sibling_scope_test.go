@@ -46,7 +46,7 @@ func workspaceSiblingFixture(t *testing.T, workspaceName string) (opts Options, 
 			{RepoKey: siblingKey, Name: "entiredb", LocalPathHint: siblingDir},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	return opts, boundDir, siblingKey
@@ -99,7 +99,7 @@ func TestMCPWorkspaceToolsRefuseWorkspaceWithoutTheBoundRepo(t *testing.T) {
 		Name:          "not-mine",
 		Repos:         []workspace.Repo{{RepoKey: strangerKey, Name: "unrelated", LocalPathHint: strangerDir}},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -240,7 +240,7 @@ func TestMCPWorkspaceMemberOutsideTheParentIsRefused(t *testing.T) {
 			{RepoKey: farKey, Name: "far", LocalPathHint: farDir},
 		},
 	}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, "brain_workspace_graph", map[string]any{"workspace": "reaches-out", "limit": float64(10)}))

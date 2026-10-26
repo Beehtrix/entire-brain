@@ -24,9 +24,15 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 
-def changed_files(base, head):
+def changed_files(base, head, cwd=ROOT):
+    # --no-renames keeps a rename visible as an add plus a delete, so a .go
+    # file moved between packages marks BOTH packages as changed. With rename
+    # detection, --name-only lists only the destination and the source package
+    # would silently keep its stale selection.
     output = subprocess.check_output(
-        ["git", "diff", "--name-only", f"{base}", f"{head}"], cwd=ROOT, text=True
+        ["git", "diff", "--name-only", "--no-renames", f"{base}", f"{head}"],
+        cwd=cwd,
+        text=True,
     )
     return [line for line in output.splitlines() if line.strip()]
 

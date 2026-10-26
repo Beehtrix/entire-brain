@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import pathlib
 import subprocess
@@ -8,6 +9,10 @@ import unittest
 TOOL = pathlib.Path(__file__).resolve().parent / "affected.py"
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 MODULE = "github.com/entireio/entire-brain"
+
+_spec = importlib.util.spec_from_file_location("affected", TOOL)
+affected = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(affected)
 
 
 def run_tool(file_names):
@@ -60,6 +65,34 @@ class AffectedSelectionTests(unittest.TestCase):
         # change must not re-run them.
         self.assertNotIn(MODULE + "/internal/cli/patterns", packages)
         self.assertNotIn(MODULE + "/internal/cli/internal/base", packages)
+
+    def test_a_renamed_file_reports_both_its_old_and_new_path(self):
+        # A .go file moved between packages must mark BOTH packages. Rename
+        # detection would collapse the pair to the destination path only, so
+        # changed_files must disable it.
+        with tempfile.TemporaryDirectory() as temporary:
+            repo = pathlib.Path(temporary)
+            env = {
+                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t",
+                "HOME": temporary, "PATH": subprocess.os.environ["PATH"],
+            }
+
+            def git(*args):
+                subprocess.run(["git", *args], cwd=repo, env=env, check=True,
+                               capture_output=True)
+
+            git("init", "-q")
+            (repo / "a").mkdir()
+            (repo / "b").mkdir()
+            (repo / "a" / "moved.go").write_text("package a\n" + "// filler\n" * 50)
+            git("add", "a/moved.go")
+            git("commit", "-qm", "base")
+            (repo / "a" / "moved.go").rename(repo / "b" / "moved.go")
+            git("add", "a/moved.go", "b/moved.go")
+            git("commit", "-qm", "rename")
+            files = set(affected.changed_files("HEAD^1", "HEAD", cwd=repo))
+            self.assertEqual(files, {"a/moved.go", "b/moved.go"})
 
     def test_test_only_dependency_affects_its_test_importers(self):
         decision = run_tool(["internal/cli/internal/clitest/clitest.go"])

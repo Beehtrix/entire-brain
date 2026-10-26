@@ -103,9 +103,39 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Depth 2 exposes the PR merge commit's first parent (the base tip),
+          # which package selection diffs against. Pushes ignore the extra depth.
+          fetch-depth: 2
       - uses: actions/setup-go@90ad2b35f69faf97585ad74d28fa006d2739b7af
         with: { go-version: "1.27.2" }
+      # Pull requests run only the packages the diff can affect (reverse import
+      # closure, including test imports) with -race and WITHOUT coverage
+      # profiling: -coverprofile disables Go's test caching and adds atomic
+      # counter overhead, and PR coverage artifacts were informational only.
+      # Any non-.go change falls back to the full coverage run below. Pushes to
+      # main always run the complete coverage suite, so merged evidence is
+      # unchanged.
+      - name: Select affected packages (pull requests)
+        if: github.event_name == 'pull_request'
+        id: affected
+        run: |
+          python3 -B tools/coverage/affected.py --base HEAD^1 --head HEAD > "$RUNNER_TEMP/affected.json"
+          cat "$RUNNER_TEMP/affected.json"
+          python3 -B -c '
+          import json, sys
+          decision = json.load(open(sys.argv[1]))
+          print("mode=" + decision["mode"])
+          print("packages=" + " ".join(decision.get("packages", [])))
+          ' "$RUNNER_TEMP/affected.json" >> "$GITHUB_OUTPUT"
+      - name: Test affected packages with race
+        if: github.event_name == 'pull_request' && steps.affected.outputs.mode == 'selected'
+        run: go test -race -count=1 -timeout 30m ${{ steps.affected.outputs.packages }}
+      - name: Measure instrumented CLI contracts without the full suite
+        if: github.event_name == 'pull_request' && steps.affected.outputs.mode != 'full'
+        run: python3 -B tools/coverage/run.py --race --binary-only --output "${{ runner.temp }}/brain-coverage"
       - name: Test with coverage and binary contracts
+        if: github.event_name != 'pull_request' || steps.affected.outputs.mode == 'full'
         run: python3 -B tools/coverage/run.py --race --output "${{ runner.temp }}/brain-coverage"
       - name: Retain coverage and test results
         if: always()

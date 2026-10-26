@@ -303,6 +303,36 @@ func TestLiveStateIgnoresTheHostsOwnLogFile(t *testing.T) {
 	}
 }
 
+// TestLiveStateIgnoresSetupAuthoredWiringFiles: setup itself writes the agent
+// wiring — AGENTS.md / CLAUDE.md pointer blocks and the PreToolUse entry in
+// .claude/settings.json — AFTER the user's last commit, so on a first run the
+// very files setup just authored made live.Dirty true, graded the seed axis
+// "dirty-unindexed", and a successful onboarding ended on "freshness:
+// degraded" (the release smoke's leg 1 trips on exactly this). The membership
+// rule is entireAuthoredGatePaths': Entire's own installer writes these, so
+// they are config, not source the index is missing.
+func TestLiveStateIgnoresSetupAuthoredWiringFiles(t *testing.T) {
+	t.Parallel()
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? AGENTS.md\n?? CLAUDE.md\n M .claude/settings.json\n"},
+		fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD"):        {stdout: " 1 file changed\n"},
+	}}
+
+	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
+	if err != nil {
+		t.Fatalf("brainLiveStateReport: %v", err)
+	}
+	if live.Dirty {
+		t.Fatalf("setup's own wiring files must not make the tree dirty; unstaged=%v untracked=%v", live.Unstaged, live.Untracked)
+	}
+	if len(live.Untracked) != 0 || len(live.Unstaged) != 0 {
+		t.Fatalf("authored wiring paths must not be reported as changes: unstaged=%v untracked=%v", live.Unstaged, live.Untracked)
+	}
+}
+
 // TestLiveStateStillReportsRealChanges keeps the filter honest: it removes what
 // the brain already ignores and nothing else.
 func TestLiveStateStillReportsRealChanges(t *testing.T) {

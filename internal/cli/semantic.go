@@ -1226,14 +1226,18 @@ func loadBrainIgnore(repoDir string) (brainIgnore, error) {
 // `entire enable --agent codex` (cmd/entire/cli/agent/codex/hook_root.go);
 // brain writes .brainignore. One install flow, one user, several repos.
 //
-// This list is GATE-ONLY, and that is the whole design. brainIgnore.Ignored is
-// the INDEXING filter — filterSemanticSnapshot, the snapshot stream, the file
-// walks and semantic coverage all run through it — so putting AGENTS.md and
-// CLAUDE.md in the shared list would DELETE them from the indexed doc corpus.
-// That is a regression wearing a fix's clothes: the .brainignore stanza above
-// deliberately does NOT list AGENTS.md or CLAUDE.md, because maintainers put
-// those two on the indexed side on purpose. They stay indexed. Only the dirty
-// GATE learns to ignore them.
+// This list NEVER reaches the indexing filter, and that is the whole design.
+// brainIgnore.Ignored is the INDEXING filter — filterSemanticSnapshot, the
+// snapshot stream, the file walks and semantic coverage all run through it —
+// so putting AGENTS.md and CLAUDE.md in the shared list would DELETE them from
+// the indexed doc corpus. That is a regression wearing a fix's clothes: the
+// .brainignore stanza above deliberately does NOT list AGENTS.md or CLAUDE.md,
+// because maintainers put those two on the indexed side on purpose. They stay
+// indexed. Only the dirtiness readers learn to ignore them, via
+// worktreeGateIgnore: the seeding gate (seed.go), worktreeDirty, and the live
+// dirtiness report (brainLiveStateReport) whose Dirty grades the seed axis
+// dirty-unindexed — the same "did Entire just dirty the tree it is now
+// blaming someone for?" question in three places.
 //
 // The justification for the gate is narrow: the gate exists to stop seeding
 // uncommitted SOURCE into an index attributed to a commit. Config that Entire
@@ -1278,9 +1282,12 @@ var entireAuthoredGatePaths = []string{
 	".opencode/plugins/entire.ts",
 }
 
-// worktreeGateIgnore is loadBrainIgnore plus entireAuthoredGatePaths, for the
-// dirty-worktree GATE only. A user's own .brainignore still applies in full:
-// the built-ins are ADDED to the user's patterns, never substituted for them.
+// worktreeGateIgnore is loadBrainIgnore plus entireAuthoredGatePaths: the
+// dirty-worktree gate and the live dirtiness report (brainLiveStateReport)
+// share it, so a file Entire's own installer wrote neither blocks the install
+// nor grades the seed axis dirty-unindexed. A user's own .brainignore still
+// applies in full: the built-ins are ADDED to the user's patterns, never
+// substituted for them.
 func worktreeGateIgnore(repoDir string) (brainIgnore, error) {
 	ignore, err := loadBrainIgnore(repoDir)
 	if err != nil {

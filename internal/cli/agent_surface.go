@@ -1202,15 +1202,23 @@ func brainStatusFreshnessSeverity(report brainStatusReport) string {
 	}
 	// A release gate cannot pass unless semantic indexing produced a freshness
 	// assessment. Retrieval freshness is additive; it is not a substitute for
-	// the semantic source the gate is intended to protect.
+	// the semantic source the gate is intended to protect, so a healthy
+	// retrieval report never upgrades a missing assessment to "ok" — but a
+	// retrieval PROBLEM is not discarded with it. Dropping it meant a brain
+	// without a graph provider had no freshness gating at all: `--fail-on
+	// degraded` passed vacuously on a tree the seed axis itself reported as
+	// dirty-unindexed.
+	retrieval := ""
+	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
+		retrieval = report.Retrieval.Freshness.Severity
+	}
 	if report.Semantic == nil || report.Semantic.Freshness == nil {
+		if retrieval == "degraded" || retrieval == "unsafe" {
+			return retrieval
+		}
 		return ""
 	}
-	severity := report.Semantic.Freshness.Severity
-	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
-		severity = worseFreshnessSeverity(severity, report.Retrieval.Freshness.Severity)
-	}
-	return severity
+	return worseFreshnessSeverity(report.Semantic.Freshness.Severity, retrieval)
 }
 
 func worseFreshnessSeverity(left, right string) string {
@@ -4949,7 +4957,16 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	// axis "dirty-unindexed", which reported a clean onboarding as
 	// "freshness: degraded". A successful setup must not end on a red line the
 	// user did not cause.
-	if ignore, ignoreErr := loadBrainIgnore(repoDir); ignoreErr != nil {
+	//
+	// entireAuthoredGatePaths is part of that policy for the same reason: setup
+	// itself writes the agent wiring (AGENTS.md / CLAUDE.md pointer blocks, the
+	// PreToolUse entry in .claude/settings.json) after the user's last commit,
+	// so without the exemption every first run ended on that same red line —
+	// while worktreeDirty, the gate this exemption list was built for, called
+	// the identical tree clean. ChangedFiles below deliberately keeps these
+	// paths: they stay in the indexed corpus, so their staleness is real; only
+	// the dirty VERDICT must not blame the user for files Entire wrote.
+	if ignore, ignoreErr := worktreeGateIgnore(repoDir); ignoreErr != nil {
 		live.Warnings = append(live.Warnings, "ignore rules unavailable: "+ignoreErr.Error())
 	} else {
 		status = filterWorktreeStatus(status, ignore)

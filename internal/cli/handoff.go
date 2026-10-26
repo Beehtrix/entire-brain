@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -80,7 +81,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
-		if guard.blocksRecord(r) {
+		if guardBlocksRecord(guard, r) {
 			continue
 		}
 		switch r.Kind {
@@ -159,7 +160,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	} else {
 		p.SessionsSinceDistill = len(sessions)
-		p.Warnings = append(p.Warnings, "no distilled facts yet; run `"+brainInvocation(os.LookupEnv, "distill")+"`")
+		p.Warnings = append(p.Warnings, "no distilled facts yet; run `"+base.BrainInvocation(os.LookupEnv, "distill")+"`")
 	}
 	return p
 }
@@ -197,13 +198,13 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err
@@ -256,19 +257,19 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 		meta = append(meta, s.CreatedAt.Format("2006-01-02 15:04"))
 		fmt.Fprintf(w, " (%s)\n", strings.Join(meta, ", "))
 		if s.Request != "" {
-			fmt.Fprintf(w, "request: %s\n", truncateString(s.Request, 200))
+			fmt.Fprintf(w, "request: %s\n", base.TruncateString(s.Request, 200))
 		}
 		for _, d := range s.Decisions {
-			fmt.Fprintf(w, "  - %s\n", truncateString(d, 200))
+			fmt.Fprintf(w, "  - %s\n", base.TruncateString(d, 200))
 		}
 		for _, v := range s.Validations {
-			fmt.Fprintf(w, "  ✓ %s\n", truncateString(v, 200))
+			fmt.Fprintf(w, "  ✓ %s\n", base.TruncateString(v, 200))
 		}
 	}
 	if len(p.RecentFacts) > 0 {
 		fmt.Fprintf(w, "\n## Recently updated facts\n")
 		for _, f := range p.RecentFacts {
-			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), truncateString(f.Text, 200))
+			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), base.TruncateString(f.Text, 200))
 		}
 	}
 	if len(p.Consolidations) > 0 {
@@ -278,7 +279,7 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 			if c.Verdict != "" {
 				state += "/" + c.Verdict
 			}
-			fmt.Fprintf(w, "- [%s %s] %s   id %s\n", c.Type, state, truncateString(c.Title, 120), c.PatternID)
+			fmt.Fprintf(w, "- [%s %s] %s   id %s\n", c.Type, state, base.TruncateString(c.Title, 120), c.PatternID)
 		}
 	}
 }

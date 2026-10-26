@@ -2,17 +2,13 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"hash"
 	"io"
-	"os"
 	"sort"
 	"strings"
-	"sync/atomic"
-	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // semanticSummary is the authoritative trailing record emitted by entire-graph
@@ -64,7 +60,7 @@ const maxDroppedSemanticRecords = 1000
 // from the untrusted entire-graph stream should not fail the entire index — and
 // re-enabled with ENTIRE_BRAIN_STRICT_INGEST for validation/debugging.
 func semanticStrictIngest() bool {
-	return envBool("ENTIRE_BRAIN_STRICT_INGEST")
+	return base.EnvBool("ENTIRE_BRAIN_STRICT_INGEST")
 }
 
 type semanticStreamResult struct {
@@ -382,20 +378,6 @@ func unknownRecordWarnings(unknownTypes map[string]struct{}) []semanticWarning {
 	return warnings
 }
 
-// resetSnapshotTempFile rewinds the snapshot temp file and the rolling hash so
-// the provider snapshot can be retried (e.g. without --ignore-file) without
-// leaking the partial first attempt.
-func resetSnapshotTempFile(f *os.File, hasher hash.Hash) error {
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("reset semantic snapshot temp file: %w", err)
-	}
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("reset semantic snapshot temp file: %w", err)
-	}
-	hasher.Reset()
-	return nil
-}
-
 func writeNDJSONLine(out io.Writer, line []byte) error {
 	if _, err := out.Write(line); err != nil {
 		return err
@@ -404,106 +386,6 @@ func writeNDJSONLine(out io.Writer, line []byte) error {
 		return err
 	}
 	return nil
-}
-
-// streamSemanticSnapshot invokes the semantic provider and streams its NDJSON
-// stdout through scanSemanticStream into out. stdout is never buffered in full;
-// stderr is captured separately into a bounded buffer. Cancellation flows
-// through ctx, with a configurable overall deadline and an inactivity timeout so
-// large repositories are not killed by a fixed short timeout while a hung
-// provider still aborts.
-func streamSemanticSnapshot(ctx context.Context, runner CommandRunner, repoDir, repoKey string, indexOpts semanticIndexOptions, ignoreFiles []string, ignore brainIgnore, out io.Writer) (semanticStreamResult, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	args := []string{"graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network"}
-	for _, path := range ignoreFiles {
-		path = strings.TrimSpace(path)
-		if path == "" {
-			continue
-		}
-		args = append(args, "--ignore-file", path)
-	}
-	if indexOpts.worktree {
-		args = append(args, "--worktree")
-	}
-	if profile := strings.TrimSpace(indexOpts.profile); profile != "" {
-		args = append(args, "--profile", profile)
-	}
-
-	overall := indexOpts.timeout
-	if overall <= 0 {
-		overall = semanticSnapshotTimeout
-	}
-	inactivity := indexOpts.inactivityTimeout
-	if inactivity <= 0 {
-		inactivity = semanticSnapshotInactivityTimeout
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, overall)
-	defer cancel()
-
-	var inactivityFired atomic.Bool
-	activity := make(chan struct{}, 1)
-
-	cfg := semanticStreamScanConfig{
-		ignore:   ignore,
-		repoDir:  repoDir,
-		repoKey:  repoKey,
-		commit:   indexOpts.localCommit,
-		tree:     indexOpts.localTree,
-		progress: indexOpts.progress,
-		counts:   indexOpts.progressCounts,
-		onRecord: func(string) {
-			select {
-			case activity <- struct{}{}:
-			default:
-			}
-		},
-	}
-
-	// Semantic indexing requires a streaming runner so the production path is
-	// always memory-bounded: stdout is consumed record-by-record and never
-	// buffered in full. The production ExecRunner and the test fake both
-	// implement CommandStreamer; a runner without it is a programming error.
-	streamer, ok := runner.(CommandStreamer)
-	if !ok {
-		return semanticStreamResult{}, errors.New("semantic provider snapshot requires a streaming command runner (CommandStreamer)")
-	}
-
-	if inactivity > 0 {
-		go watchSemanticInactivity(runCtx, inactivity, activity, cancel, &inactivityFired)
-	}
-
-	stream, err := streamer.Stream(runCtx, repoDir, indexOpts.graphBinary, args...)
-	if err != nil {
-		return semanticStreamResult{}, fmt.Errorf("semantic provider snapshot failed: %w", err)
-	}
-	defer stream.Close()
-
-	res, scanErr := scanSemanticStream(stream.Stdout(), out, cfg)
-	if scanErr != nil {
-		// Drain remaining stdout so Wait does not block on a full pipe.
-		_, _ = io.Copy(io.Discard, stream.Stdout())
-	}
-	stderr, waitErr := stream.Wait()
-
-	if cerr := semanticStreamContextError(runCtx, ctx, overall, inactivity, &inactivityFired); cerr != nil {
-		return res, cerr
-	}
-	if waitErr != nil {
-		return res, providerSnapshotWaitError(waitErr, stderr, nil)
-	}
-	if scanErr != nil {
-		return res, scanErr
-	}
-	if !res.haveHeader {
-		return res, errors.New("semantic provider snapshot produced no output")
-	}
-	if truncErr := semanticSummaryTruncationCheck(&res); truncErr != nil {
-		return res, truncErr
-	}
-	return res, nil
 }
 
 // semanticSummaryTruncationCheck enforces that the trailing summary record is
@@ -540,56 +422,6 @@ func semanticSummaryTruncationCheck(res *semanticStreamResult) error {
 		Detail:   fmt.Sprintf("semantic provider %q snapshot ended without a terminating summary record", provider),
 	})
 	return nil
-}
-
-// semanticStreamContextError maps a cancelled run context to a descriptive
-// error, distinguishing inactivity, the overall deadline, and external
-// cancellation. It returns nil when the run context was not cancelled.
-func semanticStreamContextError(runCtx, parent context.Context, overall, inactivity time.Duration, inactivityFired *atomic.Bool) error {
-	if parent.Err() != nil {
-		return fmt.Errorf("semantic provider snapshot canceled: %w", parent.Err())
-	}
-	if runCtx.Err() == nil {
-		return nil
-	}
-	if inactivityFired.Load() {
-		return fmt.Errorf("semantic provider snapshot stalled: no output for %s", inactivity)
-	}
-	return fmt.Errorf("semantic provider snapshot timed out after %s", overall)
-}
-
-func providerSnapshotWaitError(err error, stderr, stdout []byte) error {
-	detail := strings.TrimSpace(string(stderr))
-	if detail == "" {
-		detail = strings.TrimSpace(string(stdout))
-	}
-	if detail != "" {
-		return fmt.Errorf("semantic provider snapshot failed: %w: %s", err, truncateAgentWarning(detail))
-	}
-	return fmt.Errorf("semantic provider snapshot failed: %w", err)
-}
-
-func watchSemanticInactivity(ctx context.Context, d time.Duration, activity <-chan struct{}, cancel context.CancelFunc, fired *atomic.Bool) {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-activity:
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			timer.Reset(d)
-		case <-timer.C:
-			fired.Store(true)
-			cancel()
-			return
-		}
-	}
 }
 
 // mergeSemanticSummary folds the authoritative summary record into the lean

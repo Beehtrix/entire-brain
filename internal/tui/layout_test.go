@@ -162,7 +162,7 @@ func TestStartTabSelectsItsFirstRow(t *testing.T) {
 // whose store could not be read must not render with the same glyph as one that
 // loaded, and its row must carry the failure rather than the manifest's counts.
 func TestUnreadableSourceIsNotShownAsPresent(t *testing.T) {
-	broken := SourceHealth{Name: "Semantic", Present: true, Unreadable: true, Detail: "semantic unavailable: unexpected end of JSON input"}
+	broken := SourceHealth{Name: "Code", Present: true, Unreadable: true, Detail: "code index unavailable: unexpected end of JSON input"}
 	if broken.State() != "unreadable" {
 		t.Fatalf("State() = %q, want unreadable", broken.State())
 	}

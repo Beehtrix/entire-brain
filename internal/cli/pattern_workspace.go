@@ -9,6 +9,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // Workspace V2 corpus (Pattern Consolidation v2, Priority 2).
@@ -64,18 +70,18 @@ type wsAgg struct {
 // first, under the brain write lock, with no gate ahead of it. Read-only
 // workspace commands deliberately keep failing closed; only the repair path is
 // allowed through.
-func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspaceManifest) error {
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+func recoverWorkspacePatternCorpusPublication(env EntireEnv, manifest workspace.Manifest) error {
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(wsBrainDir, func() error {
-		return recoverPatternCorpusPublicationLocked(wsBrainDir)
+	return brainstore.WithBrainWriteLock(wsBrainDir, func() error {
+		return patterncore.RecoverCorpusPublicationLocked(wsBrainDir, decodePatternCorpusPublication)
 	})
 }
 
 // buildWorkspacePatternCorpus rebuilds the workspace corpus from member corpora.
-func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+func buildWorkspacePatternCorpus(env EntireEnv, manifest workspace.Manifest, now time.Time) (workspaceCorpusCounts, error) {
 	if err := recoverWorkspacePatternCorpusPublication(env, manifest); err != nil {
 		return workspaceCorpusCounts{}, err
 	}
@@ -92,21 +98,21 @@ func buildWorkspacePatternCorpus(env EntireEnv, manifest workspaceManifest, now 
 	return counts, err
 }
 
-func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest, now time.Time) (workspaceCorpusCounts, error) {
+func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspace.Manifest, now time.Time) (workspaceCorpusCounts, error) {
 	var counts workspaceCorpusCounts
-	wsBrainDir, err := workspaceDir(env, manifest.Name)
+	wsBrainDir, err := workspaceStore(env).Dir(manifest.Name)
 	if err != nil {
 		return counts, err
 	}
-	if err := recoverPatternCorpusPublicationLocked(wsBrainDir); err != nil {
+	if err := patterncore.RecoverCorpusPublicationLocked(wsBrainDir, decodePatternCorpusPublication); err != nil {
 		return counts, err
 	}
-	path, cleanup, err := preparePatternCorpusStaging(wsBrainDir)
+	path, cleanup, err := patterncore.PrepareCorpusStaging(wsBrainDir)
 	if err != nil {
 		return counts, err
 	}
 	defer cleanup()
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return counts, err
 	}
@@ -116,13 +122,13 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 			return counts, err
 		}
 	}
-	for _, stmt := range patternCorpusSchema {
+	for _, stmt := range patterncore.CorpusSchema {
 		if _, err := db.Exec(stmt); err != nil {
 			return counts, err
 		}
 	}
 
-	repos := append([]workspaceRepo(nil), manifest.Repos...)
+	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	counts.Members = len(repos)
 
@@ -133,11 +139,11 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 			counts.Warnings = append(counts.Warnings, repo.RepoKey+": "+err.Error())
 			continue
 		}
-		mdb, err := openPatternCorpusReadDB(memberBrainDir)
+		mdb, err := patterncore.OpenCorpusReadDB(memberBrainDir)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				// A genuinely absent member corpus degrades gracefully (refresh that repo).
-				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `"+brainInvocation(os.LookupEnv, "refresh")+"` there)")
+				counts.Warnings = append(counts.Warnings, repo.RepoKey+": no corpus (run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"` there)")
 				continue
 			}
 			return counts, err
@@ -149,8 +155,8 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 		mdb.Close()
 	}
 
-	membershipFP := workspaceMembershipFingerprint(manifest)
-	membershipChanged := corpusMeta(db, "workspace_families_membership") != membershipFP
+	membershipFP := patterncore.WorkspaceMembershipFingerprint(manifest)
+	membershipChanged := patterncore.CorpusMeta(db, "workspace_families_membership") != membershipFP
 	tx, err := db.Begin()
 	if err != nil {
 		return counts, err
@@ -188,7 +194,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 	ts := now.UTC().Format(time.RFC3339)
 	memberCount := counts.Members
 	for _, a := range aggs {
-		if len(a.repos) < workspaceMinRepos {
+		if len(a.repos) < patterncore.WorkspaceMinRepos {
 			continue // a workspace pattern must be shared across ≥2 repos
 		}
 		if err := writeWorkspacePattern(tx, manifest.Name, a, memberCount, ts); err != nil {
@@ -209,7 +215,7 @@ func buildWorkspacePatternCorpusLocked(env EntireEnv, manifest workspaceManifest
 	if err != nil {
 		return counts, err
 	}
-	if err := finalizePatternCorpusStagingLocked(wsBrainDir, path, db); err != nil {
+	if err := patterncore.FinalizeCorpusStagingLocked(wsBrainDir, path, db, decodePatternCorpusPublication); err != nil {
 		return counts, err
 	}
 	_ = appendPatternRun(wsBrainDir, run)
@@ -300,7 +306,7 @@ func writeWorkspacePattern(tx *sql.Tx, workspace string, a *wsAgg, memberCount i
 	sort.Strings(repoKeys)
 
 	cluster := "workspace:" + workspace + "\x00" + a.key.typ + "\x00" + a.key.intentSig + "\x00gram:" + a.key.gram + "\x00meta:" + a.key.metaID
-	id := "pattern:" + hexSHA("workspace\x00"+workspace+"\x00"+cluster)
+	id := "pattern:" + clibase.HexSHA("workspace\x00"+workspace+"\x00"+cluster)
 	strength := workspaceStrengthV2(a.key.typ, len(a.repos), memberCount, a.support, a.succ, a.corr, a.neut)
 	strength = math.Round(strength*1000) / 1000
 
@@ -308,9 +314,9 @@ func writeWorkspacePattern(tx *sql.Tx, workspace string, a *wsAgg, memberCount i
 		(id, type, scope, repo_key, workspace, cluster_key, title, intent_sig, gram, meta_id, strength, strength_label, support,
 		 n_repos, n_authors, n_branches, outcome_success, outcome_corrected, outcome_neutral, outcome_failed, fingerprint, status, created_at, updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, a.key.typ, "workspace", "", workspace, cluster, redactText(a.title), a.key.intentSig, a.key.gram, a.key.metaID,
-		strength, strengthLabelV2(strength), a.support, len(a.repos), 0, 0, a.succ, a.corr, a.neut, 0,
-		hexSHA(cluster+strconv.Itoa(a.support)), "active", ts, ts); err != nil {
+		id, a.key.typ, "workspace", "", workspace, cluster, clibase.RedactText(a.title), a.key.intentSig, a.key.gram, a.key.metaID,
+		strength, patterncore.StrengthLabelV2(strength), a.support, len(a.repos), 0, 0, a.succ, a.corr, a.neut, 0,
+		clibase.HexSHA(cluster+strconv.Itoa(a.support)), "active", ts, ts); err != nil {
 		return err
 	}
 
@@ -327,17 +333,17 @@ func writeWorkspacePattern(tx *sql.Tx, workspace string, a *wsAgg, memberCount i
 		}
 		// Minimal anchor episode (pointer only; redacted). Composite-safe id keeps
 		// member episodes from colliding across repos within the workspace corpus.
-		wsEpID := "wsep:" + hexSHA(rk+"\x00"+st.anchorEpisodeID)
+		wsEpID := "wsep:" + clibase.HexSHA(rk+"\x00"+st.anchorEpisodeID)
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO episodes
 			(id, episode_key, repo_key, workspace, session_id, turn_ord, branch, source_path, start_line, end_line, outcome, created_at)
 			VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-			wsEpID, wsEpID, rk, workspace, redactText(st.anchorSession), 0, "", redactText(st.anchorPath), st.anchorLine, st.anchorLine,
+			wsEpID, wsEpID, rk, workspace, clibase.RedactText(st.anchorSession), 0, "", clibase.RedactText(st.anchorPath), st.anchorLine, st.anchorLine,
 			nonEmptyOr(st.anchorOutcome, "neutral"), ts); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO pattern_evidence
 			(pattern_id, episode_id, rank, outcome, source_path, start_line, end_line) VALUES (?,?,?,?,?,?,?)`,
-			id, wsEpID, rank, nonEmptyOr(st.anchorOutcome, "neutral"), redactText(st.anchorPath), st.anchorLine, st.anchorLine); err != nil {
+			id, wsEpID, rank, nonEmptyOr(st.anchorOutcome, "neutral"), clibase.RedactText(st.anchorPath), st.anchorLine, st.anchorLine); err != nil {
 			return err
 		}
 		rank++
@@ -356,14 +362,14 @@ func nonEmptyOr(s, fallback string) string {
 // pattern shared by more members of the workspace is stronger.
 func workspaceStrengthV2(typ string, repos, memberCount, support, succ, corr, neut int) float64 {
 	breadth := repoBreadthScore(repos, memberCount)
-	sup := supportScoreV2(support)
-	out := outcomeScoreV2(support, succ, corr, 0)
+	sup := patterncore.SupportScoreV2(support)
+	out := patterncore.OutcomeScoreV2(support, succ, corr, 0)
 	_ = neut
 	base := 0.40*breadth + 0.35*sup + 0.25*out
 	if typ == "risk" {
 		base = math.Max(base, 0.5) // recorded cross-repo failure is inherently notable
 	}
-	return clamp01(base)
+	return clibase.Clamp01(base)
 }
 
 // getWorkspaceCorpusRecord resolves a bare workspace-aggregate id (pattern: or
@@ -375,7 +381,7 @@ func getWorkspaceCorpusRecord(env EntireEnv, workspaceName, id string) (unifiedR
 }
 
 func getWorkspaceCorpusRecordChecked(env EntireEnv, workspaceName, id string) (unifiedResult, bool, error) {
-	wsBrainDir, err := workspaceDir(env, workspaceName)
+	wsBrainDir, err := workspaceStore(env).Dir(workspaceName)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}
@@ -397,7 +403,7 @@ func getWorkspacePattern(wsBrainDir, patternID string) (unifiedResult, bool) {
 }
 
 func getWorkspacePatternChecked(wsBrainDir, patternID string) (unifiedResult, bool, error) {
-	db, present, err := openPatternCorpusReadDBIfPresent(wsBrainDir)
+	db, present, err := patterncore.OpenCorpusReadDBIfPresent(wsBrainDir)
 	if err != nil {
 		return unifiedResult{}, false, err
 	}
@@ -417,7 +423,7 @@ func getWorkspacePatternChecked(wsBrainDir, patternID string) (unifiedResult, bo
 		return unifiedResult{}, false, err
 	}
 	var b strings.Builder
-	b.WriteString(redactText(title) + "\n")
+	b.WriteString(clibase.RedactText(title) + "\n")
 	b.WriteString("workspace " + typ + " across " + strconv.Itoa(nRepos) + " repo(s); strength " +
 		strconv.FormatFloat(strength, 'g', -1, 64) + "\n")
 	rows, err := db.Query(`SELECT repo_key, support FROM workspace_pattern_repos WHERE pattern_id=? ORDER BY repo_key`, patternID)
@@ -426,12 +432,12 @@ func getWorkspacePatternChecked(wsBrainDir, patternID string) (unifiedResult, bo
 			var rk string
 			var support int
 			if rows.Scan(&rk, &support) == nil {
-				b.WriteString("  " + redactText(rk) + " (" + strconv.Itoa(support) + ")\n")
+				b.WriteString("  " + clibase.RedactText(rk) + " (" + strconv.Itoa(support) + ")\n")
 			}
 		}
 		rows.Close()
 	}
-	return unifiedResult{Source: "workspace_pattern", ID: patternID, Text: redactText(strings.TrimRight(b.String(), "\n"))}, true, nil
+	return unifiedResult{Source: "workspace_pattern", ID: patternID, Text: clibase.RedactText(strings.TrimRight(b.String(), "\n"))}, true, nil
 }
 
 // loadWorkspaceRepoBreakdown returns the per-repo breakdown for workspace

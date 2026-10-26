@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // A REST surface over the same listener as MCP.
@@ -80,7 +83,7 @@ func writeRESTRetrieval(w http.ResponseWriter, value any, policies ...retrievalP
 		}
 		// Once Write was attempted the status may already be committed. Do
 		// not append a JSON error to a partially delivered response.
-		fmt.Fprintf(os.Stderr, "warning: rest retrieval response withheld: %v\n", err)
+		tui.Warnf(os.Stderr, "rest retrieval response withheld: %v", err)
 	}
 }
 
@@ -140,7 +143,7 @@ func registerRESTRoutes(mux *http.ServeMux, opts Options) {
 				"endpoints": []map[string]string{
 					{"method": "GET", "path": "/v1/status", "description": "brain freshness and source counts"},
 					{"method": "GET", "path": "/v1/facts", "description": "durable facts; ?limit= and ?branch="},
-					{"method": "GET", "path": "/v1/search", "description": "hybrid retrieval; ?q= required, ?limit=, ?source="},
+					{"method": "GET", "path": "/v1/search", "description": "BM25 lexical retrieval; ?q= required, ?limit=, ?source="},
 					{"method": "POST", "path": "/", "description": "MCP JSON-RPC (the same tools the CLI exposes)"},
 				},
 				"auth": "Bearer token, the same one the MCP endpoint uses",
@@ -189,7 +192,7 @@ func restGuardedFacts(brainDir, branch string) ([]factRecord, retrievalPrivacyPo
 	}
 	facts = guardFactRecords(guard, facts)
 	afterRESTFactsPrivacyFilter()
-	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.policyIdentity}, nil
+	return facts, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: guard.PolicyIdentity}, nil
 }
 
 func restStatus(w http.ResponseWriter, r *http.Request, opts Options) {
@@ -291,7 +294,7 @@ func restSearch(w http.ResponseWriter, r *http.Request, opts Options) {
 	// identity captured here deliberately does not govern the write: a clean
 	// exclusion landing during ranking legitimately moves it, and the rows are
 	// re-cleared against the fresh guard below.
-	if _, err := captureRetrievalPrivacyPolicy(brainDir); err != nil {
+	if _, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir); err != nil {
 		writeRESTError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}

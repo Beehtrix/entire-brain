@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // checkpoint_commit.go resolves a checkpoint id to the commit carrying its
@@ -27,7 +30,7 @@ type checkpointCommitCandidate struct {
 // blank, so construction failure degrades to the pre-COR-2126 anchoring.
 type checkpointCommitResolver struct {
 	byCheckpoint map[string][]checkpointCommitCandidate
-	reachable    provenanceBranchReachability
+	reachable    entities.BranchReachability
 }
 
 // newCheckpointCommitResolver scans every commit carrying a checkpoint
@@ -37,8 +40,8 @@ type checkpointCommitResolver struct {
 // sharing them means threading a lookup through 7 call sites for a walk that
 // is noise next to distill's agent calls).
 func newCheckpointCommitResolver(ctx context.Context, opts Options, repoDir string) *checkpointCommitResolver {
-	stdout, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, brainNoEgressMode(),
-		"log", "--all", "--format=%H%x00%cI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
+	stdout, _, err := runCheckpointGitWithPolicy(ctx, opts.Runner, repoDir, base.BrainNoEgressMode(),
+		"log", "--all", "--format=%H%x00%cI%x00%B%x1e", "--grep", base.CheckpointTrailerKey+":")
 	if err != nil {
 		return nil
 	}
@@ -48,7 +51,7 @@ func newCheckpointCommitResolver(ctx context.Context, opts Options, repoDir stri
 	}
 	return &checkpointCommitResolver{
 		byCheckpoint: byCheckpoint,
-		reachable:    branchReachabilityLookup(ctx, opts, repoDir),
+		reachable:    entities.BranchReachabilityLookup(ctx, entityConfig(opts), repoDir),
 	}
 }
 
@@ -65,7 +68,7 @@ func checkpointCommitsFromGitLog(data []byte) map[string][]checkpointCommitCandi
 		}
 		commit := strings.TrimSpace(parts[0])
 		committedAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(parts[1])) //nolint:errcheck // Timestamp orders copies; zero is acceptable.
-		checkpointIDs := checkpointIDsFromCommitMessageText(parts[2])
+		checkpointIDs := base.CheckpointIDsFromCommitMessageText(parts[2])
 		if commit == "" || len(checkpointIDs) == 0 {
 			continue
 		}
@@ -86,7 +89,7 @@ func (r *checkpointCommitResolver) commitFor(checkpointID, branch string) string
 	best := ""
 	var bestAt time.Time
 	for _, candidate := range r.byCheckpoint[strings.TrimSpace(checkpointID)] {
-		if !provenanceCommitOnBranch(r.reachable, branch, candidate.commit) {
+		if !entities.ProvenanceCommitOnBranch(r.reachable, branch, candidate.commit) {
 			continue
 		}
 		if best == "" || candidate.at.After(bestAt) {

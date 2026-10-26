@@ -14,6 +14,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -144,13 +147,13 @@ func withVitalityLock(brainDir string, fn func() error) error {
 }
 
 func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() error) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, brainLockDirName); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, brainstore.BrainLockDirName); err != nil {
 		return err
 	}
-	lock, err := acquireFileLock(filepath.Join(brainDir, brainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
+	lock, err := brainstore.AcquireFileLock(filepath.Join(brainDir, brainstore.BrainLockDirName, factsVitalityLockName), "vitality_locked", timeout)
 	if err != nil {
 		return err
 	}
@@ -159,19 +162,19 @@ func withVitalityLockTimeout(brainDir string, timeout time.Duration, fn func() e
 }
 
 // appendBrainRelativeFile appends data to a brain-relative file with the same
-// symlink/hardlink discipline as writeBrainRelativeFileAtomic. Appends are not
+// symlink/hardlink discipline as brainstore.WriteBrainRelativeFileAtomic. Appends are not
 // fsynced — a torn tail line on power loss is tolerated by the log parser. A
 // later append first terminates that torn line so it cannot consume a new event.
 func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
-	if err := rejectSymlinkedBrainRoot(brainDir); err != nil {
+	if err := base.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	clean, err := cleanBrainRelativePath(rel)
+	clean, err := base.CleanBrainRelativePath(rel)
 	if err != nil {
 		return err
 	}
 	if dir := filepath.Dir(clean); dir != "." {
-		if err := rejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, dir); err != nil {
 			return err
 		}
 	}
@@ -179,18 +182,18 @@ func appendBrainRelativeFile(brainDir, rel string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, clean); err != nil {
 		return err
 	}
-	if err := rejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
+	if err := base.RejectUnsafeExistingRegularFile(abs, "vitality log"); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|fileLockOpenFlags(), 0o600)
+	f, err := os.OpenFile(abs, os.O_RDWR|os.O_CREATE|os.O_APPEND|base.FileLockOpenFlags(), 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(abs, f, "vitality log"); err != nil {
+	if err := base.RejectOpenFileAlias(abs, f, "vitality log"); err != nil {
 		return err
 	}
 	info, err := f.Stat()
@@ -290,7 +293,7 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 	}
 	if err := appendVitalityEventsBoundedWithLockTimeout(
 		brainDir, branch, events, factsVitalityLogMaxBytes, lockTimeout,
-	); err != nil && errW != nil && !errors.Is(err, errFileLockTimeout) {
+	); err != nil && errW != nil && !errors.Is(err, brainstore.ErrFileLockTimeout) {
 		// A lock-timeout drop is the designed best-effort path under contention
 		// (bounded budget) and would spam stderr during normal concurrency, so
 		// it stays silent. Any other error is a real failed append (receipts
@@ -317,7 +320,7 @@ func vitalityHead(ctx context.Context, runner CommandRunner, repoDir string) str
 	if runner == nil || repoDir == "" {
 		return ""
 	}
-	head, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
+	head, err := base.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return ""
 	}
@@ -348,7 +351,7 @@ func unifiedFactIDs(results []unifiedResult) []string {
 
 func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityRollupRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return newVitalityRollup(), nil
@@ -377,12 +380,12 @@ func writeVitalityRollup(brainDir, branch string, rollup vitalityRollup) error {
 		return err
 	}
 	data = append(data, '\n')
-	return writeBrainRelativeFileAtomic(brainDir, factsVitalityRollupRelPath(branch), data, 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsVitalityRollupRelPath(branch), data, 0o600)
 }
 
 func readVitalityLog(brainDir, branch string) ([]byte, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityLogRelPath(branch)))
-	data, err := safeReadFile(path, maxVitalityFileBytes)
+	data, err := base.SafeReadFile(path, maxVitalityFileBytes)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -530,7 +533,7 @@ func compactVitalityLocked(brainDir, branch string) (vitalityRollup, vitalityCom
 		if err := writeVitalityRollup(brainDir, branch, rollup); err != nil {
 			return rollup, stats, err
 		}
-		if err := writeBrainRelativeFileAtomic(brainDir, factsVitalityLogRelPath(branch), nil, 0o600); err != nil {
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, factsVitalityLogRelPath(branch), nil, 0o600); err != nil {
 			return rollup, stats, err
 		}
 		rollup.Log = vitalityLogMarker{}
@@ -595,7 +598,7 @@ func loadVitalityView(brainDir, branch string) (vitalityRollup, vitalityViewStat
 		ran = true
 		return read()
 	})
-	if !ran && errors.Is(err, errFileLockTimeout) {
+	if !ran && errors.Is(err, brainstore.ErrFileLockTimeout) {
 		// Contention is not a read failure: compaction replacements are atomic and
 		// the log parser tolerates a torn append tail. Path/symlink/setup failures
 		// are not contention and must never bypass the lock path's safety checks.

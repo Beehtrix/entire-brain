@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/entityindex"
-	"github.com/entireio/entire-brain/internal/factgitmeta"
 )
 
 // entityIndexFixture wires a fake repository whose git and `entire graph diff`
@@ -98,7 +98,7 @@ func newEntityIndexFixture(t *testing.T) *entityIndexFixture {
 	}
 
 	// Commit decoration for the derived cache (subject, committer date, trailers).
-	runner.responses[fakeCommandKey("git", "log", "--no-walk", entityCommitLogFormat, entityFixtureCommitA, entityFixtureCommitB)] = fakeCommandResponse{
+	runner.responses[fakeCommandKey("git", "log", "--no-walk", entities.CommitLogFormat, entityFixtureCommitA, entityFixtureCommitB)] = fakeCommandResponse{
 		stdout: entityFixtureLogRecord(0) + entityFixtureLogRecord(1),
 	}
 
@@ -261,7 +261,7 @@ func TestEntitiesBackfillThenHistoryAnswersFromTheIndex(t *testing.T) {
 	diffCallsAfterBackfill := countEntityRunnerCalls(fixture.runner, "entire", "graph", "diff")
 
 	stdout, _ = fixture.run(t, "entities", "history", "ChargeCard", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode history: %v\n%s", err, stdout)
 	}
@@ -312,7 +312,7 @@ func TestEntitiesHistoryAnswersOldestFirstAcrossBoundedPasses(t *testing.T) {
 	fixture.run(t, "entities", "backfill", "--limit", "1", "--json")
 
 	stdout, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode: %v\n%s", err, stdout)
 	}
@@ -332,8 +332,8 @@ func TestEntityIndexCacheRebuildsWhenTheGitMetaTipMoves(t *testing.T) {
 	fixture := newEntityIndexFixture(t)
 	fixture.run(t, "entities", "backfill", "--json")
 
-	cachePath := filepath.Join(fixture.storage.BrainDir, filepath.FromSlash(entitiesCachePath))
-	cache, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	cachePath := filepath.Join(fixture.storage.BrainDir, filepath.FromSlash(entities.CachePath))
+	cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
 	if !ok {
 		t.Fatal("backfill did not persist the derived cache")
 	}
@@ -347,7 +347,7 @@ func TestEntityIndexCacheRebuildsWhenTheGitMetaTipMoves(t *testing.T) {
 	// Poison the cache with a bogus entry pinned to a stale tip. A correct
 	// implementation must throw it away and rebuild from git-meta.
 	cache.MetaTip = "0000000000000000000000000000000000000000"
-	cache.Entries = map[string][]entityIndexOccurrence{"phantom.go#function#Phantom": {{Commit: "deadbeef"}}}
+	cache.Entries = map[string][]entities.IndexOccurrence{"phantom.go#function#Phantom": {{Commit: "deadbeef"}}}
 	data, err := json.Marshal(cache)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -357,7 +357,7 @@ func TestEntityIndexCacheRebuildsWhenTheGitMetaTipMoves(t *testing.T) {
 	}
 
 	stdout, _ := fixture.run(t, "entities", "history", "Phantom", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestEntityIndexCacheRebuildsWhenTheGitMetaTipMoves(t *testing.T) {
 	if len(result.Matches) != 1 {
 		t.Fatalf("rebuilt cache did not recover the real index: %+v", result)
 	}
-	rebuilt, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	rebuilt, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
 	if !ok || rebuilt.MetaTip == "0000000000000000000000000000000000000000" {
 		t.Fatalf("rebuilt cache was not re-pinned: ok=%v tip=%q", ok, rebuilt.MetaTip)
 	}
@@ -427,7 +427,7 @@ func TestEntitiesShowResolvesACheckpointID(t *testing.T) {
 func TestEntitiesHistoryReportsAnEmptyIndex(t *testing.T) {
 	fixture := newEntityIndexFixture(t)
 	stdout, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -452,7 +452,7 @@ func TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo(t *testing.T) {
 	// else (MetaTip in particular) exactly as backfill left it, so
 	// loadEntityIndexView serves this cache as-is instead of rebuilding over
 	// it and silently clearing the flag.
-	cache, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
 	if !ok {
 		t.Fatal("backfill built no cache to truncate")
 	}
@@ -464,7 +464,7 @@ func TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo(t *testing.T) {
 	// JSON contract: the flag is visible (already correct before this fix;
 	// pinned here so a regression on either side is caught).
 	stdout, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode: %v\n%s", err, stdout)
 	}
@@ -483,10 +483,10 @@ func TestEntitiesHistoryPrintsTruncatedWarningInHumanTextToo(t *testing.T) {
 // zero-token freshness path the watch tick and the session-end hook call.
 func TestEntitiesFreshnessStepIndexesNewCommits(t *testing.T) {
 	fixture := newEntityIndexFixture(t)
-	if err := refreshEntityIndexQuietly(context.Background(), fixture.opts, fixture.repoDir); err != nil {
+	if err := entities.RefreshIndexQuietly(context.Background(), entityConfig(fixture.opts), fixture.repoDir); err != nil {
 		t.Fatalf("freshness step: %v", err)
 	}
-	cache, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
 	if !ok {
 		t.Fatal("freshness step built no index")
 	}
@@ -495,7 +495,7 @@ func TestEntitiesFreshnessStepIndexesNewCommits(t *testing.T) {
 	}
 	// Idempotent: a second pass with nothing new must not fail or re-diff.
 	before := countEntityRunnerCalls(fixture.runner, "entire", "graph", "diff")
-	if err := refreshEntityIndexQuietly(context.Background(), fixture.opts, fixture.repoDir); err != nil {
+	if err := entities.RefreshIndexQuietly(context.Background(), entityConfig(fixture.opts), fixture.repoDir); err != nil {
 		t.Fatalf("second freshness step: %v", err)
 	}
 	if after := countEntityRunnerCalls(fixture.runner, "entire", "graph", "diff"); after != before {
@@ -514,7 +514,7 @@ func TestEntityProvenanceResolvesToAMidSessionCheckpoint(t *testing.T) {
 	fixture.writeLocalCheckpoints(t)
 	fixture.run(t, "entities", "backfill", "--json")
 
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
@@ -527,7 +527,7 @@ func TestEntityProvenanceResolvesToAMidSessionCheckpoint(t *testing.T) {
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	got := applyEntityProvenance(records, resolver)
+	got := entities.ApplyProvenance(records, resolver)
 	anchor := got[0].Provenance[0]
 	if anchor.CheckpointID == entityFixtureCkptB {
 		t.Fatal("the anchor stayed on the session's LATEST checkpoint; nothing was sharpened")
@@ -546,68 +546,8 @@ func TestEntityProvenanceResolvesToAMidSessionCheckpoint(t *testing.T) {
 		Locus:      []string{"refundcard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptB || got.Commit != entityFixtureCommitB {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got.CheckpointID != entityFixtureCkptB || got.Commit != entityFixtureCommitB {
 		t.Fatalf("RefundCard anchor = %+v", got)
-	}
-}
-
-// TestEntityProvenanceIsDeterministicOnTimestampTies pins the resolution
-// ORDER. Committer dates resolve to one second, so two commits made in the same
-// second are a routine tie — and the resolver reaches them by ranging over a Go
-// map, whose iteration order is randomized per run. Keeping the first-seen
-// candidate on a tie therefore made identical inputs produce different anchors
-// from one distill to the next. The order has to be total.
-func TestEntityProvenanceIsDeterministicOnTimestampTies(t *testing.T) {
-	t.Parallel()
-	const (
-		session = "session-tie"
-		lowSHA  = "1111111111111111111111111111111111111111"
-		highSHA = "9999999999999999999999999999999999999999"
-	)
-	tie := time.Date(2026, 7, 4, 9, 30, 15, 0, time.UTC)
-	// Two commits in the SAME SECOND, of the same session, each changing an
-	// entity that the single locus token "chargecard" names.
-	occurrences := map[string]entityIndexOccurrence{
-		"internal/pay/a.go#function#ChargeCard": {Commit: lowSHA, CheckpointIDs: []string{"aaaaaaaaaaaa"}, SessionIDs: []string{session}, CommittedAt: &tie},
-		"internal/pay/b.go#function#ChargeCard": {Commit: highSHA, CheckpointIDs: []string{"zzzzzzzzzzzz"}, SessionIDs: []string{session}, CommittedAt: &tie},
-	}
-	keys := []string{"internal/pay/a.go#function#ChargeCard", "internal/pay/b.go#function#ChargeCard"}
-	record := factRecord{
-		Text:       "`ChargeCard` must be idempotent.",
-		Branch:     "main",
-		Locus:      []string{"chargecard"},
-		Provenance: []factAnchor{{SessionID: session, CheckpointID: "cccccccccccc", Commit: "ffffffffffffffffffffffffffffffffffffffff"}},
-	}
-
-	var first factAnchor
-	for round := 0; round < 64; round++ {
-		// A FRESH map every round, with the entries inserted in alternating
-		// order, so neither insertion order nor Go's randomized range order is
-		// held constant across rounds.
-		cache := entityIndexCache{SchemaVersion: entityIndexCacheVersion, Entries: map[string][]entityIndexOccurrence{}}
-		order := keys
-		if round%2 == 1 {
-			order = []string{keys[1], keys[0]}
-		}
-		for _, key := range order {
-			cache.Entries[key] = []entityIndexOccurrence{occurrences[key]}
-		}
-		resolver := buildEntityProvenanceResolver(cache, map[string]string{session: "main"}, nil)
-		if resolver == nil {
-			t.Fatal("resolver is nil despite a populated cache")
-		}
-		got := applyEntityProvenance([]factRecord{record}, resolver)[0].Provenance[0]
-		if round == 0 {
-			first = got
-			continue
-		}
-		if got != first {
-			t.Fatalf("round %d resolved %+v, round 0 resolved %+v: the same input produced two different anchors", round, got, first)
-		}
-	}
-	// And the tie-break is the documented one, not just "stable by accident".
-	if first.Commit != highSHA || first.CheckpointID != "zzzzzzzzzzzz" {
-		t.Fatalf("tie resolved to %+v, want the larger commit sha (%s)", first, highSHA)
 	}
 }
 
@@ -621,7 +561,7 @@ func TestEntityProvenanceRefusesAnotherSessionsCheckpoint(t *testing.T) {
 	fixture.writeLocalCheckpoints(t)
 	fixture.run(t, "entities", "backfill", "--json")
 
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
@@ -633,7 +573,7 @@ func TestEntityProvenanceRefusesAnotherSessionsCheckpoint(t *testing.T) {
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{fallback},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got != fallback {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got != fallback {
 		t.Fatalf("a fact was anchored to another session's checkpoint: %+v", got)
 	}
 
@@ -646,7 +586,7 @@ func TestEntityProvenanceRefusesAnotherSessionsCheckpoint(t *testing.T) {
 		Locus:      []string{"authorizecard"},
 		Provenance: []factAnchor{crossBranch},
 	}}
-	if got := applyEntityProvenance(records, resolver)[0].Provenance[0]; got != crossBranch {
+	if got := entities.ApplyProvenance(records, resolver)[0].Provenance[0]; got != crossBranch {
 		t.Fatalf("a fact on another branch was sharpened: %+v", got)
 	}
 }
@@ -662,7 +602,7 @@ func TestEntityIndexCacheIsNotPersistedWhenGitFails(t *testing.T) {
 
 	// Fail the decoration read exactly once; the fixture's normal response
 	// serves every call after it.
-	decorate := fakeCommandKey("git", "log", "--no-walk", entityCommitLogFormat, entityFixtureCommitA, entityFixtureCommitB)
+	decorate := fakeCommandKey("git", "log", "--no-walk", entities.CommitLogFormat, entityFixtureCommitA, entityFixtureCommitB)
 	fixture.runner.sequences = map[string][]fakeCommandResponse{
 		decorate: {{err: errors.New("git exploded")}},
 	}
@@ -675,13 +615,13 @@ func TestEntityIndexCacheIsNotPersistedWhenGitFails(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("backfill: %v\n%s", err, stderr.String())
 	}
-	if cache, ok := loadEntityIndexCache(fixture.storage.BrainDir); ok && len(cache.Entries) == 0 {
+	if cache, ok := entities.LoadIndexCache(fixture.storage.BrainDir); ok && len(cache.Entries) == 0 {
 		t.Fatalf("an empty join was persisted and pinned to tip %q", cache.MetaTip)
 	}
 
 	// The next call must rebuild and answer for real.
 	out, _ := fixture.run(t, "entities", "history", "ChargeCard", "--json")
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		t.Fatalf("decode: %v\n%s", err, out)
 	}
@@ -691,7 +631,7 @@ func TestEntityIndexCacheIsNotPersistedWhenGitFails(t *testing.T) {
 	if got := result.Matches[0].Occurrences[0]; len(got.CheckpointIDs) != 1 || got.CheckpointIDs[0] != entityFixtureCkptA {
 		t.Fatalf("occurrence decoration was not recovered: %+v", got)
 	}
-	rebuilt, ok := loadEntityIndexCache(fixture.storage.BrainDir)
+	rebuilt, ok := entities.LoadIndexCache(fixture.storage.BrainDir)
 	if !ok || len(rebuilt.Entries) == 0 {
 		t.Fatalf("the recovered join was not persisted: ok=%v entries=%d", ok, len(rebuilt.Entries))
 	}
@@ -704,61 +644,24 @@ func TestEntityProvenanceFallsBackWhenUnresolvable(t *testing.T) {
 	fixture.writeSessionManifest(t)
 
 	// No index at all.
-	if resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir); resolver != nil {
+	if resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir); resolver != nil {
 		t.Fatal("resolver must be nil when the index is empty")
 	}
 	fallback := factAnchor{SessionID: entityFixtureSession, CheckpointID: "zzzzzzzzzzzz"}
 	records := []factRecord{{Text: "unrelated", Locus: []string{"nothinghere"}, Provenance: []factAnchor{fallback}}}
-	if got := applyEntityProvenance(records, nil); got[0].Provenance[0] != fallback {
+	if got := entities.ApplyProvenance(records, nil); got[0].Provenance[0] != fallback {
 		t.Fatalf("a nil resolver changed the anchor: %+v", got[0].Provenance[0])
 	}
 
 	// Index present, but the fact's locus names nothing indexed.
 	fixture.run(t, "entities", "backfill", "--json")
-	resolver := newEntityProvenanceResolver(context.Background(), fixture.opts, fixture.repoDir)
+	resolver := entities.NewProvenanceResolver(context.Background(), entityConfig(fixture.opts), fixture.repoDir)
 	if resolver == nil {
 		t.Fatal("resolver is nil despite a populated index")
 	}
 	records = []factRecord{{Text: "unrelated", Locus: []string{"nothinghere"}, Provenance: []factAnchor{fallback}}}
-	if got := applyEntityProvenance(records, resolver); got[0].Provenance[0] != fallback {
+	if got := entities.ApplyProvenance(records, resolver); got[0].Provenance[0] != fallback {
 		t.Fatalf("an unresolvable locus changed the anchor: %+v", got[0].Provenance[0])
-	}
-}
-
-// TestEntityIndexSharesTheFactSyncGitMetaStore proves the index and the
-// fact-set head live on the same local ref under the same lock, rather than in
-// two unsynchronized stores over one git dir.
-func TestEntityIndexSharesTheFactSyncGitMetaStore(t *testing.T) {
-	fixture := newEntityIndexFixture(t)
-	fixture.run(t, "entities", "backfill", "--json")
-
-	gitDir, err := gitmetaDirForKey(fixture.opts.Env, fixture.storage.Key)
-	if err != nil {
-		t.Fatalf("gitmeta dir: %v", err)
-	}
-	backend, err := factgitmeta.NewLocalBackend(gitDir, fixture.storage.Key, fixture.opts.Now)
-	if err != nil {
-		t.Fatalf("open fact backend: %v", err)
-	}
-	if _, err := backend.Advance(context.Background(), fixture.storage.Key, "main", "", []byte("{\"id\":\"x\"}\n")); err != nil {
-		t.Fatalf("fact advance over the shared store: %v", err)
-	}
-	// The fact write moved the shared ref; the entity index must still read
-	// back intact (a separate ref or a clobbering write would lose it).
-	store, err := factgitmeta.OpenMetaStore(gitDir, fixture.opts.Now)
-	if err != nil {
-		t.Fatalf("open meta store: %v", err)
-	}
-	state, err := store.State()
-	if err != nil {
-		t.Fatalf("state: %v", err)
-	}
-	snap := entityindex.Load(state)
-	if got := snap.Commits("internal/pay/charge.go#function#ChargeCard"); len(got) != 2 {
-		t.Fatalf("entity index lost records across a fact-set write: %v", got)
-	}
-	if _, _, found, err := backend.Current(context.Background(), fixture.storage.Key, "main"); err != nil || !found {
-		t.Fatalf("fact head lost across the shared store: found=%v err=%v", found, err)
 	}
 }
 
@@ -802,7 +705,7 @@ func TestBrainEntityHistoryMCPToolIsExposedAndAnswers(t *testing.T) {
 		t.Fatalf("empty tool response: %+v", response)
 	}
 	text, _ := content[0]["text"].(string)
-	var result entityHistoryResult
+	var result entities.HistoryResult
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		t.Fatalf("tool output is not the history contract: %v\n%s", err, text)
 	}
@@ -848,7 +751,7 @@ func TestEntityCommandsWithoutIdentityProbe(t *testing.T) {
 			if result.Indexed != 2 {
 				t.Fatalf("legacy backfill failed: %+v", result)
 			}
-			if err := os.Remove(filepath.Join(f.storage.BrainDir, entitiesCachePath)); err != nil {
+			if err := os.Remove(filepath.Join(f.storage.BrainDir, entities.CachePath)); err != nil {
 				t.Fatal(err)
 			}
 			// Equivalent to receiving durable git-meta without the optional local join.

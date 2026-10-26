@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -100,7 +102,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 				return nil
 			}
 			target := agentSurfaceTarget(opts, nil)
-			repoDir, local, err := resolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
+			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
 			if err != nil || !local {
 				return nil // no local repo: silence, never an error
 			}
@@ -121,7 +123,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			storage, storageErr := repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)
 			resolvedBranch := strings.TrimSpace(branch)
 			if resolvedBranch == "" {
-				if current, gitErr := gitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+				if current, gitErr := base.GitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 					resolvedBranch = strings.TrimSpace(current)
 				}
 			}
@@ -141,7 +143,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			// hint (that must never wait on a slow provider) and independently
 			// of the export result, since it reads git, not transcripts. Never
 			// fails the hook.
-			if entityErr := refreshEntityIndexQuietly(cmd.Context(), perRepo, repoDir); entityErr != nil {
+			if entityErr := entities.RefreshIndexQuietly(cmd.Context(), entityConfig(perRepo), repoDir); entityErr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: entity index refresh skipped: %v\n", entityErr)
 			}
 			// Hosted sync runs on every exit path — the pull half matters even
@@ -218,7 +220,7 @@ arguments. --claude-hook is the wired spelling: Claude Code delivers a
 PreToolUse event as JSON on stdin and only reads a JSON envelope back, so the
 flag reads the path from the event and replies in the shape the host parses.
 Plain stdout is NOT added to the agent's context for PreToolUse, which is why
-the text emission alone could never have reached an agent. ` + setupBrainBinaryName + ` init-agents
+the text emission alone could never have reached an agent. ` + base.SetupBrainBinaryName + ` setup
 wires it.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -479,7 +481,7 @@ func hookReadFailureTail(r io.Reader) string {
 // dead ends, not conventions — and only scores at or above the precision bar
 // survive.
 func hookMatchFailure(facts []factRecord, query string) []factRecord {
-	queryLocus := factLocus(query)
+	queryLocus := base.FactLocus(query)
 	type scored struct {
 		rec factRecord
 		n   int

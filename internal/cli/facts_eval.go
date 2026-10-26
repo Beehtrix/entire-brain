@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -94,7 +96,6 @@ type evalRunConfig struct {
 	Judge                 bool   `json:"judge"`
 	JudgeSourceMatches    bool   `json:"judge_source_matches,omitempty"`
 	Expand                bool   `json:"expand"`
-	Semantic              bool   `json:"semantic"`
 	JudgeCachePath        string `json:"judge_cache_path,omitempty"`
 	ExpansionCachePath    string `json:"expansion_cache_path,omitempty"`
 	LabelPolicy           string `json:"label_policy"`
@@ -345,7 +346,7 @@ func newFactsEvalCommand(opts Options) *cobra.Command {
 		retriever    string
 		arm          string
 		jsonOut      bool
-		run          distillAgentRunner
+		run          base.DistillAgentRunner
 	)
 	cmd := &cobra.Command{
 		Hidden: true,
@@ -383,8 +384,8 @@ The tasks file is a JSON array:
 			if err := validateEvalRetriever(retriever); err != nil {
 				return err
 			}
-			if err := validateEvalSemanticRetriever(semantic, retriever); err != nil {
-				return err
+			if semantic {
+				return fmt.Errorf("--semantic was removed: semantic retrieval no longer exists (trail #278); the default arm is BM25 lexical")
 			}
 			armFn, err := selectRetrievalArm(arm)
 			if err != nil {
@@ -400,11 +401,11 @@ The tasks file is a JSON array:
 			}
 			var judgeArgs []string
 			if judge {
-				judgeArgs, err = distillAgentCommandArgs(resolvedAgent, agentCommand, judgePrompt())
+				judgeArgs, err = base.DistillAgentCommandArgs(resolvedAgent, agentCommand, judgePrompt())
 				if err != nil {
 					return fmt.Errorf("judge agent: %w", err)
 				}
-				judgeArgs = injectAgentModel(judgeArgs, resolvedAgent, model)
+				judgeArgs = base.InjectAgentModel(judgeArgs, resolvedAgent, model)
 				if run == nil {
 					run = defaultDistillAgentRunner(resolvedAgent)
 				}
@@ -412,11 +413,11 @@ The tasks file is a JSON array:
 			var expander queryExpanderFunc
 			expCache := loadExpansionCache(expandCache)
 			if expand {
-				expandArgs, expErr := distillAgentCommandArgs(resolvedAgent, agentCommand, queryExpansionPrompt())
+				expandArgs, expErr := base.DistillAgentCommandArgs(resolvedAgent, agentCommand, queryExpansionPrompt())
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
-				expandArgs = injectAgentModel(expandArgs, resolvedAgent, model)
+				expandArgs = base.InjectAgentModel(expandArgs, resolvedAgent, model)
 				expRun := run
 				if expRun == nil {
 					expRun = defaultDistillAgentRunner(resolvedAgent)
@@ -424,9 +425,6 @@ The tasks file is a JSON array:
 				expander = func(query string) (string, error) {
 					return expandQuery(cmd.Context(), expRun, expandArgs, repoDir, query, expCache)
 				}
-			}
-			if semantic {
-				return fmt.Errorf("--semantic was removed: semantic retrieval no longer exists (trail #278); the default arm is BM25 lexical")
 			}
 			cache := loadJudgeCache(judgeCache)
 			if err := cache.validateLoaded(); err != nil {
@@ -454,7 +452,6 @@ The tasks file is a JSON array:
 				Judge:                 judge,
 				JudgeSourceMatches:    judgeSource,
 				Expand:                expand,
-				Semantic:              semantic,
 				JudgeCachePath:        judgeCache,
 				ExpansionCachePath:    expandCache,
 				LabelPolicy:           "human and judge_refined labels define precision/recall; provenance_silver is reported but not proof-labeled",
@@ -477,7 +474,7 @@ The tasks file is a JSON array:
 	cmd.Flags().StringVar(&model, "model", "", "Model for codex/claude-code/ollama judge and expand calls")
 	cmd.Flags().StringArrayVar(&agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&judgeCache, "judge-cache", "", "Persist/reuse judge verdicts at this path so re-runs are deterministic and cheap")
-	cmd.Flags().BoolVar(&semantic, "semantic", false, "Rerank with the local embedding backend (RRF fusion of lexical + semantic)")
+	cmd.Flags().BoolVar(&semantic, "semantic", false, "Removed (trail #278): semantic retrieval no longer exists; passing this flag is an error")
 	cmd.Flags().BoolVar(&expand, "expand", false, "Expand each task query with agent-generated retrieval terms before retrieval")
 	cmd.Flags().StringVar(&expandCache, "expand-cache", "", "Persist/reuse query expansions at this path")
 	cmd.Flags().StringVar(&retriever, "retriever", evalRetrieverFacts, "Retrieval arm: facts, history, query, or raw-sessions")
@@ -557,11 +554,11 @@ func (c *judgeCache) save() error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(c.path, append(data, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(c.path, append(data, '\n'), 0o600)
 }
 
 func loadEvalTasks(path string) ([]evalTask, error) {
-	data, err := safeReadFile(path, maxManifestBytes)
+	data, err := base.SafeReadFile(path, base.MaxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -622,13 +619,6 @@ func validateEvalRetriever(retriever string) error {
 	default:
 		return fmt.Errorf("--retriever must be one of facts, history, query, raw-sessions")
 	}
-}
-
-func validateEvalSemanticRetriever(semantic bool, retriever string) error {
-	if semantic && retriever != evalRetrieverFacts {
-		return fmt.Errorf("--semantic requires --retriever facts")
-	}
-	return nil
 }
 
 func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limit int, retriever string, facts []factRecord, arm retrievalArm) ([]evalRetrievedItem, error) {
@@ -1046,11 +1036,11 @@ type factsEvalRunOptions struct {
 	ArmName            string
 }
 
-func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string) ([]evalTaskResult, error) {
+func runFactsEval(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run base.DistillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string) ([]evalTaskResult, error) {
 	return runFactsEvalWithOptions(ctx, opts, brainDir, repoDir, defaultBranch, tasks, defaultK, judge, run, judgeArgs, cache, expander, retriever, factsEvalRunOptions{})
 }
 
-func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run distillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
+func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDir, defaultBranch string, tasks []evalTask, defaultK int, judge bool, run base.DistillAgentRunner, judgeArgs []string, cache *judgeCache, expander queryExpanderFunc, retriever string, runOpts factsEvalRunOptions) ([]evalTaskResult, error) {
 	if err := validateEvalTasks(tasks); err != nil {
 		return nil, err
 	}
@@ -1135,7 +1125,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 // task, consulting the cache first and only asking the agent about the
 // uncached facts (then recording its verdicts). This makes judged evals cheap
 // to re-run and deterministic across runs.
-func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, surfaced []factRecord, cache *judgeCache) (map[string]struct{}, error) {
+func judgeRelevance(ctx context.Context, run base.DistillAgentRunner, repoDir string, judgeArgs []string, task evalTask, surfaced []factRecord, cache *judgeCache) (map[string]struct{}, error) {
 	relevant := map[string]struct{}{}
 	var uncached []factRecord
 	for _, f := range surfaced {
@@ -1167,7 +1157,7 @@ func judgeRelevance(ctx context.Context, run distillAgentRunner, repoDir string,
 	return relevant, nil
 }
 
-func judgeRelevanceItems(ctx context.Context, run distillAgentRunner, repoDir string, judgeArgs []string, task evalTask, retriever string, surfaced []evalRetrievedItem, cache *judgeCache) (map[string]struct{}, error) {
+func judgeRelevanceItems(ctx context.Context, run base.DistillAgentRunner, repoDir string, judgeArgs []string, task evalTask, retriever string, surfaced []evalRetrievedItem, cache *judgeCache) (map[string]struct{}, error) {
 	relevant := map[string]struct{}{}
 	var uncached []evalRetrievedItem
 	for _, item := range surfaced {
@@ -1215,12 +1205,12 @@ func printEvalSummary(cmd *cobra.Command, s evalSummary) {
 		if r.Labeled {
 			recall = fmt.Sprintf("%.2f", r.Recall)
 		}
-		relevance := truncateString(valueOrUnset(r.RelevanceSource), 24)
-		label := truncateString(valueOrUnset(r.LabelSource), 13)
+		relevance := base.TruncateString(valueOrUnset(r.RelevanceSource), 24)
+		label := base.TruncateString(valueOrUnset(r.LabelSource), 13)
 		if showLatencyBreakdown {
-			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %8d %8d %7.2f %7s %9.2f\n", base.TruncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.ExpansionLatencyMS, evalEndToEndLatencyMS(r), r.Precision, recall, r.UsefulPer1k)
 		} else {
-			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %7.2f %7s %9.2f\n", truncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
+			fmt.Fprintf(out, "%-14s %-24s %-13s %8d %8d %7.2f %7s %9.2f\n", base.TruncateString(r.ID, 14), relevance, label, r.Tokens, r.LatencyMS, r.Precision, recall, r.UsefulPer1k)
 		}
 	}
 	if showLatencyBreakdown {

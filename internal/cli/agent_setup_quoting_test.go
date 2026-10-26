@@ -71,23 +71,25 @@ func TestNestedRepoWarningUsesTheQuotedForm(t *testing.T) {
 	cmd := NewRootCommand(Options{Version: "test", Env: EntireEnv{RepoRoot: inner}, Now: time.Now})
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
-	// NO --repo and NO positional arg: the warning fires only when neither is
-	// given (agent_setup.go), so passing --repo is exactly how the first
-	// version of this test silently skipped itself.
-	cmd.SetArgs([]string{"init-agents"})
+	// NO positional arg: the warning fires only when no explicit path is
+	// given (setup.go), so passing one is exactly how the first version of
+	// this test silently skipped itself. The fixture's bare .git directories
+	// are not real repositories, so setup refuses later — the warning must
+	// already have printed by then.
+	cmd.SetArgs([]string{"setup"})
 	_ = cmd.Execute()
 
 	got := out.String()
 	if !strings.Contains(got, "git repository inside") {
 		t.Fatalf("the nested-repo warning did not fire, so this guard measures nothing:\n%s", got)
 	}
-	if strings.Contains(got, "--repo "+outer+"\n") {
+	if strings.Contains(got, "setup "+outer+"\n") {
 		t.Errorf("the suggested command carries the path unquoted:\n%s", got)
 	}
-	if !strings.Contains(got, "--repo '"+outer+"'") {
+	if !strings.Contains(got, "setup '"+outer+"'") {
 		t.Errorf("the suggested command must carry the quoted path:\n%s", got)
 	}
-	if !strings.Contains(got, "entire-brain init-agents --repo '"+outer+"'") {
+	if !strings.Contains(got, "entire-brain setup '"+outer+"'") {
 		t.Errorf("standalone remedy names an unavailable host CLI:\n%s", got)
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 // mcpScopeTestOptions binds an MCP server to repoDir the way `entire brain mcp`
@@ -199,15 +201,15 @@ func TestMCPWorkspaceToolsRefuseReposOutsideBoundRoot(t *testing.T) {
 	boundKey := testLocalRepoStorageKey(t, repoDir)
 	writeWorkspaceBrainRepoAt(t, env, boundKey, repoDir, session, "pkg/review_context.go", "package x\n")
 	foreignRepo, foreignKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "outside",
-		Repos: []workspaceRepo{
+		Repos: []workspace.Repo{
 			{RepoKey: boundKey, Name: "bound", LocalPathHint: repoDir},
 			{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo},
 		},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 
@@ -235,12 +237,12 @@ func TestMCPWorkspaceToolsHonorCrossRepoGate(t *testing.T) {
 	opts, env := mcpScopeTestOptions(t, repoDir)
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	foreignRepo, foreignKey := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "outside",
-		Repos:         []workspaceRepo{{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo}},
+		Repos:         []workspace.Repo{{RepoKey: foreignKey, Name: "foreign", LocalPathHint: foreignRepo}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	t.Setenv(mcpAllowCrossRepoEnv, "1")
@@ -259,12 +261,12 @@ func TestWorkspaceCLIStaysCrossRepoWithoutGate(t *testing.T) {
 	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now}
 	session := `{"text":"in pkg/review_context.go the scope diff uses scopeBaseRef+\"..HEAD\" for the range"}`
 	repoA, keyA := writeLocalWorkspaceBrainRepo(t, env, session, "pkg/review_context.go", "package x\nfunc f() string {\n\treturn \"master..HEAD\"\n}\n")
-	manifest := workspaceManifest{
-		SchemaVersion: workspaceSchemaVersion,
+	manifest := workspace.Manifest{
+		SchemaVersion: workspace.SchemaVersion,
 		Name:          "cliwide",
-		Repos:         []workspaceRepo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
+		Repos:         []workspace.Repo{{RepoKey: keyA, Name: "a", LocalPathHint: repoA}},
 	}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
 	cmd := NewRootCommand(opts)
@@ -280,8 +282,8 @@ func TestMCPWorkspaceScopeRejectsUnavailableBoundRepository(t *testing.T) {
 	}
 	root := filepath.Join(parent, "missing-checkout")
 	opts, env := mcpScopeTestOptions(t, root)
-	manifest := workspaceManifest{SchemaVersion: workspaceSchemaVersion, Name: "missing-bound", Repos: []workspaceRepo{{RepoKey: "gh/example/bound", LocalPathHint: root}}}
-	if err := writeWorkspaceManifest(env, manifest); err != nil {
+	manifest := workspace.Manifest{SchemaVersion: workspace.SchemaVersion, Name: "missing-bound", Repos: []workspace.Repo{{RepoKey: "gh/example/bound", LocalPathHint: root}}}
+	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	for _, tool := range []string{"brain_workspace_graph", "brain_workspace_regressions", "brain_workspace_review"} {

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func TestRootCommandPatternsRefreshTextContract(t *testing.T) {
@@ -27,7 +29,7 @@ func TestRootCommandPatternsRefreshTextContract(t *testing.T) {
 	if out != want || stderr != "" {
 		t.Fatalf("refresh output: stdout=%q stderr=%q; want stdout=%q and empty stderr", out, stderr, want)
 	}
-	if info, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))); err != nil || !info.Mode().IsRegular() {
+	if info, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); err != nil || !info.Mode().IsRegular() {
 		t.Fatalf("successful refresh did not publish corpus: %v", err)
 	}
 }
@@ -38,7 +40,7 @@ func TestRootCommandPatternsRefreshFailureDoesNotReportSuccess(t *testing.T) {
 			opts, repoDir, brainDir := commandRegressionFixture(t)
 			// A directory at the database path is a portable, real publication
 			// failure, unlike permission bits which differ across OSes and users.
-			corpus := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+			corpus := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 			if err := os.MkdirAll(corpus, 0o700); err != nil {
 				t.Fatal(err)
 			}

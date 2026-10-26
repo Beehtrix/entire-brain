@@ -8,6 +8,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
@@ -26,7 +28,7 @@ func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
 		return originalOpen(name, flags, perm)
 	}
 	t.Cleanup(func() { memoryStateOpenFile = originalOpen })
-	if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("FIFO swap: %v", err)
 	}
 }

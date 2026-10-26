@@ -230,7 +230,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 	} else {
 		for _, f := range rankFacts(guardFactRecords(guard, facts), query, limit, false) {
 			for _, a := range f.Provenance {
-				if !guard.blocksFactAnchor(a) {
+				if !guardBlocksFactAnchor(guard, a) {
 					anchored[a.SessionID] = true
 				}
 			}
@@ -261,7 +261,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 		if b == "" {
 			b = distillDefaultBranch
 		}
-		if b != branch || guard.blocksExportSession(s) {
+		if b != branch || guardBlocksExportSession(guard, s) {
 			continue
 		}
 		if prev, ok := seen[s.SessionID]; ok {

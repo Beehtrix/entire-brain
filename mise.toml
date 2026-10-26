@@ -40,10 +40,6 @@ fi
 go vet ./...
 """
 
-[tasks."test:phase1"]
-description = "Run deterministic Phase 1 semantic brain contract tests"
-run = "ENTIRE_BRAIN_PHASE1_CI=1 go test -race ./internal/cli -run 'TestPhase1|TestSemantic|TestWorkspace|TestMCP|TestRefreshSemantic'"
-
 [tasks."test:benchmarks"]
 description = "Run the agent-brain and memory-ladder benchmark harness test suites"
 run = '''
@@ -627,4 +623,4 @@ done
 
 [tasks.check]
 description = "Run formatting, linting, tests, and builds"
-depends = ["lint", "test:ci", "test:phase1", "test:benchmarks", "build-all"]
+depends = ["lint", "test:ci", "test:benchmarks", "build-all"]

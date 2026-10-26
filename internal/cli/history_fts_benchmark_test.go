@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func benchmarkHistoryFTSIndex(b *testing.B) historyIndex {
@@ -173,7 +175,7 @@ func sqliteArtifactBytes(path string) int64 {
 }
 
 func buildHistoryFTSV1Fixture(path string, index historyIndex) error {
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return err
 	}

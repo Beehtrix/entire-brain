@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -85,7 +87,7 @@ func mustReadFile(t *testing.T, path string) []byte {
 func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
 	t.Helper()
 	var stats shortTermStats
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 		return buildErr
@@ -161,7 +163,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
 	t.Helper()
 	var stats shortTermStats
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		stats, err = buildHistoryShortTermLocked(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC))
 		return err
@@ -239,7 +241,16 @@ func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T
 	}
 }
 
-func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
+// A transcript past the per-file cap is recorded, not refused. This test used
+// to assert the opposite — that the bound preserved the prior generation —
+// which is precisely how one oversize transcript kept blocking the overlay for
+// every other session. The prior generation is deliberately NOT preserved: the
+// file grew, so the records it had in the overlay describe content it no longer
+// holds, and the sessions that ARE readable must be republished. The property
+// that a genuine canonical refusal leaves the prior overlay untouched is pinned
+// by TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay and
+// TestShortTermDeltaMembershipRacePreservesOverlay.
+func TestShortTermDeltaOversizeTranscriptIsRecordedNotRefused(t *testing.T) {
 	brainDir, rel, _ := historyProjectionFixture(t)
 	target := filepath.Join(brainDir, filepath.FromSlash(rel))
 	replaceDeltaTranscriptSameMetadata(t, target, "commit the manifest last", "commit the content first")
@@ -251,18 +262,36 @@ func TestShortTermDeltaBoundFailurePreservesPriorOverlay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	oldMax := maxDocumentTranscriptBytes
-	maxDocumentTranscriptBytes = 8
-	t.Cleanup(func() { maxDocumentTranscriptBytes = oldMax })
-	if _, err := buildShortTermResult(t, brainDir); err == nil || !strings.Contains(err.Error(), memoryErrInputTooLarge) {
-		t.Fatalf("bounded delta error = %v", err)
+	oldMax := base.MaxDocumentTranscriptBytes
+	base.MaxDocumentTranscriptBytes = 8
+	t.Cleanup(func() { base.MaxDocumentTranscriptBytes = oldMax })
+	stats, err := buildShortTermResult(t, brainDir)
+	if err != nil {
+		t.Fatalf("the per-file transcript cap refused the whole delta: %v", err)
+	}
+	if stats.Failed != 1 || stats.Scanned != 0 {
+		t.Fatalf("stats = %+v, want the one oversize transcript recorded as failed", stats)
 	}
 	after, err := os.ReadFile(overlayPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(after, before) {
-		t.Fatal("bounded delta failure changed the prior overlay")
+	if bytes.Equal(after, before) {
+		t.Fatal("the overlay was not republished, so the delta still refused over the bound")
+	}
+	manifest, err := loadBrainManifest(brainDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	overlay, state := loadHistoryShortTermState(brainDir, manifest.Sources.History)
+	if state != shortTermStateCurrent {
+		t.Fatalf("overlay state = %s after the skip", state)
+	}
+	if len(overlay.FailedFiles) != 1 || overlay.FailedFiles[0] != rel {
+		t.Fatalf("the skipped transcript was not recorded durably: %v", overlay.FailedFiles)
+	}
+	if overlay.complete() {
+		t.Fatal("an overlay that skipped a transcript claimed complete coverage")
 	}
 }
 
@@ -523,9 +552,9 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	brainDir, changedRel, newRel := shortTermFixture(t)
 	// Tombstone the parallel session before the delta: it must not enter
 	// short-term memory.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["sess-parallel"] = sessionTombstone{At: time.Date(2026, 8, 7, 12, 30, 0, 0, time.UTC)}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats := buildShortTerm(t, brainDir)
@@ -547,7 +576,7 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	historyShortTermMaxRecords = 1
 	t.Cleanup(func() { historyShortTermMaxRecords = old })
 	delete(stones.Excluded, "sess-parallel")
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	stats = buildShortTerm(t, brainDir)
@@ -761,7 +790,7 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 // directions, and a duplicated ID may contribute rank at most once.
 func TestTwoTierStableIDReconciliation(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	generated := time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC)

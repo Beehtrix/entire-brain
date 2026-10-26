@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func TestSessionlessBrainReadsBackItsOwnProjectionReceipt(t *testing.T) {
 	}
 	// The sessions tree exists and is empty, exactly as a failed or
 	// zero-session export leaves it.
-	if err := os.MkdirAll(filepath.Join(brainDir, exportSessionsDirectory, "main"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.SessionsDirName, "main"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	source, err := writeBrainHistoryIndexAndSource(brainDir, now, nil)

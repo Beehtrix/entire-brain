@@ -9,12 +9,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 9, 18, 13, 0, 0, 0, time.UTC)
-	ref := conversationSessionIDPrefix + "inventory-good"
+	ref := brainstore.ConversationSessionIDPrefix + "inventory-good"
 	good := abstractEgressReceipt{
 		OperationID: strings.Repeat("a", 20), SessionRef: ref,
 		SessionDigest: "sha256:" + strings.Repeat("b", 64), Provider: "codex", Model: "hosted-test",
@@ -66,7 +68,7 @@ func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *test
 		t.Fatal(err)
 	}
 	wrong := good
-	wrong.SessionRef = conversationSessionIDPrefix + "different-session"
+	wrong.SessionRef = brainstore.ConversationSessionIDPrefix + "different-session"
 	wrong.OperationID = strings.Repeat("d", 20)
 	wrongBytes, err := json.Marshal(wrong)
 	if err != nil {
@@ -91,10 +93,10 @@ func TestAbstractEgressInventoryMixedCorruptionPreservesCommittedReceipt(t *test
 	for _, issue := range inventory.Issues {
 		codes[issue.Code]++
 	}
-	if codes[memoryErrStateUnsafe] < wantUnsafe || codes[memoryErrStateCorrupt] < 3 {
+	if codes[brainstore.StateUnsafeCode] < wantUnsafe || codes[brainstore.StateCorruptCode] < 3 {
 		t.Fatalf("issue taxonomy = %#v, want unsafe and corrupt structural findings", codes)
 	}
-	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || receipts != nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || receipts != nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("checked inventory must fail closed: receipts=%+v err=%v", receipts, err)
 	}
 	file, present, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref)
@@ -113,7 +115,7 @@ func TestAbstractEgressInventoryRejectsNonDirectoryRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	inventory := loadAbstractEgressInventory(brainDir)
-	if !inventory.Degraded || len(inventory.Issues) != 1 || inventory.Issues[0].File != abstractEgressDirRel || inventory.Issues[0].Code != memoryErrStateUnsafe || len(inventory.Receipts) != 0 {
+	if !inventory.Degraded || len(inventory.Issues) != 1 || inventory.Issues[0].File != abstractEgressDirRel || inventory.Issues[0].Code != brainstore.StateUnsafeCode || len(inventory.Receipts) != 0 {
 		t.Fatalf("non-directory root classification: %+v", inventory)
 	}
 	got, err := os.ReadFile(root)
@@ -149,7 +151,7 @@ func TestManualAbstractEnqueueRefusalDryRunAndDurableRetry(t *testing.T) {
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	memoryAbstractorFactory = func(memoryAbstractsConfig) (ConversationAbstractor, error) { return &fakeAbstractor{}, nil }
-	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, conversationSessionIDPrefix+"missing", localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), "not found") {
+	if _, _, err := enqueueManualAbstractJobWithReceipt(brainDir, brainstore.ConversationSessionIDPrefix+"missing", localOverride, now, nil, false); err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("missing session error = %v", err)
 	}
 
@@ -249,9 +251,9 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 	t.Run("private session", func(t *testing.T) {
 		brainDir, _ := writeSessionNavigationFixture(t)
 		view := sessionViewForTest(t, brainDir)
-		stones := loadSessionTombstones(brainDir)
+		stones := brainstore.LoadSessionTombstones(brainDir)
 		stones.Excluded[view.Records[0].SessionID] = sessionTombstone{At: now, Reason: "explicitly private"}
-		if err := saveSessionTombstones(brainDir, stones); err != nil {
+		if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 			t.Fatal(err)
 		}
 		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrSourceStale) {
@@ -268,7 +270,7 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 		if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{broken"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("corrupt manifest enqueue: created=%v err=%v", created, err)
 		}
 	})
@@ -292,7 +294,7 @@ func TestManualAbstractEnqueueFailsClosedOnPrivateAndCorruptState(t *testing.T) 
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+		if _, created, err := enqueueManualAbstractJobWithReceipt(brainDir, view.Ref, override, now, nil, false); err == nil || created || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 			t.Fatalf("corrupt inventory enqueue: created=%v err=%v", created, err)
 		}
 		after, err := os.ReadFile(jobPath)

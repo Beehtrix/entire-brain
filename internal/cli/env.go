@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
 
@@ -51,17 +53,6 @@ var knownRepoDomainSlugs = map[string]string{
 	"entire.io":     "et",
 	"tangled.org":   "tg",
 	"code.storage":  "cs",
-}
-
-// EntireEnv captures the environment variables supplied by the parent Entire
-// CLI when this binary is dispatched as an external command.
-type EntireEnv struct {
-	CLIVersion      string
-	RepoRoot        string
-	PluginConfigDir string
-	PluginDataDir   string
-	PluginStateDir  string
-	PluginCacheDir  string
 }
 
 func EnvFromOS() EntireEnv {
@@ -138,12 +129,6 @@ func resolveXDGDir(pluginDir, pluginEnv, xdgEnv, homeFallback string) (string, e
 	return filepath.Join(home, homeFallback), nil
 }
 
-type repoStorage struct {
-	Key      string
-	BrainDir string
-	HeadPath string
-}
-
 const localRepoIdentityConflictCode = "repo_identity_conflict"
 
 // localRepoIdentityConflictError refuses to guess when an upgrade finds state
@@ -170,8 +155,8 @@ func (e *localRepoIdentityConflictError) Error() string {
 		localRepoIdentityConflictCode,
 		e.Canonical.Key,
 		e.Legacy.Key,
-		setupCommandPrefix(os.LookupEnv),
-		setupCommandPrefix(os.LookupEnv),
+		clibase.SetupCommandPrefix(os.LookupEnv),
+		clibase.SetupCommandPrefix(os.LookupEnv),
 		e.Canonical.BrainDir,
 		e.Legacy.BrainDir,
 	)
@@ -347,8 +332,8 @@ func repoStorageContainsState(storage repoStorage) (bool, error) {
 // places that build a store path without that helper — `brain path`, and
 // headPathForKey — accepting a key every other command refuses.
 func rejectReservedRepoKeySegment(key string) error {
-	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
+		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 	}
 	return nil
 }
@@ -553,8 +538,8 @@ func repoKeyFromRemoteWithSlug(configDir, remote string, slugForHost func(string
 			return "", false, nil
 		}
 		key := strings.Join(components, "/")
-		if components[0] == workspaceDirName {
-			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+		if components[0] == workspace.DirName {
+			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 		}
 		return key, true, nil
 	}
@@ -722,16 +707,6 @@ func localRepoKey(repoDir string) string {
 	}
 	sum := sha256.Sum256([]byte(repoDir))
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
-}
-
-func ensureDir(path string) error {
-	if path == "" {
-		return errors.New("directory path is empty")
-	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
-	}
-	return nil
 }
 
 func valueOrUnset(value string) string {

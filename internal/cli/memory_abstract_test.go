@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestConfiguredConversationAbstractorsAreExplicitAndBounded(t *testing.T) {
@@ -113,7 +115,7 @@ func TestMemoryConfigCorruptionIsNotDisabled(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, state, err := loadMemoryConfigChecked(brainDir)
-	if state != memoryConfigCorrupt || err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
+	if state != memoryConfigCorrupt || err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
 		t.Fatalf("state=%s err=%v", state, err)
 	}
 	health := memoryAbstractHealth(brainDir)
@@ -190,8 +192,8 @@ func TestHostedAbstractLinearizesProviderReceiptAndArtifactBeforePrivacyCleanup(
 		return &fakeAbstractor{hosted: true, beforeReturn: func() {
 			go func() {
 				close(cleanupAttempted)
-				cleanupDone <- withBrainPrivacySideEffectLock(brainDir, func() error {
-					return withBrainWriteLock(brainDir, func() error {
+				cleanupDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+					return brainstore.WithBrainWriteLock(brainDir, func() error {
 						plan, err := buildSessionPurgePlan(brainDir, "nav-sess")
 						if err != nil {
 							return err
@@ -271,8 +273,8 @@ func TestLocalAbstractLinearizesProviderAndPublicationBeforePurge(t *testing.T) 
 		return &fakeAbstractor{beforeReturn: func() {
 			go func() {
 				close(purgeAttempted)
-				purgeDone <- withBrainPrivacySideEffectLock(brainDir, func() error {
-					return withBrainWriteLock(brainDir, func() error {
+				purgeDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+					return brainstore.WithBrainWriteLock(brainDir, func() error {
 						plan, err := buildSessionPurgePlan(brainDir, "nav-sess")
 						if err != nil {
 							return err
@@ -455,7 +457,7 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 
 	// Privacy: excluding the session removes its artifacts, and verify flags
 	// a survivor.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		plan, planErr := buildSessionPurgePlan(brainDir, "nav-sess")
 		if planErr != nil {
 			return planErr
@@ -496,7 +498,7 @@ func TestMemoryMigrateDetectsAndRepairsOldOverlay(t *testing.T) {
 		t.Fatalf("migrate must flag the old-reconciler overlay: %+v", findings)
 	}
 	// The migration action (delta rebuild) restores a current overlay.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		_, err := buildHistoryShortTermLocked(brainDir, time.Date(2026, 8, 8, 17, 0, 0, 0, time.UTC))
 		return err
 	}); err != nil {
@@ -547,14 +549,14 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(brainDir, transcriptRel, transcript, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, transcriptRel, transcript, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest.Sources.Sessions = fixtureManifest.Sources.Sessions
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	vectorRel := filepath.ToSlash(filepath.Join(historyDirName, embedStoreDirName, historyVecStoreFileNamePortable))
+	vectorRel := filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable))
 	vectorPath := filepath.Join(brainDir, filepath.FromSlash(vectorRel))
 	if err := os.MkdirAll(filepath.Dir(vectorPath), 0o700); err != nil {
 		t.Fatal(err)

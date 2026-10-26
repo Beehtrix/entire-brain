@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/providerdetail"
-
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 )
@@ -61,7 +61,7 @@ disconnect'.`,
 
 func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) error {
 	ctx := cmd.Context()
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}
@@ -118,10 +118,10 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// The kill switch suppresses every sync this command is about to promise,
 	// so say that instead of "now syncing". The binding still gets recorded:
 	// the environment only subtracts, and unsetting it resumes syncing.
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		renderHostedBanner(cmd.OutOrStdout(),
-			"Connected: repo "+binding.RepoID+" — but nothing syncs while "+noEgressToggleName()+" is set",
-			"The binding is recorded and memories stay local. Unset "+noEgressToggleName()+" to start syncing.")
+			"Connected: "+storage.Key+" — but nothing syncs while "+base.NoEgressToggleName()+" is set",
+			"The binding is recorded and memories stay local. Unset "+base.NoEgressToggleName()+" to start syncing.")
 		return nil
 	}
 	// Connect doubles as the initial pull so a fresh clone receives team
@@ -137,12 +137,12 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 		if !outcome.Attempted {
 			verdict = "did not run"
 		}
-		return fmt.Errorf("connect: repo %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
-			binding.RepoID, verdict, brainInvocation(os.LookupEnv, "connect"))
+		return fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
+			storage.Key, verdict, base.BrainInvocation(os.LookupEnv, "connect"))
 	}
-	headline := "Connected: repo " + binding.RepoID + " is now syncing memories"
+	headline := "Connected: " + storage.Key + " is now syncing memories"
 	if already {
-		headline = "Already connected: repo " + binding.RepoID + " — memories are syncing"
+		headline = "Already connected: " + storage.Key + " — memories are syncing"
 	}
 	renderHostedBanner(cmd.OutOrStdout(), headline,
 		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")

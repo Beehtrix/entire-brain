@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -154,7 +155,7 @@ func renderFactTree(cmd *cobra.Command, root *factTreeNode, depth, leaves int) {
 				shown = shown[:leaves]
 			}
 			for _, f := range shown {
-				fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", truncateString(f.Text, 140))
+				fmt.Fprintf(cmd.OutOrStdout(), "    - %s\n", base.TruncateString(f.Text, 140))
 			}
 			if rest := leaf.Count - len(shown); rest > 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "    (+%d more — drill with --path %s)\n", rest, leaf.Label)

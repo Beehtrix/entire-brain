@@ -11,6 +11,8 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/apiurl"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -65,7 +67,7 @@ type hostedSyncOutcome struct {
 // keys off it). Callers that promise a sync to the user (connect) key their
 // report off PullSucceeded; background callers keep ignoring it.
 func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, repoDir string, storage repoStorage, branch string) (hostedSyncOutcome, error) {
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
 	binding, present, err := readHostedRepoBinding(storage.BrainDir)
@@ -92,7 +94,14 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	}
 	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
 
-	pushed, counts := pushHostedFacts(ctx, errW, storage, srv, binding.RepoID, branch)
+	counts, skipped, pushErr := pushHostedFacts(ctx, storage, srv, binding.RepoID, branch)
+	if skipped > 0 {
+		fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
+	}
+	pushed := pushErr == nil
+	if pushErr != nil {
+		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, pushErr)
+	}
 	kept, total, manifestErr, pullErr := pullHostedFacts(ctx, opts, repoDir, storage, srv, binding.RepoID, baseURL, token, branch)
 	if pullErr != nil {
 		fmt.Fprintf(errW, "hosted sync: branch %s pull failed (local brain unaffected): %v\n", branch, pullErr)
@@ -117,19 +126,20 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 }
 
 // pushHostedFacts batch-upserts the branch store. Idempotent server-side, so
-// every trigger can fire it without coordination. Any failure degrades to
-// pull-only: one stderr line, pushed=false, and the caller skips the synced
-// marker so the blind-spot note keeps firing.
-func pushHostedFacts(ctx context.Context, errW io.Writer, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (bool, factsync.UpsertCounts) {
+// every trigger can fire it without coordination. It returns the upsert counts
+// and how many unverifiable records stayed home; a non-nil error means the
+// publish did not complete and the branch must not be marked as synced. The
+// caller owns presentation: background sync degrades to pull-only with one
+// stderr line, manual sync fails the command (COR-2202 honesty).
+func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
 	facts, err := loadFacts(storage.BrainDir, branch)
 	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
-		return false, factsync.UpsertCounts{}
+		return factsync.UpsertCounts{}, 0, err
 	}
 	if len(facts) == 0 {
 		// Nothing to publish counts as a successful (empty) publish; the
 		// server rejects an empty body, so don't send one.
-		return true, factsync.UpsertCounts{}
+		return factsync.UpsertCounts{}, 0, nil
 	}
 	// Redact local-only provenance coordinates before these facts leave, and
 	// verify this member's own facts BEFORE publishing them — the server
@@ -148,34 +158,27 @@ func pushHostedFacts(ctx context.Context, errW io.Writer, storage repoStorage, s
 		publishable = append(publishable, rec)
 	}
 	egress = publishable
-	if skipped > 0 {
-		fmt.Fprintf(errW, "hosted sync: branch %s: skipped %d unpublishable record(s) whose content id does not re-derive (kept locally, not uploaded)\n", branch, skipped)
-	}
 	if len(egress) == 0 {
 		// Everything was unpublishable: nothing was shared, so this is a
-		// failed publish, not a vacuous success — the branch must not be
-		// marked as synced.
-		fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): no publishable records; pull-only\n", branch)
-		return false, factsync.UpsertCounts{}
+		// failed publish, not a vacuous success.
+		return factsync.UpsertCounts{}, skipped, errors.New("no publishable records")
 	}
 	var total factsync.UpsertCounts
 	for start := 0; start < len(egress); start += hostedUpsertChunk {
 		end := min(start+hostedUpsertChunk, len(egress))
 		var buf bytes.Buffer
 		if err := factmerge.WriteNDJSON(&buf, egress[start:end]); err != nil {
-			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
-			return false, factsync.UpsertCounts{}
+			return total, skipped, err
 		}
 		counts, err := srv.UpsertFacts(ctx, repoID, buf.Bytes())
 		if err != nil {
-			fmt.Fprintf(errW, "hosted sync: branch %s publish failed (local brain unaffected): %v; pull-only\n", branch, err)
-			return false, factsync.UpsertCounts{}
+			return total, skipped, err
 		}
 		total.Added += counts.Added
 		total.Changed += counts.Changed
 		total.Unchanged += counts.Unchanged
 	}
-	return true, total
+	return total, skipped, nil
 }
 
 // pullHostedFacts fetches the repo delta feed since the stored cursor into
@@ -191,7 +194,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	err = withBrainWriteLock(storage.BrainDir, func() error {
+	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		state, items, err := loadHostedFeedCache(feedDir)
 		if err != nil {
 			return err
@@ -318,7 +321,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 // hostedSyncBranch resolves the branch a hosted sync step should cover: the
 // repo's current branch, else the default branch.
 func hostedSyncBranch(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if current, err := gitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if current, err := base.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		if branch := strings.TrimSpace(current); branch != "" {
 			return branch
 		}

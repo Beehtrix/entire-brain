@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +21,8 @@ func TestMemoryStatusPlainRendererHasDeterministicJSONSectionParity(t *testing.T
 
 	// Use a forward-version manifest so parity also covers partial status and
 	// its typed issue without allowing the renderer to rewrite newer state.
-	future := []byte(`{"schema_version":4,"future":{"preserve":true}}` + "\n")
+	// Derived, not a literal: see TestManifestNewerRefusedWithRemedy.
+	future := []byte(fmt.Sprintf(`{"schema_version":%d,"future":{"preserve":true}}`, brainManifestSchemaVersion+1) + "\n")
 	manifestPath := filepath.Join(brainDir, exportManifestFileName)
 	if err := os.WriteFile(manifestPath, future, 0o600); err != nil {
 		t.Fatal(err)
@@ -70,7 +73,7 @@ func TestMemoryStatusPlainRendererHasDeterministicJSONSectionParity(t *testing.T
 			t.Fatalf("section %q missing from one format\nplain:\n%s\njson:%s", section, plainOne, jsonOut)
 		}
 	}
-	if !strings.Contains(plainOne, "  state: \"unsupported\"") || !strings.Contains(plainOne, memoryErrUnsupportedVersion) {
+	if !strings.Contains(plainOne, "  state: \"unsupported\"") || !strings.Contains(plainOne, brainstore.UnsupportedVersionCode) {
 		t.Fatalf("forward-version health missing from plain output:\n%s", plainOne)
 	}
 	if after, err := os.ReadFile(manifestPath); err != nil || string(after) != string(future) {

@@ -17,7 +17,7 @@ import (
 //
 // A. Entire's own installer dirties the tree that Entire then refuses:
 //
-//	$ entire graph init-agents          # writes AGENTS.md, CLAUDE.md, .claude/settings.json
+//	$ entire graph setup          # writes AGENTS.md, CLAUDE.md, .claude/settings.json
 //	$ entire brain setup
 //	seed:     dirty_worktree: refusing to seed uncommitted content without --worktree
 //	semantic: dirty_worktree: refusing to index uncommitted content without --worktree
@@ -294,7 +294,7 @@ func TestSeedRefusalNamesOffendingPaths(t *testing.T) {
 }
 
 // TestSeedProceedsWhenOnlyEntireAuthoredConfigIsDirty is the reported scenario
-// end to end on the seed component: `entire graph init-agents` left three files
+// end to end on the seed component: `entire graph setup` left three files
 // uncommitted and the next command must not treat that as uncommitted source.
 func TestSeedProceedsWhenOnlyEntireAuthoredConfigIsDirty(t *testing.T) {
 	t.Parallel()
@@ -333,26 +333,18 @@ func TestSemanticIndexProceedsWhenOnlyEntireAuthoredConfigIsDirty(t *testing.T) 
 	}
 }
 
-// TestSemanticIndexRefusalNamesOffendingPaths keeps the semantic gate honest
-// about real source, and shows the reader which file it means.
-func TestSemanticIndexRefusalNamesOffendingPaths(t *testing.T) {
+// Graph's persistent index always describes HEAD, including in a dirty checkout.
+func TestSemanticIndexUsesHEADWhenSourceIsDirty(t *testing.T) {
 	t.Parallel()
 	repoDir := t.TempDir()
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: "?? AGENTS.md\n M internal/auth/token.go\n"}
-	cmd := &cobra.Command{Use: "index"}
+	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: " M internal/auth/token.go\n"}
 	opts := Options{Env: semanticTestEnv(t, repoDir), Runner: runner, Now: time.Now}
-	err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err == nil {
-		t.Fatal("semantic index accepted an uncommitted source file")
+	if err := runSemanticIndex(context.Background(), &cobra.Command{}, opts, semanticIndexOptions{}, repoDir); err != nil {
+		t.Fatal(err)
 	}
-	for _, want := range []string{dirtyWorktreeErrorCode + ":", "internal/auth/token.go", "--worktree", "commit or stash"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("semantic refusal does not mention %q: %v", want, err)
-		}
-	}
-	if strings.Contains(err.Error(), "AGENTS.md") {
-		t.Fatalf("refusal blamed Entire's own config: %v", err)
+	if !fakeRunnerCalled(runner, "entire", "graph", "index", "--repo", repoDir, "--head", "--profile", "full", "--format", "json") {
+		t.Fatal("persistent graph did not use committed HEAD")
 	}
 }
 
@@ -370,7 +362,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
-	// Exactly what `entire graph init-agents` leaves behind.
+	// Exactly what `entire graph setup` leaves behind.
 	initAgents := "?? AGENTS.md\n M CLAUDE.md\n?? .claude/settings.json\n"
 	runner.responses[fakeCommandKey("git", "status", "--porcelain")] = fakeCommandResponse{stdout: initAgents}
 	runner.responses[fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all")] = fakeCommandResponse{stdout: initAgents}
@@ -389,15 +381,15 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 	})
 	out, err := execute(t, cmd, "refresh", "--entire-binary", "entire-test")
 	if err != nil {
-		t.Fatalf("refresh after init-agents: %v\n%s", err, out)
+		t.Fatalf("refresh after agent wiring: %v\n%s", err, out)
 	}
 	// Component outcomes, not the exit code: both stages have to BUILD.
 	for _, want := range []string{
 		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
-		"refresh: semantic index: 1 symbol, 1 relation, 1 file done",
+		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 	} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("component did not build after init-agents (%q missing):\n%s", want, out)
+			t.Fatalf("component did not build after agent wiring (%q missing):\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, dirtyWorktreeErrorCode) {
@@ -612,8 +604,12 @@ func TestDistillJSONStaysSilentAboutTheAgent(t *testing.T) {
 // TestSetupDetectAgentAnnouncesExceptUnderJSON covers the third call site, and
 // the one that matters most: setup resolves the agent ONCE and embeds it in the
 // daemon plan the watcher then runs forever, so this is the moment a user is
-// told which vendor's agent will be reading their repository from now on.
-func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
+// which vendor's agent will read their repository — but at the moment of
+// consent, not as a preamble. Setup's detectAgent must stay SILENT in every
+// mode: the consent block names agent/model/effort before a human answers,
+// and verbose mode prints the spend label for explicit opt-in. A line
+// printed at detect time described a spend that had not been agreed to yet.
+func TestSetupDetectAgentStaysSilent(t *testing.T) {
 	clearAgentHarnessEnv(t)
 	for _, jsonMode := range []bool{false, true} {
 		repoDir := t.TempDir()
@@ -626,24 +622,8 @@ func TestSetupDetectAgentAnnouncesExceptUnderJSON(t *testing.T) {
 		if agent := steps.detectAgent(context.Background()); agent != "codex" {
 			t.Fatalf("json=%v: setup detected agent = %q, want codex", jsonMode, agent)
 		}
-		announced := strings.Contains(stderr.String(), "auto-selected codex")
-		if jsonMode {
-			// The model is checked FIRST so this guard can be shown failing on
-			// its own: the agent guard below would otherwise always fire first
-			// and the model half would never be observed red.
-			if strings.Contains(stderr.String(), "opus") {
-				t.Fatalf("json: setup announced the model while a machine reader was parsing: %q", stderr.String())
-			}
-			if announced {
-				t.Fatalf("json: setup announced the agent while a machine reader was parsing: %q", stderr.String())
-			}
-			continue
-		}
-		if !announced {
-			t.Fatalf("human: setup chose an agent without saying which, so the json case above proves nothing: %q", stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "model opus") {
-			t.Fatalf("human: setup named the agent but not the model, which is the half of the report still unanswered: %q", stderr.String())
+		if stderr.Len() != 0 {
+			t.Fatalf("json=%v: detectAgent wrote a preamble; disclosure belongs to the consent gate: %q", jsonMode, stderr.String())
 		}
 	}
 }

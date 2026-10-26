@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ Run 'entire brain connect' to opt back in.`,
 
 func runDisconnect(cmd *cobra.Command, opts Options) error {
 	ctx := cmd.Context()
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}
@@ -54,14 +55,14 @@ func runDisconnect(cmd *cobra.Command, opts Options) error {
 
 	if binding.RepoID != "" {
 		renderHostedBanner(cmd.OutOrStdout(),
-			"Disconnected: repo "+binding.RepoID+" no longer syncs memories",
+			"Disconnected: "+storage.Key+" no longer syncs memories",
 			"Your local brain keeps working exactly as before. Memories already pulled from teammates stay in the local store.",
-			"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
+			"Run `"+base.BrainInvocation(os.LookupEnv, "connect")+"` to resume syncing.")
 		return nil
 	}
 	renderHostedBanner(cmd.OutOrStdout(),
 		"Disconnected: this repository does not sync with a hosted brain",
 		"Your local brain keeps working exactly as before.",
-		"Run `"+brainInvocation(os.LookupEnv, "connect")+"` to join.")
+		"Run `"+base.BrainInvocation(os.LookupEnv, "connect")+"` to join.")
 	return nil
 }

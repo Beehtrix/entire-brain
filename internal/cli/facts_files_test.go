@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Durable facts lived only inside the store, reachable through recall and the
@@ -761,7 +763,7 @@ func TestFactsFilesCommandPrintsCrossBranchWarnings(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed export: %v", err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		return writeFacts(brainDir, branch, []factRecord{
 			{ID: "fact:bbbb2222", Paths: []string{"constraints.retry.policy"}, Text: "Here.", Branch: branch, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
 		})

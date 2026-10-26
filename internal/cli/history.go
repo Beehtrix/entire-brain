@@ -21,17 +21,18 @@ import (
 	"time"
 	"unicode"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
 const (
-	historyDirName           = "history"
 	historyIndexFileName     = "index.json"
-	historyIndexPath         = historyDirName + "/" + historyIndexFileName
-	historyGenerationsDir    = historyDirName + "/generations"
-	historyStagingDir        = historyDirName + "/staging"
+	historyIndexPath         = brainstore.HistoryDirName + "/" + historyIndexFileName
+	historyGenerationsDir    = brainstore.HistoryDirName + "/generations"
+	historyStagingDir        = brainstore.HistoryDirName + "/staging"
 	historyScanCacheFileName = "scan-cache.json.gz"
-	historyScanCachePath     = historyDirName + "/" + historyScanCacheFileName
+	historyScanCachePath     = brainstore.HistoryDirName + "/" + historyScanCacheFileName
 	historyMaxLineBytes      = 1024 * 1024
 	// historyScanCacheVersion gates reuse of cached per-file scan results.
 	// Bump it whenever the history record extraction/classification logic
@@ -223,7 +224,7 @@ type preparedHistoryProjection struct {
 
 type historyProjectionPublishGuard func() error
 
-var historyProjectionWriteFile = writeBrainRelativeFileAtomic
+var historyProjectionWriteFile = brainstore.WriteBrainRelativeFileAtomic
 
 // beforeHistoryProjectionContentDigest is a deterministic audit seam used to
 // prove the commit boundary never performs O(corpus bytes) work.
@@ -270,7 +271,7 @@ func newHistoryIndexCommand(opts Options) *cobra.Command {
 }
 
 func runHistoryIndex(ctx context.Context, cmd *cobra.Command, opts Options, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -304,7 +305,7 @@ func writeBrainHistoryIndexAndSourceContext(ctx context.Context, outputDir strin
 		return nil, err
 	}
 	var source *historySourceManifest
-	err = withBrainWriteLock(outputDir, func() error {
+	err = brainstore.WithBrainWriteLock(outputDir, func() error {
 		var runErr error
 		source, runErr = publishBrainHistoryProjectionLocked(outputDir, prepared, nil)
 		return runErr
@@ -445,8 +446,14 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		return nil, err
 	}
 	if manifest.Sources != nil && manifest.Sources.History != nil {
+		// Only vNext receipts veto the commit: data this binary cannot decode
+		// must not be replaced by a down-converted generation. An UNSAFE
+		// receipt (hardlinked, symlinked, swapped) gets no such protection —
+		// this commit writes a brand-new generation and never reads the old
+		// one, and refusing turned the integrity guard into a permanent
+		// denial of service that no command could clear.
 		_, receiptState, receiptErr := loadProjectionStateChecked(outputDir, manifest.Sources.History)
-		if receiptState == projectionStateUnsupported || receiptState == projectionStateUnsafe {
+		if receiptState == projectionStateUnsupported {
 			if receiptErr != nil {
 				return nil, receiptErr
 			}
@@ -489,7 +496,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if err := promotePreparedHistoryProjection(outputDir, prepared); err != nil {
 		return nil, err
 	}
-	if err := withBrainManifestWriteLock(outputDir, func() error {
+	if err := brainstore.WithBrainManifestWriteLock(outputDir, func() error {
 		// Reclassify the exact manifest leaf while every cooperative manifest
 		// writer is excluded. The projection's outer Brain lock supplies its
 		// source/identity serialization; this leaf lock prevents a different
@@ -529,9 +536,9 @@ func finalizePreparedHistoryProjection(outputDir string, prepared *preparedHisto
 		return
 	}
 	if len(prepared.cacheData) > 0 {
-		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
-	_ = withBrainWriteLock(outputDir, func() error {
+	_ = brainstore.WithBrainWriteLock(outputDir, func() error {
 		pruneInactiveHistoryGenerations(outputDir)
 		return nil
 	})
@@ -544,7 +551,7 @@ func finalizePreparedHistoryProjectionLocked(outputDir string, prepared *prepare
 		return
 	}
 	if len(prepared.cacheData) > 0 {
-		_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
+		_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, prepared.cacheData, 0o600)
 	}
 	pruneInactiveHistoryGenerations(outputDir)
 }
@@ -567,10 +574,10 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 	}
 	staging := filepath.Join(outputDir, filepath.FromSlash(prepared.stagingDir))
 	final := filepath.Join(outputDir, filepath.FromSlash(finalRel))
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyStagingDir); err != nil {
 		return err
 	}
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, historyGenerationsDir); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(final), 0o700); err != nil {
@@ -657,7 +664,7 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 	}
 	// Never enumerate or remove below an aliased history directory. This check
 	// covers both legacy fixed-path cleanup and the generations root.
-	if err := rejectExistingSymlinkPathComponents(outputDir, historyDirName); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, brainstore.HistoryDirName); err != nil {
 		return
 	}
 	if err := recoverHistoryProjectionQuarantines(outputDir); err != nil {
@@ -700,9 +707,11 @@ func pruneInactiveHistoryGenerations(outputDir string) {
 		}
 		receiptPath := filepath.Join(dir, projectionStateFileName)
 		newer, schemaErr := projectionFileHasNewerSchema(receiptPath)
-		if schemaErr != nil || newer {
+		if newer || (schemaErr != nil && !errors.Is(schemaErr, clibase.ErrFileHardlinked)) {
 			continue // unknown-newer generations are never removed by this binary
 		}
+		// A hardlinked receipt is unreadable here forever, and removal only
+		// unlinks this directory's name — the other link keeps the bytes.
 		_ = removeHistoryProjectionDirectory(outputDir, dirRel)
 	}
 }
@@ -718,15 +727,15 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return false, fmt.Errorf("projection receipt must be a regular file and must not be a symlink: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "projection receipt"); err != nil {
+	if err := clibase.RejectOpenFileAlias(path, f, "projection receipt"); err != nil {
 		return false, err
 	}
-	data, err := safeReadAll(f, maxManifestBytes, path)
+	data, err := clibase.SafeReadAll(f, clibase.MaxManifestBytes, path)
 	if err != nil {
 		return false, err
 	}
@@ -744,7 +753,7 @@ func projectionFileHasNewerSchema(path string) (bool, error) {
 // caller-supplied subtree.
 func validHistoryProjectionDirectoryPath(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) != 3 || parts[0] != historyDirName || (parts[1] != "generations" && parts[1] != "staging") || len(parts[2]) != 40 {
+	if len(parts) != 3 || parts[0] != brainstore.HistoryDirName || (parts[1] != "generations" && parts[1] != "staging") || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])
@@ -759,7 +768,7 @@ func validateHistoryProjectionDirectory(outputDir, rel string, requireComplete b
 		return fmt.Errorf("invalid history projection directory: %s", rel)
 	}
 	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
-	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
 		return err
 	}
 	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
@@ -775,7 +784,7 @@ func inspectHistoryProjectionDirectory(abs, display string, requireComplete bool
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 		return nil, nil, fmt.Errorf("history projection path must be a directory and must not be a symlink: %s", display)
 	}
-	dir, err := os.OpenFile(abs, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := os.OpenFile(abs, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -824,7 +833,7 @@ func removeHistoryProjectionDirectory(outputDir, rel string) error {
 		return fmt.Errorf("refuse cleanup of invalid history projection directory: %s", rel)
 	}
 	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
-	if err := rejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, parentRel); err != nil {
 		return err
 	}
 	abs := filepath.Join(outputDir, filepath.FromSlash(rel))
@@ -948,7 +957,7 @@ func recoverHistoryProjectionQuarantines(outputDir string) error {
 			continue
 		}
 		if directory.Truncated {
-			return fmt.Errorf("%s: history projection root %s exceeds the bounded inventory", memoryErrStateUnsafe, rootRel)
+			return fmt.Errorf("%s: history projection root %s exceeds the bounded inventory", brainstore.StateUnsafeCode, rootRel)
 		}
 		root := filepath.Join(outputDir, filepath.FromSlash(rootRel))
 		entries := directory.Entries
@@ -1035,7 +1044,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 			// This runs ahead of buildBrainHistoryIndexSnapshotContext in the
 			// prepare path, so without the same empty-Brain branch it would
 			// swallow that function's actionable guidance.
-			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+			return historyProjectionIdentity{}, nil, sessionTombstones{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1063,6 +1072,14 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 				continue
 			}
 			digest, digestErr := digestHistorySessionInventoryFile(ctx, inventory, file)
+			if errors.Is(digestErr, errHistoryTranscriptTooLarge) {
+				// Left out of the content identity, exactly as the build leaves
+				// it out of the index. Both decide from the same reader on the
+				// same inventory, so the two sets cannot drift apart; and the
+				// identity stays stable run to run, so skipping does not drive
+				// an endless rebuild.
+				continue
+			}
 			if digestErr != nil {
 				return historyProjectionIdentity{}, nil, sessionTombstones{}, digestErr
 			}
@@ -1070,7 +1087,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 		}
 		contentIdentity = historyScanCacheContentIdentity(contentCache)
 	}
-	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, defaultMaxReadBytes)
+	overlayIdentity, err := historyProjectionFileIdentity(outputDir, historyShortTermPath, clibase.DefaultMaxReadBytes)
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1091,7 +1108,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 }
 
 func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, string, error) {
-	stones, state, err := loadSessionTombstonesChecked(outputDir)
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return sessionTombstones{}, state.Identity, err
 	}
@@ -1101,6 +1118,15 @@ func historyProjectionTombstoneSnapshot(outputDir string) (sessionTombstones, st
 func historyProjectionFileIdentity(outputDir, rel string, limit int64) (string, error) {
 	data, present, err := readMemoryStateFile(outputDir, filepath.ToSlash(rel), "history projection input", limit)
 	if err != nil {
+		// An externally hardlinked input is unreadable here, but it must not
+		// veto the rebuild that supersedes it: these inputs are disposable
+		// projections, the rebuild derives from canonical sessions only, and
+		// publish clears a corrupt-classed overlay afterwards. The constant
+		// keeps the prepare and commit identity captures agreeing while the
+		// file stays in that state; any content change still differs.
+		if errors.Is(err, clibase.ErrFileHardlinked) {
+			return "unsafe-hardlinked", nil
+		}
 		return "", err
 	}
 	if !present {
@@ -1143,7 +1169,7 @@ func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyInd
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
-	stones, _, err := loadSessionTombstonesChecked(outputDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(outputDir)
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
@@ -1166,7 +1192,7 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 	inventory, err := collectHistorySessionInventory(ctx, outputDir)
 	if err != nil {
 		if errors.Is(err, errHistorySessionsRootMissing) {
-			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + brainInvocation(os.LookupEnv, "refresh sessions") + "` first")
+			return index, nil, historyScanCache{}, errors.New("session history missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh sessions") + "` first")
 		}
 		return index, nil, historyScanCache{}, err
 	}
@@ -1230,6 +1256,16 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 		var records []historyRecord
 		var incomplete int
 		content, contentDigest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// One file too large to read says nothing about the other 322.
+			// Skipped, reported, and deliberately NOT fingerprinted below: it
+			// was never read, so it must not be committed to the set that was.
+			index.Warnings = append(index.Warnings, fmt.Sprintf("skipped %s: %v", rel, readErr))
+			if progress != nil {
+				progress(i+1, total)
+			}
+			continue
+		}
 		if readErr != nil {
 			return index, nil, historyScanCache{}, readErr
 		}
@@ -1363,14 +1399,39 @@ func buildBrainHistoryIndexSnapshotContext(ctx context.Context, outputDir string
 // contents of the exact descriptor-rooted leaf captured by the inventory. It
 // streams into the hash so large line-oriented transcripts do not require a
 // second in-memory copy.
+// errHistoryTranscriptTooLarge classifies the one failure that is a statement
+// about a single file's size rather than about the corpus being unsound.
+//
+// It exists because all three readers of the transcript inventory refused the
+// whole operation over one file: identity capture (which runs first), the
+// index build, and the freshness check. On a real brain one checkpoint held a
+// 438.9MB raw transcript and the history index came out 0 of 323 sessions —
+// every other session was readable and none of them were read. The loop in
+// buildBrainHistoryIndexSnapshotContext already says this is not the intent:
+// "every candidate advances progress exactly once even when a later open or
+// identity check fails ... only clean parses are cached and indexed".
+//
+// All three sites classify through this sentinel rather than their own string
+// match, because they MUST agree on the skipped set: if the freshness check
+// counted a file the build skipped, the index would be permanently stale and
+// rebuild forever.
+//
+// Its message is deliberately the bare memory_input_too_large code, so
+// wrapping it with %w reproduces the previous wording byte for byte.
+var errHistoryTranscriptTooLarge = errors.New(memoryErrInputTooLarge)
+
+func historyTranscriptTooLargeError(rel string) error {
+	return fmt.Errorf("%w: canonical transcript %s exceeds maximum size of %d bytes", errHistoryTranscriptTooLarge, rel, clibase.MaxDocumentTranscriptBytes)
+}
+
 func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) (string, error) {
 	beforeHistoryProjectionContentDigest(file.Rel)
 	if inventory.store != nil {
 		_, digest, err := readHistorySessionInventoryFile(ctx, inventory, file)
 		return digest, err
 	}
-	if file.Size > maxDocumentTranscriptBytes {
-		return "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	if file.Size > clibase.MaxDocumentTranscriptBytes {
+		return "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
@@ -1378,12 +1439,21 @@ func digestHistorySessionInventoryFile(ctx context.Context, inventory *historySe
 	}
 	defer f.Close()
 	h := sha256.New()
-	limit := maxDocumentTranscriptBytes + 1
+	limit := clibase.MaxDocumentTranscriptBytes + 1
 	written, readErr := io.Copy(h, io.LimitReader(contextCheckingReader{ctx: ctx, r: f}, limit))
-	if written > maxDocumentTranscriptBytes {
-		readErr = errors.Join(readErr, fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes))
-	}
 	finishErr := inventory.validateAfterRead(file, f)
+	// The containment check is consulted BEFORE the sentinel is attached,
+	// which is the same rule oversizeIsTheSoleFault enforces on the read path
+	// and the reason this is not just `errors.Join(readErr, oversize)`.
+	//
+	// captureHistoryProjectionIdentityMode skips a file on
+	// errors.Is(errHistoryTranscriptTooLarge). Joining the sentinel onto an
+	// error that also carries finishErr therefore dropped a transcript that was
+	// swapped mid-read, or whose path became a symlink out of the brain root,
+	// out of the content identity -- silently, with the generation published.
+	if written > clibase.MaxDocumentTranscriptBytes && oversizeMayBeAttributedToTheFile(readErr, finishErr) {
+		readErr = historyTranscriptTooLargeError(file.Rel)
+	}
 	if readErr != nil || finishErr != nil {
 		return "", errors.Join(readErr, finishErr)
 	}
@@ -1410,6 +1480,12 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 			continue
 		}
 		_, digest, readErr := readHistorySessionInventoryFile(ctx, inventory, file)
+		if errors.Is(readErr, errHistoryTranscriptTooLarge) {
+			// Must skip whatever the build skips. A freshness check that
+			// counted a file the build left out would find the index short of
+			// its own inventory forever and rebuild on every refresh.
+			continue
+		}
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -1417,6 +1493,50 @@ func collectHistorySessionDigests(ctx context.Context, brainDir string, excluded
 		out = append(out, file)
 	}
 	return out, nil
+}
+
+// oversizeIsTheSoleFault decides whether a read's failures amount to "this one
+// transcript is too large" and nothing more.
+//
+// It is a named function rather than a condition inline in the reader because
+// the answer is the whole contract: a true here produces an error wrapping
+// errHistoryTranscriptTooLarge, and all three inventory readers SKIP a file on
+// errors.Is of that sentinel. A wrong true is therefore not a cosmetic
+// misclassification -- it silently discards whatever else was in the join and
+// publishes the generation.
+//
+// finishErr is validateAfterRead: a transcript swapped mid-read, a path that
+// became a symlink out of the brain root, metadata that moved. closeErr is its
+// own bound breach. Both must refuse the whole generation, and neither is a
+// statement about one file. Only readErr alone, and only when it is the size
+// breach, is.
+//
+// Reaching it with both readErr and finishErr set needs a writer appending
+// DURING the read: the inventory's own pre-read check rejects a file that grew
+// before it was opened (memory_source_stale, "transcript changed after
+// inventory"), so the sequential case never gets this far. A live agent
+// appending to its own transcript is exactly that writer, which is why this is
+// a truth table with its own test rather than a condition read once and
+// trusted.
+// oversizeMayBeAttributedToTheFile is oversizeIsTheSoleFault for the digest
+// path, which discovers a size breach by COUNTING bytes rather than from a
+// reader's message and so has no readErr to inspect.
+//
+// Same contract, same reason: attaching errHistoryTranscriptTooLarge makes the
+// error skippable by every inventory reader, so it may be attached only when
+// nothing else went wrong. A separate function rather than a bare condition
+// because the rule is the whole guarantee, and because the two paths drifting
+// apart is exactly what happened -- the read path was fixed first and this one
+// kept the bug.
+func oversizeMayBeAttributedToTheFile(readErr, finishErr error) bool {
+	return readErr == nil && finishErr == nil
+}
+
+func oversizeIsTheSoleFault(readErr, finishErr, closeErr error) bool {
+	if readErr == nil || finishErr != nil || closeErr != nil {
+		return false
+	}
+	return strings.Contains(readErr.Error(), "exceeds maximum size")
 }
 
 func readHistorySessionInventoryFile(ctx context.Context, inventory *historySessionInventory, file historySessionFile) ([]byte, string, error) {
@@ -1431,20 +1551,35 @@ func readHistorySessionInventoryFile(ctx context.Context, inventory *historySess
 		sum := sha256.Sum256(data)
 		return data, "sha256:" + hex.EncodeToString(sum[:]), nil
 	}
-	if file.Size > maxDocumentTranscriptBytes {
-		return nil, "", fmt.Errorf("%s: canonical transcript %s exceeds maximum size of %d bytes", memoryErrInputTooLarge, file.Rel, maxDocumentTranscriptBytes)
+	if file.Size > clibase.MaxDocumentTranscriptBytes {
+		return nil, "", historyTranscriptTooLargeError(file.Rel)
 	}
 	f, err := inventory.open(ctx, file)
 	if err != nil {
 		return nil, "", err
 	}
-	data, readErr := safeReadAll(contextCheckingReader{ctx: ctx, r: f}, maxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
+	data, readErr := clibase.SafeReadAll(contextCheckingReader{ctx: ctx, r: f}, clibase.MaxDocumentTranscriptBytes, "canonical transcript "+file.Rel)
 	finishErr := inventory.validateAfterRead(file, f)
 	closeErr := f.Close()
 	if readErr != nil || finishErr != nil || closeErr != nil {
 		combined := errors.Join(readErr, finishErr, closeErr)
-		if readErr != nil && strings.Contains(readErr.Error(), "exceeds maximum size") {
-			return nil, "", fmt.Errorf("%s: %w", memoryErrInputTooLarge, combined)
+		// The sentinel may excuse ONLY itself.
+		//
+		// All three readers of this error skip the file on
+		// errors.Is(errHistoryTranscriptTooLarge) -- that is the whole point of
+		// the sentinel. So wrapping it around a joined error that ALSO carries
+		// finishErr or closeErr would discard those silently and publish:
+		// validateAfterRead is the containment and source-race check (a
+		// transcript swapped mid-read, a path that became a symlink out of the
+		// root), and a failed Close is its own bound breach. Each of those must
+		// refuse the whole generation, and none of them is a statement about
+		// one file the way an oversize transcript is.
+		//
+		// Hence the size breach is classified as oversize only when it is the
+		// sole fault. Otherwise the joined error is returned unwrapped and the
+		// readers' refusal paths see it.
+		if oversizeIsTheSoleFault(readErr, finishErr, closeErr) {
+			return nil, "", fmt.Errorf("%w: %w", errHistoryTranscriptTooLarge, combined)
 		}
 		return nil, "", combined
 	}
@@ -1657,7 +1792,7 @@ func historyRecordBranchForPath(path string, branchByPath map[string]string) str
 // footprint (the record text compresses heavily).
 func loadHistoryScanCache(outputDir string) historyScanCache {
 	empty := historyScanCache{Version: historyScanCacheVersion, Files: map[string]historyScanCacheEntry{}}
-	data, err := safeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), semanticSnapshotMaxBytes())
+	data, err := clibase.SafeReadFile(filepath.Join(outputDir, filepath.FromSlash(historyScanCachePath)), clibase.SemanticSnapshotMaxBytes())
 	if err != nil {
 		return empty
 	}
@@ -1668,7 +1803,7 @@ func loadHistoryScanCache(outputDir string) historyScanCache {
 	defer gz.Close()
 	// Bound the decompressed stream so a gzip bomb cannot exhaust memory; an
 	// over-cap or truncated stream simply rebuilds the cache from scratch.
-	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, clibase.SemanticSnapshotMaxBytes())
 	var cache historyScanCache
 	if err := json.NewDecoder(limited).Decode(&cache); err != nil {
 		return empty
@@ -1686,7 +1821,7 @@ func saveHistoryScanCache(outputDir string, cache historyScanCache) {
 	if err != nil {
 		return
 	}
-	_ = writeBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0o600)
+	_ = brainstore.WriteBrainRelativeFileAtomic(outputDir, historyScanCachePath, data, 0o600)
 }
 
 func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
@@ -1809,7 +1944,7 @@ func scanHistoryFile(outputDir, path string) ([]historyRecord, error) {
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
 		return nil, fmt.Errorf("history transcript is not a regular file: %s", path)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -1890,7 +2025,7 @@ func scanHistoryFileReader(ctx context.Context, f io.ReadSeeker, rel, ext string
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1946,7 +2081,7 @@ func scanHistoryLines(ctx context.Context, rel, ext string, reader io.Reader) ([
 					Kind:    kind,
 					Path:    rel,
 					Line:    lineNumber,
-					Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+					Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 					Terms:   historyTerms(fragment.Text),
 				})
 			}
@@ -1975,7 +2110,7 @@ func scanDocumentHistoryFileContext(ctx context.Context, f io.Reader, rel string
 	if !strings.HasPrefix(firstLine, "{") || json.Valid([]byte(firstLine)) {
 		return nil, false, nil // JSONL or non-JSON: the line scanner's job
 	}
-	data, err := safeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, maxDocumentTranscriptBytes, "document transcript "+rel)
+	data, err := clibase.SafeReadAll(contextCheckingReader{ctx: ctx, r: io.MultiReader(bytes.NewReader(probe[:n]), f)}, clibase.MaxDocumentTranscriptBytes, "document transcript "+rel)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1998,7 +2133,7 @@ func historyDocumentRecords(rel string, messages []documentMessage) []historyRec
 				Kind:    kind,
 				Path:    rel,
 				Line:    line,
-				Summary: truncateString(cleanHistorySummary(fragment.Text), 700),
+				Summary: clibase.TruncateString(cleanHistorySummary(fragment.Text), 700),
 				Terms:   historyTerms(fragment.Text),
 			})
 		}
@@ -2236,7 +2371,7 @@ func cleanHistoryCodeFactSnippet(value string) string {
 	if value == "" {
 		return ""
 	}
-	return truncateString(value, 4000)
+	return clibase.TruncateString(value, 4000)
 }
 
 // historyFactSignal matches output that states a durable fact about the code:
@@ -2422,26 +2557,51 @@ func cleanHistorySummary(text string) string {
 	return text
 }
 
+// historyTermCandidates is generic domain vocabulary only. The former tail of
+// this list (attributionbasecommit, resolvetranscriptpath, brainignore, ...)
+// was lifted from benchmark task names, which biased FTS text toward benchmark
+// queries on every repository.
+var historyTermCandidates = []string{
+	"decision", "rationale", "validation", "go test", "apply_patch", "exec_command",
+	"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
+	"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
+	"architecture", "contract", "invariant", "tool", "test", "fallback",
+}
+
 func historyTerms(text string) []string {
 	lower := strings.ToLower(text)
-	// Generic domain vocabulary only. The former tail of this list
-	// (attributionbasecommit, resolvetranscriptpath, brainignore, ...) was
-	// lifted from benchmark task names, which biased FTS text toward benchmark
-	// queries on every repository.
-	candidates := []string{
-		"decision", "rationale", "validation", "go test", "apply_patch", "exec_command",
-		"semantic", "brief", "stale", "checkpoint", "transcript", "schema", "env",
-		"provenance", "bundle", "sha256", "review", "hook", "plugin", "workspace",
-		"architecture", "contract", "invariant", "tool", "test", "fallback",
-	}
+	candidates := historyTermCandidates
+	// Normalize the text ONCE. This loop used to call
+	// normalizeHistorySearchText(lower) inside the condition, so every
+	// candidate re-normalized the WHOLE message: 25 full passes over the text
+	// per call, each allocating a rune slice and rebuilding the string, to
+	// compare against a constant. The history index calls this for every
+	// record, which made it the dominant cost of the history step.
+	//
+	// Byte-identical by construction: the same two comparisons in the same
+	// order against the same values, computed once instead of per candidate.
+	// normalizeHistorySearchText is pure (history.go:2505) and the candidate
+	// list is a constant, so hoisting cannot change a single decision.
+	normalized := normalizeHistorySearchText(lower)
 	var terms []string
-	for _, candidate := range candidates {
-		if strings.Contains(lower, candidate) || strings.Contains(normalizeHistorySearchText(lower), normalizeHistorySearchText(candidate)) {
+	for i, candidate := range candidates {
+		if strings.Contains(lower, candidate) || strings.Contains(normalized, normalizedHistoryTermCandidates[i]) {
 			terms = append(terms, candidate)
 		}
 	}
 	return terms
 }
+
+// normalizedHistoryTermCandidates is historyTermCandidates normalized once at
+// init, positionally aligned with it. The candidates are constants, so their
+// normalized forms are too, and recomputing them per record was pure waste.
+var normalizedHistoryTermCandidates = func() []string {
+	out := make([]string, len(historyTermCandidates))
+	for i, candidate := range historyTermCandidates {
+		out[i] = normalizeHistorySearchText(candidate)
+	}
+	return out
+}()
 
 func jsonMap(value any) map[string]any {
 	m, _ := value.(map[string]any)
@@ -3011,11 +3171,11 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 // generations.
 func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) ([]byte, string, bool, error) {
 	if source == nil || source.IndexPath == "" {
-		return nil, "", false, errors.New("history index missing; run `" + brainInvocation(os.LookupEnv, "refresh") + "`")
+		return nil, "", false, errors.New("history index missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "`")
 	}
 	generationAddressed := validHistoryGenerationArtifactPath(source.IndexPath, historyIndexFileName)
 	if generationAddressed && source.IndexDigest == "" {
-		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+brainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
+		return nil, "", false, fmt.Errorf("%s: generation-addressed history index is missing its manifest content digest; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`", memoryErrMigrationRequired)
 	}
 	clean, err := validateHistoryIndexPath(source.IndexPath)
 	if err != nil {
@@ -3030,17 +3190,17 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 		return nil, "", false, historyIndexReadError(source, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", memoryErrStateCorrupt, source.IndexPath)
+		return nil, "", false, fmt.Errorf("%s: history index must be a regular file and must not be a symlink: %s", brainstore.StateCorruptCode, source.IndexPath)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|clibase.FileLockOpenFlags()|clibase.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return nil, "", false, err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return nil, "", false, fmt.Errorf("%s: %w", memoryErrStateCorrupt, err)
+	if err := clibase.RejectOpenFileAlias(path, f, "history index"); err != nil {
+		return nil, "", false, fmt.Errorf("%s: %w", brainstore.StateCorruptCode, historyHardlinkRepairHint(err))
 	}
-	data, err := safeReadAll(f, semanticSnapshotMaxBytes(), path)
+	data, err := clibase.SafeReadAll(f, clibase.SemanticSnapshotMaxBytes(), path)
 	if err != nil {
 		return nil, "", false, err
 	}
@@ -3048,10 +3208,10 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 	contentDigest := "sha256:" + hex.EncodeToString(contentSum[:])
 	if source.IndexDigest != "" {
 		if !validSHA256Identity(source.IndexDigest) {
-			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest in manifest is invalid", brainstore.StateCorruptCode)
 		}
 		if source.IndexDigest != contentDigest {
-			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", memoryErrStateCorrupt)
+			return nil, "", false, fmt.Errorf("%s: history index digest does not match the manifest commit", brainstore.StateCorruptCode)
 		}
 	}
 	return data, contentDigest, generationAddressed, nil
@@ -3067,10 +3227,25 @@ func readBrainHistoryIndexBytes(brainDir string, source *historySourceManifest) 
 // refresh`"; a DECLARED index that is not on disk is the same sentence with the
 // artifact named. Every other failure keeps its own words.
 func historyIndexReadError(source *historySourceManifest, err error) error {
+	if errors.Is(err, clibase.ErrFileHardlinked) {
+		return historyHardlinkRepairHint(err)
+	}
 	if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	return declaredIndexDefect{Source: declaredIndexHistory, Path: source.IndexPath, Absent: true, Err: err}
+}
+
+// historyHardlinkRepairHint names the remedy for an externally hardlinked
+// history artifact. Backup and bench tooling hardlink-copies state trees, the
+// nlink>1 guard then refuses every read, and that silently drops history
+// context from every brief, recall, and query. The canonical sessions are
+// untouched, so one deterministic rebuild is always the fix.
+func historyHardlinkRepairHint(err error) error {
+	if err == nil || !errors.Is(err, clibase.ErrFileHardlinked) {
+		return err
+	}
+	return fmt.Errorf("%w — history context is dropped from briefs and recall until the projection is rebuilt; run `%s`", err, clibase.BrainInvocation(os.LookupEnv, "memory repair"))
 }
 
 func loadBrainHistoryIndexOnce(brainDir string, source *historySourceManifest) (historyIndex, error) {
@@ -3120,14 +3295,14 @@ func loadBrainHistoryIndexWithLegacyIdentity(brainDir string, source *historySou
 
 func decodeBrainHistoryIndex(data []byte, source *historySourceManifest) (historyIndex, error) {
 	if source.IndexBytes > 0 && int64(len(data)) != source.IndexBytes {
-		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+brainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
+		return historyIndex{}, fmt.Errorf("history index size mismatch: got %d bytes, manifest declares %d; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh history")+"` to rebuild it", len(data), source.IndexBytes)
 	}
 	if source.IndexSHA256 != "" && historyIndexBytesFingerprint(data) != source.IndexSHA256 {
 		return historyIndex{}, errors.New("history index checksum does not match manifest")
 	}
 	var index historyIndex
 	if err := json.Unmarshal(data, &index); err != nil {
-		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", memoryErrStateCorrupt, err)
+		return historyIndex{}, fmt.Errorf("%s: decode history index: %w", brainstore.StateCorruptCode, err)
 	}
 	if source.RecordsFingerprint != "" {
 		if !validHistorySHA256(source.RecordsFingerprint) {
@@ -3188,7 +3363,7 @@ func validateHistoryIndexPath(indexPath string) (string, error) {
 
 func validHistoryGenerationArtifactPath(rel, fileName string) bool {
 	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
+	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "generations" || parts[3] != fileName || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])
@@ -3197,7 +3372,7 @@ func validHistoryGenerationArtifactPath(rel, fileName string) bool {
 
 func validHistoryStagingArtifactPath(rel, fileName string) bool {
 	parts := strings.Split(rel, "/")
-	if len(parts) != 4 || parts[0] != historyDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
+	if len(parts) != 4 || parts[0] != brainstore.HistoryDirName || parts[1] != "staging" || parts[3] != fileName || len(parts[2]) != 40 {
 		return false
 	}
 	_, err := hex.DecodeString(parts[2])

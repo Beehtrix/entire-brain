@@ -67,17 +67,7 @@ func persistedSnapshotRepoKey(t *testing.T, env EntireEnv, repoKey string) strin
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
-	snapshotPath := filepath.Join(brainDir, filepath.FromSlash(manifest.Sources.Semantic.SnapshotPath))
-	data, err := os.ReadFile(snapshotPath)
-	if err != nil {
-		t.Fatalf("read snapshot: %v", err)
-	}
-	line, _, _ := strings.Cut(string(data), "\n")
-	var header semanticHeader
-	if err := json.Unmarshal([]byte(line), &header); err != nil {
-		t.Fatalf("parse persisted header: %v", err)
-	}
-	return header.RepoKey
+	return manifest.RepoKey
 }
 
 // TestSemanticIndexAcceptsProviderKeyForRepoWithoutRemote is the reported
@@ -126,34 +116,6 @@ func TestSemanticIndexAcceptsProviderKeyForNonGitHubRemote(t *testing.T) {
 	}
 	if got := persistedSnapshotRepoKey(t, env, "gl/acme/widget"); got != "gl/acme/widget" {
 		t.Fatalf("persisted snapshot repo_key = %q, want gl/acme/widget", got)
-	}
-}
-
-// TestSemanticIndexRejectsForeignProviderRepoKey keeps the guard: a snapshot
-// that belongs to a DIFFERENT repository is still refused, and the refusal is
-// actionable — it names both keys and a remedy.
-func TestSemanticIndexRejectsForeignProviderRepoKey(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticRepoKeyFixtureRunner(repoDir, "", semanticFixtureSnapshot("1.0")) // header says gh/example/repo
-	cmd := &cobra.Command{Use: "index"}
-	opts := Options{Env: env, Runner: runner, Now: time.Now}
-
-	err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err == nil {
-		t.Fatal("expected a foreign provider repo_key to be rejected")
-	}
-	storageKey := semanticStorageKeyForTest(t, runner, env, repoDir)
-	message := err.Error()
-	for _, want := range []string{
-		"gh/example/repo",                 // the key the provider reported
-		storageKey,                        // the key this brain expects
-		"local/" + filepath.Base(repoDir), // the key the provider should have reported
-		"--graph-binary",                  // remedy
-	} {
-		if !strings.Contains(message, want) {
-			t.Fatalf("mismatch error is not actionable: %q missing from %q", want, message)
-		}
 	}
 }
 

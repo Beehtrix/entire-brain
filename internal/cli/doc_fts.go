@@ -8,6 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 // doc_fts.go builds a derived FTS5 BM25 index over the doc records and ranks
@@ -46,7 +50,7 @@ func docFTSFingerprint(index docIndex) string {
 
 func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
 	var db *sql.DB
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var runErr error
 		db, runErr = openDocFTSLocked(brainDir, index)
 		return runErr
@@ -55,11 +59,11 @@ func openDocFTS(brainDir string, index docIndex) (*sql.DB, error) {
 }
 
 func openDocFTSLocked(brainDir string, index docIndex) (*sql.DB, error) {
-	path, err := prepareBrainRelativeSQLiteFile(brainDir, docFTSDBRelPath())
+	path, err := base.PrepareBrainRelativeSQLiteFile(brainDir, docFTSDBRelPath())
 	if err != nil {
 		return nil, err
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		return nil, err
 	}

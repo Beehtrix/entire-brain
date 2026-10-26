@@ -210,6 +210,18 @@ def _rich_legacy_packet() -> dict[str, object]:
             "warnings": ["status warning"],
         },
         "semantic": {
+            # Mirrors comprehensiveCompactV1Report()'s Staleness on the Go
+            # side. On the REPORT-level semantic, not status.semantic: the
+            # projection reads report["semantic"]["staleness"], and the first
+            # version of this fixture put it under status.semantic where the
+            # projection never looks, so the record simply never appeared.
+            "staleness": {
+                "ancestor_commit": "ancestor1",
+                "commits_behind": 2,
+                "changed_files": ["internal/a.go", "internal/b.go"],
+                "unreliable": ["internal/a.go"],
+                "excluded_records": 12,
+            },
             "context": {
                 "symbols": [copy.deepcopy(symbol)],
                 "relations": [relation],
@@ -510,7 +522,8 @@ class PacketFormatABTests(unittest.TestCase):
             _rich_legacy_packet()
         )
         self.assertEqual(legacy_projection, compact["records"])
-        self.assertEqual(compact["body_record_count"], 35)
+        # 36, not 35: the staleness record the ancestor-staleness disclosure adds.
+        self.assertEqual(compact["body_record_count"], 36)
 
     def test_structural_attribution_partitions_every_golden_byte(self) -> None:
         golden = (REPO_ROOT / "internal/cli/testdata/brain_brief_compact_v1.golden").read_bytes()

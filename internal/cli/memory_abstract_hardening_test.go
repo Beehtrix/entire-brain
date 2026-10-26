@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestLongAbstractRejectsMaliciousSynthesisCitations(t *testing.T) {
@@ -166,7 +168,7 @@ func TestAbstractResolverCarriesAffectedJobIssue(t *testing.T) {
 	if err := os.Symlink(outside, jobPath); err != nil {
 		t.Fatal(err)
 	}
-	if status, exposed := sessionAbstractStatus(brainDir, view); status != memoryErrStateUnsafe || exposed != nil {
+	if status, exposed := sessionAbstractStatus(brainDir, view); status != brainstore.StateUnsafeCode || exposed != nil {
 		t.Fatalf("affected unsafe job status=%s exposed=%+v", status, exposed)
 	}
 }
@@ -177,11 +179,11 @@ func TestAbstractResolverPreservesCorruptAndUnsupportedJobCodes(t *testing.T) {
 		contents func(string, string) []byte
 		want     string
 	}{
-		{name: "corrupt", contents: func(_, _ string) []byte { return []byte("{broken") }, want: memoryErrStateCorrupt},
+		{name: "corrupt", contents: func(_, _ string) []byte { return []byte("{broken") }, want: brainstore.StateCorruptCode},
 		{name: "unsupported", contents: func(jobID, ref string) []byte {
 			data, _ := json.Marshal(map[string]any{"schema_version": memoryJobSchemaVersion + 1, "job_id": jobID, "session_ref": ref})
 			return data
-		}, want: memoryErrUnsupportedVersion},
+		}, want: brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _ := writeSessionNavigationFixture(t)
@@ -222,14 +224,14 @@ func TestAutomaticAbstractEnqueueFailureDoesNotBreakRecall(t *testing.T) {
 		t.Fatal(err)
 	}
 	enqueueAutomaticAbstractReconciliationHook = func(string, string, time.Time) error {
-		return errors.New(memoryErrStateCorrupt + ": simulated enqueue failure")
+		return errors.New(brainstore.StateCorruptCode + ": simulated enqueue failure")
 	}
 	found, missing, err := getUnifiedBatchOptions(t.TempDir(), brainDir, "main", []string{view.Ref}, getOptions{})
-	if err != nil || len(found) != 1 || len(missing) != 0 || found[0].AbstractIssue != memoryErrStateCorrupt {
+	if err != nil || len(found) != 1 || len(missing) != 0 || found[0].AbstractIssue != brainstore.StateCorruptCode {
 		t.Fatalf("get found=%+v missing=%v err=%v", found, missing, err)
 	}
 	previews, _, err := abstractPreviewsForResults(brainDir, []unifiedResult{{ID: view.Records[0].ID, SessionRef: view.Ref}})
-	if err != nil || len(previews) != 1 || previews[0].AbstractIssue != memoryErrStateCorrupt {
+	if err != nil || len(previews) != 1 || previews[0].AbstractIssue != brainstore.StateCorruptCode {
 		t.Fatalf("previews=%+v err=%v", previews, err)
 	}
 }
@@ -410,7 +412,7 @@ func TestDisablingAbstractsCancelsOnlyAutomaticWork(t *testing.T) {
 		t.Fatal(err)
 	}
 	var artifacts []memoryReceiptArtifact
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var cancelErr error
 		artifacts, cancelErr = cancelAutomaticAbstractJobsLocked(brainDir, now.Add(time.Second))
 		return cancelErr
@@ -572,7 +574,7 @@ func TestHostedReceiptUsesCompletionClock(t *testing.T) {
 func TestAbstractEgressPathsScaleBeyondFlatInventoryCeiling(t *testing.T) {
 	seen := make(map[string]bool, abstractEgressHealthMaxReceipts+257)
 	for i := 0; i < abstractEgressHealthMaxReceipts+257; i++ {
-		ref := conversationSessionIDPrefix + "scale-" + strconv.Itoa(i)
+		ref := brainstore.ConversationSessionIDPrefix + "scale-" + strconv.Itoa(i)
 		rel := abstractEgressReceiptRel(ref)
 		if seen[rel] {
 			t.Fatalf("path collision for %s", ref)
@@ -588,7 +590,7 @@ func TestAbstractEgressPathsScaleBeyondFlatInventoryCeiling(t *testing.T) {
 
 func TestAbstractEgressReceiptAtomicallyReplacesPerSession(t *testing.T) {
 	brainDir := t.TempDir()
-	ref := conversationSessionIDPrefix + "replace"
+	ref := brainstore.ConversationSessionIDPrefix + "replace"
 	now := time.Date(2026, 8, 9, 19, 0, 0, 0, time.UTC)
 	receipt := abstractEgressReceipt{
 		OperationID: strings.Repeat("a", 20), SessionRef: ref,
@@ -622,8 +624,8 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 	}
 	now := time.Date(2026, 8, 9, 20, 0, 0, 0, time.UTC)
 	digest := "sha256:" + strings.Repeat("d", 64)
-	completedRef := conversationSessionIDPrefix + "completed-truth"
-	orphanRef := conversationSessionIDPrefix + "orphan-truth"
+	completedRef := brainstore.ConversationSessionIDPrefix + "completed-truth"
+	orphanRef := brainstore.ConversationSessionIDPrefix + "orphan-truth"
 	for i, ref := range []string{completedRef, orphanRef} {
 		receipt := abstractEgressReceipt{
 			OperationID: strings.Repeat(string("ef"[i]), 20), SessionRef: ref, SessionDigest: digest,
@@ -652,7 +654,7 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var reconcileErr error
 		count, reconcileErr = reconcileStaleAbstractEgressReceiptsLocked(brainDir, now)
 		return reconcileErr
@@ -670,8 +672,8 @@ func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 func TestAbstractEgressTargetedPurgePreservesOtherSessions(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 9, 21, 0, 0, 0, time.UTC)
-	target := conversationSessionIDPrefix + "target"
-	other := conversationSessionIDPrefix + "other"
+	target := brainstore.ConversationSessionIDPrefix + "target"
+	other := brainstore.ConversationSessionIDPrefix + "other"
 	for i, ref := range []string{target, other} {
 		receipt := abstractEgressReceipt{
 			OperationID: strings.Repeat(string("ab"[i]), 20), SessionRef: ref,
@@ -695,7 +697,7 @@ func TestAbstractEgressTargetedPurgePreservesOtherSessions(t *testing.T) {
 
 func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T) {
 	brainDir := t.TempDir()
-	ref := conversationSessionIDPrefix + "legacy"
+	ref := brainstore.ConversationSessionIDPrefix + "legacy"
 	now := time.Date(2026, 8, 9, 22, 0, 0, 0, time.UTC)
 	receipt := abstractEgressReceipt{
 		SchemaVersion: abstractEgressLegacyVersion, OperationID: strings.Repeat("a", 20), SessionRef: ref,
@@ -707,7 +709,7 @@ func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T
 		t.Fatal(err)
 	}
 	legacyRel := filepath.ToSlash(filepath.Join(abstractEgressDirRel, receipt.OperationID+".json"))
-	if err := writeBrainRelativeFileAtomic(brainDir, legacyRel, append(data, '\n'), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, legacyRel, append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	inventory := loadAbstractEgressInventory(brainDir)
@@ -756,7 +758,7 @@ func TestUnknownNewerAbstractEgressReceiptsStayTypedAndReadOnly(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			ref := conversationSessionIDPrefix + "future-" + name
+			ref := brainstore.ConversationSessionIDPrefix + "future-" + name
 			receipt := abstractEgressReceipt{
 				SchemaVersion: abstractEgressSchemaVersion + 1, OperationID: strings.Repeat("a", 20), SessionRef: ref,
 				SessionDigest: "sha256:" + strings.Repeat("b", 64), Provider: "codex", Model: "future",
@@ -767,26 +769,26 @@ func TestUnknownNewerAbstractEgressReceiptsStayTypedAndReadOnly(t *testing.T) {
 				rel = filepath.ToSlash(filepath.Join(abstractEgressDirRel, receipt.OperationID+".json"))
 			}
 			want := futureEgressBytesForTest(t, receipt)
-			if err := writeBrainRelativeFileAtomic(brainDir, rel, want, 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, want, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if legacy {
-				if _, err := loadLegacyAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if _, err := loadLegacyAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("legacy newer error=%v", err)
 				}
 			} else {
-				if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("canonical newer error=%v", err)
 				}
 				current := receipt
 				current.SchemaVersion = abstractEgressSchemaVersion
 				current.OperationID = strings.Repeat("c", 20)
-				if err := writeAbstractEgressReceipt(brainDir, current); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+				if err := writeAbstractEgressReceipt(brainDir, current); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 					t.Fatalf("guarded upsert error=%v", err)
 				}
 			}
 			inventory := loadAbstractEgressInventory(brainDir)
-			if len(inventory.Issues) != 1 || inventory.Issues[0].Code != memoryErrUnsupportedVersion {
+			if len(inventory.Issues) != 1 || inventory.Issues[0].Code != brainstore.UnsupportedVersionCode {
 				t.Fatalf("newer inventory=%+v", inventory)
 			}
 			got, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(rel)))
@@ -818,7 +820,7 @@ func TestUnknownNewerSessionAbstractIsReadOnlyForAutomaticAndManualGeneration(t 
 	}
 	want = append(want, '\n')
 	writeAbstractBytesForTest(t, brainDir, digest, want)
-	if _, state, err := loadSessionAbstractChecked(brainDir, digest); state != sessionAbstractUnsupported || err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, state, err := loadSessionAbstractChecked(brainDir, digest); state != sessionAbstractUnsupported || err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("newer state=%s err=%v", state, err)
 	}
 	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Automatic: true, Provider: "codex", Model: "test", HostedEgressAllowed: true}}); err != nil {
@@ -830,7 +832,7 @@ func TestUnknownNewerSessionAbstractIsReadOnlyForAutomaticAndManualGeneration(t 
 	if request, err := automaticAbstractWorkRequest(brainDir, view); err != nil || request != nil {
 		t.Fatalf("automatic request=%+v err=%v", request, err)
 	}
-	if _, _, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "codex", Model: "test", HostedEgressAllowed: true}, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if _, _, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "codex", Model: "test", HostedEgressAllowed: true}, time.Now().UTC()); err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("manual newer error=%v", err)
 	}
 	got, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(abstractRel(digest))))
@@ -846,13 +848,13 @@ func TestMemoryConfigClassifiesAdditiveFieldsBySchemaVersion(t *testing.T) {
 		state   memoryConfigReadState
 		code    string
 	}{
-		{name: "current strict", version: memoryConfigSchemaVersion, state: memoryConfigCorrupt, code: memoryErrStateCorrupt},
-		{name: "newer read-only", version: memoryConfigSchemaVersion + 1, state: memoryConfigUnsupported, code: memoryErrUnsupportedVersion},
+		{name: "current strict", version: memoryConfigSchemaVersion, state: memoryConfigCorrupt, code: brainstore.StateCorruptCode},
+		{name: "newer read-only", version: memoryConfigSchemaVersion + 1, state: memoryConfigUnsupported, code: brainstore.UnsupportedVersionCode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
 			data := []byte(`{"schema_version":` + strconv.Itoa(tc.version) + `,"abstracts":{"enabled":false},"future_config":true}`)
-			if err := writeBrainRelativeFileAtomic(brainDir, memoryConfigRel, data, 0o600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryConfigRel, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if _, state, err := loadMemoryConfigChecked(brainDir); state != tc.state || err == nil || !strings.Contains(err.Error(), tc.code) {
@@ -889,7 +891,7 @@ func TestAbstractEgressTargetReaderRejectsShardAndLeafSymlinks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir := t.TempDir()
-			ref := conversationSessionIDPrefix + "symlink-" + tc.name
+			ref := brainstore.ConversationSessionIDPrefix + "symlink-" + tc.name
 			target := filepath.Join(brainDir, filepath.FromSlash(abstractEgressReceiptRel(ref)))
 			outside := filepath.Join(t.TempDir(), "canary.json")
 			want := []byte("external-canary")
@@ -897,7 +899,7 @@ func TestAbstractEgressTargetReaderRejectsShardAndLeafSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.link(t, brainDir, target, outside)
-			if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+			if _, _, err := loadAbstractEgressReceiptForSessionChecked(brainDir, ref); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("target reader error=%v", err)
 			}
 			got, err := os.ReadFile(outside)
@@ -948,7 +950,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 				t.Fatal(err)
 			}
 			tc.link(t, brainDir, outside)
-			if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+			if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 				t.Fatalf("cleanup error=%v", err)
 			}
 			got, err := os.ReadFile(outside)
@@ -999,7 +1001,7 @@ func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 		}
 		return oldLstat(path)
 	}
-	if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
+	if err := purgeSessionAbstracts(brainDir, manifest, "nav-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("cleanup error=%v, want raced identity rejection", err)
 	}
 	if _, err := os.Stat(target); err != nil {

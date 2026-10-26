@@ -10,6 +10,7 @@ import (
 	"time"
 
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -111,7 +112,7 @@ func TestConversationAPIErrorNarrativeIsNoise(t *testing.T) {
 func writeConversationFilterFixture(t *testing.T) string {
 	t.Helper()
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	mk := func(id, session, agent, branch, created, summary string, line int) historyRecord {
@@ -306,7 +307,7 @@ func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 func writeConversationWindowFixture(t *testing.T) string {
 	t.Helper()
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	records := make([]historyRecord, 0, 41)
@@ -696,7 +697,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 	// leaf is never unlinked on release, so it exists on every healthy brain
 	// after the first refresh, and the read-only state is identical whether the
 	// lock is free or held. Liveness belongs to memory_coordinator.
-	unlock, err := acquireBrainWriteLock(storage.BrainDir)
+	unlock, err := brainstore.AcquireBrainWriteLock(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

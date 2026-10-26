@@ -10,6 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // historyLegacyIdentity is a complete strong identity derived from one fully
@@ -95,7 +98,7 @@ func persistHistoryLegacyIdentity(brainDir string, identity *historyLegacyIdenti
 	if identity == nil {
 		return nil
 	}
-	unlock, err := acquireBrainWriteLockTimeout(brainDir, 0)
+	unlock, err := brainstore.AcquireBrainWriteLockTimeout(brainDir, 0)
 	if err != nil {
 		return err
 	}
@@ -171,16 +174,16 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 		return "", err
 	}
 	path := filepath.Join(brainDir, clean)
-	if err := rejectUnsafeExistingRegularFile(path, "history index"); err != nil {
-		return "", err
+	if err := base.RejectUnsafeExistingRegularFile(path, "history index"); err != nil {
+		return "", historyHardlinkRepairHint(err)
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|fileLockOpenFlags(), 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|base.FileLockOpenFlags(), 0)
 	if err != nil {
 		return "", err
 	}
 	defer f.Close()
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", err
+	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
+		return "", historyHardlinkRepairHint(err)
 	}
 	before, err := f.Stat()
 	if err != nil {
@@ -211,8 +214,8 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 	if after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
 		return "", errors.New("history index changed while verifying identity")
 	}
-	if err := rejectOpenFileAlias(path, f, "history index"); err != nil {
-		return "", err
+	if err := base.RejectOpenFileAlias(path, f, "history index"); err != nil {
+		return "", historyHardlinkRepairHint(err)
 	}
 	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }
@@ -225,7 +228,7 @@ func writeHistoryIdentityManifestAtomic(brainDir string, manifest exportManifest
 		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
 	}
 	data = append(data, '\n')
-	if err := writeBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
 	}
 	return nil

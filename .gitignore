@@ -5,6 +5,7 @@
 /.trial-setup/
 /.demo-setup/
 /.demo-agent-session/
+/.smoke-evidence/
 .DS_Store
 __pycache__/
 .pytest_cache/

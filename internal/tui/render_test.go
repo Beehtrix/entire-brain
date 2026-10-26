@@ -131,7 +131,7 @@ func TestNoColorKeepsUnicodeButDropsColour(t *testing.T) {
 func TestColorRendererPaintsFromTheTheme(t *testing.T) {
 	t.Parallel()
 	def := testRenderer(Caps{TTY: true, Color: true, Unicode: true, Width: 80})
-	if got := def.Paint(def.Theme().Good, "ok"); got != "\x1b[38;5;47mok\x1b[0m" {
+	if got := def.Paint(def.Theme().Good, "ok"); got != "\x1b[38;5;2mok\x1b[0m" {
 		t.Errorf("256-colour paint = %q", got)
 	}
 	theme, ok := ThemeByName("catppuccin")
@@ -167,9 +167,9 @@ func TestBarRampWarmsWithProgress(t *testing.T) {
 	t.Parallel()
 	r := testRenderer(Caps{TTY: true, Color: true, Unicode: true})
 	full := r.Bar(9, 9, 9)
-	bad := "\x1b[38;5;203m" // theme.Bad
-	ok := "\x1b[38;5;214m"  // theme.OK
-	good := "\x1b[38;5;47m" // theme.Good
+	bad := "\x1b[38;5;1m"  // theme.Bad
+	ok := "\x1b[38;5;3m"   // theme.OK
+	good := "\x1b[38;5;2m" // theme.Good
 	for _, want := range []string{bad, ok, good} {
 		if !strings.Contains(full, want) {
 			t.Errorf("a full bar must span the whole ramp; %q missing from %q", want, full)

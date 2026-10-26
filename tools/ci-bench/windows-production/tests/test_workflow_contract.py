@@ -18,18 +18,10 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("windows-latest", test_block)
         self.assertIn("goos: [darwin, linux, windows]", build_block)
 
-    def test_phase1_keeps_its_offline_environment_and_race_suite(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        phase1 = workflow.split("  phase1-semantic:\n", 1)[1].split("  benchmark-corpus:\n", 1)[0]
-        self.assertIn("os: [ubuntu-latest, macos-latest, windows-latest]", phase1)
-        for text in ('ENTIRE_BRAIN_PHASE1_CI: "1"', 'GOPROXY: "off"',
-                     'GOSUMDB: "off"', 'go mod download', 'go test -race -timeout 20m'):
-            self.assertIn(text, phase1)
-
     def test_statement_coverage_reuses_windows_shards_without_a_second_suite(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("\n  coverage-windows:", workflow)
-        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  phase1-semantic:\n", 1)[0]
+        windows = workflow.split("  windows-test-prepare:\n", 1)[1].split("  benchmark-corpus:\n", 1)[0]
         coverage_commands = [line.strip() for line in windows.splitlines() if "tools/coverage/run.py" in line]
         self.assertEqual(len(coverage_commands), 1)
         self.assertIn("--race --binary-only", coverage_commands[0])
@@ -41,7 +33,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_dynamic_matrix_and_stable_aggregate_check_are_present(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-        self.assertEqual(settings["shardCount"], 8)
+        self.assertEqual(settings["shardCount"], 6)
         self.assertIn("fromJSON(needs.windows-test-prepare.outputs.shard-matrix)", workflow)
         self.assertIn("name: test (windows-latest)", workflow)
         self.assertIn("windows-test-verify.result", workflow)
@@ -69,7 +61,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read", workflow)
         self.assertNotIn("-test.bench", workflow)
 
-    def test_shards_restore_cache_budget_and_verifier_runs_after_prepare(self):
+    def test_shards_skip_module_cache_and_verifier_runs_after_prepare(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         shard_block = workflow.split("  windows-test-shards:\n", 1)[1].split(
             "  windows-test-other:\n", 1
@@ -78,8 +70,11 @@ class WorkflowContractTests(unittest.TestCase):
             "  windows-test:\n", 1
         )[0]
         self.assertIn("timeout-minutes: 35", shard_block)
-        self.assertIn("cache-dependency-path: go.sum", shard_block)
-        self.assertNotIn("cache: false", shard_block)
+        # Shards execute precompiled binaries from the bundle: they need the Go
+        # toolchain (test2json), never the module/build caches, so setup-go's
+        # ~25s cache restore stays off.
+        self.assertIn("cache: false", shard_block)
+        self.assertNotIn("cache-dependency-path: go.sum", shard_block)
         self.assertIn("needs.windows-test-prepare.result == 'success'", verify_block)
         self.assertNotIn("needs.windows-test-shards.result == 'success'", verify_block)
 

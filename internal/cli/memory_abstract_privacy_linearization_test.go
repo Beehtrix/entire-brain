@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -41,39 +42,39 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 			name: "stale after capture",
 			hook: func(t *testing.T, brainDir string) func() {
 				return func() {
-					if err := withBrainWriteLock(brainDir, func() error {
-						stones := emptySessionTombstones()
+					if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+						stones := brainstore.EmptySessionTombstones()
 						stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "race"}
-						return saveSessionTombstones(brainDir, stones)
+						return brainstore.SaveSessionTombstones(brainDir, stones)
 					}); err != nil {
 						t.Fatalf("land concurrent tombstone: %v", err)
 					}
 				}
 			},
-			code: memoryErrPrivacyDirty,
+			code: brainstore.PrivacyDirtyCode,
 		},
 		{
 			name: "dirty derived state",
 			setup: func(t *testing.T, brainDir string) {
-				if err := withBrainWriteLock(brainDir, func() error {
-					stones := emptySessionTombstones()
+				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+					stones := brainstore.EmptySessionTombstones()
 					stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "dirty"}
-					return saveSessionTombstones(brainDir, stones)
+					return brainstore.SaveSessionTombstones(brainDir, stones)
 				}); err != nil {
 					t.Fatal(err)
 				}
 			},
-			code: memoryErrPrivacyDirty,
+			code: brainstore.PrivacyDirtyCode,
 		},
 		{
 			name: "unknown newer policy",
 			setup: func(t *testing.T, brainDir string) {
-				data := []byte(fmt.Sprintf(`{"version":%d,"excluded":{}}`, sessionTombstonesVersion+1))
-				if err := writeBrainRelativeFileAtomic(brainDir, sessionTombstonesPath, append(data, '\n'), 0o600); err != nil {
+				data := []byte(fmt.Sprintf(`{"version":%d,"excluded":{}}`, brainstore.SessionTombstonesVersion+1))
+				if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, brainstore.SessionTombstonesPath, append(data, '\n'), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			},
-			code: memoryErrUnsupportedVersion,
+			code: brainstore.UnsupportedVersionCode,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,7 +109,7 @@ func TestAbstractProviderNotCalledUnderStaleDirtyOrUnknownPrivacyPolicy(t *testi
 
 func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,10 +117,10 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 
 	originalHook := beforeRetrievalResponsePrivacyEmissionCheck
 	beforeRetrievalResponsePrivacyEmissionCheck = func() {
-		if err := withBrainWriteLock(brainDir, func() error {
-			stones := emptySessionTombstones()
+		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
+			stones := brainstore.EmptySessionTombstones()
 			stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "late exclusion"}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		}); err != nil {
 			t.Fatalf("land late exclusion: %v", err)
 		}
@@ -133,8 +134,8 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 		_, err := fmt.Fprint(cmd.OutOrStdout(), "private abstract\n")
 		return err
 	})
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyDirty) {
-		t.Fatalf("late-exclusion output error = %v, want %s", err, memoryErrPrivacyDirty)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
+		t.Fatalf("late-exclusion output error = %v, want %s", err, brainstore.PrivacyDirtyCode)
 	}
 	if external.Len() != 0 {
 		t.Fatalf("late exclusion leaked %d bytes: %q", external.Len(), external.String())
@@ -143,7 +144,7 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 
 func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	policy, err := captureRetrievalPrivacyPolicy(brainDir)
+	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,11 +167,11 @@ func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) 
 	purgeDone := make(chan error, 1)
 	go func() {
 		close(purgeStarted)
-		purgeDone <- withBrainPrivacySideEffectLock(brainDir, func() error {
-			return withBrainWriteLock(brainDir, func() error {
-				stones := emptySessionTombstones()
+		purgeDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+			return brainstore.WithBrainWriteLock(brainDir, func() error {
+				stones := brainstore.EmptySessionTombstones()
 				stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "MCP race"}
-				return saveSessionTombstones(brainDir, stones)
+				return brainstore.SaveSessionTombstones(brainDir, stones)
 			})
 		})
 	}()
@@ -191,13 +192,13 @@ func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) 
 
 func TestPrivacySideEffectLockHasStableBoundedContentionFailure(t *testing.T) {
 	brainDir := t.TempDir()
-	unlock, err := acquireBrainPrivacySideEffectLock(brainDir)
+	unlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer unlock()
-	_, err = acquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), memoryErrPrivacyBusy) || memoryErrorCode(err) != memoryErrPrivacyBusy {
+	_, err = brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) || memoryErrorCode(err) != brainstore.PrivacyBusyCode {
 		t.Fatalf("contended privacy lock error = %v", err)
 	}
 }
@@ -220,7 +221,7 @@ func TestAbstractProviderSideEffectLockLeavesDeterministicBrainWorkAvailable(t *
 
 	projectionDone := make(chan error, 1)
 	go func() {
-		projectionDone <- withBrainWriteLock(brainDir, func() error {
+		projectionDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			_, err := writeBrainHistoryIndexAndSourceLocked(brainDir, time.Now().UTC(), nil)
 			return err
 		})
@@ -320,7 +321,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	cutoff := now.Add(-24 * time.Hour)
-	providerUnlock, err := acquireBrainPrivacySideEffectLock(brainDir)
+	providerUnlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +346,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 	if err := os.WriteFile(lateFull, []byte(`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"late eligible session"}]}}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return err
@@ -380,7 +381,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 	if !found {
 		t.Fatalf("applied retention plan omitted newly eligible session: %+v", result.plan)
 	}
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	if _, excluded := stones.Excluded["late-eligible"]; !excluded {
 		t.Fatal("newly eligible session was not excluded")
 	}
@@ -432,8 +433,8 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	beforeSessionAbstractPrivacyCleanup = func() error { return injected }
 	t.Cleanup(func() { beforeSessionAbstractPrivacyCleanup = originalHook })
 	var firstPlan sessionPurgePlan
-	err = withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			var err error
 			firstPlan, err = buildSessionPurgePlan(brainDir, "secret-sess")
 			if err != nil {
@@ -445,7 +446,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	if err == nil || !strings.Contains(err.Error(), injected.Error()) {
 		t.Fatalf("first cleanup error = %v", err)
 	}
-	tx, present, err := loadPrivacyTransactionChecked(brainDir, "secret-sess")
+	tx, present, err := brainstore.LoadPrivacyTransactionChecked(brainDir, "secret-sess")
 	if err != nil || !present || len(tx.SessionRefs) == 0 || tx.SessionRefs[0] != secretView.Ref {
 		t.Fatalf("durable cleanup scope = %+v present=%t err=%v", tx.SessionRefs, present, err)
 	}
@@ -455,7 +456,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 
 	// A later refresh drops the session from the manifest before the user
 	// retries. Only the durable transaction can now identify its abstract artifacts.
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		current, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return err
@@ -487,8 +488,8 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 		t.Fatalf("verification false-cleaned durable abstract survivors: clean=%t findings=%+v", dirtyReport.Clean, dirtyReport.Findings)
 	}
 	beforeSessionAbstractPrivacyCleanup = func() error { return nil }
-	err = withBrainPrivacySideEffectLock(brainDir, func() error {
-		return withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			retryPlan, err := buildSessionPurgePlan(brainDir, "secret-sess")
 			if err != nil {
 				return err

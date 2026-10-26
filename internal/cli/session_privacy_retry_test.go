@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,13 +23,13 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := first.Transcripts[0].Path
-			tx := privacyTransaction{SessionID: "secret-sess", Operation: name, State: privacyStateGuarded, StartedAt: now, Artifacts: append(first.Transcripts, first.Transcripts...), SessionRefs: first.SessionRefs}
-			if err := writePrivacyTransaction(b, tx, now); err != nil {
+			tx := privacyTransaction{SessionID: "secret-sess", Operation: name, State: brainstore.PrivacyStateGuarded, StartedAt: now, Artifacts: append(first.Transcripts, first.Transcripts...), SessionRefs: first.SessionRefs}
+			if err := brainstore.WritePrivacyTransaction(b, tx, now); err != nil {
 				t.Fatal(err)
 			}
-			stones := loadSessionTombstones(b)
+			stones := brainstore.LoadSessionTombstones(b)
 			stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "purged"}
-			if err := saveSessionTombstones(b, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
 			m, err := loadBrainManifest(b)
@@ -53,7 +54,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !guard.blocksRecord(historyRecord{Path: old}) || !guard.blocksFactAnchor(fact.Provenance[0]) {
+			if !guardBlocksRecord(guard, historyRecord{Path: old}) || !guardBlocksFactAnchor(guard, fact.Provenance[0]) {
 				t.Error("durable path lost from serving guard")
 			}
 			retry, err := buildSessionPurgePlan(b, "secret-sess")
@@ -118,17 +119,17 @@ func TestPrivacyRetryRejectsUnsafeDurableScope(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			b := writePrivacyFixture(t)
 			now := time.Now().UTC()
-			tx := privacyTransaction{SchemaVersion: privacyTransactionVersion, SessionID: "secret-sess", Operation: "purge", State: privacyStateGuarded, StartedAt: now, UpdatedAt: now, Artifacts: []purgeArtifact{{Path: path}}}
+			tx := privacyTransaction{SchemaVersion: brainstore.PrivacyTransactionVersion, SessionID: "secret-sess", Operation: "purge", State: brainstore.PrivacyStateGuarded, StartedAt: now, UpdatedAt: now, Artifacts: []purgeArtifact{{Path: path}}}
 			data, err := json.Marshal(tx)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := writeBrainRelativeFileAtomic(b, privacyTransactionRel("secret-sess"), data, 0600); err != nil {
+			if err := brainstore.WriteBrainRelativeFileAtomic(b, brainstore.PrivacyTransactionRel("secret-sess"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			stones := loadSessionTombstones(b)
+			stones := brainstore.LoadSessionTombstones(b)
 			stones.Excluded["secret-sess"] = sessionTombstone{At: now, Reason: "purged"}
-			if err := saveSessionTombstones(b, stones); err != nil {
+			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
 			m, err := loadBrainManifest(b)
@@ -144,7 +145,7 @@ func TestPrivacyRetryRejectsUnsafeDurableScope(t *testing.T) {
 			if _, err := verifySessionPrivacy(b); err == nil {
 				t.Error("verify accepted unsafe durable path")
 			}
-			after, err := os.ReadFile(filepath.Join(b, privacyTransactionRel("secret-sess")))
+			after, err := os.ReadFile(filepath.Join(b, brainstore.PrivacyTransactionRel("secret-sess")))
 			if err != nil || string(after) != string(data) {
 				t.Fatal("invalid durable transaction was modified")
 			}

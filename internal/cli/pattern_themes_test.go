@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 )
 
 func TestClassifyEpisodeShape(t *testing.T) {
@@ -58,7 +61,7 @@ func themeProposalBrain(t *testing.T, now time.Time) string {
 // A stub agent that groups by MEANING from the evidence: any sampled episode
 // whose excerpt/intent mentions "worktree" forms one accepted theme; unrelated
 // episodes are left ungrouped.
-func worktreeGroupingAgent(t *testing.T) distillAgentRunner {
+func worktreeGroupingAgent(t *testing.T) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Episodes []map[string]string `json:"episodes"`
@@ -90,7 +93,7 @@ func TestThemeProposalGroupsByMeaningNotIntentSig(t *testing.T) {
 	db := openCorpus(t, brainDir)
 
 	// Refresh does NOT create themes (agent-only).
-	if n := corpusCount(t, db, "themes"); n != 0 {
+	if n := patterntest.CorpusCount(t, db, "themes"); n != 0 {
 		t.Fatalf("refresh must not create themes (agent-only), got %d", n)
 	}
 
@@ -180,7 +183,7 @@ func TestThemeProposalCachedBySample(t *testing.T) {
 }
 
 // verdictThemeAgent groups worktree episodes and returns the given verdict.
-func verdictThemeAgent(t *testing.T, verdict string) distillAgentRunner {
+func verdictThemeAgent(t *testing.T, verdict string) base.DistillAgentRunner {
 	return func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		var payload struct {
 			Episodes []map[string]string `json:"episodes"`

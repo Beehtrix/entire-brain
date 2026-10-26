@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -391,14 +393,14 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"semantic index failed",
+		"code index failed",
 		"repo key mismatch",
 		// The dash is ASCII here on purpose: the test buffer is not a terminal,
 		// so the renderer resolves to the plain, locale-independent glyph set.
 		"-- continuing; run 'entire-brain doctor' for detail",
-		setupRepoKeyMismatchHint(setupBrainBinaryName),
+		setupRepoKeyMismatchHint(base.SetupBrainBinaryName),
 		"the brain is queryable now",
-		"FAILED semantic",
+		"FAILED code index",
 		"Ready",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -412,7 +414,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 		t.Fatalf("the phase summary must name the components that built:\n%s", out)
 	}
 	// Every later phase still ran.
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("a degraded component must not cost the repo its workspace: %v", err)
 	}
@@ -458,8 +460,8 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSessions, errors.New("export unavailable"), setupBrainBinaryName),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
+		newSetupComponent(brainComponentSessions, errors.New("export unavailable"), base.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), base.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	cmd := setupTestCommand(t, &bytes.Buffer{}, opts)
@@ -483,15 +485,15 @@ func TestSetupFailsWhenEveryInstantComponentFails(t *testing.T) {
 func TestSetupIsStillDegradedNotFailedWithASingleSurvivor(t *testing.T) {
 	f := newSetupTestFixture(t)
 	rec := &recordedSetup{instantComponents: []setupComponent{
-		newSetupComponent(brainComponentSeed, nil, setupBrainBinaryName),
-		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), setupBrainBinaryName),
+		newSetupComponent(brainComponentSeed, nil, base.SetupBrainBinaryName),
+		newSetupComponent(brainComponentSemantic, errors.New(setupSemanticMismatchError), base.SetupBrainBinaryName),
 	}}
 	opts := defaultSetupOptions()
 	opts.noDaemon = true
 
 	out := runSetupForTest(t, f, opts, rec)
 
-	if !strings.Contains(out, "1 of 2 components built, FAILED semantic") {
+	if !strings.Contains(out, "1 of 2 components built, FAILED code index") {
 		t.Fatalf("the phase line must name both halves:\n%s", out)
 	}
 }
@@ -551,7 +553,7 @@ func newSetupRefreshFixture(t *testing.T) (*setupTestFixture, *fakeCommandRunner
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
 	addSetupEntityIndexFixture(runner)
-	runner.responses[fakeCommandKey("entire", "checkpoint", "explain", "--json", "--search-all")] = fakeCommandResponse{stdout: "[]\n"}
+	runner.responses[fakeRoutedCheckpointListKey("entire", true)] = fakeCommandResponse{stdout: "[]\n"}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	previousLaunch := memoryWorkerLaunch
@@ -687,7 +689,7 @@ func TestSetupRegistersRepoInWorkspaceIdempotently(t *testing.T) {
 		t.Fatalf("second run should detect existing membership:\n%s", second)
 	}
 
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -708,7 +710,7 @@ func TestSetupCreatesTheWorkspaceOnFirstUse(t *testing.T) {
 
 	runSetupForTest(t, f, opts, rec)
 
-	if _, err := loadWorkspaceManifest(f.env, "brand-new"); err != nil {
+	if _, err := workspaceStore(f.env).LoadManifest("brand-new"); err != nil {
 		t.Fatalf("setup must create the workspace it registers into: %v", err)
 	}
 }
@@ -787,7 +789,7 @@ func TestSetupSkipsTheDaemonOnAnOSWithNoServiceManager(t *testing.T) {
 	if rec.instantCalls != 1 {
 		t.Fatalf("the instant phase must still run, got %d", rec.instantCalls)
 	}
-	manifest, err := loadWorkspaceManifest(f.env, setupDefaultWorkspace)
+	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("workspace registration must still happen: %v", err)
 	}
@@ -1369,10 +1371,10 @@ func TestSetupSkipsBackfillWhileOneIsStillRunning(t *testing.T) {
 	// also requires a distill pass to hold the pass lock. Hold it here, the way
 	// the real running backfill would, or this test would be asserting the
 	// reused-pid behaviour that TestBackfillRunningRejectsAReusedPid forbids.
-	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainLockDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	passLock, err := acquireFileLock(filepath.Join(f.storage.BrainDir, brainLockDirName, brainDistillLockName), "distill_pass_locked", 0)
+	passLock, err := brainstore.AcquireFileLock(filepath.Join(f.storage.BrainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName), "distill_pass_locked", 0)
 	if err != nil {
 		t.Fatalf("take the distill pass lock: %v", err)
 	}

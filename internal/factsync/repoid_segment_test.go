@@ -13,10 +13,10 @@ import (
 	"github.com/entireio/entire-brain/internal/repoid"
 )
 
-// The fact-set and proposal transports interpolate the repo id into the request
-// target by concatenation, then newRequest attaches the member's bearer token — and,
-// on the write paths, the member's whole fact set. url.PathEscape was standing in for
-// a check it cannot perform: "." and ".." are RFC 3986 unreserved, so PathEscape
+// The per-fact transport interpolates the repo id into the request target by
+// concatenation, then newRequest attaches the member's bearer token — and, on
+// the upsert path, the member's facts. url.PathEscape was standing in for a
+// check it cannot perform: "." and ".." are RFC 3986 unreserved, so PathEscape
 // leaves them untouched and
 //
 //	/api/v1/repos/../brain/facts
@@ -74,41 +74,22 @@ func repoIDPathRecordingServer(t *testing.T, body string, gotPath, gotQuery *str
 
 // TestFactsyncRepoIDMustBeOneSafeSegment covers EVERY repo-id-bearing endpoint on
 // HTTPServer at once: a hostile id must be refused before the request exists, so the
-// bearer token and (for the write paths) the fact set never leave the process.
+// bearer token and (for the upsert) the fact batch never leave the process.
 func TestFactsyncRepoIDMustBeOneSafeSegment(t *testing.T) {
 	calls := map[string]func(context.Context, *HTTPServer, string) error{
-		"Current": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, _, _, err := h.Current(ctx, id, "main")
+		"UpsertFacts": func(ctx context.Context, h *HTTPServer, id string) error {
+			_, err := h.UpsertFacts(ctx, id, []byte("{}\n"))
 			return err
 		},
-		"Advance": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.Advance(ctx, id, "main", "old", []byte("{}\n"))
-			return err
-		},
-		"ListProposals": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.ListProposals(ctx, id, "main")
-			return err
-		},
-		"GetProposal": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.GetProposal(ctx, id, "main", "prop-1234567890abcdef")
-			return err
-		},
-		"PublishProposals": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.PublishProposals(ctx, id, "main", "old", nil)
-			return err
-		},
-		"ResolveProposal": func(ctx context.Context, h *HTTPServer, id string) error {
-			_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-				RepoID: id, Branch: "main", ProposalID: "prop-1234567890abcdef",
-				Decision: Reject, FactsUnchanged: true,
-			})
+		"FactsFeedPage": func(ctx context.Context, h *HTTPServer, id string) error {
+			_, err := h.FactsFeedPage(ctx, id, "", 100)
 			return err
 		},
 	}
 	for method, call := range calls {
 		for name, repoID := range hostileRepoIDs {
 			t.Run(method+"/"+name, func(t *testing.T) {
-				srv, sent := repoIDCountingServer(t, `{"found":false,"proposals":[],"changed":true}`)
+				srv, sent := repoIDCountingServer(t, `{"items":[],"added":0}`)
 				h := &HTTPServer{BaseURL: srv.URL, Token: "secret"}
 				err := call(context.Background(), h, repoID)
 				if err == nil {
@@ -125,103 +106,38 @@ func TestFactsyncRepoIDMustBeOneSafeSegment(t *testing.T) {
 	}
 }
 
-// TestCurrentLandsOnTheIntendedPath pins the whole target of the fact-set head read:
-// the id occupies exactly one segment, the branch stays in the query, and the path is
-// already in normal form so no hop can move it.
-func TestCurrentLandsOnTheIntendedPath(t *testing.T) {
+// TestFactsFeedLandsOnTheIntendedPath pins the whole target of the feed read:
+// the id occupies exactly one segment, the paging stays in the query, and the
+// path is already in normal form so no hop can move it.
+func TestFactsFeedLandsOnTheIntendedPath(t *testing.T) {
 	const repoID = "01JABCDEFGHJKMNPQRSTVWXYZ0"
 	var gotPath, gotQuery string
-	srv := repoIDPathRecordingServer(t, `{"found":false}`, &gotPath, &gotQuery)
+	srv := repoIDPathRecordingServer(t, `{"items":[],"nextPageToken":null}`, &gotPath, &gotQuery)
 
 	h := &HTTPServer{BaseURL: srv.URL}
-	if _, _, _, err := h.Current(context.Background(), repoID, "feature/x"); err != nil {
-		t.Fatalf("Current: %v", err)
+	if _, err := h.FactsFeedPage(context.Background(), repoID, "tok/1", 25); err != nil {
+		t.Fatalf("FactsFeedPage: %v", err)
 	}
 	assertSegmentPath(t, gotPath, "/api/v1/repos/"+repoID+"/brain/facts")
-	if gotQuery != "branch=feature%2Fx" {
-		t.Errorf("query = %q, want the branch escaped into the query", gotQuery)
+	if gotQuery != "pageSize=25&pageToken=tok%2F1" {
+		t.Errorf("query = %q, want the paging escaped into the query", gotQuery)
 	}
 }
 
-// TestAdvanceLandsOnTheIntendedPath does the same for the compare-and-swap write —
-// the request that carries the merged fact set.
-func TestAdvanceLandsOnTheIntendedPath(t *testing.T) {
+// TestUpsertLandsOnTheIntendedPath does the same for the write — the request
+// that carries the member's facts.
+func TestUpsertLandsOnTheIntendedPath(t *testing.T) {
 	const repoID = "repo_1~x"
 	var gotPath, gotQuery string
-	srv := repoIDPathRecordingServer(t, `{"newRef":"r2","changed":true}`, &gotPath, &gotQuery)
+	srv := repoIDPathRecordingServer(t, `{"added":1,"changed":0,"unchanged":0}`, &gotPath, &gotQuery)
 
 	h := &HTTPServer{BaseURL: srv.URL}
-	if _, err := h.Advance(context.Background(), repoID, "main", "r1", []byte("{}\n")); err != nil {
-		t.Fatalf("Advance: %v", err)
+	if _, err := h.UpsertFacts(context.Background(), repoID, []byte("{}\n")); err != nil {
+		t.Fatalf("UpsertFacts: %v", err)
 	}
-	assertSegmentPath(t, gotPath, "/api/v1/repos/"+repoID+"/brain/facts/advance")
+	assertSegmentPath(t, gotPath, "/api/v1/repos/"+repoID+"/brain/facts")
 	if gotQuery != "" {
 		t.Errorf("query = %q, want empty", gotQuery)
-	}
-}
-
-// TestProposalEndpointsLandOnTheIntendedPath pins the four proposal targets. The
-// collection path is shared, so this is where a change to proposalsPath would show up
-// as a moved route rather than as a refused id.
-func TestProposalEndpointsLandOnTheIntendedPath(t *testing.T) {
-	const repoID = "a.b.c"
-	base := "/api/v1/repos/" + repoID + "/brain/facts/proposals"
-
-	cases := map[string]struct {
-		body string
-		call func(context.Context, *HTTPServer) error
-		want string
-	}{
-		"ListProposals": {
-			body: `{"found":false,"proposals":[]}`,
-			call: func(ctx context.Context, h *HTTPServer) error {
-				_, err := h.ListProposals(ctx, repoID, "main")
-				return err
-			},
-			want: base,
-		},
-		"GetProposal": {
-			// 404 is a normal outcome (already settled); the path is the assertion.
-			body: `{"found":false}`,
-			call: func(ctx context.Context, h *HTTPServer) error {
-				_, err := h.GetProposal(ctx, repoID, "main", "prop-1234567890abcdef")
-				if errors.Is(err, ErrProposalNotFound) {
-					return nil
-				}
-				return err
-			},
-			want: base + "/prop-1234567890abcdef",
-		},
-		"PublishProposals": {
-			body: `{"ref":"r2","changed":true}`,
-			call: func(ctx context.Context, h *HTTPServer) error {
-				_, err := h.PublishProposals(ctx, repoID, "main", "r1", nil)
-				return err
-			},
-			want: base,
-		},
-		"ResolveProposal": {
-			body: `{"factsRef":"f2","proposalsRef":"p2","changed":true}`,
-			call: func(ctx context.Context, h *HTTPServer) error {
-				_, err := h.ResolveProposal(ctx, ResolveProposalRequest{
-					RepoID: repoID, Branch: "main", ProposalID: "prop-1234567890abcdef",
-					Decision: Reject, FactsUnchanged: true,
-				})
-				return err
-			},
-			want: base + "/prop-1234567890abcdef/resolve",
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			var gotPath, gotQuery string
-			srv := repoIDPathRecordingServer(t, tc.body, &gotPath, &gotQuery)
-			h := &HTTPServer{BaseURL: srv.URL}
-			if err := tc.call(context.Background(), h); err != nil {
-				t.Fatalf("%s: %v", name, err)
-			}
-			assertSegmentPath(t, gotPath, tc.want)
-		})
 	}
 }
 
@@ -235,25 +151,22 @@ func TestFactsyncRepoIDCannotReachAnotherRoute(t *testing.T) {
 	mux.HandleFunc("/api/v1/repos/", func(w http.ResponseWriter, r *http.Request) {
 		reached <- "repos:" + r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"found":false}`)
+		fmt.Fprint(w, `{"items":[]}`)
 	})
 	mux.HandleFunc("/api/v1/brain/", func(w http.ResponseWriter, r *http.Request) {
 		reached <- "elsewhere:" + r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, `{"found":false}`)
+		fmt.Fprint(w, `{"items":[]}`)
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	h := &HTTPServer{BaseURL: srv.URL, Token: "secret"}
-	if _, _, _, err := h.Current(context.Background(), "..", "main"); err == nil {
-		t.Fatal(`repo id ".." was accepted by Current`)
+	if _, err := h.FactsFeedPage(context.Background(), "..", "", 100); err == nil {
+		t.Fatal(`repo id ".." was accepted by FactsFeedPage`)
 	}
-	if _, err := h.Advance(context.Background(), "..", "main", "r1", []byte("{}\n")); err == nil {
-		t.Fatal(`repo id ".." was accepted by Advance`)
-	}
-	if _, err := h.ListProposals(context.Background(), "..", "main"); err == nil {
-		t.Fatal(`repo id ".." was accepted by ListProposals`)
+	if _, err := h.UpsertFacts(context.Background(), "..", []byte("{}\n")); err == nil {
+		t.Fatal(`repo id ".." was accepted by UpsertFacts`)
 	}
 	close(reached)
 	for hit := range reached {

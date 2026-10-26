@@ -38,7 +38,16 @@ type Record struct {
 	// pull path from server-side attribution. It is OUTSIDE the content id and
 	// outside merge/sort semantics: two records differing only in Author are
 	// the same fact.
-	Author       string    `json:"author,omitempty"`
+	Author string `json:"author,omitempty"`
+	// Agent/Model/Effort identify the extractor that generated a distilled
+	// fact (empty for authored facts), so eval runs can compare fact quality
+	// across extraction models. Like Author they are OUTSIDE the content id
+	// and merge semantics: a reconcile merge keeps the surviving record's
+	// extractor, dropping the removed candidate's. Eval runs distill each
+	// model into its own store, so that loss stays out of comparisons.
+	Agent        string    `json:"agent,omitempty"`
+	Model        string    `json:"model,omitempty"`
+	Effort       string    `json:"effort,omitempty"`
 	Status       string    `json:"status"` // "active" | "candidate" | "superseded" | "retracted"
 	Confidence   string    `json:"confidence,omitempty"`
 	Provenance   []Anchor  `json:"provenance"` // >=1; retained source/authored anchors

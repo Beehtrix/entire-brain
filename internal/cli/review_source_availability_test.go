@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -109,14 +110,14 @@ func TestBriefFactWarningOnlyNamesTheBranchRead(t *testing.T) {
 	}
 }
 
-func TestOverviewReportsUnreadableSemanticBoundaries(t *testing.T) {
+func TestOverviewIgnoresRetiredSemanticStore(t *testing.T) {
 	opts, brain := overviewHistoryFixture(t)
 	manifest, err := loadBrainManifest(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
 	manifest.Sources.Semantic = &semanticSourceManifest{StorePath: "semantic/broken.sqlite"}
-	if err := writeBrainRelativeFileAtomic(brain, "semantic/broken.sqlite", []byte("invalid sqlite"), 0600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brain, "semantic/broken.sqlite", []byte("invalid sqlite"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(brain, *manifest); err != nil {
@@ -127,10 +128,8 @@ func TestOverviewReportsUnreadableSemanticBoundaries(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, kind := range []string{"route", "tool", "workflow"} {
-			if !strings.Contains(out, kind+" boundaries unavailable") {
-				t.Fatalf("silent boundary failure: %s", out)
-			}
+		if strings.Contains(out, "boundaries unavailable") {
+			t.Fatalf("retired store leaked into overview: %s", out)
 		}
 	}
 }

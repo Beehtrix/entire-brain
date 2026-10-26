@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestTreePathOIDsParsesLsTreeOutput(t *testing.T) {
@@ -113,7 +115,7 @@ func TestCheckpointMetadataCacheRoundTripAndVersionGuard(t *testing.T) {
 	if err := gz.Close(); err != nil {
 		t.Fatalf("close gzip: %v", err)
 	}
-	if err := writeFileAtomic(path, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if got := loadCheckpointMetadataCache(path); len(got.prev) != 0 {

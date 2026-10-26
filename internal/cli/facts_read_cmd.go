@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +43,7 @@ func recallRetrievalIdentity() recallRetrievalEngine {
 // are scoped to (the live git branch unless overridden). It is shared by the
 // fact read/write commands.
 func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverride string) (repoDir, brainDir, branch string, err error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -55,7 +56,7 @@ func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverrid
 	}
 	branch = strings.TrimSpace(branchOverride)
 	if branch == "" {
-		if current, gitErr := gitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
+		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
 			branch = strings.TrimSpace(current)
 		}
 	}
@@ -174,11 +175,11 @@ func newRecallCommand(opts Options) *cobra.Command {
 				if resolved == "auto" {
 					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
 				}
-				expandArgs, expErr := distillAgentCommandArgs(resolved, agentCommand, queryExpansionPrompt())
+				expandArgs, expErr := base.DistillAgentCommandArgs(resolved, agentCommand, queryExpansionPrompt())
 				if expErr != nil {
 					return fmt.Errorf("expand agent: %w", expErr)
 				}
-				expandArgs = injectAgentModel(expandArgs, resolved, model)
+				expandArgs = base.InjectAgentModel(expandArgs, resolved, model)
 				exp, expErr := expandQuery(cmd.Context(), defaultDistillAgentRunner(resolved), expandArgs, repoDir, query, loadExpansionCache(""))
 				if expErr != nil {
 					return fmt.Errorf("expand query: %w", expErr)

@@ -4,11 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func TestBriefResidualLikelyFilesEnforcesCombinedCap(t *testing.T) {
@@ -30,7 +35,7 @@ func TestBriefResidualLikelyFilesEnforcesCombinedCap(t *testing.T) {
 		t.Fatalf("combined cap/order=%#v, want edit prefix plus first four tests %#v", all, wantAll)
 	}
 	for _, dropped := range tests[4:] {
-		if containsString(all, dropped) {
+		if base.ContainsString(all, dropped) {
 			t.Fatalf("combined cap retained tail %q in %#v", dropped, all)
 		}
 	}
@@ -72,16 +77,16 @@ func TestBriefResidualMalformedKnowledgeStoresEmitNoPacket(t *testing.T) {
 
 	t.Run("themes query", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		corpus := filepath.Join(fixture.brainDir, filepath.FromSlash(patternCorpusPath))
+		corpus := filepath.Join(fixture.brainDir, filepath.FromSlash(patterncore.CorpusPath))
 		if err := os.MkdirAll(filepath.Dir(corpus), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		_ = os.Remove(corpus)
-		db, err := sql.Open(sqliteDriverName, corpus)
+		db, err := sql.Open(sqlitedriver.Name, corpus)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, stmt := range patternCorpusSchema {
+		for _, stmt := range patterncore.CorpusSchema {
 			if _, err := db.Exec(stmt); err != nil {
 				_ = db.Close()
 				t.Fatal(err)
@@ -113,7 +118,7 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := loadBrainManifest(fixture.brainDir)
@@ -151,7 +156,7 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	if len(report.History.Matches) != 1 || report.History.Matches[0].Path != canonical.Records[0].Path || report.History.Matches[0].Line != canonical.Records[0].Line || report.History.Matches[0].Excerpt != canonical.Records[0].Summary {
 		t.Fatalf("recovered history=%#v, want exact canonical d1 provenance", report.History.Matches)
 	}
-	check, err := sql.Open(sqliteDriverName, historyFTSDBPath(fixture.brainDir))
+	check, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(fixture.brainDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +253,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := loadBrainManifest(fixture.brainDir)
@@ -274,7 +279,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	if err := prime.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lockDB, err := sql.Open(sqliteDriverName, historyFTSDBPath(fixture.brainDir))
+	lockDB, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(fixture.brainDir))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +303,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 		t.Fatalf("repair retry: %v\n%s", err, retried)
 	}
 	assertBriefResidualCanonicalD1(t, retried, canonical)
-	repaired, err := sql.Open(sqliteDriverName, historyFTSDBPath(fixture.brainDir))
+	repaired, err := sql.Open(sqlitedriver.Name, historyFTSDBPath(fixture.brainDir))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 const (
@@ -156,7 +158,7 @@ func factBranchStoreExists(brainDir, branch string) bool {
 // surfaced rather than silently dropping records.
 func loadFacts(brainDir, branch string) ([]factRecord, error) {
 	rel := factsFileRelPath(branch)
-	if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(brainDir, filepath.FromSlash(rel))
@@ -274,7 +276,7 @@ func missingFactStoreWarning(missing []string) string {
 		return ""
 	}
 	return fmt.Sprintf(
-		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `"+brainInvocation(os.LookupEnv, "refresh")+"` and re-distill",
+		"facts declared for branch(es) %s but their %s is missing from the brain; those facts cannot be recalled — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"` and re-distill",
 		strings.Join(missing, ", "), factsFileName,
 	)
 }
@@ -289,7 +291,7 @@ func writeFacts(brainDir, branch string, records []factRecord) error {
 	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), buf.Bytes(), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsFileRelPath(branch), buf.Bytes(), 0o600)
 }
 
 // --- taxonomy -------------------------------------------------------------
@@ -348,7 +350,7 @@ func writeFactTaxonomy(brainDir string, taxonomy factTaxonomy) error {
 		return err
 	}
 	data = append(data, '\n')
-	return writeBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, factsTaxonomyPath, data, 0o600)
 }
 
 // factTaxonomyTopLevels returns the set of top-level categories the taxonomy

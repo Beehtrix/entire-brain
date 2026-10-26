@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Procedure detection (Pattern Consolidation, Phase 2).
@@ -231,18 +234,18 @@ func specificityScore(commands []string, idf map[string]float64, corpus int) flo
 	for _, c := range commands {
 		sum += idf[c]
 	}
-	return clamp01((sum / float64(len(commands))) / maxIDF)
+	return base.Clamp01((sum / float64(len(commands))) / maxIDF)
 }
 
 func procedureStrength(spec float64, support int, counts reinforcementCounts, authors, branches int) float64 {
-	recurrence := clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(procedureSupportSaturat)))
+	recurrence := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(procedureSupportSaturat)))
 	// reinforcement: net (success - corrected) over support, mapped to [0,1] with
 	// neutral at 0.5; sparse positives mean this rarely exceeds ~0.6 in practice.
 	reinf := 0.5
 	if support > 0 {
-		reinf = clamp01(0.5 + 0.5*float64(counts.Success-counts.Corrected)/float64(support))
+		reinf = base.Clamp01(0.5 + 0.5*float64(counts.Success-counts.Corrected)/float64(support))
 	}
-	diversity := clamp01(float64((authors-1)+(branches-1)) / 3.0)
+	diversity := base.Clamp01(float64((authors-1)+(branches-1)) / 3.0)
 	return wSpecificity*spec + wRecurrence*recurrence + wReinforcement*reinf + wDiversity*diversity
 }
 
@@ -281,16 +284,6 @@ func commandWindows(cmds []string, n int) [][]string {
 	return out
 }
 
-func clamp01(v float64) float64 {
-	if v < 0 {
-		return 0
-	}
-	if v > 1 {
-		return 1
-	}
-	return v
-}
-
 func writeBrainProceduresFile(outputDir string, procedures []procedureRecord) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -300,7 +293,7 @@ func writeBrainProceduresFile(outputDir string, procedures []procedureRecord) er
 			return fmt.Errorf("encode procedure: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsProceduresPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsProceduresPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write procedures: %w", err)
 	}
 	return nil

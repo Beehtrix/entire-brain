@@ -1,19 +1,18 @@
 package cli
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
-
-	"github.com/entireio/entire-brain/internal/tui"
 )
 
 // dashDefaultLimit caps how many entries per tab the dashboard loads. Large
@@ -42,7 +41,7 @@ func newDashCommand(opts Options) *cobra.Command {
 		Short: "Browse the brain in an interactive dashboard",
 		Long: `dash opens an interactive terminal dashboard over the brain: a Home tab
 summarizing source health, freshness, and blind spots, plus explorer tabs that
-browse individual facts, sessions, history records, and semantic symbols, each
+browse individual facts, sessions, history records, and code symbols, each
 with a detail page. It is read-only and makes no agent calls.
 
 On a non-TTY (piped output) it prints a plain summary instead; --json emits the
@@ -78,7 +77,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 	if err != nil {
 		return err
 	}
-	privacyPolicy, err := captureRetrievalPrivacyPolicy(brainDir)
+	privacyPolicy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
 	if err != nil {
 		return err
 	}
@@ -228,7 +227,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 			if idx, err := loadBrainHistoryIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
-				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guard.blocksRecord(record) })
+				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guardBlocksRecord(guard, record) })
 				snap.History = dashHistoryViews(records, brainDir, limit)
 				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
@@ -236,10 +235,10 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		// Semantic symbols (snapshot.ndjson).
 		if sem := manifest.Sources.Semantic; sem != nil {
 			if syms, err := loadSemanticSymbols(brainDir, sem, limit); err != nil {
-				markSourceUnreadable(&snap.Home, "Semantic", "semantic unavailable: "+err.Error())
+				markSourceUnreadable(&snap.Home, "Code", "code index unavailable: "+err.Error())
 			} else {
 				snap.Semantic = dashSemanticViews(syms, repoDir)
-				snap.Notes = appendCapNote(snap.Notes, "semantic symbols", sem.Symbols, len(snap.Semantic))
+				snap.Notes = appendCapNote(snap.Notes, "code symbols", sem.Symbols, len(snap.Semantic))
 			}
 		}
 	}
@@ -287,7 +286,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	home.Sources = []tui.SourceHealth{
 		{Name: "Seed", Present: present.Seed, Detail: detail["seed"]},
 		{Name: "Sessions", Present: present.Sessions, Detail: detail["sessions"]},
-		{Name: "Semantic", Present: present.Semantic, Detail: detail["semantic"]},
+		{Name: "Code", Present: present.Semantic, Detail: detail["semantic"]},
 		{Name: "History", Present: present.History, Detail: detail["history"]},
 		{Name: "Facts", Present: present.Facts, Detail: detail["facts"]},
 	}
@@ -307,7 +306,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	if manifest != nil && manifest.GeneratedAt.IsZero() && !anySource(present) {
-		home.Warnings = append(home.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		home.Warnings = append(home.Warnings, "brain not built yet — run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	return home
 }
@@ -320,7 +319,7 @@ func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map
 	src := manifest.Sources
 	if s := src.Sessions; s != nil {
 		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
-		if len(guards) > 0 && !guards[0].empty() {
+		if len(guards) > 0 && !guards[0].Empty() {
 			visible := guardExportSessions(guards[0], s.Sessions)
 			count, checkpoints = len(visible), 0
 			for _, session := range visible {
@@ -508,59 +507,23 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 	return out
 }
 
-// loadSemanticSymbols reads the symbol records from the active semantic snapshot
-// (NDJSON: a header line followed by one record per line), reusing the snapshot
-// scanner and path validation. A missing snapshot yields no symbols.
+// loadSemanticSymbols reads the symbol records from Graph's live store. No
+// source at all is the ordinary unbuilt case and stays silently empty; a
+// DECLARED source that is not the live graph handle is unreadable and must
+// error, so the Sources row flips to "unreadable" instead of rendering a
+// healthy empty Code tab.
 func loadSemanticSymbols(brainDir string, source *semanticSourceManifest, limit int) ([]semanticRecord, error) {
-	if source == nil || source.SnapshotPath == "" {
+	if source == nil {
 		return nil, nil
 	}
-	rel, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
 	if err != nil {
 		return nil, err
 	}
-	full := filepath.Join(brainDir, rel)
-	// A missing snapshot is not an error: an inconsistent or not-yet-built brain
-	// just yields no symbols rather than a scary warning.
-	if _, statErr := os.Stat(full); os.IsNotExist(statErr) {
-		return nil, nil
+	if limit <= 0 {
+		limit = -1
 	}
-	if err := rejectSymlinkPathComponents(brainDir, rel); err != nil {
-		return nil, err
-	}
-	f, err := os.Open(full)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	defer f.Close()
-	scanner := newSemanticScanner(f)
-	first := true
-	var out []semanticRecord
-	for scanner.Scan() {
-		if first { // skip the header line
-			first = false
-			continue
-		}
-		text := bytes.TrimSpace(scanner.Bytes())
-		if len(text) == 0 {
-			continue
-		}
-		var rec semanticRecord
-		if err := json.Unmarshal(text, &rec); err != nil {
-			return nil, err
-		}
-		if rec.RecordType != "symbol" {
-			continue
-		}
-		out = append(out, rec)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-	return out, scanner.Err()
+	return findSemanticSymbolsInSQLite(storePath, "", limit, 0)
 }
 
 // printDashPlain renders the snapshot as plain text for non-TTY / --plain use,
@@ -582,7 +545,7 @@ func printDashPlain(cmd *cobra.Command, snap tui.Snapshot) {
 	if snap.Home.Freshness != "" {
 		fmt.Fprintf(out, "freshness: %s\n", snap.Home.Freshness)
 	}
-	fmt.Fprintf(out, "\nFacts (%d) · Sessions (%d) · History (%d) · Semantic (%d)\n",
+	fmt.Fprintf(out, "\nFacts (%d) · Sessions (%d) · History (%d) · Code (%d)\n",
 		len(snap.Facts), len(snap.Sessions), len(snap.History), len(snap.Semantic))
 	for _, bs := range snap.Home.BlindSpots {
 		fmt.Fprintf(out, "  blind spot: %s\n", bs)

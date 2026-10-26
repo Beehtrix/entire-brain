@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Pattern run history (Pattern Consolidation v2, Priority 3): an append-only,
@@ -80,7 +82,7 @@ func appendPatternRun(brainDir string, run patternRun) error {
 		// source of truth, so recover by starting a fresh log. An UNSAFE path
 		// (alias, symlink, irregular file) is not content corruption and still
 		// fails closed.
-		if memoryErrorCode(err) != memoryErrStateCorrupt {
+		if memoryErrorCode(err) != brainstore.StateCorruptCode {
 			return err
 		}
 		runs = nil
@@ -96,7 +98,7 @@ func appendPatternRun(brainDir string, run patternRun) error {
 			return err
 		}
 	}
-	return writeBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, patternRunsRelPath, []byte(b.String()), 0o600)
 }
 
 // loadPatternRunsChecked returns recorded runs oldest-first. A genuinely absent
@@ -122,12 +124,12 @@ func loadPatternRunsChecked(brainDir string) ([]patternRun, error) {
 		}
 		var r patternRun
 		if err := json.Unmarshal([]byte(line), &r); err != nil {
-			return nil, fmt.Errorf("%s: parse pattern run history line %d: %w", memoryErrStateCorrupt, lineNumber, err)
+			return nil, fmt.Errorf("%s: parse pattern run history line %d: %w", brainstore.StateCorruptCode, lineNumber, err)
 		}
 		runs = append(runs, r)
 	}
 	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("%s: scan pattern run history: %w", memoryErrStateCorrupt, err)
+		return nil, fmt.Errorf("%s: scan pattern run history: %w", brainstore.StateCorruptCode, err)
 	}
 	return runs, nil
 }

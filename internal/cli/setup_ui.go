@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mattn/go-isatty"
-
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/mattn/go-isatty"
 )
 
 // setup_ui.go is the seam between setup's orchestration and the seven-phase
@@ -43,8 +43,8 @@ type setupSink struct {
 	progress *refreshProgress
 	rend     *setupui.Renderer
 	tty      bool
-	// quiet suppresses the permanent PHASE ROWS only. It exists because the
-	// short form replaced them, and the rows must stop WITHOUT the sink
+	// quiet suppresses verbose phase output. The short form drives its own
+	// live task and result lines, WITHOUT the sink
 	// pretending there is no terminal.
 	//
 	// The first attempt suppressed them by handing newProgress io.Discard.
@@ -145,9 +145,71 @@ func setupRenderWidth(caps tui.Caps, lookup tui.EnvLookup) int {
 // Renderer is the renderer every row in this run is composed with.
 func (s *setupSink) Renderer() *setupui.Renderer { return s.rend }
 
+// StartTask replaces the short form's active task. Verbose mode uses the
+// phase model instead; pipes get only the permanent results.
+func (s *setupSink) StartTask(label string) {
+	if s == nil || !s.quiet || !s.tty {
+		return
+	}
+	s.Suspend()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.task = s.progress.beginTimedPhase(label, tui.PhaseInstant)
+}
+
+// ShortWarning keeps failures in otherwise transient phases visible.
+func (s *setupSink) ShortWarning(detail, brainCmd string) {
+	if s == nil || !s.quiet {
+		return
+	}
+	s.Suspend()
+	s.progress.EmitLine("  " + s.rend.MarkGlyph(tui.MarkSkipped) + " " +
+		setupui.FlattenText(detail) + " — run `" + brainCmd + " setup --verbose` for details")
+}
+
+// BuildStep translates nested refresh output into the active task. SetLabel
+// is deliberately non-painting: nested output can hold the live-line lock.
+func (s *setupSink) BuildStep(label string) {
+	if s == nil || !s.quiet || !s.tty {
+		return
+	}
+	label = setupShortBuildLabel(label)
+	if label == "" {
+		return
+	}
+	s.mu.Lock()
+	task := s.task
+	s.mu.Unlock()
+	task.SetLabel("Building Brain " + s.rend.Dash() + " " + label + "…")
+}
+
+func setupShortBuildLabel(label string) string {
+	for _, suffix := range []string{" done", " skipped", " failed"} {
+		if strings.HasSuffix(label, suffix) {
+			return ""
+		}
+	}
+	for _, step := range []struct{ prefix, label string }{
+		{"export sessions", "reading past AI sessions"},
+		{"seed baseline", "scanning repository files"},
+		{"history index", "indexing session history"},
+		{"doc index", "indexing documentation"},
+		{"code index", "indexing code"},
+		{"reclassify facts", "organizing existing memories"},
+		{"pattern layer", "finding patterns in past sessions"},
+		{"entity index", "indexing code changes"},
+		{"memory coordinator", "updating memory state"},
+	} {
+		if label == step.prefix || strings.HasPrefix(label, step.prefix+":") {
+			return step.label
+		}
+	}
+	return ""
+}
+
 // Begin opens the phase's transient line.
 func (s *setupSink) Begin(accent tui.Phase, label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()
@@ -161,7 +223,7 @@ func (s *setupSink) Begin(accent tui.Phase, label string) {
 // again deadlocks the process. The spinner repaints the new label within
 // 100ms. See refreshProgressTask.SetLabel.
 func (s *setupSink) Live(label string) {
-	if s == nil || !s.tty {
+	if s == nil || s.quiet || !s.tty {
 		return
 	}
 	s.mu.Lock()
@@ -359,7 +421,10 @@ func setupBrainQueryable(components []setupComponent) bool {
 		return true
 	}
 	for _, component := range components {
-		if component.failed() {
+		// A skipped component is deliberately absent, which for THIS question
+		// is the same as failed: it is not a source a query can read, so it is
+		// no evidence the brain can answer.
+		if component.failed() || component.State == "skipped" {
 			continue
 		}
 		if setupContentComponents[component.Name] {
@@ -381,10 +446,10 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if dirty, err := worktreeDirty(ctx, runner, repoDir); err == nil {
 		facts.Dirty = dirty
 	}
-	branch, branchErr := gitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
+	branch, branchErr := clibase.GitScalar(ctx, runner, repoDir, "symbolic-ref", "--quiet", "HEAD")
 	branch = strings.TrimSpace(branch)
 
-	count, err := gitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
+	count, err := clibase.GitScalar(ctx, runner, repoDir, "rev-list", "--count", "HEAD")
 	if err == nil {
 		if parsed, convErr := strconv.Atoi(strings.TrimSpace(count)); convErr == nil && parsed >= 0 {
 			facts.Commits = parsed
@@ -405,7 +470,7 @@ func setupRepoFacts(ctx context.Context, runner CommandRunner, repoDir string) (
 	if branchErr != nil || branch == "" {
 		return facts, false
 	}
-	if _, resolved := gitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
+	if _, resolved := clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "--verify", "--quiet", branch); resolved != nil {
 		facts.Commits = 0
 		return facts, true
 	}
@@ -467,7 +532,7 @@ func entityRevisionDetail(revision string) string {
 // is reported as unbound with the read error as its note: claiming a binding
 // this command could not read is the one answer that could cost someone data.
 func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
-	facts := setupui.HostedFacts{Remedy: setupBrainCommand(brainCmd) + " connect"}
+	facts := setupui.HostedFacts{Remedy: clibase.SetupBrainCommand(brainCmd) + " connect"}
 	binding, present, err := readHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
@@ -475,13 +540,10 @@ func setupHostedFacts(brainDir, brainCmd string) setupui.HostedFacts {
 	case !present:
 		// setupui's own default names the ticket that owns the gap.
 	case binding.OptedOut:
-		facts.Note = "disconnected by `" + setupBrainCommand(brainCmd) + " disconnect`"
+		facts.Note = "disconnected by `" + clibase.SetupBrainCommand(brainCmd) + " disconnect`"
 	default:
 		facts.Bound = true
-		facts.Target = binding.RepoID
-		if binding.BaseURL != "" {
-			facts.Target += " at " + binding.BaseURL
-		}
+		facts.Target = binding.BaseURL
 	}
 	return facts
 }
@@ -499,7 +561,7 @@ func detectSetupFacts(ctx context.Context, opts Options, setupOpts setupCommandO
 	detected.Agent = setupui.AgentFacts{
 		Model:  strings.TrimSpace(setupOpts.model),
 		Effort: strings.TrimSpace(setupOpts.effort),
-		Remedy: "install codex or claude, then re-run `" + setupBrainCommand(brainCmd) + " setup`",
+		Remedy: "install codex or claude, then re-run `" + clibase.SetupBrainCommand(brainCmd) + " setup`",
 	}
 	if agent := strings.TrimSpace(setupOpts.agent); agent != "" && agent != "none" && agent != "auto" {
 		detected.Agent.Name = agent
@@ -596,15 +658,15 @@ func setupOffersConnect(brainPath string) bool {
 }
 
 func setupNextSteps(brainCmd string, daemonInstalled bool, pendingSessions int, offerConnect, agentsWired bool) []setupui.NextStep {
-	cmd := setupBrainCommand(brainCmd)
+	cmd := clibase.SetupBrainCommand(brainCmd)
 	next := []setupui.NextStep{}
 	// FIRST when the wiring did not land. Every other step below assumes an
-	// agent can find this brain; until init-agents runs, nothing will, so
-	// naming it third would bury the only step that matters.
+	// agent can find this brain; until the agent instructions land, nothing
+	// will, so naming it third would bury the only step that matters.
 	if !agentsWired {
 		next = append(next, setupui.NextStep{
-			Command: cmd + " init-agents",
-			Why:     "write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this runs)",
+			Command: cmd + " setup",
+			Why:     "re-run to write AGENTS.md/CLAUDE.md so agents can see this brain (nothing will use it until this lands)",
 		})
 	}
 	next = append(next, []setupui.NextStep{

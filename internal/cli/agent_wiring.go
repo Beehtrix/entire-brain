@@ -14,14 +14,15 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // agent_wiring.go closes the first-run gap that made a successful `setup`
 // invisible: the brain was built, indexed, watched and backfilled, and NO AGENT
-// EVER KNEW IT EXISTED. `setup` wrote no guide, no pointer and no hook, and
-// `init-agents` — the command that writes them — was never referenced from
-// setup.go at all. A user who ran only `setup` got a brain that every agent in
-// the repository would walk straight past.
+// EVER KNEW IT EXISTED. `setup` originally wrote no guide, no pointer and no
+// hook; a user who ran only `setup` got a brain that every agent in the
+// repository would walk straight past. This wiring is now a setup phase (the
+// former `init-agents` command, folded in).
 //
 // Two things make an agent aware of the brain:
 //
@@ -71,10 +72,14 @@ var agentWiringTargets = []string{agentsetup.Path, "AGENTS.md", "CLAUDE.md"}
 // idempotent by construction rather than by luck: the instruction files carry
 // a begin/end marker whose contents are replaced in place, and the settings
 // merge is skipped outright when an entry already invokes this hook.
-func wireAgentInstructions(repoDir string, wireHook bool) setupAgentsState {
+//
+// An empty mode inherits the repository's saved guidance mode; --strict and
+// --normal pass an explicit one, which the install persists in the guide's
+// activation record.
+func wireAgentInstructions(repoDir string, wireHook bool, mode agentsetup.Mode) setupAgentsState {
 	state := setupAgentsState{}
 	render := func() (string, error) {
-		return agentsetup.Preview(repoDir, "brain", agentsetup.Options{})
+		return agentsetup.Preview(repoDir, "brain", agentsetup.Options{Mode: mode})
 	}
 	changed, err := agentsetup.InstallChanged(repoDir, render)
 	if err != nil {
@@ -158,12 +163,12 @@ func preEditHookCommandFor(goos string) string {
 		// `exit /b 0` is the counterpart of the POSIX `exit 0`: a reader with
 		// neither binary gets a hook that does nothing, not one that errors on
 		// every edit.
-		return `cmd /c "` + setupBrainBinaryName + " hook pre-edit --claude-hook || " +
-			setupEntireBinaryName + " " + setupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
+		return `cmd /c "` + base.SetupBrainBinaryName + " hook pre-edit --claude-hook || " +
+			base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb + ` hook pre-edit --claude-hook || exit /b 0"`
 	}
-	plugin := setupEntireBinaryName + " " + setupBrainPluginVerb
-	return "sh -c 'if command -v " + setupBrainBinaryName + " >/dev/null 2>&1; then exec " + setupBrainBinaryName +
-		" hook pre-edit --claude-hook; fi; if command -v " + setupEntireBinaryName + " >/dev/null 2>&1; then exec " +
+	plugin := base.SetupEntireBinaryName + " " + base.SetupBrainPluginVerb
+	return "sh -c 'if command -v " + base.SetupBrainBinaryName + " >/dev/null 2>&1; then exec " + base.SetupBrainBinaryName +
+		" hook pre-edit --claude-hook; fi; if command -v " + base.SetupEntireBinaryName + " >/dev/null 2>&1; then exec " +
 		plugin + " hook pre-edit --claude-hook; fi; exit 0'"
 }
 

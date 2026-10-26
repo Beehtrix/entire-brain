@@ -27,6 +27,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -54,7 +57,12 @@ const (
 	// once. Distillation is latency-bound (each call is an LLM round-trip plus an
 	// agent-CLI cold start); a small pool overlaps those waits without hammering
 	// provider rate limits or spawning an unbounded number of agent processes.
-	defaultDistillConcurrency = 4
+	// 8 measured best on a fixed 20-session corpus (COR-2214): extraction ran at
+	// effective concurrency 7.0 with zero failures, halving the 4-wide time. 16
+	// was SLOWER — parallel agent-CLI cold starts contend for local CPU and
+	// inflated the mean call 10.6s -> 17.6s — so raise this only after that
+	// per-call spawn cost is gone.
+	defaultDistillConcurrency = 8
 
 	// distillFlushCallInterval is how many agent calls may elapse between
 	// persistence flushes of the in-memory distill state (facts, proposals,
@@ -132,12 +140,6 @@ func capWarnings(warnings []string, max int) []string {
 	out := append(warnings[:max:max], fmt.Sprintf("... and %d more warnings (suppressed)", extra))
 	return out
 }
-
-// distillAgentRunner executes the seed agent with the distillation prompt for
-// one transcript chunk and returns the agent's raw stdout. It is injected so
-// the orchestration can be tested with a fake agent (the real implementation,
-// execDistillAgent, shells out).
-type distillAgentRunner func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error)
 
 // agentCallResult carries one prefetched distill-agent call result. holdsSlot
 // marks results produced by a launched worker, whose pool slot result() must
@@ -403,11 +405,13 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 			}
 			distilled++
 			if sem == nil {
-				ps.seq = func(chunks []transcriptChunk) func(int) (string, error) {
+				ps.seq = func(sessionID string, chunks []transcriptChunk) func(int) (string, error) {
 					return func(i int) (string, error) {
-						return distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+						return distillOpts.trace.call(ctx, sessionID, chunks[i], i, 0, func(callCtx context.Context) (string, error) {
+							return distillOpts.run(callCtx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+						})
 					}
-				}(ps.chunks)
+				}(ps.session.SessionID, ps.chunks)
 				select {
 				case prepared <- ps:
 				case <-ctx.Done():
@@ -432,13 +436,15 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 					ps.results[i] <- agentCallResult{err: ctx.Err()}
 					continue
 				}
+				slotWaitStart := time.Now()
 				select {
 				case sem <- struct{}{}:
 				case <-ctx.Done():
 					ps.results[i] <- agentCallResult{err: ctx.Err()}
 					continue
 				}
-				go func(i int, chunks []transcriptChunk, results []chan agentCallResult) {
+				slotWait := time.Since(slotWaitStart)
+				go func(sessionID string, i int, chunks []transcriptChunk, results []chan agentCallResult, slotWait time.Duration) {
 					// A panic while processing one (untrusted) chunk must not crash the
 					// whole distill run and lose every other chunk's work; convert it to
 					// a per-chunk error so the slot is released and the run continues.
@@ -447,9 +453,11 @@ func startSessionPrefetch(ctx context.Context, brainDir, repoDir string, args []
 							results[i] <- agentCallResult{err: fmt.Errorf("distill worker panicked: %v", r), holdsSlot: true}
 						}
 					}()
-					out, err := distillOpts.run(ctx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					out, err := distillOpts.trace.call(ctx, sessionID, chunks[i], i, slotWait, func(callCtx context.Context) (string, error) {
+						return distillOpts.run(callCtx, repoDir, args, []byte(chunks[i].Text), distillOpts.timeout)
+					})
 					results[i] <- agentCallResult{out: out, err: err, holdsSlot: true}
-				}(i, ps.chunks, ps.results)
+				}(ps.session.SessionID, i, ps.chunks, ps.results, slotWait)
 			}
 		}
 	}()
@@ -540,7 +548,11 @@ type distillCommandOptions struct {
 	// flushEvery overrides distillFlushCallInterval when >0 (tests use 1 to
 	// observe mid-run persistence).
 	flushEvery int
-	run        distillAgentRunner
+	run        base.DistillAgentRunner
+	// callTracePath/trace stream one JSON line per extraction agent call for
+	// latency profiling (COR-2214); a nil trace adds no work.
+	callTracePath string
+	trace         *distillTraceWriter
 	// progress, when set, is called as each session is processed so the command
 	// can render a spinner/progress line. It is nil in tests and for callers
 	// that do not want progress output.
@@ -550,7 +562,7 @@ type distillCommandOptions struct {
 	// entity the fact's locus names, instead of the session's LAST checkpoint.
 	// nil (the zero value, and the value in every pre-index caller) keeps the
 	// original coarse anchoring exactly.
-	entityProvenance *entityProvenanceResolver
+	entityProvenance *entities.ProvenanceResolver
 	// checkpointCommits resolves each fact's checkpoint to its on-branch
 	// commit (checkpoint_commit.go). nil stamps no commit, the pre-COR-2126
 	// behavior.
@@ -787,11 +799,12 @@ func newDistillCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&distillOpts.maxChunkBytes, "max-chunk-bytes", defaultDistillChunkSize, "Transcript chunk size in bytes; larger chunks mean fewer agent calls per session, but a chunk must fit the model's context window — transcript text runs ~3.65 chars/token, so a 32K-context model (ollama's default for many local models) truncates past roughly 116KB")
 	cmd.Flags().BoolVar(&distillOpts.newestFirst, "newest-first", false, "Distill the most recent sessions first so the most useful memories land early (default: oldest first)")
 	cmd.Flags().IntVar(&distillOpts.maxSessions, "max-sessions", 0, "Cap how many not-yet-distilled sessions this run processes (0 = no cap); pairs with --newest-first as a backfill budget")
+	cmd.Flags().StringVar(&distillOpts.callTracePath, "call-trace", "", "Write one JSON line per extraction agent call (latency, slot wait, tokens) to this file for profiling")
 	return cmd
 }
 
 func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOpts distillCommandOptions, target string) error {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return err
 	}
@@ -824,7 +837,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	// keep this pre-resolution gate, and distillAgentCommandArgs rejects
 	// non-loopback agents again at invocation as defense in depth.
 	if !distillOpts.dryRun {
-		if err := rejectAgentForNoEgress(distillOpts.agent); err != nil {
+		if err := base.RejectAgentForNoEgress(distillOpts.agent); err != nil {
 			return err
 		}
 	}
@@ -866,6 +879,14 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	if distillOpts.run == nil && distillOpts.agent != "none" {
 		distillOpts.run = defaultDistillAgentRunner(distillOpts.agent)
 	}
+	if distillOpts.callTracePath != "" {
+		traceFile, traceErr := os.Create(distillOpts.callTracePath)
+		if traceErr != nil {
+			return fmt.Errorf("--call-trace: %w", traceErr)
+		}
+		defer traceFile.Close()
+		distillOpts.trace = &distillTraceWriter{w: traceFile}
+	}
 	// Progress goes to stderr so it never corrupts the --json summary on stdout.
 	progress := newProgress(cmd.ErrOrStderr(), "distill")
 	task := progress.Begin("distill sessions")
@@ -883,7 +904,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 	var source *factSourceManifest
 	skipped := false
 	// Contention is decided before the agent is: see above.
-	err = withDistillPassLock(storage.BrainDir, func() {
+	err = brainstore.WithDistillPassLock(storage.BrainDir, func() {
 		skipped = true
 		// Tell the CALLER, not just the terminal. A skipped pass spends
 		// nothing, and a supervised watcher that cannot tell "done" from
@@ -896,7 +917,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		}
 		fmt.Fprintf(cmd.ErrOrStderr(),
 			"distill: another distill pass already holds %s for this brain; skipping so the same sessions are not distilled twice\n",
-			filepath.Join(storage.BrainDir, brainLockDirName, brainDistillLockName))
+			filepath.Join(storage.BrainDir, brainstore.BrainLockDirName, brainstore.BrainDistillLockName))
 	}, func() error {
 		// We hold the lock, so this pass will really run: NOW the agent has to
 		// exist. ollama is named because it is auto-selected ahead of the
@@ -913,7 +934,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 		// so a run that skips never pays for it and a run that proceeds reads
 		// the index as of the moment it actually owns the pass — the session-end
 		// hook refreshes that index just before calling in.
-		distillOpts.entityProvenance = newEntityProvenanceResolver(ctx, opts, repoDir)
+		distillOpts.entityProvenance = entities.NewProvenanceResolver(ctx, entityConfig(opts), repoDir)
 		distillOpts.checkpointCommits = newCheckpointCommitResolver(ctx, opts, repoDir)
 		var runErr error
 		source, runErr = runDistillForBrain(ctx, repoDir, storage.BrainDir, distillOpts, opts.Now().UTC())
@@ -979,12 +1000,13 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	}
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
+	ctx = withDistillAgentChildEnv(ctx, distillOpts.agent)
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return nil, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return nil, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	if distillOpts.run == nil {
 		return nil, errors.New("distill: no agent runner configured")
@@ -1004,19 +1026,19 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	if err != nil {
 		return nil, err
 	}
-	args, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
+	args, err := base.DistillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, prompt)
 	if err != nil {
 		return nil, err
 	}
 	reconcilePromptText := reconcilePrompt()
-	reconcileArgs, err := distillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
+	reconcileArgs, err := base.DistillAgentCommandArgs(distillOpts.agent, distillOpts.agentCommand, reconcilePromptText)
 	if err != nil {
 		return nil, err
 	}
 	// Pin the agent model + effort when set, so distill AND reconcile run on the same
 	// (cheap) model. Both are no-ops when empty.
-	args = injectAgentEffort(injectAgentModel(args, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
-	reconcileArgs = injectAgentEffort(injectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
+	args = base.InjectAgentEffort(base.InjectAgentModel(args, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
+	reconcileArgs = base.InjectAgentEffort(base.InjectAgentModel(reconcileArgs, distillOpts.agent, distillOpts.model), distillOpts.agent, distillOpts.effort)
 	threshold := distillOpts.confidenceThreshold
 	if threshold <= 0 {
 		threshold = defaultFactConfidenceThreshold
@@ -1250,7 +1272,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		return saveDistillCache(brainDir, cache)
 	}
 	flushFactStores := func(final bool) error {
-		return withBrainWriteLock(brainDir, func() error {
+		return brainstore.WithBrainWriteLock(brainDir, func() error {
 			return flushFactStoresLocked(final)
 		})
 	}
@@ -1451,9 +1473,10 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			}
 			anyAgentSuccess = true
 			records, chunkWarnings := distilledFactsFromOutput(out, taxonomy, anchor, branch, now)
+			stampFactExtractor(records, distillOpts.agent, distillOpts.model, distillOpts.effort)
 			// Sharpen provenance where the entity index can place the fact's
 			// locus; a no-op (and never an error) when the index is absent.
-			records = applyEntityProvenance(records, distillOpts.entityProvenance)
+			records = entities.ApplyProvenance(records, distillOpts.entityProvenance)
 			warnings = append(warnings, chunkWarnings...)
 			if len(records) == 0 {
 				maybeFlush()
@@ -1528,7 +1551,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 
 	writeStarted := time.Now()
 	var source *factSourceManifest
-	err = withBrainWriteLock(brainDir, func() error {
+	err = brainstore.WithBrainWriteLock(brainDir, func() error {
 		manifest, err := loadBrainManifest(brainDir)
 		if err != nil {
 			return err
@@ -1608,7 +1631,7 @@ func buildDistillDryRunReportContext(ctx context.Context, brainDir string, disti
 		return distillDryRunReport{}, err
 	}
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
-		return distillDryRunReport{}, errors.New("no exported sessions; run `" + brainInvocation(os.LookupEnv, "refresh") + "` first")
+		return distillDryRunReport{}, errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
 	distillOpts.dryRun = true
 	distillOpts.checkpointBacked = checkpointBackedSessions(manifest)
@@ -2676,7 +2699,7 @@ func cachedDistillFingerprintForKey(cache distillCache, key string) (string, boo
 // session transcripts. It shares the hardened state reader and an explicit
 // whole-file bound so derived JSON cannot revive the legacy unbounded read.
 func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
-	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", base.DefaultMaxReadBytes)
 	if err != nil {
 		return "", err
 	}
@@ -2691,7 +2714,7 @@ func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
 // run simply re-distills everything.
 func loadDistillCache(brainDir string) distillCache {
 	empty := distillCache{Version: distillCacheVersion, Sessions: map[string]string{}}
-	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", defaultMaxReadBytes)
+	data, _, err := readMemoryStateFile(brainDir, distillCachePath, "distill cache", base.DefaultMaxReadBytes)
 	if err != nil {
 		return empty
 	}
@@ -2709,13 +2732,13 @@ func saveDistillCache(brainDir string, cache distillCache) error {
 	if err != nil {
 		return err
 	}
-	return writeBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, distillCachePath, append(data, '\n'), 0o600)
 }
 
 // execDistillAgent is the real distillAgentRunner: it runs the agent with the
 // transcript chunk on stdin and returns stdout, bounded by a timeout and an
 // output-size cap.
-func defaultDistillAgentRunner(agent string) distillAgentRunner {
+func defaultDistillAgentRunner(agent string) base.DistillAgentRunner {
 	if agent == "ollama" {
 		return execOllamaDistillAgent
 	}
@@ -2741,7 +2764,7 @@ func defaultDistillAgentRunner(agent string) distillAgentRunner {
 // and the handcrafted argv used by tests) pass through untouched.
 func prepareAgentExec(args []string, input []byte) (argv []string, stdin []byte, cleanup func(), err error) {
 	noop := func() {}
-	argv, prompt, ok := splitAgentPromptArg(args)
+	argv, prompt, ok := base.SplitAgentPromptArg(args)
 	if !ok {
 		return args, input, noop, nil
 	}
@@ -2811,6 +2834,9 @@ func execDistillAgentWithPrompt(ctx context.Context, dir string, args []string, 
 	command := exec.CommandContext(runCtx, argv[0], argv[1:]...)
 	command.Dir = dir
 	command.Stdin = bytes.NewReader(stdin)
+	if env, ok := ctx.Value(distillChildEnvKey{}).([]string); ok {
+		command.Env = env
+	}
 	stdoutLimit := distillStdoutLimit(argv)
 	stdout := newCappedDistillBuffer(stdoutLimit)
 	stderr := newCappedDistillBuffer(distillMaxOutputBytes)

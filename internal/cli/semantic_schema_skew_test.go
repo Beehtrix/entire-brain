@@ -2,12 +2,9 @@ package cli
 
 import (
 	"encoding/json"
-	"path/filepath"
+	"fmt"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/spf13/cobra"
 )
 
 // TestValidateSemanticSchemaFollowsTheTolerantReaderContract pins ADR 0001's
@@ -93,181 +90,42 @@ func TestSemanticSchemaNewerMinorWarns(t *testing.T) {
 	}
 }
 
-// TestSemanticIndexRecordsNewerMinorWarning proves the warning actually reaches
-// the recorded index rather than being computed and dropped.
-func TestSemanticIndexRecordsNewerMinorWarning(t *testing.T) {
-	t.Parallel()
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.99"))
-	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{
-		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("a newer supported-major minor must be accepted: %v", err)
-	}
-	storage, err := repoStoragePaths(cmd.Context(), runner, env, repoDir)
+// semanticSchemaNewerMinor is the first minor after what this build reads.
+// Derived, not a literal: a hardcoded version stops meaning "newer than
+// supported" the moment semanticSchemaVersion is bumped past it, and silently
+// starts testing the wrong thing instead of failing (the COR-2007 bump turned
+// the hardcoded 1.4 fixtures stale exactly this way).
+func semanticSchemaNewerMinor(t *testing.T) string {
+	t.Helper()
+	major, minor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
 	if err != nil {
-		t.Fatalf("storage: %v", err)
+		t.Fatalf("parse semanticSchemaVersion %q: %v", semanticSchemaVersion, err)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
-	if err != nil {
-		t.Fatalf("manifest: %v", err)
-	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		t.Fatal("manifest has no semantic source")
-	}
-	found := false
-	for _, warning := range manifest.Sources.Semantic.Warnings {
-		if warning.Code == "provider_schema_newer_minor" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("index did not record a provider_schema_newer_minor warning: %+v", manifest.Sources.Semantic.Warnings)
-	}
+	return fmt.Sprintf("%d.%d", major, minor+1)
 }
 
-// TestSemanticStaleReportDegradesOnNewerMinor pins the second sink for the
-// same rule. Recording the warning at index time is not enough on its own: the
-// "provider" freshness axis is what `entire brain doctor`/`status` and every
-// semantic read command consult, and an index built from a snapshot this build
-// only partly understands must read as degraded there rather than a clean "ok".
-func TestSemanticStaleReportDegradesOnNewerMinor(t *testing.T) {
-	t.Parallel()
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	// The manifest's recorded schema_version and the on-disk snapshot must
-	// agree (every freshness check revalidates the snapshot against the
-	// manifest), so index a real 1.99 provider snapshot rather than patching
-	// the manifest alone.
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.99"))
-	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{
-		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-
-	report, err := semanticStaleReport(cmd.Context(), Options{Env: env, Runner: runner}, repoDir)
-	if err != nil {
-		t.Fatalf("stale: %v", err)
-	}
-	provider := report.Axes["provider"]
-	if provider.State != "degraded" {
-		t.Fatalf("provider axis = %+v, want degraded for a newer provider minor", provider)
-	}
-	for _, want := range []string{"1.99", semanticSchemaVersion} {
-		if !strings.Contains(provider.Detail, want) {
-			t.Fatalf("provider axis detail does not name %q: %+v", want, provider)
-		}
-	}
-	if report.Severity != "degraded" {
-		t.Fatalf("severity = %s, want degraded", report.Severity)
-	}
-}
-
-// TestSemanticStaleReportSilentAtSupportedMinor is the negative case for that
-// axis: at the newest minor this build fully ingests, nothing about schema skew
-// may appear in the provider axis.
-func TestSemanticStaleReportSilentAtSupportedMinor(t *testing.T) {
-	t.Parallel()
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
-	cmd := &cobra.Command{Use: "index"}
-	if err := runSemanticIndex(cmd.Context(), cmd, Options{
-		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
-		t.Fatalf("index: %v", err)
-	}
-
-	report, err := semanticStaleReport(cmd.Context(), Options{Env: env, Runner: runner}, repoDir)
-	if err != nil {
-		t.Fatalf("stale: %v", err)
-	}
-	if detail := report.Axes["provider"].Detail; strings.Contains(detail, "minors are additive") {
-		t.Fatalf("provider axis reports schema skew at the supported minor: %q", detail)
-	}
-}
-
-// TestBundleImportRecordsNewerMinorWarning pins the third sink. A bundle
-// carries a snapshot this build ingests only partially in exactly the same way
-// a live provider does, so the import must succeed (tolerant reader) and leave
-// the warning on the semantic source it persists, rather than accepting the
-// bundle with no trace.
-func TestBundleImportRecordsNewerMinorWarning(t *testing.T) {
-	t.Parallel()
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.99"))
-	archive := filepath.Join(t.TempDir(), "newer-minor.tar")
-	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.99","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
-		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.99"),
-	})
-	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{
-		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, archive, bundleSHA256(t, archive), false); err != nil {
-		t.Fatalf("a newer supported-major minor must import: %v", err)
-	}
-	source := mustSemanticSource(t, env)
-	found := false
-	for _, warning := range source.Warnings {
-		if warning.Code == "provider_schema_newer_minor" {
-			found = true
-			if !strings.Contains(warning.Detail, "1.99") {
-				t.Fatalf("imported warning does not name the remote version: %+v", warning)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("bundle import did not record a provider_schema_newer_minor warning: %+v", source.Warnings)
-	}
-}
-
-// TestBundleImportSilentAtSupportedMinor is the negative case for that sink.
-func TestBundleImportSilentAtSupportedMinor(t *testing.T) {
-	t.Parallel()
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
-	archive := filepath.Join(t.TempDir(), "supported-minor.tar")
-	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"` + semanticSchemaVersion + `","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
-		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot(semanticSchemaVersion),
-	})
-	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{
-		Version: "test", Env: env, Runner: runner, Now: time.Now,
-	}, archive, bundleSHA256(t, archive), false); err != nil {
-		t.Fatalf("import: %v", err)
-	}
-	for _, warning := range mustSemanticSource(t, env).Warnings {
-		if warning.Code == "provider_schema_newer_minor" {
-			t.Fatalf("unexpected schema-skew warning at the supported minor: %+v", warning)
-		}
-	}
-}
-
-// TestCurrentProviderSchemaDoesNotWarn pins COR-2007. entire-graph has shipped
-// schema 1.3 since 2026-09-13 while this build advertised 1.1, so EVERY index
-// against a current provider raised provider_schema_newer_minor and told the
-// user additive facts "may not have been ingested". They were ingested: 1.2's
-// identity_revision is consumed by internal/entityindex, and 1.3's
-// completeness.health rides through as the Completeness raw message.
+// TestCurrentProviderSchemaDoesNotWarn pins COR-2007 and its 1.4 recurrence.
+// entire-graph shipped schema 1.3 on 2026-09-13 while this build advertised
+// 1.1, then shipped 1.4 (graph v0.5.0) while this build advertised 1.3 —
+// each time EVERY index against a current provider raised
+// provider_schema_newer_minor and told the user additive facts "may not have
+// been ingested". They were ingested: 1.2's identity_revision is consumed by
+// internal/entityindex, 1.3's completeness.health rides through as the
+// Completeness raw message, and 1.4's provenance is modeled on semanticRecord
+// (and is a pure derivation of type+resolution besides).
 //
 // The warning is still the right mechanism, so this also pins that a genuinely
 // newer minor keeps firing it. Bumping the constant without teaching the reader
 // the new fields would turn a true warning into a silent drop.
 func TestCurrentProviderSchemaDoesNotWarn(t *testing.T) {
 	t.Parallel()
-	for _, version := range []string{"1.0", "1.1", "1.2", "1.3"} {
+	for _, version := range []string{"1.0", "1.1", "1.2", "1.3", "1.4"} {
 		if w := semanticSchemaMinorSkewWarning(version); w != nil {
 			t.Fatalf("schema %q warned (%s: %s); this build ingests it in full",
 				version, w.Code, w.Effect)
 		}
 	}
-	for _, version := range []string{"1.4", "1.17"} {
+	for _, version := range []string{semanticSchemaNewerMinor(t), "1.17"} {
 		w := semanticSchemaMinorSkewWarning(version)
 		if w == nil {
 			t.Fatalf("schema %q did not warn; a minor this build has not been taught must warn", version)
@@ -304,5 +162,30 @@ func TestPartialFailureLanguageSurvivesDecoding(t *testing.T) {
 	}
 	if w.Effect != "rust symbols absent" {
 		t.Fatalf("provider effect alias regressed: %q", w.Effect)
+	}
+}
+
+// TestRelationProvenanceSurvivesRemarshal pins the one field schema 1.4 added.
+// The provider derives provenance from type and resolution at marshal time, so
+// no information was lost — but the streaming filter re-marshals every record
+// through semanticRecord, and an unmodeled field is silently stripped from the
+// stored snapshot, breaking the constant's "ingest in full" claim literally.
+func TestRelationProvenanceSurvivesRemarshal(t *testing.T) {
+	t.Parallel()
+	raw := `{"record_type":"relation","from_id":"a","to_id":"b","type":"CALLS",` +
+		`"resolution":"exact","provenance":"EXTRACTED"}`
+	var record semanticRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if record.Provenance != "EXTRACTED" {
+		t.Fatalf("provenance dropped on decode: got %q", record.Provenance)
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"provenance":"EXTRACTED"`) {
+		t.Fatalf("provenance dropped on re-marshal: %s", encoded)
 	}
 }

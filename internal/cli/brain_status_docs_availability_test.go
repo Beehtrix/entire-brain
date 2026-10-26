@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,7 @@ func docsAvailabilityFixture(t *testing.T) (Options, string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainRelativeFileAtomic(storage.BrainDir, docIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(storage.BrainDir, docIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{

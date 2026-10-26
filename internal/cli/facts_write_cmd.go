@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +21,7 @@ type rememberCommandOptions struct {
 	agentCommand []string
 	json         bool
 	global       bool
-	run          distillAgentRunner
+	run          base.DistillAgentRunner
 }
 
 func newRememberCommand(opts Options) *cobra.Command {
@@ -78,7 +80,7 @@ func rememberAnchorCommit(ctx context.Context, opts Options, repoDir, branch str
 	if explicit {
 		args = []string{"rev-parse", "--verify", branch + "^{commit}"}
 	}
-	commit, err := gitScalar(ctx, opts.Runner, repoDir, args...)
+	commit, err := base.GitScalar(ctx, opts.Runner, repoDir, args...)
 	if err != nil {
 		return "", false
 	}
@@ -172,7 +174,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		ID:         factRecordID(text, paths),
 		Paths:      paths,
 		Kind:       kind,
-		Locus:      factLocus(text),
+		Locus:      base.FactLocus(text),
 		Text:       text,
 		Branch:     branch,
 		Origin:     factOriginAuthored,
@@ -183,7 +185,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	}
 
 	storedKind := kind
-	if err := withBrainWriteLock(brainDir, func() error {
+	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		facts, err := loadFacts(brainDir, branch)
 		if err != nil {
 			return err
@@ -277,11 +279,11 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 	if agent == "none" || agent == "" {
 		return nil, fmt.Errorf("no agent available to classify; pass --path <category.subcategory.type>")
 	}
-	args, err := distillAgentCommandArgs(agent, rememberOpts.agentCommand, classifyPrompt(taxonomy))
+	args, err := base.DistillAgentCommandArgs(agent, rememberOpts.agentCommand, classifyPrompt(taxonomy))
 	if err != nil {
 		return nil, err
 	}
-	args = injectAgentModel(args, agent, rememberOpts.model)
+	args = base.InjectAgentModel(args, agent, rememberOpts.model)
 	run := rememberOpts.run
 	if run == nil {
 		run = defaultDistillAgentRunner(agent)

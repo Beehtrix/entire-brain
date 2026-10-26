@@ -11,6 +11,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const historySessionInventoryErrorCode = memoryErrSessionInventory
@@ -74,7 +77,7 @@ func (e *historySessionInventoryError) Error() string {
 	if e.Err != nil {
 		detail += ": " + e.Err.Error()
 	}
-	return memoryErrSessionInventory + ": " + memoryErrStateUnsafe + ": " + detail
+	return memoryErrSessionInventory + ": " + brainstore.StateUnsafeCode + ": " + detail
 }
 
 func (e *historySessionInventoryError) Unwrap() error { return e.Err }
@@ -164,7 +167,7 @@ func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, ph
 		seen := make(map[string]bool, len(source.Sessions))
 		for _, session := range source.Sessions {
 			rel := session.TranscriptPath
-			clean, err := cleanBrainRelativePath(rel)
+			clean, err := base.CleanBrainRelativePath(rel)
 			if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, "sessions/") || seen[rel] {
 				return nil, &historySessionInventoryError{Path: rel, Reason: "invalid or duplicate manifest transcript address", Err: err}
 			}
@@ -184,14 +187,14 @@ func collectHistorySessionInventoryMode(ctx context.Context, brainDir string, ph
 	// Probe it separately so that case gets a plain not-exist error; a
 	// directory that vanishes DEEPER in the walk stays degraded, because that
 	// is a real integrity signal rather than an empty Brain.
-	if _, err := root.Lstat(exportSessionsDirectory); err != nil {
+	if _, err := root.Lstat(brainstore.SessionsDirName); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, errHistorySessionsRootMissing
 		}
-		return nil, &historySessionInventoryError{Path: exportSessionsDirectory, Reason: "inspect transcript directory", Err: err}
+		return nil, &historySessionInventoryError{Path: brainstore.SessionsDirName, Reason: "inspect transcript directory", Err: err}
 	}
 	count := 0
-	if err := inventory.walkDirectory(ctx, exportSessionsDirectory, nil, &count); err != nil {
+	if err := inventory.walkDirectory(ctx, brainstore.SessionsDirName, nil, &count); err != nil {
 		return nil, err
 	}
 	sort.Slice(inventory.files, func(a, b int) bool {
@@ -239,7 +242,7 @@ func (i *historySessionInventory) walkDirectory(ctx context.Context, rel string,
 		return fmt.Errorf("%s: transcript directory changed after enumeration: %s", memoryErrSourceStale, rel)
 	}
 	i.entries = append(i.entries, newHistorySessionTreeEntry(rel, before))
-	dir, err := i.root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	dir, err := i.root.OpenFile(rel, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		return &historySessionInventoryError{Path: rel, Reason: "open transcript directory", Err: err}
 	}
@@ -349,7 +352,7 @@ func (i *historySessionInventory) open(ctx context.Context, file historySessionF
 		return nil, fmt.Errorf("%s: transcript changed after inventory: %s", memoryErrSourceStale, file.Rel)
 	}
 	beforeHistorySessionDescriptorOpen(file.Rel)
-	f, err := i.root.OpenFile(file.Rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := i.root.OpenFile(file.Rel, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		current, currentErr := i.root.Lstat(file.Rel)
 		if currentErr == nil && current.Mode().IsRegular() && current.Mode()&os.ModeSymlink == 0 && file.info != nil && os.SameFile(file.info, current) && sameHistoryFileMetadata(file, current) {
@@ -503,8 +506,8 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 		return nil, nil, err
 	}
 	rel = filepath.ToSlash(strings.TrimSpace(rel))
-	clean, err := cleanBrainRelativePath(rel)
-	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, exportSessionsDirectory+"/") {
+	clean, err := base.CleanBrainRelativePath(rel)
+	if err != nil || filepath.ToSlash(clean) != rel || !strings.HasPrefix(rel, brainstore.SessionsDirName+"/") {
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript path is unsafe", Err: err}
 	}
 	beforeRoot, err := os.Lstat(brainDir)
@@ -550,7 +553,7 @@ func openCanonicalHistoryTranscript(ctx context.Context, brainDir, rel string) (
 		_ = root.Close()
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "canonical transcript is not a regular file"}
 	}
-	f, err := root.OpenFile(rel, os.O_RDONLY|fileLockOpenFlags()|memoryStateReadOpenFlags(), 0)
+	f, err := root.OpenFile(rel, os.O_RDONLY|base.FileLockOpenFlags()|base.MemoryStateReadOpenFlags(), 0)
 	if err != nil {
 		_ = root.Close()
 		return nil, nil, &historySessionInventoryError{Path: rel, Reason: "open canonical transcript", Err: err}

@@ -2,8 +2,9 @@ package cli
 
 import (
 	"context"
-	"github.com/spf13/cobra"
 	"io"
+
+	"github.com/spf13/cobra"
 )
 
 // Phase adapters return operation errors. Rendering and failure policy stay in runRefresh.
@@ -11,7 +12,7 @@ func runRefreshExportPhase(ctx context.Context, opts Options, refresh refreshCom
 	cmd := &cobra.Command{Use: "export"}
 	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
-	exportOpts := exportCommandOptions{outputDir: defaultExportDir, outputExplicit: outputExplicit, checkpointLimit: refresh.checkpointLimit, entireBinary: refresh.entireBinary, rawTranscript: refresh.rawTranscript, scope: refresh.scope, progress: progress}
+	exportOpts := exportCommandOptions{outputDir: defaultExportDir, outputExplicit: outputExplicit, checkpointLimit: refresh.checkpointLimit, entireBinary: refresh.entireBinary, rawTranscript: refresh.rawTranscript, scope: refresh.scope, progress: progress, skipTranscriptSweep: refresh.skipTranscriptSweep}
 	if outputExplicit {
 		exportOpts.outputDir = refresh.outputDir
 	}

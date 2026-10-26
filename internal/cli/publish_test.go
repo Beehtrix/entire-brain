@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -162,7 +163,7 @@ func TestPublishRefusesWithoutTarget(t *testing.T) {
 	if err == nil {
 		t.Fatalf("publish succeeded on ambient env vars alone; want refusal. output:\n%s", out)
 	}
-	if !strings.Contains(err.Error(), "opt-in") || !strings.Contains(err.Error(), brainInvocation(os.LookupEnv, "connect")) {
+	if !strings.Contains(err.Error(), "opt-in") || !strings.Contains(err.Error(), base.BrainInvocation(os.LookupEnv, "connect")) {
 		t.Fatalf("refusal should explain the opt-in and name connect; got: %v", err)
 	}
 }
@@ -297,13 +298,6 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	}
 	if wire.Manifest.Provider != "entire-graph" {
 		t.Fatalf("manifest provider = %q, want entire-graph", wire.Manifest.Provider)
-	}
-
-	// Snapshot: keyed by commit, bytes preserved.
-	if snaps := byKind[brainKindSnapshot]; len(snaps) != 1 || snaps[0].Ref != testPublishCommit {
-		t.Fatalf("snapshot artifacts = %+v, want one ref %q", snaps, testPublishCommit)
-	} else if !strings.Contains(string(snaps[0].Data), "\"symbol\":\"Foo\"") {
-		t.Fatalf("snapshot data not preserved: %q", snaps[0].Data)
 	}
 
 	// Overlay: keyed by base..head; the all-branches report is not published.

@@ -34,8 +34,11 @@ func TestReadRuntimeTracesArrayAndNDJSON(t *testing.T) {
 }
 
 func TestReadRuntimeTracesRejectsOversizedFile(t *testing.T) {
-	t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", "64")
-	big := writeTraceFile(t, "["+strings.Repeat(`{"from":"A","to":"B"},`, 100)+`{"from":"x","to":"y"}]`)
+
+	big := writeTraceFile(t, "")
+	if err := os.Truncate(big, graphTraceMaxBytes+1); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := readRuntimeTraces(big); err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
 		t.Fatalf("oversized trace file should be rejected, got %v", err)
 	}

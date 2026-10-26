@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // writeDistillFixture lays down a brain dir with a session manifest and two
@@ -815,7 +817,7 @@ func TestPreprocessTranscriptForDistillOpencodeDocument(t *testing.T) {
 
 	// The preprocessor must route document transcripts through this path.
 	if pre := preprocessTranscriptForDistill(doc); !strings.Contains(pre, "Remove the header bottom border") || strings.Contains(pre, "step-finish") {
-		t.Errorf("preprocess did not strip document transcript: %q", truncateString(pre, 200))
+		t.Errorf("preprocess did not strip document transcript: %q", base.TruncateString(pre, 200))
 	}
 
 	// JSONL and plain-text transcripts must NOT match the document path.

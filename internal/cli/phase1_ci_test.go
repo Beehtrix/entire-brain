@@ -37,9 +37,6 @@ func TestPhase1SemanticCommandJSONContracts(t *testing.T) {
 	if _, err := execute(t, cmd, "bundle", "import", bundlePath, "--sha256", checksum); err != nil {
 		t.Fatalf("bundle import: %v", err)
 	}
-	if _, err := execute(t, cmd, "gc", "--older-than", "30d"); err != nil {
-		t.Fatalf("gc: %v", err)
-	}
 	assertPhase1NoNetworkCommands(t, runner, repoDir)
 }
 
@@ -83,8 +80,8 @@ func assertCommandJSONContains(t *testing.T, cmd *cobra.Command, name string, ar
 
 func assertPhase1NoNetworkCommands(t *testing.T, runner *fakeCommandRunner, repoDir string) {
 	t.Helper()
-	if !fakeRunnerCalled(runner, "entire", "graph", "snapshot", "--repo", repoDir, "--format", "ndjson", "--no-network") {
-		t.Fatalf("semantic provider snapshot was not constrained with --no-network: %+v", runner.calls)
+	if !fakeRunnerCalled(runner, "entire", "graph", "index", "--repo", repoDir, "--head", "--profile", "full", "--format", "json") {
+		t.Fatalf("Graph HEAD index was not requested: %+v", runner.calls)
 	}
 	for _, call := range runner.calls {
 		switch call.name {

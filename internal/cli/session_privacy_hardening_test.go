@@ -10,13 +10,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func tombstonePrivacyFixture(t *testing.T, brainDir string) {
 	t.Helper()
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["secret-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "test"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -25,16 +29,16 @@ func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *test
 	t.Run("plan stat", func(t *testing.T) {
 		brainDir := writePrivacyFixture(t)
 		target := filepath.Join(brainDir, "sessions", "main", "20260802T000000Z_secret.jsonl")
-		original := privacyLstat
-		privacyLstat = func(path string) (os.FileInfo, error) {
+		original := brainstore.PrivacyLstat
+		brainstore.PrivacyLstat = func(path string) (os.FileInfo, error) {
 			if path == target {
 				return nil, fs.ErrPermission
 			}
 			return original(path)
 		}
-		t.Cleanup(func() { privacyLstat = original })
-		if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-			t.Fatalf("plan stat error = %v, want %s", err, memoryErrStateCorrupt)
+		t.Cleanup(func() { brainstore.PrivacyLstat = original })
+		if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+			t.Fatalf("plan stat error = %v, want %s", err, brainstore.StateCorruptCode)
 		}
 	})
 
@@ -42,16 +46,16 @@ func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *test
 		brainDir := writePrivacyFixture(t)
 		tombstonePrivacyFixture(t, brainDir)
 		target := filepath.Join(brainDir, filepath.FromSlash(historyFTSDBRelPath()))
-		original := privacyLstat
-		privacyLstat = func(path string) (os.FileInfo, error) {
+		original := brainstore.PrivacyLstat
+		brainstore.PrivacyLstat = func(path string) (os.FileInfo, error) {
 			if path == target {
 				return nil, fs.ErrPermission
 			}
 			return original(path)
 		}
-		t.Cleanup(func() { privacyLstat = original })
-		if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-			t.Fatalf("verify stat error = %v, want %s", err, memoryErrStateCorrupt)
+		t.Cleanup(func() { brainstore.PrivacyLstat = original })
+		if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+			t.Fatalf("verify stat error = %v, want %s", err, brainstore.StateCorruptCode)
 		}
 	})
 
@@ -60,16 +64,16 @@ func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *test
 		if err := os.MkdirAll(filepath.Join(brainDir, factsDirName), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		original := privacyReadDir
-		privacyReadDir = func(dir *os.File, n int) ([]os.DirEntry, error) {
+		original := brainstore.PrivacyReadDir
+		brainstore.PrivacyReadDir = func(dir *os.File, n int) ([]os.DirEntry, error) {
 			if dir.Name() == filepath.Join(brainDir, factsDirName) {
 				return nil, fs.ErrPermission
 			}
 			return original(dir, n)
 		}
-		t.Cleanup(func() { privacyReadDir = original })
-		if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-			t.Fatalf("plan ReadDir error = %v, want %s", err, memoryErrStateCorrupt)
+		t.Cleanup(func() { brainstore.PrivacyReadDir = original })
+		if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+			t.Fatalf("plan ReadDir error = %v, want %s", err, brainstore.StateCorruptCode)
 		}
 	})
 
@@ -77,16 +81,16 @@ func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *test
 		brainDir := writePrivacyFixture(t)
 		tombstonePrivacyFixture(t, brainDir)
 		target := filepath.Join(brainDir, filepath.FromSlash(historyScanCachePath))
-		original := privacyReadAll
-		privacyReadAll = func(reader io.Reader, max int64, source string) ([]byte, error) {
+		original := brainstore.PrivacyReadAll
+		brainstore.PrivacyReadAll = func(reader io.Reader, max int64, source string) ([]byte, error) {
 			if source == target {
 				return nil, fs.ErrPermission
 			}
 			return original(reader, max, source)
 		}
-		t.Cleanup(func() { privacyReadAll = original })
-		if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-			t.Fatalf("verify read error = %v, want %s", err, memoryErrStateCorrupt)
+		t.Cleanup(func() { brainstore.PrivacyReadAll = original })
+		if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+			t.Fatalf("verify read error = %v, want %s", err, brainstore.StateCorruptCode)
 		}
 	})
 }
@@ -102,18 +106,18 @@ func TestMalformedEpisodesFailPlanFilterAndVerifyWithoutRewrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	transcripts := map[string]bool{"sessions/main/20260802T000000Z_secret.jsonl": true}
-	if _, _, err := filterEpisodesFile(brainDir, "secret-sess", transcripts, true); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("filter error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, _, err := filterEpisodesFile(brainDir, "secret-sess", transcripts, true); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("filter error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 	if got, err := os.ReadFile(path); err != nil || string(got) != string(want) {
 		t.Fatalf("malformed source was rewritten: %q err=%v", got, err)
 	}
-	if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("plan error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := buildSessionPurgePlan(brainDir, "secret-sess"); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("plan error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 	tombstonePrivacyFixture(t, brainDir)
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("verify error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("verify error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }
 
@@ -143,8 +147,8 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guard.blocksFact(singleBlank) || !guard.blocksFact(singleMismatch) || guard.blocksFact(multi) {
-		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", guard.blocksFact(singleBlank), guard.blocksFact(singleMismatch), guard.blocksFact(multi))
+	if !guardBlocksFact(guard, singleBlank) || !guardBlocksFact(guard, singleMismatch) || guardBlocksFact(guard, multi) {
+		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", guardBlocksFact(guard, singleBlank), guardBlocksFact(guard, singleMismatch), guardBlocksFact(guard, multi))
 	}
 	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
 	if err != nil {
@@ -206,7 +210,7 @@ func TestPrivacyDerivationBlocksDuplicateManifestTranscriptAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, episode := range episodes {
-		if normalizePrivacyTranscriptPath(episode.Source.Path) == secretPath {
+		if brainstore.NormalizePrivacyTranscriptPath(episode.Source.Path) == secretPath {
 			t.Fatalf("duplicate transcript alias produced an episode: %+v", episode)
 		}
 	}
@@ -232,7 +236,7 @@ func TestPrivacyDerivedReadGateInspectsCurrentCorpusRows(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
-	corpus := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	corpus := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	dirtyCorpus, err := os.ReadFile(corpus)
 	if err != nil {
 		t.Fatal(err)
@@ -315,8 +319,8 @@ func TestPrivacyVerifyInspectsCommittedPatternRowsStillInWAL(t *testing.T) {
 	// Leave a committed excluded-path row only in WAL. An immutable read of a
 	// main-file-only copy cannot see it, so privacy verification must snapshot
 	// and replay the pinned WAL before doing its row-level checks.
-	corpus := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
-	db, err := sql.Open(sqliteDriverName, corpus)
+	corpus := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
+	db, err := sql.Open(sqlitedriver.Name, corpus)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +392,7 @@ func TestPrivacyVerifyRejectsCurrentCorruptSQLiteStore(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Now().UTC(), nil); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -399,19 +403,19 @@ func TestPrivacyVerifyRejectsCurrentCorruptSQLiteStore(t *testing.T) {
 	if err := os.Chtimes(path, future, future); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("corrupt current corpus error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := verifySessionPrivacy(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("corrupt current corpus error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }
 
 func TestPrivacyTypedErrorCanBeUnwrapped(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName, sessionTombstonesFileName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName, brainstore.SessionTombstonesFileName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := loadSessionTombstonesChecked(brainDir)
+	_, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	var typed *sessionTombstoneLoadError
-	if !errors.As(err, &typed) || typed.Code != memoryErrStateCorrupt {
+	if !errors.As(err, &typed) || typed.Code != brainstore.StateCorruptCode {
 		t.Fatalf("nonregular tombstone error = %v", err)
 	}
 }

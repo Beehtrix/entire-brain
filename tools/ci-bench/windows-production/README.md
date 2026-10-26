@@ -52,9 +52,7 @@ filter tests or share state between shards; inventory-only launches also clean
 up their temporary roots.
 Before and after execution it verifies the tracked worktree and commit.
 
-The separate `phase1-semantic` matrix retains its original race-test command,
-`ENTIRE_BRAIN_PHASE1_CI=1`, and offline GOPROXY/GOSUMDB environment after module
-priming. The Linux/macOS race and specialized CGO lanes are unchanged.
+The Linux/macOS race and specialized CGO lanes are unchanged.
 
 Validate locally:
 

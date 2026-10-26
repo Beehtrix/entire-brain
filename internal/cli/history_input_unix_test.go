@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"net"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func TestHistorySessionInventoryRejectsFIFOAndSocketWithoutBlocking(t *testing.T
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = os.RemoveAll(brainDir) })
-			dir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+			dir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 			if err := os.MkdirAll(dir, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -70,7 +71,7 @@ func TestHistorySessionOpenDoesNotBlockOnRegularToFIFOSwap(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(brainDir) })
-	dir := filepath.Join(brainDir, exportSessionsDirectory, "main")
+	dir := filepath.Join(brainDir, brainstore.SessionsDirName, "main")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
 func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testing.T) {
@@ -23,37 +26,37 @@ func TestMemoryReadOnlyHealthClassifiesObservedOverlayJobAndFTSSchemas(t *testin
 		prepare   func(*testing.T, string)
 	}{
 		{
-			name: "corrupt overlay", section: "overlay", observed: "overlay", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt overlay", section: "overlay", observed: "overlay", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte("{broken\n"))
 			},
 		},
 		{
-			name: "unknown newer overlay", section: "overlay", observed: "overlay", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer overlay", section: "overlay", observed: "overlay", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyShortTermPath, []byte(fmt.Sprintf(`{"version":%d,"reconciler_version":%d,"future":true,"files":{}}`, historyShortTermVersion+1, historyShortTermReconcilerVersion)+"\n"))
 			},
 		},
 		{
-			name: "corrupt job", section: "job_inventory", observed: "job", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt job", section: "job_inventory", observed: "job", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(memoryJobsDirRel, "broken.json")), []byte("{broken\n"))
 			},
 		},
 		{
-			name: "unknown newer job", section: "job_inventory", observed: "job", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer job", section: "job_inventory", observed: "job", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, filepath.ToSlash(filepath.Join(memoryJobsDirRel, "future.json")), []byte(fmt.Sprintf(`{"schema_version":%d,"job_id":"future","future":true}`, memoryJobSchemaVersion+1)+"\n"))
 			},
 		},
 		{
-			name: "corrupt FTS", section: "fts", observed: "fts", wantState: "corrupt", wantCode: memoryErrStateCorrupt,
+			name: "corrupt FTS", section: "fts", observed: "fts", wantState: "corrupt", wantCode: brainstore.StateCorruptCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFixtureFile(t, brainDir, historyFTSDBRelPath(), []byte("not sqlite"))
 			},
 		},
 		{
-			name: "unknown newer FTS", section: "fts", observed: "fts", wantState: "unsupported", wantCode: memoryErrUnsupportedVersion,
+			name: "unknown newer FTS", section: "fts", observed: "fts", wantState: "unsupported", wantCode: brainstore.UnsupportedVersionCode,
 			prepare: func(t *testing.T, brainDir string) {
 				writeHealthFTSMetaFixture(t, brainDir, fmt.Sprint(mustAtoi(t, historyFTSSchema)+1), "future")
 			},
@@ -169,7 +172,7 @@ func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing
 
 	t.Run("unknown newer egress", func(t *testing.T) {
 		brainDir := t.TempDir()
-		ref := conversationSessionIDPrefix + strings.Repeat("b", 64)
+		ref := brainstore.ConversationSessionIDPrefix + strings.Repeat("b", 64)
 		writeHealthFixtureFile(t, brainDir, abstractEgressReceiptRel(ref), []byte(fmt.Sprintf(`{"schema_version":%d,"future":true}`, abstractEgressSchemaVersion+1)+"\n"))
 		snapshot := memoryReadOnlyHealth(brainDir, now)
 		install, _ := snapshot.Payload["install"].(map[string]any)
@@ -185,7 +188,7 @@ func TestMemoryReadOnlyHealthReportsAbstractAndEgressObservedVersions(t *testing
 		receipt := abstractEgressReceipt{
 			SchemaVersion: abstractEgressLegacyVersion,
 			OperationID:   "0123456789abcdefabcd",
-			SessionRef:    conversationSessionIDPrefix + strings.Repeat("c", 64),
+			SessionRef:    brainstore.ConversationSessionIDPrefix + strings.Repeat("c", 64),
 			SessionDigest: "sha256:" + strings.Repeat("d", 64),
 			Provider:      "codex",
 			Model:         "legacy",
@@ -225,7 +228,7 @@ func writeHealthFTSMetaFixture(t *testing.T, brainDir, schema, fingerprint strin
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open(sqliteDriverName, path)
+	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
 	}

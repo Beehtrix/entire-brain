@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/setupui"
 )
 
@@ -14,7 +17,7 @@ import (
 // in the short form: an id like "entities" tells a reader nothing they can act
 // on, and `doctor` already lists every component by name.
 var terseCapabilityLabels = map[string]string{
-	brainComponentSemantic: "semantic search",
+	brainComponentSemantic: "code context",
 	brainComponentHistory:  "history search",
 	brainComponentDocs:     "docs search",
 	// Session export earns a label for one reason: its commonest failure is
@@ -42,18 +45,32 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 		Queryable: queryable,
 		Sessions:  report.Facts.Sessions,
 		Distilled: report.Facts.Distilled,
-		BrainCmd:  setupBrainCommand(brainCmd),
+		Queued:    report.Facts.Queued,
+		BrainCmd:  base.SetupBrainCommand(brainCmd),
 	}
 	if timings != nil {
 		out.Elapsed = timings.total()
 	}
 
-	_, failed := partitionSetupComponents(report.Instant.Components)
-	for _, component := range failed {
+	_, skipped, failed := partitionSetupComponents(report.Instant.Components)
+	// Skipped components are capability gaps too: an installed Graph without
+	// the store contract leaves code inspection unavailable just as surely as
+	// a failed build would, and the short form is where that gets discovered.
+	// Only labelled ones report, same as failures; a skip is never counted
+	// into UnnamedFailures because it is not one.
+	namedFailures := 0
+	for _, component := range append(append([]setupComponent{}, skipped...), failed...) {
 		if label, named := terseCapabilityLabels[component.Name]; named {
 			out.Unavailable = append(out.Unavailable, label)
-			if remedy, ok := terseCapabilityRemedies[component.Name]; ok && out.Remedy == "" {
-				out.Remedy = remedy
+			if component.failed() {
+				namedFailures++
+			}
+			if out.Remedy == "" {
+				if hint := strings.TrimSpace(component.Hint); component.State == "skipped" && hint != "" {
+					out.Remedy = hint
+				} else if remedy, ok := terseCapabilityRemedies[component.Name]; ok {
+					out.Remedy = remedy
+				}
 			}
 		}
 	}
@@ -65,7 +82,7 @@ func terseReportFor(report setupReport, timings *setupTimings, queryable bool, o
 	// never mistaken for a clean one, and the names stay out of the short
 	// form -- an id like "entities" is not something a reader can act on,
 	// which is why it has no label in the first place.
-	out.UnnamedFailures = len(failed) - len(out.Unavailable)
+	out.UnnamedFailures = len(failed) - namedFailures
 
 	// Same read as the verbose Next block, same rule: not already bound, not
 	// explicitly opted out. The short form is the DEFAULT, so this is where

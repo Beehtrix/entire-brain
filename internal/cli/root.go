@@ -14,16 +14,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
-
-type Options struct {
-	Version string
-	Env     EntireEnv
-	Runner  CommandRunner
-	Now     func() time.Time
-}
 
 // Execute runs the plugin root command with the real process environment.
 func Execute(version string) error {
@@ -64,7 +58,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
 It builds a local, inspectable repository brain from retained sessions, seed
-context, docs, history, semantic records, and durable memories, then exposes
+context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return cmd.Help()
@@ -85,7 +79,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 		&cobra.Group{ID: "setup", Title: "Set up the brain & agents:"},
 		&cobra.Group{ID: "explore", Title: "Search & explore the brain:"},
 		&cobra.Group{ID: "facts", Title: "Durable memories & patterns:"},
-		&cobra.Group{ID: "code", Title: "Code & semantic index:"},
+		&cobra.Group{ID: "code", Title: "Code index & context:"},
 		&cobra.Group{ID: "maintain", Title: "Brain state & maintenance:"},
 		&cobra.Group{ID: "share", Title: "Workspaces & sharing:"},
 		&cobra.Group{ID: "operations", Title: "Troubleshooting & operations:"},
@@ -105,7 +99,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 
 	addGrouped("setup", newSetupCommand(opts))
 	addGrouped("setup", newAddCommand(opts))
-	addGrouped("setup", newInitAgentsCommand(opts))
 	addGrouped("setup", newBrainGuideCommand(opts))
 	addGrouped("setup", newMCPCommand(opts))
 	addGrouped("setup", newWebhookCommand(opts))
@@ -134,7 +127,7 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))
-	addGrouped("operations", newEntitiesCommand(opts))
+	addGrouped("operations", entities.NewCommand(entityConfig(opts)))
 	addGrouped("code", newVizCommand(opts))
 	addGrouped("operations", newSemanticRepairCommand(opts))
 
@@ -146,7 +139,6 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	addHidden(newDaemonReregisterCommand(opts))
 	addGrouped("operations", newStopCommand(opts))
 	addGrouped("operations", newStartCommand(opts))
-	addGrouped("operations", newSemanticGCCommand(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))
@@ -174,6 +166,11 @@ retrieval, verification, evaluation, and MCP surfaces for agents.`,
 	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
 	addHidden(newHookCommand(opts))
+
+	// Tombstone: `init-agents` was removed (folded into `setup`). Hidden so
+	// scripts calling the old name fail with a pointer to the replacement
+	// instead of cobra's generic "unknown command".
+	addHidden(newInitAgentsTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)

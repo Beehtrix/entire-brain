@@ -2,22 +2,25 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/entities"
 )
 
 // writeEntityIndexForPrivacy persists a derived entity index that attributes
 // one symbol to one commit, one checkpoint, and one captured session.
 func writeEntityIndexForPrivacy(t *testing.T, brainDir, sessionID string) {
 	t.Helper()
-	cache := entityIndexCache{
-		SchemaVersion: entityIndexCacheVersion,
+	cache := entities.IndexCache{
+		SchemaVersion: entities.CacheVersion,
 		GeneratedAt:   time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC),
 		MetaTip:       "0000000000000000000000000000000000000001",
-		Entries: map[string][]entityIndexOccurrence{
+		Entries: map[string][]entities.IndexOccurrence{
 			"internal/secret.go#function#Rotate": {{
 				Commit:        "1111111111111111111111111111111111111111",
 				CheckpointIDs: []string{"cp2"},
@@ -32,10 +35,10 @@ func writeEntityIndexForPrivacy(t *testing.T, brainDir, sessionID string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, entitiesDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, entities.DirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)), append(data, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entities.CachePath)), append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -60,12 +63,12 @@ func TestSessionExclusionStripsTheEntityIndexSessionLinkage(t *testing.T) {
 		t.Fatalf("exclude: %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)))
+	raw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(entities.CachePath)))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "secret-sess") {
-		t.Fatalf("excluded session id survives in %s: %s", entitiesCachePath, raw)
+		t.Fatalf("excluded session id survives in %s: %s", entities.CachePath, raw)
 	}
 	// The commit and the checkpoint are ordinary git history and stay: privacy
 	// cleanup erases the session linkage, not the repository's own record.
@@ -129,10 +132,10 @@ func TestPrivacyVerifyFailsClosedOnACorruptEntityIndex(t *testing.T) {
 	if err := executeSessionCleanup(brainDir, "secret-sess", plan, now, "test", true); err != nil {
 		t.Fatalf("exclude: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, entitiesDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, entities.DirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)), []byte("{not json"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entities.CachePath)), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := verifySessionPrivacy(brainDir); err == nil {
@@ -154,7 +157,7 @@ func TestPrivacyVerifyFailsClosedOnAForwardVersionEntityIndex(t *testing.T) {
 		t.Fatalf("exclude: %v", err)
 	}
 	writeEntityIndexForPrivacy(t, brainDir, "clean-sess")
-	raw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)))
+	raw, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(entities.CachePath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,16 +165,16 @@ func TestPrivacyVerifyFailsClosedOnAForwardVersionEntityIndex(t *testing.T) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	decoded["schema_version"] = entityIndexCacheVersion + 1
+	decoded["schema_version"] = entities.CacheVersion + 1
 	forward, err := json.Marshal(decoded)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entitiesCachePath)), forward, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(entities.CachePath)), forward, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err = verifySessionPrivacy(brainDir)
-	if err == nil || !strings.Contains(err.Error(), memoryErrUnsupportedVersion) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.UnsupportedVersionCode) {
 		t.Fatalf("verification accepted a forward-version entity index: %v", err)
 	}
 }

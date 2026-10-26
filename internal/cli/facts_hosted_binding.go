@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 type hostedFactsBinding struct {
@@ -22,8 +25,8 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 	if err != nil {
 		return err
 	}
-	return withBrainWriteLock(brainDir, func() error {
-		return writeBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(branch), append(data, '\n'), 0600)
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
+		return brainstore.WriteBrainRelativeFileAtomic(brainDir, hostedFactsBindingPath(branch), append(data, '\n'), 0600)
 	})
 }
 
@@ -32,7 +35,7 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 // corrupt); an absent marker is (zero, false, nil).
 func readHostedFactsBinding(brainDir, branch string) (hostedFactsBinding, bool, error) {
 	var binding hostedFactsBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", defaultMaxReadBytes)
+	data, present, err := readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}
@@ -48,7 +51,7 @@ func checkHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 		return err
 	}
 	if !present || binding.RepoID != repoID || binding.BaseURL != strings.TrimRight(baseURL, "/") {
-		return fmt.Errorf("local facts are not bound to this hosted repository and API; run 'facts sync' with the intended target before mirroring settlements")
+		return fmt.Errorf("local facts are not bound to this hosted repository and API; run 'memories sync' with the intended target first")
 	}
 	return nil
 }

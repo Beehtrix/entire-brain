@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/entityindex"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -40,6 +41,12 @@ type refreshCommandOptions struct {
 	bestEffort bool
 	// component observes outcomes without changing failure policy.
 	component func(name string, err error)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended orchestration (the watch daemon's tick, the session-end hook,
+	// MCP's brain_refresh): nobody is watching those paths' stderr to learn
+	// that files were deleted. User-invoked `entire brain refresh` and `entire
+	// brain path --ensure` leave this false and still sweep.
+	skipTranscriptSweep bool
 }
 
 func newRefreshCommand(opts Options) *cobra.Command {
@@ -73,13 +80,13 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
-	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local semantic index after session and seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: allow semantic indexing of the current dirty worktree")
+	cmd.Flags().BoolVar(&refreshOpts.semantic, "semantic", true, "Refresh the local code index after session and seed refresh")
+	cmd.Flags().BoolVar(&refreshOpts.semanticWorktree, "semantic-worktree", false, "Deprecated: persistent worktree code indexing is unsupported")
 	// The deprecation notice is the last thing a user of the old flag reads, so
 	// it has to name a command that runs. It named "entire brain index", which
 	// never existed in either spelling.
 	_ = cmd.Flags().MarkDeprecated("semantic-worktree",
-		fmt.Sprintf("use `%s --worktree` for an explicit semantic worktree snapshot", brainInvocation(os.LookupEnv, semanticIndexVerb)))
+		fmt.Sprintf("use `%s --worktree` for an explicit worktree code index", base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)))
 	cmd.Flags().BoolVar(&refreshOpts.historyIndex, "history-index", true, "Build a decision/rationale index from exported sessions")
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
@@ -122,6 +129,9 @@ func defaultRefreshCommandOptions() refreshCommandOptions {
 }
 
 func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOpts refreshCommandOptions) error {
+	if refreshOpts.semanticWorktree {
+		return errors.New("Graph store indexes committed HEAD; use graph queries for working-tree inspection")
+	}
 	if refreshOpts.allBranches && !refreshOpts.semantic {
 		return errors.New("--all-branches requires --semantic")
 	}
@@ -137,6 +147,14 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		refreshOpts.seed.force = true
 	}
 	if outputExplicit {
+		outputDir, err := filepath.Abs(refreshOpts.outputDir)
+		if err != nil {
+			return fmt.Errorf("resolve output directory: %w", err)
+		}
+		manifest, _ := loadBrainManifest(outputDir)
+		if err := checkLegacyBrainLayout(outputDir, manifest); err != nil {
+			return err
+		}
 		if refreshOpts.force {
 			if err := removeForcedOutputDir(refreshOpts.outputDir, repoDir); err != nil {
 				return err
@@ -172,6 +190,17 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			return fmt.Errorf("resolve output directory: %w", err)
 		}
 		finishOutput(nil)
+	}
+	// Check before --force can discard the manifest. Explicit output was
+	// checked before its early validation and removal above.
+	// An old code store may hold authored traces that cannot be rebuilt.
+	// Manifest parse errors retain their existing handling below (including
+	// --force repair); leftover directories still identify an old layout.
+	if !outputExplicit {
+		manifestBeforeRefresh, _ := loadBrainManifest(brainDir)
+		if err := checkLegacyBrainLayout(brainDir, manifestBeforeRefresh); err != nil {
+			return err
+		}
 	}
 	// Before any stage writes, not after: a manifest carrying another build's
 	// fields is readable but no writer will replace it, and the session export
@@ -369,7 +398,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// present and breaks stays fatal.
 		semanticHostAbsent := hostCLISemanticProviderAbsent(refreshOpts.graphBinary)
 		semanticForgiven := func(err error) bool {
-			return semanticHostAbsent || errors.Is(err, errSemanticProviderAbsent)
+			return semanticHostAbsent || errors.Is(err, errSemanticProviderAbsent) || errors.Is(err, errGraphStoreUnsupported)
 		}
 		needSemantic, identityWarning, err := semanticRefreshNeeded(ctx, opts, brainDir, repoDir, manifest, semanticWorktree, refreshOpts.graphBinary)
 		switch {
@@ -388,7 +417,10 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			if !needSemantic {
 				label := ": current"
 				if identityWarning != "" {
-					label = ": source unchanged; provider identity unverified"
+					// identityWarning today only ever carries the schema
+					// minor-skew detail (semanticRefreshNeeded), not an
+					// identity mismatch, so the label must not claim one.
+					label = ": source unchanged; see warning above"
 				}
 				semanticCheckTask.Update(refreshSemanticCheckLabel(manifest) + label)
 			}
@@ -397,9 +429,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				needSemantic = true
 			}
 			if needSemantic {
-				semanticTask := progress.Begin("semantic index")
+				semanticTask := progress.Begin("code index")
 				semanticProgress := func(phase string) {
-					semanticTask.Update("semantic index: " + phase)
+					semanticTask.Update("code index: " + phase)
 				}
 				// The provider does not announce how many files it is about to
 				// emit, so the bar is scaled by the PREVIOUS generation's file
@@ -414,7 +446,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 				semanticCounts := func(files, _, _ int) {
 					semanticTask.SetProgress(files, expectedFiles)
 				}
-				if err := runRefreshSemanticPhase(ctx, opts, semanticIndexOptions{force: true, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
+				if err := runRefreshSemanticPhase(ctx, opts, semanticIndexOptions{force: refreshOpts.force, graphBinary: refreshOpts.graphBinary, worktree: semanticWorktree, outputDir: brainDir, outputExplicit: outputExplicit, progress: semanticProgress, progressCounts: semanticCounts}, repoDir); err != nil {
 					semanticTask.Finish(err)
 					if reportStageAndShouldAbort(brainComponentSemantic, err) {
 						if !semanticForgiven(err) {
@@ -434,9 +466,9 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 		}
 	} else if refreshOpts.semanticWorktreeSkip {
-		progress.Skip("semantic index: skipped, --worktree refreshes seed and docs only")
+		progress.Skip("code index: skipped, --worktree refreshes seed and docs only")
 	} else {
-		progress.Skip("semantic index")
+		progress.Skip("code index")
 	}
 	if refreshOpts.allBranches {
 		finishBranches := progress.Step("branch overlays")
@@ -481,7 +513,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			// The internal pattern corpus is a rebuildable cache; a corpus failure must
 			// not break the rest of the brain, so it is a warning here (the explicit
 			// `patterns refresh` is the stricter surface that fails on corpus errors).
-			if cerr := buildPatternCorpus(brainDir, opts.Now().UTC()); cerr != nil {
+			if cerr := buildPatternCorpus(brainDir, opts.Now().UTC(), patternCorpusGraphContext{Context: ctx, Options: opts, RepoDir: repoDir, Binary: refreshOpts.graphBinary}); cerr != nil {
 				fmt.Fprintf(cmd.ErrOrStderr(), "warning: pattern corpus: %v\n", cerr)
 			}
 			finishPatterns(nil)
@@ -490,7 +522,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	}
 	// Include the intentional semantic skip beside the success line.
 	if refreshOpts.semanticWorktreeSkip {
-		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(setupCommandPrefix(os.LookupEnv)))
+		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
 	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
@@ -544,7 +576,7 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	// Unsafe/unreadable entries are deliberately excluded by the same collector
 	// used to build the index. Comparing the safe included set keeps those
 	// exclusions fail-closed without forcing an endless rebuild.
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		return false
 	}
@@ -611,7 +643,7 @@ func pluralUnit(unit string, count int) string {
 // the uncommitted content instead of resolving it) does, so the remedy is git's
 // — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
 func refreshWorktreeSemanticSkipNote(brainCmd string) string {
-	return "note: semantic index not rebuilt -- --worktree refreshes seed and docs only;" +
+	return "note: code index not rebuilt -- --worktree refreshes seed and docs only;" +
 		" commit or stash the working tree, then run `" + brainCmd + " refresh` to index it"
 }
 
@@ -675,16 +707,16 @@ func refreshHistoryLabel(source *historySourceManifest) string {
 func refreshSemanticCheckLabel(manifest *exportManifest) string {
 	source := existingSemanticSource(manifest)
 	if source == nil {
-		return "check semantic index"
+		return "check code index"
 	}
-	return "check semantic index: " + refreshSemanticCounts(source)
+	return "check code index: " + refreshSemanticCounts(source)
 }
 
 func refreshSemanticLabel(source *semanticSourceManifest) string {
 	if source == nil {
-		return "semantic index"
+		return "code index"
 	}
-	return "semantic index: " + refreshSemanticCounts(source)
+	return "code index: " + refreshSemanticCounts(source)
 }
 
 func refreshSemanticCounts(source *semanticSourceManifest) string {
@@ -725,77 +757,36 @@ func pluralCount(count int, singular string) string {
 // semanticRefreshNeeded returns the rebuild decision, any non-fatal identity
 // warning, and errors that prevent checking the source or honoring cancellation.
 func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir string, manifest *exportManifest, worktree bool, graphBinary string) (bool, string, error) {
-	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return true, "", nil
-	}
-	source := manifest.Sources.Semantic
-	revision, identityErr := entityindex.ProviderIdentity(ctx, opts.Runner, repoDir, graphBinary)
 	if err := ctx.Err(); err != nil {
 		return false, "", err
 	}
-	warning := ""
-	if identityErr != nil {
-		warning = "cannot verify semantic provider identity; using source and artifact freshness checks: " + identityErr.Error()
-	} else if source.IdentityRevision != revision {
+	if worktree {
+		return false, "", errors.New("Graph store indexes committed HEAD; use graph queries for working-tree inspection")
+	}
+	descriptor, err := fetchGraphStore(ctx, opts, repoDir, graphBinary, graphStoreProfile(manifest))
+	if ctx.Err() != nil {
+		return false, "", ctx.Err()
+	}
+	if err != nil {
 		return true, "", nil
 	}
-	if worktree {
-		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
-		if err != nil {
-			// Same rule as the HEAD resolution this function's siblings already
-			// apply: no worktreeFingerprint failure reaches a reader as raw git
-			// argv. A repository that lost its work tree since the last build
-			// fails here first.
-			return false, warning, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for semantic refresh: %w", err))
-		}
-		if source.WorktreeMode != "worktree" || source.WorktreeHash != hash {
-			return true, warning, nil
-		}
-		return !semanticRefreshArtifactsUsable(brainDir, source), warning, nil
+	// fetchGraphStore already refused a major schema mismatch; a newer
+	// supported-major minor is non-fatal, so it rides this identity-warning
+	// return rather than aborting the refresh.
+	var identityWarning string
+	if skew := semanticSchemaMinorSkewWarning(descriptor.Header.SchemaVersion); skew != nil {
+		identityWarning = skew.Detail
 	}
-	// A dirty worktree used to force a rebuild here, unconditionally. That
-	// asked for work the indexer then REFUSED to do: without --worktree,
-	// runSemanticIndex returns dirty_worktree rather than indexing uncommitted
-	// content. Every tick asked, every tick was refused, and because a failed
-	// refresh aborts the whole watch tick the cursor never advanced -- so
-	// indexing stalled for as long as the tree stayed dirty, which for anyone
-	// actually working is most of the time (issue #327).
-	//
-	// Dirtiness on its own says nothing about whether the INDEXED content is
-	// stale: the index describes HEAD, and HEAD has not moved just because the
-	// worktree has uncommitted edits. The two cases where it does matter are
-	// already decided below -- a snapshot taken in worktree mode, or one taken
-	// from a dirty tree (source.WorktreeMode / source.DirtyWorktree) -- as is a
-	// moved HEAD. So the check is not merely harmful here, it is redundant.
-	tree, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD^{tree}")
-	if err != nil {
-		return false, warning, fmt.Errorf("resolve HEAD tree for semantic refresh: %w", err)
+	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
+		return true, identityWarning, nil
 	}
-	if source.WorktreeMode == "worktree" || source.DirtyWorktree || source.Tree != tree {
-		return true, warning, nil
+	source := manifest.Sources.Semantic
+	// Ownership is published before migration completes. A stub or stale
+	// inventory must be repaired even when Graph already has the code store.
+	if source.GraphRepoRoot != repoDir || source.GeneratedAt.IsZero() || source.Commit != descriptor.Commit || source.Tree != descriptor.Tree || source.Files != descriptor.Files || source.Symbols != descriptor.Symbols || source.Relations != descriptor.Relations || source.Externals != descriptor.Externals {
+		return true, identityWarning, nil
 	}
-	return !semanticRefreshArtifactsUsable(brainDir, source), warning, nil
-}
-
-func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManifest) bool {
-	if source == nil || source.SnapshotPath == "" || source.StorePath == "" {
-		return false
-	}
-	snapshotRel, err := validateSemanticSnapshotPath(source.SnapshotPath)
-	if err != nil {
-		return false
-	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshotRel); err != nil {
-		return false
-	}
-	snapshotInfo, err := os.Stat(filepath.Join(brainDir, snapshotRel))
-	if err != nil || snapshotInfo.IsDir() {
-		return false
-	}
-	if _, err := validateSemanticDeclaredStore(brainDir, source); err != nil {
-		return false
-	}
-	return true
+	return false, identityWarning, nil
 }
 
 // defaultRefreshAgent resolves `--agent auto`.
@@ -813,7 +804,7 @@ func semanticRefreshArtifactsUsable(brainDir string, source *semanticSourceManif
 // one would repeat a mistake this codebase has already paid for: a guard
 // written against a key the real CLI never emits.
 func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir string) string {
-	if brainNoEgressMode() {
+	if base.BrainNoEgressMode() {
 		return "none"
 	}
 	// Prefer the detected harness ONLY IF its binary is runnable. Detection
@@ -844,7 +835,7 @@ func defaultRefreshAgent(ctx context.Context, runner CommandRunner, repoDir stri
 // it is tested for presence; CLAUDECODE is a flag and goes through envBool, so
 // an explicit CLAUDECODE=0 is honoured as "no".
 func detectedAgentHarness() string {
-	if envBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
+	if base.EnvBool("CLAUDECODE") || strings.TrimSpace(os.Getenv("CLAUDE_CODE_ENTRYPOINT")) != "" {
 		return "claude-code"
 	}
 	return ""
@@ -945,8 +936,8 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	if err != nil {
 		return err
 	}
-	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.SnapshotPath == "" {
-		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + " --force` first")
+	if manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
+		return errors.New("code index missing; run `" + base.BrainInvocation(os.LookupEnv, "refresh index") + " --force` first")
 	}
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""
@@ -956,7 +947,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
 		}
 	}
-	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)", "refs/heads")
+	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)%00%(objectname)", "refs/heads")
 	if err != nil {
 		return fmt.Errorf("list local branches for semantic refresh: %w", err)
 	}
@@ -977,8 +968,8 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
 			continue
 		}
 		branch := strings.TrimSpace(parts[0])
@@ -993,12 +984,12 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
 		}
-		head := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+branch)))
+		head := strings.TrimSpace(parts[2])
 		if head == "" || head == defaultHead {
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
 		}
-		overlayPath, err := writeSemanticOverlayFile(storage.BrainDir, defaultHead, head, branch, "", now)
+		overlayPath, err := writeSemanticOverlayFile(storage.BrainDir, defaultHead, head, branch, now)
 		if err != nil {
 			return err
 		}
@@ -1010,10 +1001,10 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	}
 	data = append(data, '\n')
 	rel := filepath.Join(semanticDirName, "overlays", "all-branches.json")
-	if err := rejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
+	if err := base.RejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
 		return err
 	}
-	if err := writeFileAtomic(filepath.Join(storage.BrainDir, rel), data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(storage.BrainDir, rel), data, 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -1031,7 +1022,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 		return true, nil
 	}
 	seed := manifest.Sources.Seed
-	head, err := gitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
+	head, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
 		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for seed refresh: %w", err))
 	}

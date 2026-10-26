@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []string {
@@ -41,7 +44,7 @@ func persistenceOptimizationCorpusSessionIDs(t *testing.T, brainDir string) []st
 
 func persistenceOptimizationTombstoneBytes(t *testing.T, brainDir string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(sessionTombstonesPath)))
+	data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +54,7 @@ func persistenceOptimizationTombstoneBytes(t *testing.T, brainDir string) []byte
 func persistenceOptimizationCorpusSidecars(t *testing.T, brainDir string) map[string][sha256.Size]byte {
 	t.Helper()
 	state := make(map[string][sha256.Size]byte)
-	for _, name := range patternCorpusSidecarNames {
+	for _, name := range patterncore.CorpusSidecarNames {
 		path := filepath.Join(brainDir, "patterns", name)
 		data, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -90,12 +93,12 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		t.Fatalf("initial corpus sessions = %v, want %v", got, want)
 	}
 
-	stones, _, err := loadSessionTombstonesChecked(brainDir)
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stones.Excluded["secret-sess"] = sessionTombstone{At: now.Add(time.Minute), Reason: "optimization regression"}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	tombstoneBytes := persistenceOptimizationTombstoneBytes(t, brainDir)
@@ -113,8 +116,8 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		privateStagesBefore[path] = true
 	}
 	var cancelledPrivateStages []string
-	originalPublishHook := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error {
+	originalPublishHook := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error {
 		for _, path := range persistenceOptimizationPrivateStages(t) {
 			if !privateStagesBefore[path] {
 				cancelledPrivateStages = append(cancelledPrivateStages, path)
@@ -122,7 +125,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		}
 		return context.Canceled
 	}
-	t.Cleanup(func() { beforePatternCorpusPublish = originalPublishHook })
+	t.Cleanup(func() { patterncore.BeforeCorpusPublish = originalPublishHook })
 	// If the retained exclusion filter is removed, the transcript store rejects
 	// the tombstoned session before reaching the cancellation hook. The mutation
 	// check pins that diagnostic: this defense now prevents corpus resurrection.
@@ -135,7 +138,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 	if _, err := os.Lstat(cancelledPrivateStages[0]); !os.IsNotExist(err) {
 		t.Fatalf("cancelled refresh retained private staging directory %s: %v", cancelledPrivateStages[0], err)
 	}
-	marker := filepath.Join(brainDir, filepath.FromSlash(patternCorpusPublicationMarkerPath))
+	marker := filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPublicationMarkerPath))
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("cancelled pre-publication refresh retained publication marker: %v", err)
 	}
@@ -168,7 +171,7 @@ func TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry(t *testing.T) {
 		t.Fatalf("stale committed corpus must remain fail-closed after cancellation: allowed=%t err=%v", allowed, err)
 	}
 
-	beforePatternCorpusPublish = originalPublishHook
+	patterncore.BeforeCorpusPublish = originalPublishHook
 	for i, at := range []time.Time{now.Add(4 * time.Minute), now.Add(5 * time.Minute)} {
 		if _, err := writeBrainHistoryIndexAndSource(brainDir, at, nil); err != nil {
 			t.Fatalf("refresh %d history: %v", i+1, err)
@@ -210,8 +213,8 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 	releasePublish := make(chan struct{})
 	var releaseOnce sync.Once
 	release := func() { releaseOnce.Do(func() { close(releasePublish) }) }
-	originalPublishHook := beforePatternCorpusPublish
-	beforePatternCorpusPublish = func() error {
+	originalPublishHook := patterncore.BeforeCorpusPublish
+	patterncore.BeforeCorpusPublish = func() error {
 		close(reachedPublish)
 		<-releasePublish
 		return nil
@@ -222,7 +225,7 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 	buildExited := make(chan struct{})
 	go func() {
 		defer close(buildExited)
-		buildDone <- withBrainWriteLock(brainDir, func() error {
+		buildDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			if err := buildPatternCorpusLocked(brainDir, now.Add(time.Minute)); err != nil {
 				return err
 			}
@@ -246,7 +249,7 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 				t.Error("exclusion goroutine did not exit during cleanup")
 			}
 		}
-		beforePatternCorpusPublish = originalPublishHook
+		patterncore.BeforeCorpusPublish = originalPublishHook
 	})
 	select {
 	case <-reachedPublish:
@@ -260,14 +263,14 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 	go func() {
 		defer close(exclusionExited)
 		close(exclusionAttempted)
-		exclusionDone <- withBrainWriteLock(brainDir, func() error {
+		exclusionDone <- brainstore.WithBrainWriteLock(brainDir, func() error {
 			events <- "exclusion_acquired"
-			stones, _, err := loadSessionTombstonesChecked(brainDir)
+			stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
 			if err != nil {
 				return err
 			}
 			stones.Excluded["secret-sess"] = sessionTombstone{At: now.Add(2 * time.Minute), Reason: "ordered exclusion"}
-			return saveSessionTombstones(brainDir, stones)
+			return brainstore.SaveSessionTombstones(brainDir, stones)
 		})
 	}()
 	<-exclusionAttempted
@@ -296,7 +299,7 @@ func TestPatternPublicationLinearizesBeforeConcurrentExclusion(t *testing.T) {
 		t.Fatalf("exclusion: %v", err)
 	}
 
-	beforePatternCorpusPublish = originalPublishHook
+	patterncore.BeforeCorpusPublish = originalPublishHook
 	if err := buildPatternCorpus(brainDir, now.Add(3*time.Minute)); err != nil {
 		t.Fatalf("post-exclusion refresh: %v", err)
 	}

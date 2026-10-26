@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func TestPatternRunHistoryErrorsAreNotStatusEmpty(t *testing.T) {
@@ -24,11 +26,11 @@ func TestPatternRunHistoryErrorsAreNotStatusEmpty(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath)), []byte("{not-json}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadPatternRunsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("malformed run history error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := loadPatternRunsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("malformed run history error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
-	if _, err := buildPatternsStatusReportChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateCorrupt) {
-		t.Fatalf("status malformed run error = %v, want %s", err, memoryErrStateCorrupt)
+	if _, err := buildPatternsStatusReportChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateCorruptCode) {
+		t.Fatalf("status malformed run error = %v, want %s", err, brainstore.StateCorruptCode)
 	}
 }
 
@@ -45,11 +47,11 @@ func TestPatternRunHistorySymlinkCannotRedirectReadOrAppend(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	if _, err := loadPatternRunsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("symlinked run history error = %v, want %s", err, memoryErrStateUnsafe)
+	if _, err := loadPatternRunsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("symlinked run history error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
-	if err := appendPatternRun(brainDir, patternRun{At: time.Now().UTC().Format(time.RFC3339)}); err == nil || !strings.Contains(err.Error(), memoryErrStateUnsafe) {
-		t.Fatalf("symlinked run append error = %v, want %s", err, memoryErrStateUnsafe)
+	if err := appendPatternRun(brainDir, patternRun{At: time.Now().UTC().Format(time.RFC3339)}); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+		t.Fatalf("symlinked run append error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	got, err := os.ReadFile(external)
 	if err != nil || !bytes.Equal(got, externalData) {

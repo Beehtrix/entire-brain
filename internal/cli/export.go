@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
 )
 
@@ -28,12 +31,18 @@ const (
 	// Unlimited by default: the brain's value is recovering old decisions, and a
 	// cap silently truncates exactly the history that makes it useful. 0 means
 	// all; --checkpoint-limit stays available for callers who want a bound.
-	defaultCheckpointLimit  = 0
-	exportManifestFileName  = "manifest.json"
-	exportReadmeFileName    = "README.md"
-	exportSessionsDirectory = "sessions"
-	exportBranchesDirectory = "branches"
-	exportUnknownDirectory  = "unknown"
+	defaultCheckpointLimit = 0
+	// routedCheckpointListUnlimited is how "no cap" is spelled to the host CLI,
+	// which has no sentinel for it: --limit defaults to 100 and must be
+	// positive. Measured against the host: --limit 0 and -1 are rejected,
+	// while both math.MaxInt32 and math.MaxInt return the whole catalog.
+	// int32's maximum is the smaller of the two that still sits far beyond any
+	// real catalog, so it does not depend on the host's int being 64-bit.
+	routedCheckpointListUnlimited = math.MaxInt32
+	exportManifestFileName        = "manifest.json"
+	exportReadmeFileName          = "README.md"
+	exportBranchesDirectory       = "branches"
+	exportUnknownDirectory        = "unknown"
 
 	exportScopeAll    = "all"
 	exportScopeBranch = "branch"
@@ -66,14 +75,8 @@ const (
 	// summary's sessions[].compact_transcript.
 	v1CompactTranscriptFileName = "transcript.jsonl"
 
-	checkpointTrailerKey = "Entire-Checkpoint"
-
 	gitLogRecordSeparator = "\x1e"
 	gitLogFieldSeparator  = "\x00"
-)
-
-var checkpointTrailerRegex = regexp.MustCompile(
-	checkpointTrailerKey + `:\s*([a-f0-9]{12}|[0-7][0-9A-HJKMNP-TV-Z]{25})(?:\s|$)`,
 )
 
 type exportCommandOptions struct {
@@ -86,6 +89,12 @@ type exportCommandOptions struct {
 	historyIndex    bool
 	debug           bool
 	progress        func(exportProgress)
+	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
+	// unattended paths. The background memory worker drives this same export
+	// to keep short-term memory warm; nobody is watching its stderr to learn
+	// that files were deleted, so it must never delete them. User-invoked
+	// export/refresh still sweeps.
+	skipTranscriptSweep bool
 }
 
 type exportProgress struct {
@@ -198,7 +207,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			checkpointsScanned = loadedSnapshot.CheckpointCount
 			reportExportProgress(exportOpts.progress, checkpointsScanned, checkpointsScanned, len(selected))
 			if metadataCachePath != "" && metadataCacheBrainDir != "" {
-				_ = withBrainWriteLock(metadataCacheBrainDir, func() error {
+				_ = brainstore.WithBrainWriteLock(metadataCacheBrainDir, func() error {
 					saveCheckpointMetadataCache(metadataCachePath, metadataCache)
 					return nil
 				})
@@ -218,7 +227,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 	// (remote-only, other stores). Short-circuiting there would turn a
 	// locally-empty clone into a false-empty export -- the exact failure the
 	// refusal below this exists to prevent.
-	if selected == nil && catalogProvenEmpty && brainNoEgressMode() {
+	if selected == nil && catalogProvenEmpty && clibase.BrainNoEgressMode() {
 		// A repository between `entire enable` and its first finished agent
 		// session. Exporting zero sessions is the correct answer here. The
 		// empty-export refusal below still protects a brain that already holds
@@ -227,11 +236,11 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		selected = map[string]selectedSession{}
 	}
 	if selected == nil {
-		if brainNoEgressMode() {
+		if clibase.BrainNoEgressMode() {
 			if exportOpts.scope == exportScopeBranch {
-				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export")
+				return errors.New("no_egress: branch-scoped checkpoint visibility requires routed discovery; refusing a false-empty export — unset " + clibase.NoEgressToggleName() + " to allow it")
 			}
-			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery")
+			return errors.New("no_egress: a complete readable local checkpoint catalog could not be established; refusing routed checkpoint discovery — unset " + clibase.NoEgressToggleName() + " to allow it")
 		}
 		checkpoints, discoverWarnings, err := discoverCheckpoints(ctx, opts.Runner, repoDir, exportOpts.entireBinary, exportOpts.scope, exportOpts.checkpointLimit)
 		if err != nil {
@@ -240,7 +249,36 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		warnings = append(warnings, discoverWarnings...)
 		checkpointsScanned = len(checkpoints)
 
-		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessions(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress)
+		// Discovery has settled membership. The metadata for the checkpoints
+		// whose bytes are already here does not need a child process each, so
+		// read the local store once and ask Entire only about the remainder.
+		// A failure here is not fatal: it only means every checkpoint is asked
+		// about, which is what happened before this existed.
+		var localMetadata *localCheckpointMetadata
+		if localSnapshot, localSnapshotWarnings, localErr := loadLocalCheckpointSnapshotLocalOnly(ctx, opts.Runner, repoDir, exportOpts.rawTranscript, branchDestinations, metadataCache); localErr == nil {
+			var localWarnings []string
+			localMetadata, localWarnings = newLocalCheckpointMetadata(localSnapshot, checkpoints)
+			if localMetadata != nil {
+				// Only when the shortcut is actually used. These are the
+				// snapshot's own diagnostics — sessions it skipped for absent
+				// transcript bytes, metadata it could not parse — and once its
+				// reading stands in for a detail read, those skips are part of
+				// what this export did. Dropping them would hide them, exactly
+				// as the direct snapshot path above does not.
+				warnings = append(warnings, localSnapshotWarnings...)
+			}
+			warnings = append(warnings, localWarnings...)
+			// Deliberately not kept as THE snapshot. That variable decides
+			// the manifest's transcript mode and which transcript writer a
+			// standalone --output bundle uses, and this shortcut is about
+			// metadata only. The write phase below loads its own snapshot as
+			// it always did; one extra 3.6s read is nothing against the hours
+			// of child processes this removes.
+			localSnapshot.Cleanup()
+		}
+
+		breaker := newCheckpointDetailBreaker()
+		routedSelected, routedWarnings, metadataComplete, selectErr := selectRoutedCheckpointSessionsWithBreaker(ctx, opts.Runner, repoDir, exportOpts.entireBinary, checkpoints, branchDestinations, exportOpts.progress, localMetadata, breaker)
 		warnings = append(warnings, routedWarnings...)
 		if selectErr != nil {
 			return selectErr
@@ -249,7 +287,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// cleanup would hide retained sessions from the manifest and index.
 		// Explicit one-shot exports may still publish the readable subset.
 		if !metadataComplete && !outputExplicit {
-			return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, strings.Join(routedWarnings, "; "))
+			return routedMetadataRefusal(breaker.opened(), routedWarnings)
 		}
 		selected = routedSelected
 	}
@@ -314,9 +352,106 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			snapshot = local
 			manifest.TranscriptMode = actualTranscriptMode(exportOpts.rawTranscript, local)
 		}
+		// Cached addresses of the sessions dropped below for want of local
+		// checkpoint bytes. The transcript cache sweep must keep them even
+		// though the manifest no longer lists them.
+		var skippedTranscriptCache map[string]bool
 		if len(sessions) > 0 {
-			if err := validateLocalTranscriptSessions(ctx, opts.Runner, snapshot, sessions, manifest.TranscriptMode); err != nil {
-				return err
+			// Two filters, and the order carries the meaning.
+			//
+			// FIRST, a tombstoned session is exempt from this check entirely.
+			// The guard refuses to record a session whose bytes this brain
+			// cannot serve — but an excluded session is one it has been told
+			// never to serve, so demanding its bytes refuses an export for a
+			// promise nobody is making. One mock-agent fixture (session
+			// "test", agent "Mock Lifecycle Agent") blocked all 2,561 real
+			// sessions this way, and `privacy exclude` could not get past it
+			// because this check ran regardless.
+			//
+			// THEN the remainder is partitioned rather than refused on the
+			// first miss. A manual-commit checkpoint names a commit on a
+			// feature branch, and deleting that branch destroys the commit, so
+			// on a squash-merging repository such a checkpoint names bytes
+			// that exist nowhere: 0 of 39 sampled commit-style ids still
+			// resolved on a real repository, out of 252 in its catalog. No
+			// fetch recovers them, so refusing preserved nothing and
+			// additionally discarded every available session.
+			//
+			// Refusing when NOTHING is servable is kept: that is the
+			// source-went-unreadable case, where republishing would erase an
+			// indexed corpus.
+			validated, exempt, tombErr := partitionTombstonedSessions(ctx, opts, repoDir, outputExplicit, sessions)
+			if tombErr != nil {
+				warnings = append(warnings, "session tombstones unreadable, validating every session: "+tombErr.Error())
+				validated = sessions
+				exempt = 0
+			}
+			if exempt > 0 {
+				warnings = append(warnings, fmt.Sprintf("%d excluded session(s) exempt from local-transcript validation", exempt))
+			}
+			usable, unavailable, validateErr := partitionLocalTranscriptSessions(ctx, opts.Runner, snapshot, validated, manifest.TranscriptMode)
+			if validateErr != nil {
+				return validateErr
+			}
+			if unavailableSessionsAreFatal(len(usable), len(unavailable)) {
+				// Returned as-is, so errors.Is upstream still reaches the cause
+				// underneath instead of a re-worded copy of its message.
+				return unavailable[0]
+			}
+			if len(unavailable) > 0 {
+				warnings = append(warnings, fmt.Sprintf("skipped %d session(s) whose transcript bytes are not available locally; the first was: %v", len(unavailable), unavailable[0]))
+				// An exempted session must SURVIVE: the cache sweep learns
+				// from this list which cached transcripts to retain, and that
+				// retention is what lets `privacy include` recover it. So keep
+				// anything that was never validated (exempted) as well as
+				// everything that validated cleanly, and drop only what was
+				// validated and found unavailable.
+				//
+				// A dropped session still has a cached transcript on disk from
+				// the legacy disk-mode exports, and once its checkpoint is
+				// genuinely destroyed that file is the only surviving copy of
+				// the bytes. Dropping it from the manifest alone would hand it
+				// to the sweep as a stale export, so its cached address is
+				// collected for the sweep's retain list below.
+				//
+				// Keyed on the full identity rather than the session id alone,
+				// because one session can be exported on more than one branch.
+				type sessionKey struct {
+					id, branch, checkpoint string
+					index                  int
+				}
+				keyOf := func(session exportSession) sessionKey {
+					return sessionKey{session.SessionID, session.Branch, session.LatestCheckpoint, session.SessionIndex}
+				}
+				validatedKeys := make(map[sessionKey]struct{}, len(validated))
+				for _, session := range validated {
+					validatedKeys[keyOf(session)] = struct{}{}
+				}
+				usableKeys := make(map[sessionKey]struct{}, len(usable))
+				for _, session := range usable {
+					usableKeys[keyOf(session)] = struct{}{}
+				}
+				surviving := make([]exportSession, 0, len(sessions))
+				skippedTranscriptCache = make(map[string]bool, len(unavailable))
+				for _, session := range sessions {
+					key := keyOf(session)
+					if _, wasValidated := validatedKeys[key]; !wasValidated {
+						surviving = append(surviving, session)
+						continue
+					}
+					if _, ok := usableKeys[key]; ok {
+						surviving = append(surviving, session)
+						continue
+					}
+					// Addressed exactly as the manifest and the cache
+					// inventory address it -- the same helper the surviving
+					// sessions use below -- because a near-miss key would
+					// retain nothing while looking like a fix.
+					skippedTranscriptCache[sessionTranscriptRel(session, branchDirs)] = true
+				}
+				sessions = surviving
+				manifest.Sessions = sessions
+				branchDirs = buildBranchDirectories(sessions, defaultBranch)
 			}
 		}
 		// Store the shared Git directory while this worktree still exists. It
@@ -335,21 +470,23 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		if err != nil {
 			return err
 		}
-		migration, err := planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir)
-		if err != nil {
-			return err
-		}
-		if migration != nil {
-			defer migration.Close()
+		var migration *historySessionInventory
+		if !exportOpts.skipTranscriptSweep {
+			migration, err = planTranscriptCacheSweep(ctx, opts.Runner, outputDir, repoDir, skippedTranscriptCache)
+			if err != nil {
+				return err
+			}
+			if migration != nil {
+				defer migration.Close()
+			}
 		}
 		manifest.TranscriptStorage = transcriptStorageCheckpoint
 		for i := range sessions {
 			session := &sessions[i]
-			name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
 			// Kept as a virtual evidence address, never a materialized path.
-			session.TranscriptPath = filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
+			session.TranscriptPath = sessionTranscriptRel(*session, branchDirs)
 		}
-		if err := withBrainWriteLock(outputDir, func() error {
+		if err := brainstore.WithBrainWriteLock(outputDir, func() error {
 			var err error
 			outputDir, err = prepareExportDir(outputDir, true)
 			if err != nil {
@@ -364,6 +501,8 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 			if err := writeExportCursor(cursorFile, manifest); err != nil {
 				return err
 			}
+			// migration is nil when skipTranscriptSweep suppressed the plan above;
+			// sweepTranscriptCache(ctx, nil) is already a no-op.
 			return sweepTranscriptCache(ctx, migration)
 		}); err != nil {
 			return err
@@ -487,7 +626,7 @@ func prepareExportDir(path string, allowExisting bool) (string, error) {
 		return "", fmt.Errorf("create output directory: %w", err)
 	}
 
-	sessionsDir := filepath.Join(abs, exportSessionsDirectory)
+	sessionsDir := filepath.Join(abs, brainstore.SessionsDirName)
 	if err := os.MkdirAll(sessionsDir, 0o700); err != nil {
 		return "", fmt.Errorf("create sessions directory: %w", err)
 	}
@@ -583,8 +722,18 @@ func validateForcedOutputManifest(data []byte) error {
 		return err
 	}
 	normalizeBrainManifest(&manifest)
-	if manifest.SchemaVersion != brainManifestSchemaVersion {
-		return fmt.Errorf("schema_version %d does not match brain schema %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	// A floor, not a range. This explicit-output --force path exists only to
+	// confirm the target directory holds a genuine prior brain/export before
+	// wiping it, not to gate on whether THIS build can read everything the
+	// manifest contains. A manifest from a NEWER build still proves that: it
+	// is a real manifest this build cannot parse further, and --force is the
+	// deliberate destructive discard-and-rebuild escape hatch -- the only
+	// recovery available for exactly that case. Rejecting it here, the way
+	// equality once did, would make --force refuse the one case it exists for.
+	// Only a version below the oldest this build ever reads fails the "is this
+	// a brain store" check.
+	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")
@@ -632,10 +781,10 @@ func rejectDangerousForcedOutputDir(abs, repoDir string) error {
 				repoCandidates = append(repoCandidates, filepath.Clean(repoResolved))
 			}
 			for _, repoCandidate := range uniqueCleanPaths(repoCandidates) {
-				if pathInside(clean, repoCandidate) {
+				if clibase.PathInside(clean, repoCandidate) {
 					return fmt.Errorf("--force refuses to remove a directory containing the repository: %s", abs)
 				}
-				if pathInside(repoCandidate, clean) {
+				if clibase.PathInside(repoCandidate, clean) {
 					return fmt.Errorf("--force refuses to remove a directory inside the repository: %s", abs)
 				}
 			}
@@ -757,7 +906,7 @@ func buildCheckpointBranchDestinations(ctx context.Context, runner CommandRunner
 		return destinations, []string{"default branch checkpoint reachability unavailable: could not resolve " + defaultBranch}
 	}
 
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--format=%B", "--grep", checkpointTrailerKey+":", defaultRef)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "log", "--format=%B", "--grep", clibase.CheckpointTrailerKey+":", defaultRef)
 	warnings := warningLines("default branch checkpoint reachability", stderr)
 	if err != nil {
 		warnings = append(warnings, "default branch checkpoint reachability unavailable: "+err.Error())
@@ -781,36 +930,14 @@ func resolveDefaultBranchRef(ctx context.Context, runner CommandRunner, repoDir,
 
 func checkpointIDsFromCommitMessages(data []byte) map[string]struct{} {
 	ids := make(map[string]struct{})
-	for _, checkpointID := range checkpointIDsFromCommitMessageText(string(data)) {
+	for _, checkpointID := range clibase.CheckpointIDsFromCommitMessageText(string(data)) {
 		ids[checkpointID] = struct{}{}
 	}
 	return ids
 }
 
-func checkpointIDsFromCommitMessageText(message string) []string {
-	matches := checkpointTrailerRegex.FindAllStringSubmatch(message, -1)
-	if len(matches) == 0 {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, len(matches))
-	ids := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if len(match) < 2 {
-			continue
-		}
-		checkpointID := strings.TrimSpace(match[1])
-		if _, ok := seen[checkpointID]; ok {
-			continue
-		}
-		seen[checkpointID] = struct{}{}
-		ids = append(ids, checkpointID)
-	}
-	return ids
-}
-
 func buildCheckpointAuthorIndex(ctx context.Context, runner CommandRunner, repoDir string) (checkpointAuthorIndex, []string) {
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", checkpointTrailerKey+":")
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "log", "--all", "--format=%H%x00%an%x00%ae%x00%aI%x00%B%x1e", "--grep", clibase.CheckpointTrailerKey+":")
 	warnings := warningLines("checkpoint author index", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint author index unavailable: "+err.Error())
@@ -839,7 +966,7 @@ func checkpointAuthorsFromGitLog(data []byte) checkpointAuthorIndex {
 			Email: strings.TrimSpace(parts[2]),
 		}
 		authoredAt, _ := time.Parse(time.RFC3339, strings.TrimSpace(parts[3])) //nolint:errcheck // Timestamp is optional metadata.
-		checkpointIDs := checkpointIDsFromCommitMessageText(parts[4])
+		checkpointIDs := clibase.CheckpointIDsFromCommitMessageText(parts[4])
 		if commitSHA == "" || len(checkpointIDs) == 0 {
 			continue
 		}
@@ -909,8 +1036,8 @@ func authorLastCommitAt(author exportAuthor) time.Time {
 
 func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, entireBinary, scope string, limit int) ([]checkpointListEntry, []string, error) {
 	if scope == exportScopeBranch {
-		if brainNoEgressMode() {
-			return nil, []string{"no_egress: branch checkpoint fallback skipped"}, nil
+		if clibase.BrainNoEgressMode() {
+			return nil, []string{"no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while " + clibase.NoEgressToggleName() + " is set"}, nil
 		}
 		return listBranchCheckpoints(ctx, runner, repoDir, entireBinary, limit)
 	}
@@ -919,8 +1046,8 @@ func discoverCheckpoints(ctx context.Context, runner CommandRunner, repoDir, ent
 	if err != nil {
 		return nil, nil, err
 	}
-	if brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped")
+	if clibase.BrainNoEgressMode() {
+		warnings = append(warnings, "no_egress: branch checkpoint fallback skipped — checkpoints not already local are left out while "+clibase.NoEgressToggleName()+" is set")
 		return checkpoints, warnings, nil
 	}
 
@@ -1025,11 +1152,18 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	if searchAll {
 		args = append(args, "--search-all")
 	}
-	// The external CLI rejects an explicitly passed non-positive --limit, and
-	// the unlimited default here is 0: omit the flag entirely to mean "all".
-	if limit > 0 {
-		args = append(args, "--limit", strconv.Itoa(limit))
+	// "All" has to be spelled out. The host CLI's --limit defaults to 100 and
+	// it rejects a non-positive value ("--limit must be positive"), so omitting
+	// the flag does not mean "no cap" — it asks for the first hundred. This
+	// function used to omit it for limit <= 0, which silently truncated every
+	// catalog larger than that while defaultCheckpointLimit's own comment
+	// promised the opposite. Measured on a repository with 499 routed
+	// checkpoints: no flag returned 100, --limit 2147483647 returned all 499.
+	effective := limit
+	if effective <= 0 {
+		effective = routedCheckpointListUnlimited
 	}
+	args = append(args, "--limit", strconv.Itoa(effective))
 	stdout, stderr, err := runner.Run(ctx, repoDir, entireBinary, args...)
 	warnings := routedCheckpointWarnings(stderr)
 	if err != nil {
@@ -1039,6 +1173,13 @@ func listRoutedCheckpoints(ctx context.Context, runner CommandRunner, repoDir, e
 	var checkpoints []checkpointListEntry
 	if err := decodeHostCLIJSON(stdout, &checkpoints); err != nil {
 		return nil, nil, fmt.Errorf("parse checkpoint list json: %w", err)
+	}
+	// Marked at the source, not at the merge: branch scope returns this list
+	// directly without ever being merged, and an unmarked routed entry would
+	// be mistaken for one only the local refs know about — which would hand
+	// authority over its session list to the local store.
+	for i := range checkpoints {
+		checkpoints[i].RoutedOrigin = true
 	}
 	return checkpoints, warnings, nil
 }
@@ -1101,6 +1242,19 @@ func routedCheckpointWarnings(data []byte) []string {
 			warnings = append(warnings, checkpointScopeIncompleteCode+": Entire could not enumerate the configured checkpoint remote")
 			continue
 		}
+		// A cap the host applied is a truncated inventory, and the host reports
+		// it in prose only — there is no scope record for it. Asking for an
+		// explicit unlimited --limit above should mean this never fires, but if
+		// the host caps the list anyway, the catalog MUST NOT then be described
+		// as complete: discoverCheckpoints reads this classification to decide
+		// whether to call the routed list complete, and selectRoutedCheckpoint-
+		// Sessions' verdict gates replacing the persistent brain. Matching the
+		// host's prose is fragile, which is why it is the second line of
+		// defence rather than the first.
+		if strings.Contains(line, "capped at") && strings.Contains(line, "checkpoint") {
+			warnings = append(warnings, checkpointScopeIncompleteCode+": Entire capped the checkpoint list, so this inventory is truncated: "+line)
+			continue
+		}
 		warnings = append(warnings, "checkpoint list: "+line)
 	}
 	return warnings
@@ -1137,8 +1291,8 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 		ids[id] = struct{}{}
 	}
 	warnings = append(warnings, refWarnings...)
-	if len(ids) == 0 && brainNoEgressMode() {
-		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped")
+	if len(ids) == 0 && clibase.BrainNoEgressMode() {
+		warnings = append(warnings, "no_egress: checkpoint remote discovery skipped — no checkpoints are visible without local refs while "+clibase.NoEgressToggleName()+" is set")
 	}
 
 	return checkpointEntriesFromIDs(ids, limit), warningsFromLimit(ids, limit, warnings), nil
@@ -1150,7 +1304,7 @@ func listAllCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir st
 // the shard to match the checkpoint ID before passing an ID to the CLI.
 func listLocalPerCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDir string) (map[string]struct{}, []string) {
 	ids := make(map[string]struct{})
-	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
+	stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "for-each-ref", "--format=%(refname)", checkpointRefPrefix)
 	warnings := warningLines("checkpoint refs", stderr)
 	if err != nil {
 		warnings = append(warnings, "checkpoint ref namespace unavailable: "+err.Error())
@@ -1181,7 +1335,7 @@ func checkpointIDFromRefName(ref string) (string, bool) {
 }
 
 func isCheckpointRefID(value string) bool {
-	if isCheckpointID(value) {
+	if clibase.IsCheckpointID(value) {
 		return true
 	}
 	if len(value) != 26 || value[0] < '0' || value[0] > '7' {
@@ -1196,7 +1350,7 @@ func isCheckpointRefID(value string) bool {
 }
 
 func checkpointULIDTime(value string) (time.Time, bool) {
-	if len(value) != 26 || !isCheckpointRefID(value) || isCheckpointID(value) {
+	if len(value) != 26 || !isCheckpointRefID(value) || clibase.IsCheckpointID(value) {
 		return time.Time{}, false
 	}
 	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -1218,7 +1372,7 @@ func checkpointULIDTime(value string) (time.Time, bool) {
 //
 // Which remote-tracking refs those are is not fixed: see aggregateCheckpointRefs.
 func localCheckpointRefs(ctx context.Context, runner CommandRunner, repoDir string) []string {
-	return aggregateCheckpointRefs(ctx, runner, repoDir, brainNoEgressMode())
+	return aggregateCheckpointRefs(ctx, runner, repoDir, clibase.BrainNoEgressMode())
 }
 
 // aggregateCheckpointRefs is the ordered set of git-branch checkpoint refs this
@@ -1442,7 +1596,7 @@ func listLocalCheckpointRefIDs(ctx context.Context, runner CommandRunner, repoDi
 	var warnings []string
 
 	for _, ref := range refs {
-		stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, brainNoEgressMode(), "ls-tree", "-r", "--name-only", ref)
+		stdout, stderr, err := runCheckpointGitWithPolicy(ctx, runner, repoDir, clibase.BrainNoEgressMode(), "ls-tree", "-r", "--name-only", ref)
 		if err != nil {
 			refErrors = append(refErrors, fmt.Sprintf("checkpoint ref %s unavailable: %v", ref, err))
 			continue
@@ -1601,18 +1755,18 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 	// namespace. The routed --search-all list is the only complete inventory for
 	// that topology, so do not let a locally readable fast path hide remote-only
 	// checkpoints. No-egress mode intentionally reads the local catalog only.
-	if !brainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
+	if !clibase.BrainNoEgressMode() && checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 		return nil, nil, fmt.Errorf("%w: configured checkpoint remote requires complete routed discovery", errCheckpointSnapshotUnavailable)
 	}
 
-	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, limit, branchDestinations, progress, cache, brainNoEgressMode())
+	snapshot, warnings, err := loadLocalCheckpointUnionSnapshot(ctx, runner, repoDir, primary, raw, limit, branchDestinations, progress, cache, clibase.BrainNoEgressMode())
 	if err == nil {
 		if snapshot.TranscriptMode == "raw" {
 			warnings = append(warnings, "exporting raw transcripts directly from complete local checkpoint store union")
 		}
 		return snapshot, warnings, nil
 	}
-	if brainNoEgressMode() {
+	if clibase.BrainNoEgressMode() {
 		// In no-egress mode the local catalog IS the catalog, so a clean empty
 		// enumeration proves emptiness — unless a configured checkpoint remote
 		// could hold checkpoints this mode deliberately refuses to fetch, in
@@ -1620,7 +1774,7 @@ func loadConfiguredCheckpointSnapshot(ctx context.Context, runner CommandRunner,
 		if errors.Is(err, errCheckpointCatalogEmpty) && !checkpointRemoteMayExtendCatalog(repoDir, settings, settingsErr) {
 			return nil, warnings, err
 		}
-		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped")
+		warnings = append(warnings, "no_egress: checkpoint remote snapshot fetch skipped while "+clibase.NoEgressToggleName()+" is set")
 		return nil, warnings, fmt.Errorf("%w: local checkpoint refs unavailable and checkpoint remote disabled by no-egress mode", errCheckpointSnapshotUnavailable)
 	}
 	return nil, warnings, err
@@ -1802,7 +1956,7 @@ func loadLocalCheckpointUnionSnapshot(ctx context.Context, runner CommandRunner,
 	unreadable := make(map[string]struct{})
 	for _, id := range sortedIDs {
 		var candidates []checkpointSnapshotSource
-		if isCheckpointID(id) {
+		if clibase.IsCheckpointID(id) {
 			if primary == checkpointBackendGitRefs {
 				if source, ok := refSources[id]; ok {
 					candidates = append(candidates, source)
@@ -2808,7 +2962,7 @@ func loadCheckpointMetadataCache(path string) *checkpointMetadataCache {
 	// expanding to terabytes) would otherwise drive the JSON decoder out of memory.
 	// Exceeding the cap makes Decode fail, which falls through to rebuilding the
 	// cache — the same graceful degradation as any other corrupt-cache case.
-	limited := io.LimitReader(gz, semanticSnapshotMaxBytes())
+	limited := io.LimitReader(gz, clibase.SemanticSnapshotMaxBytes())
 	var file checkpointMetadataCacheFile
 	if err := json.NewDecoder(limited).Decode(&file); err != nil || file.Version != checkpointMetadataCacheVersion || file.Blobs == nil {
 		return newCheckpointMetadataCache(nil)
@@ -2839,7 +2993,7 @@ func saveCheckpointMetadataCache(path string, cache *checkpointMetadataCache) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return
 	}
-	_ = writeFileAtomic(path, buf.Bytes(), 0o600)
+	_ = brainstore.WriteFileAtomic(path, buf.Bytes(), 0o600)
 }
 
 // checkpointBlobReader reads checkpoint metadata blobs, consulting an optional
@@ -2916,7 +3070,7 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 	// bypass their per-call seam.
 	if runnerAllowsCatFileBatch(runner) {
 		data, err := catFileBatchRead(ctx, gitDir, ref+":"+filePath, localOnly)
-		if err == nil || errors.Is(err, errCatFileBatchMissing) {
+		if err == nil || errors.Is(err, errGitObjectMissing) {
 			return data, err
 		}
 	}
@@ -2931,18 +3085,6 @@ func catFileWithPolicy(ctx context.Context, runner CommandRunner, gitDir, ref, f
 		return nil, err
 	}
 	return stdout, nil
-}
-
-func isCheckpointID(value string) bool {
-	if len(value) != 12 {
-		return false
-	}
-	for _, r := range value {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entireBinary, checkpointID string) (checkpointExportEnvelope, error) {
@@ -2961,14 +3103,41 @@ func checkpointDetail(ctx context.Context, runner CommandRunner, repoDir, entire
 	return detail, nil
 }
 
-func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress)) (map[string]selectedSession, []string, bool, error) {
+func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata) (map[string]selectedSession, []string, bool, error) {
+	return selectRoutedCheckpointSessionsWithBreaker(ctx, runner, repoDir, entireBinary, checkpoints, branchDestinations, progress, local, newCheckpointDetailBreaker())
+}
+
+// selectRoutedCheckpointSessionsWithBreaker is the seam tests inject a
+// fake-clock breaker through; production always enters via the wrapper above.
+func selectRoutedCheckpointSessionsWithBreaker(ctx context.Context, runner CommandRunner, repoDir, entireBinary string, checkpoints []checkpointListEntry, branchDestinations checkpointBranchDestinations, progress func(exportProgress), local *localCheckpointMetadata, breaker *checkpointDetailBreaker) (map[string]selectedSession, []string, bool, error) {
 	selected := make(map[string]selectedSession)
 	var warnings []string
 	complete := true
 	requestedCheckpointDetails := 0
 	readableCheckpointDetails := 0
+	breakerSkipped := 0
+
+	// Whatever the local store already accounts for is taken from it; the rest
+	// is asked of Entire below, checkpoint by checkpoint as before.
+	if local != nil {
+		local.seed(selected)
+	}
+
+	// The detail reads are the whole cost of this pass — one `checkpoint
+	// explain` child per checkpoint, seconds each, thousands of them on a
+	// mature repository — and they are independent of one another. A runner
+	// that allows it reads them several at a time; the pass below still walks
+	// the list in order and takes every decision from it sequentially.
+	details := prefetchCheckpointDetails(ctx, runner, repoDir, entireBinary, checkpoints, local, progress, breaker)
+	loopProgress := progress
+	if details != nil {
+		// Already reported while the details were read; reporting again here
+		// would walk the same bar back to the start.
+		loopProgress = nil
+	}
+
 	for i, checkpoint := range checkpoints {
-		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+		reportExportProgress(loopProgress, i+1, len(checkpoints), len(selected))
 		if !checkpoint.IsLogsOnly {
 			warnings = append(warnings, fmt.Sprintf("skipped non-committed checkpoint list entry %s", checkpoint.CheckpointID))
 			continue
@@ -2979,10 +3148,29 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 			continue
 		}
 
+		if local.covers(checkpoint.CheckpointID) {
+			// Its sessions are already in the seeded selection.
+			continue
+		}
+
 		requestedCheckpointDetails++
-		detail, detailErr := checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+		var detail checkpointExportEnvelope
+		var detailErr error
+		if i < len(details) && details[i].fetched {
+			detail, detailErr = details[i].detail, details[i].err
+		} else {
+			detail, detailErr = breaker.do(func() (checkpointExportEnvelope, error) {
+				return checkpointDetail(ctx, runner, repoDir, entireBinary, checkpoint.CheckpointID)
+			})
+		}
 		if detailErr != nil {
 			complete = false
+			// One slow host is one problem: the skips fold into a single
+			// counted warning after the loop, not a line per checkpoint.
+			if errors.Is(detailErr, errCheckpointDetailBreakerOpen) {
+				breakerSkipped++
+				continue
+			}
 			warnings = append(warnings, fmt.Sprintf("%s: skipped checkpoint %s because its routed detail metadata was unreadable", checkpointScopeIncompleteCode, checkpoint.CheckpointID))
 			continue
 		}
@@ -3024,12 +3212,37 @@ func selectRoutedCheckpointSessions(ctx context.Context, runner CommandRunner, r
 			}
 			addSelectedSession(selected, candidate, branchDestinations)
 		}
-		reportExportProgress(progress, i+1, len(checkpoints), len(selected))
+		reportExportProgress(loopProgress, i+1, len(checkpoints), len(selected))
+	}
+	if details != nil {
+		reportExportProgress(progress, len(checkpoints), len(checkpoints), len(selected))
+	}
+	if breakerSkipped > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s: skipped %d checkpoints without asking: %d consecutive `checkpoint explain` reads each ran over %s, the shape of the host CLI's remote metadata fetch timing out per checkpoint (entireio/cli#2902) — land that fetch once (the issue names the workaround), then retry",
+			checkpointScopeIncompleteCode, breakerSkipped, checkpointDetailSlowTrip, checkpointDetailSlowRead))
 	}
 	if requestedCheckpointDetails > 0 && readableCheckpointDetails == 0 {
 		return nil, warnings, false, fmt.Errorf("%s: none of %d listed checkpoints had readable detail metadata", checkpointScopeIncompleteCode, requestedCheckpointDetails)
 	}
+	if served := local.count(); served > 0 {
+		warnings = append(warnings, fmt.Sprintf("resolved metadata for %d of %d checkpoints from the local checkpoint store; asked Entire about the remaining %d", served, len(checkpoints), requestedCheckpointDetails))
+	}
 	return selected, warnings, complete, nil
+}
+
+// routedMetadataRefusal names why a persistent export was refused. The
+// invariant is the caller's: an incomplete catalog cannot replace durable
+// history, and the published brain stays exactly as it was. What differs is
+// the remedy — unreadable metadata is repaired per checkpoint, while a tripped
+// slow-host breaker has one useful next step, and "repair unreadable
+// checkpoint metadata" would send the reader to hundreds of checkpoints that
+// are not broken (entireio/cli#2902).
+func routedMetadataRefusal(breakerOpened bool, routedWarnings []string) error {
+	if breakerOpened {
+		return fmt.Errorf("%s: stopped asking for routed checkpoint details after %d consecutive reads each ran over %s — the host CLI's remote metadata fetch is timing out per checkpoint (entireio/cli#2902); the persistent brain is unchanged. Land that fetch once (the issue names the workaround) and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, checkpointDetailSlowTrip, checkpointDetailSlowRead, strings.Join(routedWarnings, "; "))
+	}
+	return fmt.Errorf("%s: routed checkpoint metadata was incomplete; refusing to replace the persistent brain; repair unreadable checkpoint metadata and retry, or use --output with a separate directory to export the readable subset; details: %s", checkpointScopeIncompleteCode, strings.Join(routedWarnings, "; "))
 }
 
 func shouldReplaceSession(current, candidate selectedSession) bool {
@@ -3191,7 +3404,7 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	}
 	dir := filepath.Dir(clean)
 	if dir != "." {
-		if err := rejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, dir); err != nil {
 			return fmt.Errorf("validate transcript directory %s: %w", dir, err)
 		}
 	}
@@ -3199,10 +3412,10 @@ func writeTranscriptFile(outputDir, relPath string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
 		return fmt.Errorf("create transcript directory: %w", err)
 	}
-	if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
 		return fmt.Errorf("validate transcript path %s: %w", clean, err)
 	}
-	if err := writeFileAtomic(abs, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(abs, data, 0o600); err != nil {
 		return err
 	}
 	return nil
@@ -3214,7 +3427,7 @@ func ensureExportDirectories(outputDir string, branchDirs map[string]string) err
 		if filepath.IsAbs(clean) || clean == "." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("unsafe branch transcript directory: %s", relPath)
 		}
-		if err := rejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(outputDir, clean); err != nil {
 			return fmt.Errorf("validate branch transcript directory %s: %w", relPath, err)
 		}
 		if err := os.MkdirAll(filepath.Join(outputDir, clean), 0o700); err != nil {
@@ -3241,7 +3454,7 @@ func readSnapshotTranscriptFromSource(ctx context.Context, runner CommandRunner,
 		return nil, fmt.Errorf("transcript path %s not found in %s", sourcePath, snapshot.Ref)
 	}
 	return readTranscriptChunks(chunks, func(chunk string) ([]byte, error) {
-		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, brainNoEgressMode())
+		return catFileWithPolicy(ctx, runner, snapshot.GitDir, snapshot.Ref, chunk, clibase.BrainNoEgressMode())
 	})
 }
 
@@ -3290,8 +3503,8 @@ func readTranscriptChunks(chunks []string, readOne func(string) ([]byte, error))
 			return nil, fmt.Errorf("read transcript chunk %s: %w", chunk, err)
 		}
 		total += int64(len(data))
-		if total > maxDocumentTranscriptBytes {
-			return nil, &readBoundExceededError{source: "stored transcript " + chunks[0], max: maxDocumentTranscriptBytes}
+		if total > clibase.MaxDocumentTranscriptBytes {
+			return nil, &readBoundExceededError{Source: "stored transcript " + chunks[0], Max: clibase.MaxDocumentTranscriptBytes}
 		}
 		parts = append(parts, data)
 	}
@@ -3424,7 +3637,7 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("encode %s: %w", filepath.Base(path), err)
 	}
 	data = append(data, '\n')
-	if err := writeFileAtomic(path, data, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(path, data, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", filepath.Base(path), err)
 	}
 	return nil
@@ -3486,6 +3699,17 @@ func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extens
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
 }
 
+// sessionTranscriptRel is the single definition of a session's cached
+// transcript address: the key the manifest records, the key
+// historySessionByTranscriptPath looks sessions up by, and the Rel the cache
+// inventory walks up from disk. Callers that need that address -- the manifest
+// writer and the sweep's retain list -- must share it, because a key that is
+// merely close retains nothing while looking correct.
+func sessionTranscriptRel(session exportSession, branchDirs map[string]string) string {
+	name := sessionFileName(session.CreatedAt, session.Agent, session.SessionID, session.LatestCheckpoint, ".jsonl")
+	return filepath.ToSlash(filepath.Join(branchDirs[session.Branch], name))
+}
+
 func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[string]string {
 	branches := uniqueSessionBranches(sessions)
 	if defaultBranch != "" {
@@ -3493,7 +3717,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		sort.Strings(branches)
 		branches = compactSortedStrings(branches)
 	}
-	defaultDir := filepath.Join(exportSessionsDirectory, safePathComponent(defaultBranch, "main", 80))
+	defaultDir := filepath.Join(brainstore.SessionsDirName, safePathComponent(defaultBranch, "main", 80))
 
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
@@ -3501,9 +3725,9 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		case branch == defaultBranch:
 			dirs[branch] = defaultDir
 		case branch == "":
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportUnknownDirectory)
+			dirs[branch] = filepath.Join(brainstore.SessionsDirName, exportUnknownDirectory)
 		default:
-			dirs[branch] = filepath.Join(exportSessionsDirectory, exportBranchesDirectory, stableBranchDirComponent(branch))
+			dirs[branch] = filepath.Join(brainstore.SessionsDirName, exportBranchesDirectory, stableBranchDirComponent(branch))
 		}
 	}
 	return dirs
@@ -3883,6 +4107,18 @@ type checkpointListEntry struct {
 	IsLogsOnly       bool      `json:"is_logs_only,omitempty"`
 	SessionCount     int       `json:"session_count,omitempty"`
 	SessionIDs       []string  `json:"session_ids,omitempty"`
+
+	// RoutedOrigin records that this entry came from Entire's routed list
+	// rather than from enumerating local refs. It is not part of the host's
+	// JSON; listRoutedCheckpoints sets it on everything it produces.
+	//
+	// It matters because the two origins have different authorities over a
+	// checkpoint's session list. When the routed catalog names a session, that
+	// claim must be honoured or refused — it is how a session the local refs
+	// cannot resolve stops an export instead of being quietly dropped. A
+	// checkpoint only the local refs know about carries no routed claim at
+	// all, so there the local store is the only authority there is.
+	RoutedOrigin bool `json:"-"`
 }
 
 type checkpointExportEnvelope struct {
@@ -4151,4 +4387,60 @@ type exportCursorSession struct {
 	TranscriptMode   string    `json:"transcript_mode"`
 	TranscriptPath   string    `json:"transcript_path"`
 	CreatedAt        time.Time `json:"created_at"`
+}
+
+// partitionTombstonedSessions returns the sessions that must still satisfy
+// local-transcript validation, plus how many were exempted as excluded.
+//
+// It deliberately does not remove anything from the export: the caller keeps
+// the full selection so the cache sweep still retains an excluded session's
+// transcript, which is what `privacy include` needs to recover it.
+func partitionTombstonedSessions(ctx context.Context, opts Options, repoDir string, outputExplicit bool, sessions []exportSession) ([]exportSession, int, error) {
+	if outputExplicit || len(sessions) == 0 {
+		return sessions, 0, nil
+	}
+	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	if err != nil {
+		return sessions, 0, nil
+	}
+	return partitionTombstonedSessionsAt(storage.BrainDir, sessions)
+}
+
+// partitionTombstonedSessionsAt is the brainDir-addressable half, so the
+// exemption can be tested without resolving a repository's storage.
+func partitionTombstonedSessionsAt(brainDir string, sessions []exportSession) ([]exportSession, int, error) {
+	stones, _, err := brainstore.LoadSessionTombstonesChecked(brainDir)
+	if err != nil {
+		return sessions, 0, err
+	}
+	if len(stones.Excluded) == 0 {
+		return sessions, 0, nil
+	}
+	validated := make([]exportSession, 0, len(sessions))
+	exempt := 0
+	for _, session := range sessions {
+		if _, excluded := stones.Excluded[session.SessionID]; excluded {
+			exempt++
+			continue
+		}
+		validated = append(validated, session)
+	}
+	return validated, exempt, nil
+}
+
+// unavailableSessionsAreFatal is the threshold that decides whether missing
+// transcript bytes stop an export or merely cost their own sessions.
+//
+// It is a named value rather than an inline comparison because the whole
+// defect lived in this one comparison: `> 0` abandons the export over a single
+// vanished checkpoint, `usable == 0` abandons it only when nothing at all can
+// be served. Inline, a later simplification back to the first form reads as
+// tidying and silently restores the bug; a weakening sweep showed exactly that
+// change breaking no test.
+//
+// Fatal means: something was unavailable AND nothing was available. That is
+// the source-went-unreadable case, where republishing would erase an indexed
+// corpus. Anything else proceeds with what it can serve.
+func unavailableSessionsAreFatal(usable, unavailable int) bool {
+	return usable == 0 && unavailable > 0
 }

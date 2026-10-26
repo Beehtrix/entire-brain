@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // doctor printed 40 lines and 6.4KB on a HEALTHY brain of this repository: 34
@@ -516,7 +518,7 @@ func TestTheRemedyNamesAnAncestorThatExists(t *testing.T) {
 // command is exactly the defect this PR exists to remove.
 func TestDoctorRemedyIsRunnableNotABareVerb(t *testing.T) {
 	t.Parallel()
-	prefix := brainInvocation(os.LookupEnv, "")
+	prefix := base.BrainInvocation(os.LookupEnv, "")
 	if strings.TrimSpace(prefix) == "" {
 		t.Fatal("no brain invocation to compare against; this guard would be vacuous")
 	}

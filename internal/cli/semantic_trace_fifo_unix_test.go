@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -133,9 +134,9 @@ func TestIngestTracesReadsTracePathBeforeTakingIndexLock(t *testing.T) {
 
 	reading := make(chan struct{})
 	release := make(chan struct{})
-	originalOpen := safeReadOpenFile
+	originalOpen := base.SafeReadOpenFile
 	var once sync.Once
-	safeReadOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+	base.SafeReadOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		if name == stalledPath {
 			once.Do(func() {
 				close(reading)
@@ -144,7 +145,7 @@ func TestIngestTracesReadsTracePathBeforeTakingIndexLock(t *testing.T) {
 		}
 		return originalOpen(name, flag, perm)
 	}
-	t.Cleanup(func() { safeReadOpenFile = originalOpen })
+	t.Cleanup(func() { base.SafeReadOpenFile = originalOpen })
 
 	stalled := make(chan error, 1)
 	go func() {
@@ -203,9 +204,9 @@ func TestIngestTracesRejectsRegularToFIFOSwapDuringOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	originalOpen := safeReadOpenFile
+	originalOpen := base.SafeReadOpenFile
 	swapped := false
-	safeReadOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
+	base.SafeReadOpenFile = func(name string, flag int, perm os.FileMode) (*os.File, error) {
 		if name == tracePath && !swapped {
 			swapped = true
 			if err := os.Remove(tracePath); err != nil {
@@ -217,7 +218,7 @@ func TestIngestTracesRejectsRegularToFIFOSwapDuringOpen(t *testing.T) {
 		}
 		return originalOpen(name, flag, perm)
 	}
-	t.Cleanup(func() { safeReadOpenFile = originalOpen })
+	t.Cleanup(func() { base.SafeReadOpenFile = originalOpen })
 
 	done := make(chan error, 1)
 	go func() {

@@ -29,10 +29,10 @@ func TestBrainBriefCompactV3ExactProjectionAndMeasuredWin(t *testing.T) {
 
 	sum := sha256.Sum256([]byte(v3))
 	const (
-		wantBytes = 5467
+		wantBytes = 5619
 		// Set from this deterministic public/synthetic fixture. This freezes the
 		// exact packet measured by the local tokenizer evidence.
-		wantSHA256 = "cf6f4084d89cb85a82a2e735df3b1fa7b4e41922892e1e5e4678b3c7494cfe4e"
+		wantSHA256 = "15eb119b60d90e78f35e1284e5636ae600923bc81da64a05cd8a2f6c425c39de"
 	)
 	if len(v3) != wantBytes {
 		t.Fatalf("compact_v3 exhaustive fixture bytes = %d, want %d", len(v3), wantBytes)
@@ -173,8 +173,8 @@ func TestBrainBriefCompactV3NeverGrowsAcrossPublicFixtures(t *testing.T) {
 	if strictWins != len(fixtures) {
 		t.Fatalf("compact_v3 strict byte wins = %d, want %d", strictWins, len(fixtures))
 	}
-	if v2Bytes != 339473 || v3Bytes != 198964 {
-		t.Fatalf("aggregate fixture bytes = %d -> %d, want 339473 -> 198964", v2Bytes, v3Bytes)
+	if v2Bytes != 342665 || v3Bytes != 202156 {
+		t.Fatalf("aggregate fixture bytes = %d -> %d, want 342665 -> 202156", v2Bytes, v3Bytes)
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // loadFactStoreFiles scans the facts directory and returns every stored fact
@@ -47,7 +49,7 @@ func loadFactStoreFiles(brainDir string) (map[string][]factRecord, error) {
 		// one and the continue above already skips it. The gap was the file
 		// one level down.
 		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
-		if err := rejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
+		if err := base.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 			return nil, err
 		}
 		path := filepath.Join(brainDir, filepath.FromSlash(rel))
@@ -73,7 +75,7 @@ func writeFactStoreFile(brainDir, dirName string, records []factRecord) error {
 		return err
 	}
 	rel := filepath.ToSlash(filepath.Join(factsDirName, dirName, factsFileName))
-	return writeBrainRelativeFileAtomic(brainDir, rel, buf.Bytes(), 0o600)
+	return brainstore.WriteBrainRelativeFileAtomic(brainDir, rel, buf.Bytes(), 0o600)
 }
 
 // loadAllFactBranches returns every stored fact grouped by the branch recorded
@@ -113,7 +115,7 @@ func countFactProposals(brainDir string, branches []string) int {
 // manifest stay accurate. Chunk counts are preserved from the existing source
 // (they describe the last distill run, not these edits).
 func updateFactSourceManifest(brainDir string, now time.Time) error {
-	return withBrainWriteLock(brainDir, func() error {
+	return brainstore.WithBrainWriteLock(brainDir, func() error {
 		return updateFactSourceManifestLocked(brainDir, now)
 	})
 }
@@ -139,7 +141,7 @@ func updateFactSourceManifest(brainDir string, now time.Time) error {
 // id, so folding them through Upsert's merge rules loses nothing.
 func reclassifyAllFactBranches(brainDir string, now time.Time) (int, error) {
 	changed := 0
-	err := withBrainWriteLock(brainDir, func() error {
+	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		byFile, err := loadFactStoreFiles(brainDir)
 		if err != nil {
 			return err

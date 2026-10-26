@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // Practice detection (Pattern Consolidation, Phase 3).
@@ -146,7 +149,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 			Scope:         "repo",
 			RepoKey:       repoKey,
 			Kind:          kind,
-			Statement:     truncateString(f.Text, 280),
+			Statement:     base.TruncateString(f.Text, 280),
 			Paths:         f.Paths,
 			Locus:         f.Locus,
 			Support:       support,
@@ -173,10 +176,10 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 }
 
 func practiceStrength(kind string, support int, lastSeen, now time.Time, confidence float64) float64 {
-	kindScore := clamp01(float64(factKindPriority[kind]) / 6.0)
-	supportScore := clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(practiceSupportSaturat)))
+	kindScore := base.Clamp01(float64(factKindPriority[kind]) / 6.0)
+	supportScore := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(practiceSupportSaturat)))
 	recencyScore := recencyScore(lastSeen, now)
-	confScore := clamp01(confidence)
+	confScore := base.Clamp01(confidence)
 	return wPracticeKind*kindScore + wPracticeRecency*recencyScore + wPracticeSupport*supportScore + wPracticeConf*confScore
 }
 
@@ -190,7 +193,7 @@ func recencyScore(lastSeen, now time.Time) float64 {
 	if age < 0 {
 		age = 0
 	}
-	return clamp01(1 - float64(age)/float64(window))
+	return base.Clamp01(1 - float64(age)/float64(window))
 }
 
 // parsePracticeConfidence reads a fact's confidence — a numeric string in the
@@ -204,7 +207,7 @@ func parsePracticeConfidence(s string) float64 {
 		return 0.5
 	}
 	if v, err := strconv.ParseFloat(s, 64); err == nil {
-		return clamp01(v)
+		return base.Clamp01(v)
 	}
 	// Legacy label fallback.
 	switch strings.ToLower(s) {
@@ -249,7 +252,7 @@ func writeBrainPracticesFile(outputDir string, practices []practiceRecord) error
 			return fmt.Errorf("encode practice: %w", err)
 		}
 	}
-	if err := writeBrainRelativeFileAtomic(outputDir, patternsPracticesPath, buf.Bytes(), 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(outputDir, patternsPracticesPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("write practices: %w", err)
 	}
 	return nil

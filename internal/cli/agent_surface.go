@@ -4,11 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/agentsetup"
 	"io"
 	"io/fs"
 	"os"
@@ -21,9 +18,12 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/spf13/cobra"
-
+	"github.com/entireio/entire-brain/internal/agentsetup"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
+	"github.com/spf13/cobra"
 )
 
 const (
@@ -53,6 +53,7 @@ type brainBriefOptions struct {
 	json        bool
 	limit       int
 	noSemantic  bool
+	graphBinary string
 	profileJSON string
 	// packetFormat is set only by the MCP adapter. The CLI continues to select
 	// between its existing text and JSON renderers with json above.
@@ -283,6 +284,36 @@ type brainBriefSemantic struct {
 	Context       semanticContextResult `json:"context"`
 	RuntimeTraces []semanticRecord      `json:"runtime_traces,omitempty"`
 	Tests         semanticTestsResult   `json:"tests"`
+	// Source is "graph-context" when the section was served by the graph
+	// plugin's store (COR-2217) rather than the brain's internal semantic
+	// index; empty means the internal path answered.
+	Source string `json:"source,omitempty"`
+	// Staleness is set only when the graph answered from an ancestor of the
+	// committed tree. Its absence means the section is exact. It is reported
+	// rather than hidden because a reader has to know that an absence of
+	// results for a changed file is not evidence of an absence of consumers.
+	Staleness *semanticContextStaleness `json:"staleness,omitempty"`
+}
+
+// semanticContextStaleness is what a reader needs in order to judge an answer
+// served from an ancestor commit: how far back it is, and which paths it
+// cannot speak for.
+type semanticContextStaleness struct {
+	AncestorCommit string   `json:"ancestor_commit"`
+	CommitsBehind  int      `json:"commits_behind"`
+	ChangedFiles   []string `json:"changed_files"`
+	// Unreliable names the paths this answer must not be read as negative
+	// evidence about: the ancestor store had their records dropped.
+	//
+	// It can only name paths the answer actually RETURNED records for, and an
+	// ancestor store has already dropped the records for changed files -- so
+	// an empty Unreliable is the common case even when the answer is
+	// incomplete. On its own it would read as "nothing to worry about".
+	// ExcludedRecords is what separates the two: empty Unreliable with a
+	// non-zero count means nothing returned is tainted BUT records are
+	// missing, which is the state a reader must not mistake for completeness.
+	Unreliable      []string `json:"unreliable,omitempty"`
+	ExcludedRecords int      `json:"excluded_records"`
 }
 
 // brainBriefJSONReport is the agent-facing projection of the in-process brief.
@@ -319,6 +350,12 @@ type brainBriefJSONSemantic struct {
 	Context       brainBriefJSONContext   `json:"context"`
 	RuntimeTraces []compactSemanticRecord `json:"runtime_traces,omitempty"`
 	Tests         brainBriefJSONTests     `json:"tests"`
+	Source        string                  `json:"source,omitempty"`
+	// Staleness has to live here as well as on the internal report: this is
+	// the struct the --json payload is built from, and a field present only
+	// on the report would leave every actual consumer unable to see that the
+	// section was answered from an ancestor commit.
+	Staleness *semanticContextStaleness `json:"staleness,omitempty"`
 }
 
 type brainBriefJSONContext struct {
@@ -502,7 +539,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: overviewPrivacyGuard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if err := requirePrivacyDerivedRead(status.Brain.Path); err != nil {
 		return err
@@ -522,7 +559,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	// brain over an empty repository. `dash` already draws the distinction;
 	// `overview`, the command the guide tells an agent to run FIRST, did not.
 	if !anySource(status.Sources) && (status.Manifest == nil || status.Manifest.GeneratedAt.IsZero()) {
-		report.Warnings = append(report.Warnings, "brain not built yet — run `"+brainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
+		report.Warnings = append(report.Warnings, "brain not built yet — run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`; every count in this report is absence of data, not absence of findings")
 	}
 	if status.Semantic != nil && status.Semantic.Freshness != nil {
 		report.Freshness = brainOverviewFresh{
@@ -602,7 +639,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
-		if record.Kind == "decision" && !guard.blocksRecord(record) {
+		if record.Kind == "decision" && !guardBlocksRecord(guard, record) {
 			decisions = append(decisions, record)
 		}
 	}
@@ -623,7 +660,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 		}
 		seen[key] = struct{}{}
 		match := historyRecordTextMatch(record)
-		match.Excerpt = strings.TrimSpace(truncateString(match.Excerpt, 280))
+		match.Excerpt = strings.TrimSpace(clibase.TruncateString(match.Excerpt, 280))
 		matches = append(matches, match)
 		if len(matches) >= limit {
 			break
@@ -639,13 +676,13 @@ func renderBrainOverviewText(cmd *cobra.Command, report brainOverviewReport) {
 	// index to age), not a blank one. "freshness: " with nothing after the colon
 	// read as a rendering glitch and told the reader nothing.
 	if severity := report.Freshness.Severity; severity == "" {
-		fmt.Fprintln(out, "freshness: unknown (no semantic index to check)")
+		fmt.Fprintln(out, "freshness: unknown (no code index to check)")
 	} else if report.Freshness.Summary != "" {
 		fmt.Fprintf(out, "freshness: %s — %s\n", severity, report.Freshness.Summary)
 	} else {
 		fmt.Fprintf(out, "freshness: %s\n", severity)
 	}
-	fmt.Fprintf(out, "semantic: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
+	fmt.Fprintf(out, "code index: %d files, %d symbols, %d relations\n", report.Semantic.Files, report.Semantic.Symbols, report.Semantic.Relations)
 	if len(report.Boundaries) > 0 {
 		fmt.Fprintf(out, "boundaries: routes=%d tools=%d workflows=%d\n", report.Boundaries["routes"], report.Boundaries["tools"], report.Boundaries["workflows"])
 	}
@@ -767,7 +804,8 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&briefOpts.json, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&briefOpts.limit, "limit", brainBriefDefaultLimit, "Maximum records per section; raise only when the compact packet is insufficient")
-	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Disable embedding rerank for memories; use lexical ranking only")
+	cmd.Flags().BoolVar(&briefOpts.noSemantic, "no-semantic", false, "Accepted for compatibility: semantic retrieval was removed, memory ranking is always BM25 lexical")
+	cmd.Flags().StringVar(&briefOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().StringVar(&briefOpts.profileJSON, "profile-json", "", "Atomically write a privacy-safe performance profile sidecar (mode 0600)")
 	cmd.Flags().BoolVar(&handoff, "handoff", false, "Emit a session-resumption packet (recent sessions' requests, decisions, validations) instead of a task packet")
 	cmd.Flags().IntVar(&handoffSessions, "sessions", handoffDefaultSessions, "Sessions to include in the --handoff packet")
@@ -777,8 +815,8 @@ func newBrainBriefCommand(opts Options) *cobra.Command {
 func newBrainShowCommand(opts Options) *cobra.Command {
 	showOpts := brainShowOptions{}
 	cmd := &cobra.Command{
-		Use:   "show <semantic-id-or-name>",
-		Short: "Show one semantic brain record",
+		Use:   "show <symbol-id-or-name>",
+		Short: "Show one code-index record",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBrainShow(cmd.Context(), cmd, opts, showOpts, args[0])
@@ -822,7 +860,7 @@ func newInspectSearchGraphCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphSearchOptions{limit: 20}
 	cmd := &cobra.Command{
 		Use:   "search-graph <query>",
-		Short: "Search semantic graph symbols",
+		Short: "Search code graph symbols",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticSearchGraph(cmd, opts, graphOpts, args[0])
@@ -838,7 +876,7 @@ func newInspectQueryGraphCommand(opts Options) *cobra.Command {
 	graphOpts := semanticGraphQueryOptions{limit: 100}
 	cmd := &cobra.Command{
 		Use:   "query-graph <query>",
-		Short: "Query semantic graph relations with type:/from:/to: filters",
+		Short: "Query code graph relations with type:/from:/to: filters",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticQueryGraph(cmd, opts, graphOpts, args[0])
@@ -854,7 +892,7 @@ func newInspectGraphSchemaCommand(opts Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Hidden: true,
 		Use:    "graph-schema",
-		Short:  "Describe the indexed semantic graph schema and relation vocabulary",
+		Short:  "Describe the indexed code graph schema and relation vocabulary",
 		Args:   cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticGraphSchema(cmd, opts, graphOpts)
@@ -868,7 +906,7 @@ func newInspectGraphUICommand(opts Options) *cobra.Command {
 	uiOpts := semanticGraphUIOptions{limit: 500}
 	cmd := &cobra.Command{
 		Use:   "graph-ui [output.html]",
-		Short: "Write a local static HTML semantic graph explorer",
+		Short: "Write a local static HTML code graph explorer",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			output := "semantic-graph.html"
@@ -902,7 +940,7 @@ func newInspectTracePathCommand(opts Options) *cobra.Command {
 	traceOpts := semanticTracePathOptions{depth: 4}
 	cmd := &cobra.Command{
 		Use:   "trace-path <from-symbol> <to-symbol>",
-		Short: "Find a directed semantic relation path between two symbols",
+		Short: "Find a directed code graph path between two symbols",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticTracePath(cmd, opts, traceOpts, args[0], args[1])
@@ -917,7 +955,7 @@ func newInspectDeadCodeCommand(opts Options) *cobra.Command {
 	deadOpts := semanticDeadCodeOptions{limit: 100}
 	cmd := &cobra.Command{
 		Use:   "dead-code",
-		Short: "List symbols with no incoming non-structural semantic edges",
+		Short: "List symbols with no incoming non-structural code graph edges",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticDeadCode(cmd, opts, deadOpts)
@@ -932,7 +970,7 @@ func newInspectIngestTracesCommand(opts Options) *cobra.Command {
 	ingestOpts := semanticTraceIngestOptions{}
 	cmd := &cobra.Command{
 		Use:   "ingest-traces <json-or-ndjson-file>",
-		Short: "Import runtime traces and validate them against static semantic edges",
+		Short: "Import runtime traces and validate them against static code graph edges",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticIngestTraces(cmd, opts, ingestOpts, args[0])
@@ -946,7 +984,7 @@ func newInspectCodeCommand(opts Options) *cobra.Command {
 	queryOpts := semanticQueryOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   "code <query>",
-		Short: "Search semantic code facts",
+		Short: "Search the code index",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticQuery(cmd.Context(), cmd, opts, queryOpts, args[0])
@@ -955,7 +993,7 @@ func newInspectCodeCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&queryOpts.limit, "limit", 10, "Maximum results to return")
 	cmd.Flags().IntVar(&queryOpts.offset, "offset", 0, "Results to skip before returning a page")
 	cmd.Flags().BoolVar(&queryOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&queryOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&queryOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -963,7 +1001,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 	contextOpts := semanticContextOptions{limit: 5}
 	cmd := &cobra.Command{
 		Use:   "context <symbol-or-text>",
-		Short: "Build semantic context for a symbol or query",
+		Short: "Build code context for a symbol or query",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticContext(cmd.Context(), cmd, opts, contextOpts, args[0])
@@ -973,7 +1011,7 @@ func newInspectContextCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&contextOpts.offset, "offset", 0, "Symbols to skip before returning a page")
 	cmd.Flags().BoolVar(&contextOpts.includeContent, "include-content", false, "Include local source snippets for matched symbols")
 	cmd.Flags().BoolVar(&contextOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&contextOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&contextOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -981,7 +1019,7 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	impactOpts := semanticImpactOptions{limit: 20, depth: 1}
 	cmd := &cobra.Command{
 		Use:   "impact <symbol-or-text>",
-		Short: "Traverse semantic relations for an impact set",
+		Short: "Traverse code graph relations for an impact set",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticImpact(cmd.Context(), cmd, opts, impactOpts, args[0])
@@ -990,7 +1028,7 @@ func newInspectImpactCommand(opts Options) *cobra.Command {
 	cmd.Flags().IntVar(&impactOpts.limit, "limit", 20, "Maximum symbols to include")
 	cmd.Flags().IntVar(&impactOpts.depth, "depth", 1, "Relation traversal depth")
 	cmd.Flags().BoolVar(&impactOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&impactOpts.details, "details", false, "Include full code-index records with provider metadata")
 	hintPositionalSymbol(cmd)
 	return cmd
 }
@@ -1014,7 +1052,7 @@ func hintPositionalSymbol(cmd *cobra.Command) {
 			return err
 		}
 		return fmt.Errorf("%w; this command takes the symbol as an argument, not a flag: `%s %s <symbol>`",
-			err, setupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
+			err, clibase.SetupCommandPrefix(os.LookupEnv), c.CommandPath()[strings.Index(c.CommandPath(), " ")+1:])
 	})
 }
 
@@ -1022,7 +1060,7 @@ func newInspectChangesCommand(opts Options) *cobra.Command {
 	changesOpts := semanticChangesOptions{limit: 100, persist: true}
 	cmd := &cobra.Command{
 		Use:   "changes",
-		Short: "Map local diff hunks to semantic symbols",
+		Short: "Map local diff hunks to code-index symbols",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runSemanticChanges(cmd.Context(), cmd, opts, changesOpts)
@@ -1046,7 +1084,7 @@ func newInspectTestsCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&testsOpts.limit, "limit", 3, "Maximum test suggestions to include")
 	cmd.Flags().BoolVar(&testsOpts.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&testsOpts.details, "details", false, "Include full semantic records with provider metadata")
+	cmd.Flags().BoolVar(&testsOpts.details, "details", false, "Include full code-index records with provider metadata")
 	return cmd
 }
 
@@ -1157,17 +1195,30 @@ func brainStatusCompactReport(report brainStatusReport) brainStatusReport {
 }
 
 func brainStatusFreshnessSeverity(report brainStatusReport) string {
+	for _, issue := range report.Issues {
+		if issue.Kind == "brain_layout" {
+			return "unsafe"
+		}
+	}
 	// A release gate cannot pass unless semantic indexing produced a freshness
 	// assessment. Retrieval freshness is additive; it is not a substitute for
-	// the semantic source the gate is intended to protect.
+	// the semantic source the gate is intended to protect, so a healthy
+	// retrieval report never upgrades a missing assessment to "ok" — but a
+	// retrieval PROBLEM is not discarded with it. Dropping it meant a brain
+	// without a graph provider had no freshness gating at all: `--fail-on
+	// degraded` passed vacuously on a tree the seed axis itself reported as
+	// dirty-unindexed.
+	retrieval := ""
+	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
+		retrieval = report.Retrieval.Freshness.Severity
+	}
 	if report.Semantic == nil || report.Semantic.Freshness == nil {
+		if retrieval == "degraded" || retrieval == "unsafe" {
+			return retrieval
+		}
 		return ""
 	}
-	severity := report.Semantic.Freshness.Severity
-	if report.Retrieval != nil && report.Retrieval.Freshness != nil {
-		severity = worseFreshnessSeverity(severity, report.Retrieval.Freshness.Severity)
-	}
-	return severity
+	return worseFreshnessSeverity(report.Semantic.Freshness.Severity, retrieval)
 }
 
 func worseFreshnessSeverity(left, right string) string {
@@ -1189,15 +1240,16 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	// Every command this report names is spelled the way the reader reached this
 	// binary, resolved once here so the short report and the verbose one cannot
 	// disagree. See setupCommandPrefix.
-	brainCmd := setupCommandPrefix(os.LookupEnv)
+	brainCmd := clibase.SetupCommandPrefix(os.LookupEnv)
 	out := cmd.OutOrStdout()
 	render := tui.NewRenderer(out)
-	if report.Integrity == "not_checked" {
-		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
-	}
 	if !verbose {
+		// The short report folds the audit boundary into its own footer.
 		renderBrainStatusShort(out, render, report, brainCmd)
 		return
+	}
+	if report.Integrity == "not_checked" {
+		defer fmt.Fprintf(out, "\nIntegrity not checked; run `%s doctor` for a deep audit.\n", brainCmd)
 	}
 	// Everything below is the full report. Blind spots and semantic partial
 	// failures describe the SAME records from two angles, so they are collapsed
@@ -1251,7 +1303,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 	renderBrainOnboardingStatus(out, report.Onboarding, report.GeneratedAt, brainCmd)
 	if s := report.Semantic; s != nil {
-		fmt.Fprintln(out, "\nSemantic")
+		fmt.Fprintln(out, "\nCode context")
 		if p := s.Provider; p != nil && p.Name != "" {
 			fmt.Fprintf(out, "  provider: %s %s (schema %s)\n", p.Name, p.Version, p.Schema)
 		}
@@ -1314,7 +1366,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 				fmt.Fprintf(out, "  blind spots: %d\n", len(s.BlindSpots))
 				fresh := subtractBlindSpots(s.BlindSpots, reportedSpots)
 				if len(fresh) == 0 {
-					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the semantic warnings listed above"))
+					fmt.Fprintf(out, "    %s\n", render.Dim("all of them are the code-context warnings listed above"))
 					break
 				}
 				renderStatusBlindSpotGroups(out, render, "    ", groupStatusBlindSpots(fresh), true, brainCmd)
@@ -1383,6 +1435,27 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	}
 }
 
+// brainBriefCodeContextWarning names why the brief has no code-context section
+// and the one runnable fix. A graph that answered "store unavailable" wins: it
+// is installed regardless of what the host PATH probe says, and its detail
+// names its own fix (COR-2257) — the index verb is appended only when graph
+// sent none. The brain-side snapshot copy retired with COR-2217 is never the
+// remedy.
+func brainBriefCodeContextWarning(storeMissing bool, storeDetail string, providerAbsent bool) string {
+	indexCmd := clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb)
+	switch {
+	case storeMissing:
+		if storeDetail == "" {
+			storeDetail = "the graph store cannot serve this commit; run `" + indexCmd + "`"
+		}
+		return "code context unavailable: " + storeDetail
+	case providerAbsent:
+		return "code context unavailable: the graph plugin is not installed; install it with `" + providerdetail.InstallGraphCommand + "`, then run `" + indexCmd + "`"
+	default:
+		return "code context unavailable; run `" + indexCmd + "`"
+	}
+}
+
 type brainBriefRawHistoryMatcher func(string, string, []brainTextMatch, int, *brainBriefProfileRawHistory) ([]brainTextMatch, error)
 
 func runBrainBrief(ctx context.Context, cmd *cobra.Command, opts Options, briefOpts brainBriefOptions, task string) error {
@@ -1431,12 +1504,60 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		Guidance: []string{
 			"Treat the brain as an indexed snapshot, not live memory.",
 			"Use likely_edit_files and history matches before text search; if search is still needed, scope it to likely_files and specific identifiers. Use likely_test_files for validation context.",
-			"Use the live-state overlay before trusting semantic results for files changed in this session.",
+			"Use the live-state overlay before trusting code-context results for files changed in this session.",
 			"Inspect full diffs or source files when the task intersects dirty files or when confidence is low.",
 		},
 	}
 	var receiptBranch, receiptSurface string
 	var receiptFactIDs []string
+	// The graph plugin's store answers first (COR-2217): `graph context` reads
+	// the committed-tree sqlite sidecar the graph owns, so the brief no longer
+	// depends on the brain's own copy of the snapshot when the plugin can
+	// serve. Plugin absent or a version without the verb falls through to the
+	// internal semantic path (or its missing-index warning) unchanged; a
+	// present graph with no store for this commit keeps its detail so the
+	// warning can carry graph's remedy instead of stale `refresh` advice
+	// (COR-2257).
+	semanticDelegated := false
+	graphStoreMissing := false
+	var graphStoreMissingDetail string
+	{
+		delegationStarted := profile.start()
+		graphContext, graphErr := fetchGraphTaskContext(ctx, opts.Runner, status.Repo.Root, briefOpts.graphBinary, task, briefOpts.limit, briefOpts.limit)
+		if graphErr == nil && graphContext.StoreUnavailable {
+			graphStoreMissing = true
+			graphStoreMissingDetail = strings.TrimSpace(graphContext.Detail)
+		}
+		// An empty symbol list falls through too: the internal index may still
+		// have an answer, and delegating nothing would also suppress the
+		// missing-index warning. Commit/tree coherence needs no check here —
+		// the provider keys the store by the current committed tree and
+		// reports any mismatch as store_unavailable.
+		// An ancestor answer whose own account of itself is inconsistent is
+		// refused outright: brain would be unable to say which results are
+		// incomplete, which is the only reason to accept one at all. Falling
+		// through here lands on the internal semantic path, i.e. exactly what
+		// happens with no graph plugin.
+		if graphErr == nil && !graphContext.Stale.usable() {
+			graphContext = graphTaskContext{}
+			graphStoreMissing = true
+			graphStoreMissingDetail = "graph answered from an ancestor commit but could not say which files it excluded; ignoring it"
+		}
+		if graphErr == nil && !graphContext.StoreUnavailable && len(graphContext.Symbols) > 0 {
+			report.Semantic.Context = semanticContextResult{
+				Symbols:   nonNil(graphContextSymbolRecords(graphContext.Symbols)),
+				Relations: nonNil(graphContextRelationRecords(graphContext.Symbols, graphContext.Relations)),
+			}
+			report.Semantic.Tests = graphContextTestsResult(graphContext.Tests)
+			report.Semantic.Source = "graph-context"
+			report.Semantic.Staleness = semanticStalenessFor(graphContext.Stale, graphContext.Symbols, graphContext.Tests)
+			semanticDelegated = true
+			if profile != nil {
+				outputs := len(graphContext.Symbols) + len(graphContext.Relations) + len(graphContext.Tests)
+				profile.finishStage(&profile.Semantic.Context, delegationStarted, len(graphContext.Symbols), outputs, 0)
+			}
+		}
+	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Semantic != nil {
 		semanticSource := status.Manifest.Sources.Semantic
 		semanticInputCount := semanticSource.Symbols + semanticSource.Relations
@@ -1446,28 +1567,30 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// which stale top-ranked records would otherwise consume.
 			semanticLimit = brainBriefSemanticCandidateLimit(briefOpts.limit, semanticSource.Symbols)
 		}
-		contextStarted := profile.start()
-		contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
-		if contextErr != nil {
-			report.Warnings = append(report.Warnings, "semantic context unavailable: "+contextErr.Error())
-		} else {
-			report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
-			if len(report.Semantic.Context.Symbols) > 0 {
-				impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
-				_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
-				if impactErr != nil {
-					report.Warnings = append(report.Warnings, "semantic impact context unavailable: "+impactErr.Error())
-				} else {
-					report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
+		if !semanticDelegated {
+			contextStarted := profile.start()
+			contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
+			if contextErr != nil {
+				report.Warnings = append(report.Warnings, "code context unavailable: "+contextErr.Error())
+			} else {
+				report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
+				if len(report.Semantic.Context.Symbols) > 0 {
+					impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
+					_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
+					if impactErr != nil {
+						report.Warnings = append(report.Warnings, "code context impact unavailable: "+impactErr.Error())
+					} else {
+						report.Semantic.Context = brainBriefMergeImpactContext(report.Semantic.Context, impactSymbols, impactRelations, task, briefOpts.limit)
+					}
 				}
 			}
-		}
-		if profile != nil {
-			contextErrors := 0
-			if contextErr != nil {
-				contextErrors = 1
+			if profile != nil {
+				contextErrors := 0
+				if contextErr != nil {
+					contextErrors = 1
+				}
+				profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
 			}
-			profile.finishStage(&profile.Semantic.Context, contextStarted, semanticInputCount, len(contextSymbols)+len(contextRelations)+len(contextNeighbors), contextErrors)
 		}
 		runtimeStarted := profile.start()
 		runtimeTraces, runtimeErr := semanticRuntimeTraceFacts(status.Brain.Path, semanticSource, task, semanticLimit)
@@ -1483,22 +1606,25 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			profile.finishStage(&profile.Semantic.RuntimeTraces, runtimeStarted, semanticInputCount, len(runtimeTraces), runtimeErrors)
 		}
-		testsStarted := profile.start()
-		tests, testsErr := semanticTestFactsReservoir(status.Brain.Path, semanticSource, task, semanticLimit)
-		if testsErr != nil {
-			report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
-		} else {
-			report.Semantic.Tests = brainBriefSelectSemanticTests(tests, report.Semantic.Context, semanticLimit)
-		}
-		if profile != nil {
-			testErrors := 0
+		if !semanticDelegated {
+			testsStarted := profile.start()
+			tests, testsErr := semanticTestFactsReservoir(status.Brain.Path, semanticSource, task, semanticLimit)
 			if testsErr != nil {
-				testErrors = 1
+				report.Warnings = append(report.Warnings, "test suggestions unavailable: "+testsErr.Error())
+			} else {
+				report.Semantic.Tests = brainBriefSelectSemanticTests(tests, report.Semantic.Context, semanticLimit)
 			}
-			profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
+			if profile != nil {
+				testErrors := 0
+				if testsErr != nil {
+					testErrors = 1
+				}
+				profile.finishStage(&profile.Semantic.Tests, testsStarted, semanticInputCount, len(tests.Roots)+len(tests.Suggestions), testErrors)
+			}
 		}
-	} else {
-		report.Warnings = append(report.Warnings, "semantic index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+	} else if !semanticDelegated {
+		providerAbsent := hostCLIOnPath() && !semanticProviderOnHost()
+		report.Warnings = append(report.Warnings, brainBriefCodeContextWarning(graphStoreMissing, graphStoreMissingDetail, providerAbsent))
 	}
 	if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.History != nil {
 		source := status.Manifest.Sources.History
@@ -1579,8 +1705,8 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// predicate handed to rankFreshHistory protects the overlay arm.
 			briefGuard := briefPrivacyGuard
 			var briefGuardPred func(historyRecord) bool
-			if !briefGuard.empty() {
-				briefGuardPred = func(r historyRecord) bool { return !briefGuard.blocksRecord(r) }
+			if !briefGuard.Empty() {
+				briefGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(briefGuard, r) }
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
@@ -1623,7 +1749,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			report.History.Matches = mergeBrainBriefHistoryMatches(briefOpts.limit, rawMatches, indexedMatches)
 		}
 	} else if status.Manifest != nil && status.Manifest.Sources != nil && status.Manifest.Sources.Sessions != nil {
-		report.Warnings = append(report.Warnings, "history index missing; run `"+brainInvocation(os.LookupEnv, "refresh")+"`")
+		report.Warnings = append(report.Warnings, "history index missing; run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
 	}
 	// Facts recorded outside any repository reach the brief — the surface the
 	// agent guide mandates as the first call of every task. Loaded before the
@@ -1789,7 +1915,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// default compact packet is unchanged until qualification (plan Phase 2
 	// deliverable 5). Failure to retrieve is silent; the flag adds context,
 	// never breaks a brief.
-	if envBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
+	if clibase.EnvBool("ENTIRE_BRAIN_BRIEF_CONVERSATION") {
 		report.Conversation = brainBriefConversationHits(status.Brain.Path, task, briefOpts.limit)
 		if len(report.Conversation) > 0 {
 			report.Guidance = append(report.Guidance,
@@ -1808,7 +1934,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// even on the non-profiling path; emitBrainBriefPacket dispatches text,
 	// legacy JSON, and the compact formats alike, so one wrapper covers all of
 	// them.
-	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.policyIdentity}
+	privacyPolicy := retrievalPrivacyPolicy{BrainDir: status.Brain.Path, Identity: briefPrivacyGuard.PolicyIdentity}
 	privacyPolicy.RequireDerivedClean = true
 	if profile == nil {
 		var packet bytes.Buffer
@@ -1871,6 +1997,24 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 		fmt.Fprintf(cmd.OutOrStdout(), "freshness: %s\n", severity)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "live: dirty=%t changed_files=%d\n", report.Status.Live.Dirty, len(report.Status.Live.ChangedFiles))
+	// Emitted here, BEFORE the symbols and tests it qualifies, for the same
+	// reason the compact renderer puts it first: a reader that caps how much of
+	// this packet it consumes would never reach a caveat printed after the
+	// results, and this is the default output of `brain brief` -- the surface
+	// most answers are actually read through.
+	//
+	// excluded_records is printed even at zero. Unreliable can only name paths
+	// the answer returned records for, and an ancestor store has already
+	// dropped the records for changed files, so an empty unreliable list is the
+	// common case even when the answer is incomplete; a count omitted at zero
+	// would be indistinguishable from a renderer that does not report it.
+	if staleness := report.Semantic.Staleness; staleness != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "staleness: ancestor_commit=%s commits_behind=%d changed_files=%d unreliable=%d excluded_records=%d\n",
+			staleness.AncestorCommit, staleness.CommitsBehind, len(staleness.ChangedFiles), len(staleness.Unreliable), staleness.ExcludedRecords)
+		for _, path := range staleness.Unreliable {
+			fmt.Fprintf(cmd.OutOrStdout(), "staleness_unreliable %s\n", path)
+		}
+	}
 	for _, file := range report.LikelyEditFiles {
 		fmt.Fprintf(cmd.OutOrStdout(), "edit_file %s\n", file)
 	}
@@ -1957,9 +2101,8 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 
 // brainBriefConversationHits retrieves a small, bounded set of conversation
 // exchanges for the brief packet: at most 3 (or limit, if smaller), excerpts
-// capped at 200 bytes. Hybrid mode: BM25 by default, fused only under the
-// ENTIRE_BRAIN_CONVERSATION_FUSION development flag (see eval ledger
-// 2026-08-07).
+// capped at 200 bytes. Ranking is BM25 lexical (semantic retrieval was
+// removed, trail #278).
 func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefConversationHit {
 	count := min(3, limit)
 	if count <= 0 {
@@ -2643,6 +2786,8 @@ func brainBriefJSONProjection(report brainBriefReport) brainBriefJSONReport {
 		Guidance:           report.Guidance,
 		Warnings:           report.Warnings,
 	}
+	out.Semantic.Source = report.Semantic.Source
+	out.Semantic.Staleness = report.Semantic.Staleness
 	out.Semantic.Context.Symbols = compactSemanticRecords(report.Semantic.Context.Symbols)
 	out.Semantic.Context.Relations = compactSemanticRecords(report.Semantic.Context.Relations)
 	out.Semantic.Context.Neighbors = compactSemanticRecords(report.Semantic.Context.Neighbors)
@@ -4166,7 +4311,7 @@ func brainBriefLimitNormalizationActionsForFile(rel, source string) []brainBrief
 			File:     rel,
 			Symbol:   currentSymbol,
 			Action:   action,
-			Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+			Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 		})
 	}
 	return actions
@@ -4343,7 +4488,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete the loop-scoped browser response-id accumulator line; do not replace it with another accumulator. Each agentic perception turn must be built from fresh observed page state and recent local history.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && (strings.Contains(trimmed, "previousResponseId:") || trimmed == "previousResponseId") {
@@ -4353,7 +4498,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 		if inAgenticPerception && trimmed == "};" {
@@ -4363,7 +4508,7 @@ func brainBriefPreviousResponseActionsForFile(rel, source string) []brainBriefAc
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Delete this browser-loop response-id carry-forward assignment entirely; browser decider turns should not chain `decision.previousResponseId` into later perception turns.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4394,7 +4539,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol,
 				Action:   "Preserve string conversion for Responses API metadata values.",
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 			continue
 		}
@@ -4405,7 +4550,7 @@ func brainBriefMetadataStringActionsForFile(rel, source string) []brainBriefActi
 			}
 			actions = append(actions, brainBriefAction{
 				File: rel, Symbol: currentSymbol, Action: action,
-				Evidence: fmt.Sprintf("current line %d: %s", i+1, truncateString(trimmed, 180)),
+				Evidence: fmt.Sprintf("current line %d: %s", i+1, clibase.TruncateString(trimmed, 180)),
 			})
 		}
 	}
@@ -4421,12 +4566,12 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := loadGraphManifest(ctx, opts, repoDir, storage.BrainDir)
 	if err != nil {
 		return err
 	}
 	if manifest.Sources == nil || manifest.Sources.Semantic == nil {
-		return errors.New("semantic index missing; run `" + brainInvocation(os.LookupEnv, "refresh index") + "`")
+		return errors.New("code index missing; run `" + clibase.BrainInvocation(os.LookupEnv, "refresh index") + "`")
 	}
 	freshness, err := semanticStaleReport(ctx, opts, repoDir)
 	if err != nil {
@@ -4458,7 +4603,7 @@ func buildAvailableBrainStatusReport(ctx context.Context, opts Options, target s
 }
 
 func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, target string, lightweight bool) (brainStatusReport, error) {
-	repoDir, local, err := resolveLocalTargetRepoDir(ctx, opts.Runner, target)
+	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
 		return brainStatusReport{}, err
 	}
@@ -4490,6 +4635,40 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		}
 		manifestSchema = manifest.SchemaVersion
 	}
+	// Old layouts are reported without hiding the other Brain sources. Graph is
+	// optional: retain all non-code Brain sources when it is absent, and "not
+	// installed" / "not indexed yet" stay silent here exactly as before (they
+	// already surface through the missing-semantic-index messaging below). A
+	// store that Graph IS able to describe but that this build cannot actually
+	// use -- a version mismatch, a corrupt descriptor, a command that failed
+	// outright -- is a different, actionable problem, and used to vanish along
+	// with the ordinary case. That one is recorded as a warning instead.
+	var graphStatusWarning string
+	if layoutErr := checkLegacyBrainLayout(storage.BrainDir, manifest); layoutErr != nil {
+		graphStatusWarning = layoutErr.Error()
+		code := memoryErrorCode(layoutErr)
+		if errors.Is(layoutErr, errLegacyBrainLayout) {
+			code = brainstore.UnsupportedVersionCode
+		}
+		healthIssues = append(healthIssues, memoryHealthIssue{Kind: "brain_layout", Code: code, Action: layoutErr.Error()})
+	}
+	if manifest != nil {
+		if manifest.Sources == nil {
+			manifest.Sources = &brainSources{}
+		}
+		profile := graphStoreProfile(manifest)
+		manifest.Sources.Semantic = nil
+		// Do not replace the old source with a healthy Graph descriptor.
+		if graphStatusWarning == "" {
+			if d, graphErr := fetchGraphStore(ctx, opts, repoDir, "", profile); graphErr != nil {
+				if !errors.Is(graphErr, errGraphStoreUnsupported) && !errors.Is(graphErr, errGraphStoreUnavailable) {
+					graphStatusWarning = "graph store unavailable: " + graphErr.Error()
+				}
+			} else {
+				manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
+			}
+		}
+	}
 	report := brainStatusReport{
 		GeneratedAt: generatedAt,
 		Repo:        brainStatusRepo{Root: repoDir, Key: storage.Key},
@@ -4501,6 +4680,9 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		},
 		Manifest: manifest,
 		Issues:   healthIssues,
+	}
+	if graphStatusWarning != "" {
+		report.Warnings = append(report.Warnings, graphStatusWarning)
 	}
 	if lightweight {
 		report.Integrity = "not_checked"
@@ -4534,7 +4716,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 						continue
 					}
 					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
-						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v", branch, err))
+						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, clibase.BrainInvocation(os.LookupEnv, "refresh")))
 					}
 				}
 			} else {
@@ -4553,7 +4735,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 					Version:      sem.ProviderVersion,
 					Schema:       sem.SchemaVersion,
 					Snapshot:     sem.SnapshotPath,
-					Store:        sem.StorePath,
+					Store:        "graph-owned",
 					Capabilities: sortedStringCopy(sem.Capabilities),
 				},
 			}
@@ -4607,14 +4789,13 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			onboarding.AgentsMissing = missing
 			// Keep the published JSON shape while exposing the same repair
 			// diagnostic to CLI JSON and MCP consumers through warnings.
-			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+setupCommandPrefix(os.LookupEnv)+" init-agents so your agent uses this brain")
+			report.Warnings = append(report.Warnings, "agents not wired: missing "+strings.Join(missing, ", ")+"; run "+clibase.SetupCommandPrefix(os.LookupEnv)+" setup so your agent uses this brain")
 		}
 	}
-	markUnreadableSemanticComponent(&onboarding, semanticFreshnessOf(report))
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
 	if backgroundPaused(opts.Env) {
-		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+setupCommandPrefix(os.LookupEnv)+" start` resumes it")
+		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+clibase.SetupCommandPrefix(os.LookupEnv)+" start` resumes it")
 	}
 	return report, nil
 }
@@ -4623,16 +4804,16 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 	report := &brainStatusRetrieval{}
 	axes := map[string]staleAxis{}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
-		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
+		axes["seed"] = staleAxis{State: "missing", Detail: "no seed source in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		seed := manifest.Sources.Seed
 		report.SeedCommit = seed.Commit
 		report.SeedMode = seed.WorktreeMode
 		switch {
 		case live.Head == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable", Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "current HEAD unavailable, so seed freshness cannot be compared", Remedy: "run `git rev-parse HEAD` here to see why HEAD is unreadable", Indexed: seed.Commit}
 		case seed.Commit != live.Head:
-			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "stale", Detail: "seed and docs are based on an older commit; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeMode != "worktree" && live.Dirty:
 			// CAUSE only, no remedy. This axis is rendered as the `Cause`
 			// line directly under the status verdict, which prints the one
@@ -4644,31 +4825,33 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			axes["seed"] = staleAxis{
 				State:   dirtyUnindexedAxisState,
 				Detail:  "seed and docs are based on committed HEAD and do not include the uncommitted changes in the working tree",
-				Remedy:  setupDirtyWorktreeHint(setupCommandPrefix(os.LookupEnv)),
+				Remedy:  setupDirtyWorktreeHint(clibase.SetupCommandPrefix(os.LookupEnv)),
 				Current: live.Head,
 				Indexed: seed.Commit,
 			}
 		case seed.WorktreeMode != "worktree":
 			axes["seed"] = staleAxis{State: "ok", Detail: "seed and docs match committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case seed.WorktreeHash == "":
-			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint; refresh again with --worktree", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree seed snapshot has no verifiable fingerprint", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild it", Current: live.Head, Indexed: seed.Commit}
 		case !live.Dirty:
-			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Current: live.Head, Indexed: seed.Commit}
+			axes["seed"] = staleAxis{State: "worktree-overlay-stale", Detail: "seed was built from dirty content but the worktree is now clean", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild from committed HEAD", Current: live.Head, Indexed: seed.Commit}
 		case !audit:
-			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Current: live.Head, Indexed: seed.Commit}
+			// `status` is the lightweight surface that produces this axis, so it
+			// must not be the remedy; `overview` runs the audited comparison.
+			axes["seed"] = staleAxis{State: "degraded", Detail: "dirty worktree content match not verified; status does not fingerprint contents", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "overview") + "` for the audited comparison", Current: live.Head, Indexed: seed.Commit}
 		default:
 			currentHash, err := worktreeFingerprint(ctx, runner, repoDir)
 			if err != nil {
-				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Current: live.Head, Indexed: seed.Commit}
+				axes["seed"] = staleAxis{State: "unsafe", Detail: "worktree fingerprint unavailable: " + err.Error(), Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to rebuild the snapshot", Current: live.Head, Indexed: seed.Commit}
 			} else if currentHash != seed.WorktreeHash {
-				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Current: currentHash, Indexed: seed.WorktreeHash}
+				axes["seed"] = staleAxis{State: "dirty-stale", Detail: "dirty worktree changed since seed and docs refresh", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --worktree` to re-index the current changes", Current: currentHash, Indexed: seed.WorktreeHash}
 			} else {
 				axes["seed"] = staleAxis{State: "dirty-indexed", Detail: "seed and docs include the current dirty worktree", Current: currentHash, Indexed: seed.WorktreeHash}
 			}
 		}
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Docs == nil {
-		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"}
+		axes["docs"] = staleAxis{State: "missing", Detail: "no docs index in manifest; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"}
 	} else {
 		docs := manifest.Sources.Docs
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
@@ -4680,17 +4863,19 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			// must not claim "ok" for a docs layer that will contribute nothing.
 			state := "unsafe"
 			detail := "docs index declared in the manifest but unreadable: " + err.Error()
+			remedy := "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"
 			if os.IsNotExist(err) {
 				state = "missing"
-				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none"
+				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
+				remedy = ""
 			}
-			axes["docs"] = staleAxis{State: state, Detail: detail}
+			axes["docs"] = staleAxis{State: state, Detail: detail, Remedy: remedy}
 		} else if docs.GeneratedAt.IsZero() {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index has no generation timestamp", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"}
 		} else if manifest.Sources.Seed == nil {
-			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source"}
+			axes["docs"] = staleAxis{State: "unsafe", Detail: "docs index provenance cannot be checked without a seed source", Remedy: "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild both"}
 		} else if docs.GeneratedAt.Before(manifest.Sources.Seed.GeneratedAt) {
-			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + brainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
+			axes["docs"] = staleAxis{State: "stale", Detail: "docs index predates the current seed; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none", Current: manifest.Sources.Seed.GeneratedAt.Format(time.RFC3339), Indexed: docs.GeneratedAt.Format(time.RFC3339)}
 		} else {
 			axes["docs"] = staleAxis{State: "ok", Detail: "docs index was built from the current seed"}
 		}
@@ -4748,12 +4933,12 @@ func renderFreshnessAxes(out io.Writer, axes map[string]staleAxis) {
 
 func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir string, manifest *exportManifest) (brainLiveState, error) {
 	var live brainLiveState
-	if head, err := gitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
+	if head, err := clibase.GitScalar(ctx, runner, repoDir, "rev-parse", "HEAD"); err == nil {
 		live.Head = head
 	} else {
 		live.Warnings = append(live.Warnings, "HEAD unavailable: "+err.Error())
 	}
-	if branch, err := gitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
+	if branch, err := clibase.GitScalar(ctx, runner, repoDir, "branch", "--show-current"); err == nil {
 		live.Branch = branch
 	} else {
 		live.Warnings = append(live.Warnings, "branch unavailable: "+err.Error())
@@ -4772,7 +4957,16 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	// axis "dirty-unindexed", which reported a clean onboarding as
 	// "freshness: degraded". A successful setup must not end on a red line the
 	// user did not cause.
-	if ignore, ignoreErr := loadBrainIgnore(repoDir); ignoreErr != nil {
+	//
+	// entireAuthoredGatePaths is part of that policy for the same reason: setup
+	// itself writes the agent wiring (AGENTS.md / CLAUDE.md pointer blocks, the
+	// PreToolUse entry in .claude/settings.json) after the user's last commit,
+	// so without the exemption every first run ended on that same red line —
+	// while worktreeDirty, the gate this exemption list was built for, called
+	// the identical tree clean. ChangedFiles below deliberately keeps these
+	// paths: they stay in the indexed corpus, so their staleness is real; only
+	// the dirty VERDICT must not blame the user for files Entire wrote.
+	if ignore, ignoreErr := worktreeGateIgnore(repoDir); ignoreErr != nil {
 		live.Warnings = append(live.Warnings, "ignore rules unavailable: "+ignoreErr.Error())
 	} else {
 		status = filterWorktreeStatus(status, ignore)
@@ -4797,7 +4991,7 @@ func brainLiveStateReport(ctx context.Context, runner CommandRunner, repoDir str
 	// --shortstat path reads content, so such a file is dropped from both.
 	// (The raw `diff-index --name-status` path does NOT read content and would
 	// report it, which is why this swap is safe only for stat output.)
-	if stat, err := gitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
+	if stat, err := clibase.GitScalar(ctx, runner, repoDir, "diff-index", "-M", "--shortstat", "HEAD"); err == nil {
 		live.DiffStat = stat
 	} else {
 		live.Warnings = append(live.Warnings, "diff stat unavailable: "+err.Error())
@@ -4848,25 +5042,15 @@ func parseBrainLiveStatus(status []byte) (staged, unstaged, untracked []string) 
 }
 
 func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifest, idOrName string) (semanticRecord, error) {
-	if source.StorePath != "" {
-		storePath, err := validateSemanticDeclaredStore(brainDir, source)
-		if err != nil {
-			return semanticRecord{}, err
-		}
-		return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
-	}
-	snapshotPath, err := validateSemanticSnapshotPath(source.SnapshotPath)
+	storePath, err := validateSemanticDeclaredStore(brainDir, source)
 	if err != nil {
 		return semanticRecord{}, err
 	}
-	if err := rejectSymlinkPathComponents(brainDir, snapshotPath); err != nil {
-		return semanticRecord{}, err
-	}
-	return findSemanticRecordByIDOrNameSnapshot(filepath.Join(brainDir, snapshotPath), idOrName)
+	return findSemanticRecordByIDOrNameSQLite(storePath, idOrName)
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
-	db, err := sql.Open(sqliteDriverName, sqliteReadOnlyDSN(storePath))
+	db, err := openSemanticReadDB(storePath)
 	if err != nil {
 		return semanticRecord{}, err
 	}
@@ -4882,31 +5066,6 @@ LIMIT 1`, idOrName, idOrName, idOrName, idOrName, idOrName, idOrName)
 		return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 	}
 	return record, nil
-}
-
-func findSemanticRecordByIDOrNameSnapshot(path, idOrName string) (semanticRecord, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return semanticRecord{}, fmt.Errorf("open semantic snapshot: %w", err)
-	}
-	defer f.Close()
-	decoder := json.NewDecoder(f)
-	for {
-		var record semanticRecord
-		if err := decoder.Decode(&record); err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return semanticRecord{}, err
-		}
-		if record.RecordType != "symbol" {
-			continue
-		}
-		if record.ID == idOrName || record.Name == idOrName || record.QualifiedName == idOrName {
-			return record, nil
-		}
-	}
-	return semanticRecord{}, fmt.Errorf("semantic record not found: %s", idOrName)
 }
 
 type brainBriefRawScanObservation struct {
@@ -4941,13 +5100,13 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 		return true
 	}
 	for _, dir := range []string{
-		historyDirName,   // index, generations, staging, overlay, work records
-		factsDirName,     // distilled facts and the distill cache
-		"patterns",       // corpus, runs, derived pattern outputs
-		seedDirName,      // synthesized seed
-		semanticDirName,  // symbol graph snapshots and stores
-		"export",         // export cursor state
-		brainLockDirName, // lock leaves
+		brainstore.HistoryDirName,   // index, generations, staging, overlay, work records
+		factsDirName,                // distilled facts and the distill cache
+		"patterns",                  // corpus, runs, derived pattern outputs
+		seedDirName,                 // synthesized seed
+		semanticDirName,             // symbol graph snapshots and stores
+		"export",                    // export cursor state
+		brainstore.BrainLockDirName, // lock leaves
 	} {
 		if relSlash == dir || strings.HasPrefix(relSlash, dir+"/") {
 			return true
@@ -4971,7 +5130,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	}
 	// Exclusion guard: the raw walk reads exported transcripts, so a
 	// tombstoned session's transcript (kept on exclude, deleted on purge)
-	// must be skipped here. rawGuard.paths is the ONLY exclusion mechanism in
+	// must be skipped here. rawGuard.Paths is the ONLY exclusion mechanism in
 	// this walk (there is no session id to match against a bare file), and it
 	// is populated only from the manifest, so a manifest that fails to load
 	// must fail the scan rather than silently scanning excluded transcripts.
@@ -5010,7 +5169,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
-		if _, excluded := rawGuard.paths[relSlash]; excluded {
+		if _, excluded := rawGuard.Paths[relSlash]; excluded {
 			return nil
 		}
 		report.Scanned++
@@ -5230,7 +5389,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 	// Exclusion guard, identical to inspectBrainRawText's. This is the
 	// shared product and profiling path, so without this a
 	// tombstoned session's transcript would be scanned here and its lines
-	// merged straight into report.History.Matches. rawGuard.paths is the only
+	// merged straight into report.History.Matches. rawGuard.Paths is the only
 	// exclusion mechanism available in a raw file walk, and it is populated
 	// only from the manifest, so an unreadable manifest must fail the scan
 	// rather than scan unguarded. An absent manifest is not an error.
@@ -5278,7 +5437,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		if brainRawScanSkipsDerived(relSlash) {
 			return nil
 		}
-		if _, excluded := rawGuard.paths[relSlash]; excluded {
+		if _, excluded := rawGuard.Paths[relSlash]; excluded {
 			return nil
 		}
 		scannedFiles++
@@ -5484,7 +5643,7 @@ func historyRawLineExcerpt(line, query string) string {
 		}
 	}
 	if idx == -1 {
-		return strings.TrimSpace(truncateString(text, 700))
+		return strings.TrimSpace(clibase.TruncateString(text, 700))
 	}
 	// Lowercasing can change UTF-8 byte widths. Convert the folded offsets
 	// through rune positions before taking a byte-bounded original window.
@@ -5509,7 +5668,7 @@ func historyRawLineExcerpt(line, query string) string {
 	for end < len(text) && !utf8.RuneStart(text[end]) {
 		end++
 	}
-	return strings.TrimSpace(truncateString(text[start:end], 900))
+	return strings.TrimSpace(clibase.TruncateString(text[start:end], 900))
 }
 
 func normalizeHistoryTextForExcerpt(text string) string {
@@ -5548,8 +5707,8 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// history context. The serving boundary loaded it fail-closed before
 	// assembling the brief.
 	var fGuardPred func(historyRecord) bool
-	if !fGuard.empty() {
-		fGuardPred = func(r historyRecord) bool { return !fGuard.blocksRecord(r) }
+	if !fGuard.Empty() {
+		fGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(fGuard, r) }
 	}
 	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a
@@ -5641,26 +5800,4 @@ func agentSurfaceTarget(opts Options, args []string) string {
 		return opts.Env.RepoRoot
 	}
 	return "."
-}
-
-func truncateString(value string, max int) string {
-	if max <= 0 {
-		return ""
-	}
-	if len(value) <= max {
-		return value
-	}
-	// Cut on a rune boundary so we never split a multi-byte UTF-8 rune in
-	// real (non-ASCII) transcripts, which would emit invalid UTF-8.
-	limit := max
-	suffix := ""
-	if max > 3 {
-		limit = max - 3
-		suffix = "..."
-	}
-	cut := limit
-	for cut > 0 && !utf8.RuneStart(value[cut]) {
-		cut--
-	}
-	return value[:cut] + suffix
 }

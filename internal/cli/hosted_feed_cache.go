@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -33,8 +35,8 @@ type hostedFeedState struct {
 // hostedFeedDirForKey resolves the feed cache path for a repo key —
 // <cache>/brain/<key>/hostedfeed — with gitmetaDirForKey's key guards.
 func hostedFeedDirForKey(env EntireEnv, key string) (string, error) {
-	if first, _, _ := strings.Cut(key, "/"); first == workspaceDirName {
-		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspaceDirName, key)
+	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
+		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
 	}
 	dirs, err := resolvePluginDirs(env)
 	if err != nil {
@@ -110,12 +112,12 @@ func writeHostedFeedCache(dir string, state hostedFeedState, items map[string]fa
 		records.Write(line)
 		records.WriteByte('\n')
 	}
-	if err := writeFileAtomic(filepath.Join(dir, hostedFeedRecordsFile), []byte(records.String()), 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(dir, hostedFeedRecordsFile), []byte(records.String()), 0o600); err != nil {
 		return err
 	}
 	stateData, err := json.Marshal(state)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(dir, hostedFeedStateFile), append(stateData, '\n'), 0o600)
+	return brainstore.WriteFileAtomic(filepath.Join(dir, hostedFeedStateFile), append(stateData, '\n'), 0o600)
 }

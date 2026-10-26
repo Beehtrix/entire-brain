@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,7 +76,7 @@ func TestConversationSessionRefIdentity(t *testing.T) {
 	if !degraded || refDegraded == ref1 {
 		t.Fatalf("missing session id must degrade to the digest identity: %s", refDegraded)
 	}
-	if !strings.HasPrefix(ref1, conversationSessionIDPrefix) {
+	if !strings.HasPrefix(ref1, brainstore.ConversationSessionIDPrefix) {
 		t.Fatalf("ref format: %s", ref1)
 	}
 }
@@ -87,7 +88,7 @@ func TestConversationSearchCarriesSessionRef(t *testing.T) {
 		t.Fatalf("search: %v (%d)", err, len(results))
 	}
 	for _, result := range results {
-		if !strings.HasPrefix(result.SessionRef, conversationSessionIDPrefix) {
+		if !strings.HasPrefix(result.SessionRef, brainstore.ConversationSessionIDPrefix) {
 			t.Fatalf("search hit missing session_ref: %+v", result)
 		}
 	}
@@ -209,9 +210,9 @@ func TestConversationNavigationArgumentContract(t *testing.T) {
 	}
 
 	// A tombstoned session is unreadable through navigation immediately.
-	stones := loadSessionTombstones(brainDir)
+	stones := brainstore.LoadSessionTombstones(brainDir)
 	stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC()}
-	if err := saveSessionTombstones(brainDir, stones); err != nil {
+	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
 		t.Fatal(err)
 	}
 	_, missing, err := getUnifiedBatchOptions("", brainDir, "main", []string{sessionID}, getOptions{})
@@ -222,7 +223,7 @@ func TestConversationNavigationArgumentContract(t *testing.T) {
 
 func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	brainDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(brainDir, historyDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	generated := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)

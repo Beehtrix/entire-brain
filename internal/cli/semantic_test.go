@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"io"
 	"os"
 	"path/filepath"
@@ -66,7 +67,7 @@ func TestSemanticIndexAcceptsEntireProxyOrigin(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 
-	manifestPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", exportManifestFileName)
+	manifestPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", exportManifestFileName)
 	if _, err := os.Stat(manifestPath); err != nil {
 		t.Fatalf("manifest under canonical proxy path: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestSemanticRefreshAllBranchesWritesBoundedReport(t *testing.T) {
 	if err := runSemanticRefreshAllBranches((&cobra.Command{}).Context(), opts, refreshCommandOptions{semantic: true}, repoDir); err != nil {
 		t.Fatalf("refresh all branches: %v", err)
 	}
-	reportPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "all-branches.json")
+	reportPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "all-branches.json")
 	data, err := os.ReadFile(reportPath)
 	if err != nil {
 		t.Fatalf("read branch report: %v", err)
@@ -198,10 +199,10 @@ func TestSemanticRefreshAllBranchesWritesBoundedReport(t *testing.T) {
 	if !strings.Contains(string(data), `"branch": "old"`) || !strings.Contains(string(data), `"reason": "older_than_30d"`) {
 		t.Fatalf("old branch skip missing from report:\n%s", data)
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "base111..recent111.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "base111..recent111.json")); err != nil {
 		t.Fatalf("branch overlay was not written: %v", err)
 	}
-	overlayData, err := os.ReadFile(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "base111..recent111.json"))
+	overlayData, err := os.ReadFile(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, "overlays", "base111..recent111.json"))
 	if err != nil {
 		t.Fatalf("read branch overlay: %v", err)
 	}
@@ -623,7 +624,7 @@ func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T
 	if !strings.Contains(out, "reset code index") {
 		t.Fatalf("reset output = %q", out)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if _, err := os.Stat(filepath.Join(brainDir, semanticDirName)); !os.IsNotExist(err) {
 		t.Fatalf("semantic dir still exists: %v", err)
 	}
@@ -644,7 +645,7 @@ func TestSemanticResetForceLeavesEmptyBrainDirectory(t *testing.T) {
 	if _, err := execute(t, cmd, "refresh", "index", "--graph-binary", "entire"); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if _, err := execute(t, cmd, "reset", "--force"); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
@@ -758,7 +759,7 @@ func TestSemanticIndexReportsReadOnlyBrainDirectory(t *testing.T) {
 	}
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	brainRoot := filepath.Join(env.PluginDataDir, repoStoreDirName)
+	brainRoot := filepath.Join(env.PluginDataDir, base.RepoStoreDirName)
 	if err := os.MkdirAll(brainRoot, 0o500); err != nil {
 		t.Fatalf("mkdir brain root: %v", err)
 	}
@@ -808,7 +809,7 @@ func TestBundleExportSanitizesLegacyManifestWarnings(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
@@ -842,7 +843,7 @@ func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
+	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -892,7 +893,7 @@ func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
+	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -914,7 +915,7 @@ func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
+	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -1395,7 +1396,7 @@ func TestSemanticImpactReturnsRelationsWhenRootsFillLimit(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	roots, symbols, relations, err := semanticImpactFacts(brainDir, graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], ""), "ValidateToken", 1, 1)
 	if err != nil {
 		t.Fatalf("impact facts: %v", err)
@@ -1432,7 +1433,7 @@ func TestSemanticChangesMapsChangedFilesToSymbols(t *testing.T) {
 	if !strings.Contains(out.String(), `"internal/auth/token.go"`) || !strings.Contains(out.String(), `"ValidateToken"`) {
 		t.Fatalf("changes JSON missing symbol:\n%s", out.String())
 	}
-	reportPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")
+	reportPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, "changes", "latest.json")
 	if _, err := os.Stat(reportPath); !os.IsNotExist(err) {
 		t.Fatalf("default changes unexpectedly wrote report: %v", err)
 	}
@@ -1497,7 +1498,7 @@ func TestSemanticChangesDefaultDoesNotAcquireIndexLock(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	lockDir := filepath.Join(brainDir, semanticLockDir)
 	if err := os.Remove(filepath.Join(lockDir, semanticIndexLockName)); err != nil {
 		t.Fatalf("remove index lock file: %v", err)
@@ -1748,7 +1749,7 @@ func TestSemanticContextSQLiteFiltersRelationsBeforeLimit(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	symbols, relations, _, err := semanticContextFacts(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"), graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], ""), "ValidateToken", 1, 0)
+	symbols, relations, _, err := semanticContextFacts(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"), graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], ""), "ValidateToken", 1, 0)
 	if err != nil {
 		t.Fatalf("context facts: %v", err)
 	}
@@ -1777,8 +1778,8 @@ func TestSemanticContextMaterializesNeighbors(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	source := graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	source := graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	symbols, relations, neighbors, err := semanticContextFacts(brainDir, source, "ValidateToken", 1, 0)
 	if err != nil {
 		t.Fatalf("context facts: %v", err)
@@ -1954,7 +1955,7 @@ func TestSemanticResponsesIncludeTrust(t *testing.T) {
 func TestSemanticIndexLockFailsFast(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
@@ -1966,7 +1967,7 @@ func TestSemanticIndexLockFailsFast(t *testing.T) {
 func TestSemanticIndexIgnoresStaleLockFile(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	lockDir := filepath.Join(brainDir, semanticLockDir)
 	if err := os.MkdirAll(lockDir, 0o700); err != nil {
 		t.Fatalf("mkdir lock: %v", err)
@@ -1984,7 +1985,7 @@ func TestSemanticIndexRejectsSymlinkedLockDirectory(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	external := t.TempDir()
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatalf("mkdir brain: %v", err)
@@ -2005,7 +2006,7 @@ func TestSemanticIndexRejectsSymlinkedBrainRoot(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(filepath.Dir(brainDir), 0o700); err != nil {
 		t.Fatalf("mkdir brain parent: %v", err)
 	}
@@ -2026,7 +2027,7 @@ func TestSemanticIndexRejectsSymlinkedBrainParent(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	parent := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh")
+	parent := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh")
 	if err := os.MkdirAll(parent, 0o700); err != nil {
 		t.Fatalf("mkdir brain parent: %v", err)
 	}
@@ -2047,7 +2048,7 @@ func TestSemanticIndexRejectsSymlinkedSnapshotDestination(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	snapshotsParent := filepath.Join(brainDir, semanticDirName)
 	if err := os.MkdirAll(snapshotsParent, 0o700); err != nil {
 		t.Fatalf("mkdir semantic dir: %v", err)
@@ -2066,7 +2067,7 @@ func TestBundleExportLockFailsFast(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
 
 	err := runSemanticBundleExport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle export"}, Options{Env: env, Runner: runner, Now: time.Now}, filepath.Join(t.TempDir(), "brain.tar"), false)
@@ -2084,7 +2085,7 @@ func TestSemanticReadCommandsDoNotRequireExclusiveIndexLock(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
 
 	for _, tc := range []struct {
@@ -2140,7 +2141,7 @@ func TestBundleImportLockFailsFast(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	writeSemanticTestLock(t, brainDir)
 	archive := filepath.Join(t.TempDir(), "semantic.tar")
 	writeTestBundle(t, archive, map[string]string{
@@ -2256,7 +2257,7 @@ func TestBundleExportExcludesLocalAuditLog(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := appendSemanticAudit(brainDir, "bundle_export", "/local/path/brain.tar", "abc"); err != nil {
 		t.Fatalf("append audit: %v", err)
 	}
@@ -2280,7 +2281,7 @@ func TestBundleExportRejectsSymlinkedAuditLog(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
 	if err := os.Remove(auditPath); err != nil && !os.IsNotExist(err) {
 		t.Fatalf("remove audit: %v", err)
@@ -2310,7 +2311,7 @@ func TestBundleExportRejectsOutputInsideBrainDir(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	output := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, semanticBundleDir, "export.tar")
+	output := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, semanticBundleDir, "export.tar")
 	err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false)
 	if err == nil || !strings.Contains(err.Error(), "outside the active brain directory") {
 		t.Fatalf("export err = %v", err)
@@ -2326,7 +2327,7 @@ func TestBundleExportRejectsSymlinkAncestorIntoBrainDir(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	link := filepath.Join(t.TempDir(), "link-to-brain")
 	if err := os.Symlink(brainDir, link); err != nil {
 		t.Fatalf("symlink to brain: %v", err)
@@ -2346,7 +2347,7 @@ func TestBundleExportRejectsSymlinkOutputIntoBrainDir(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	target := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", semanticDirName, semanticSnapshotsDir, "self.tar")
+	target := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", semanticDirName, semanticSnapshotsDir, "self.tar")
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		t.Fatalf("mkdir target: %v", err)
 	}
@@ -2372,7 +2373,7 @@ func TestBundleExportRejectsHardLinkedOutputToBrainFile(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 
 	snapshotPath := filepath.Join(brainDir, exportManifestFileName)
 	before, err := os.ReadFile(snapshotPath)
@@ -2451,7 +2452,7 @@ func TestBundleImportRejectsSymlinkedAuditLog(t *testing.T) {
 		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0o700); err != nil {
 		t.Fatalf("mkdir audit dir: %v", err)
@@ -2484,7 +2485,7 @@ func TestBundleExportUsesSanitizedManifest(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	manifest, err := loadBrainManifest(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
@@ -2707,7 +2708,7 @@ func TestBundleImportRejectsUnreferencedSnapshots(t *testing.T) {
 	if !errors.Is(err, errLegacyBrainLayout) {
 		t.Fatalf("expected old-layout error: %v", err)
 	}
-	extraPath := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo", "semantic", "snapshots", "extra", "snapshot.ndjson")
+	extraPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", "semantic", "snapshots", "extra", "snapshot.ndjson")
 	if _, err := os.Stat(extraPath); !os.IsNotExist(err) {
 		t.Fatalf("unreferenced snapshot was persisted: %v", err)
 	}
@@ -2781,7 +2782,7 @@ func semanticTestSQLCount(t *testing.T, path, table string) int {
 
 func mustSemanticSource(t *testing.T, env EntireEnv) *semanticSourceManifest {
 	t.Helper()
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo"))
+	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

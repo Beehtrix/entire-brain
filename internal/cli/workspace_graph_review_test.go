@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +65,7 @@ func TestWorkspaceGraphDegradedMemberKeepsHealthyEdges(t *testing.T) {
 		indexWorkspaceGraphRepo(t, &cobra.Command{Use: "index"}, opts, runner, repo, key, "HandleShared"+name)
 		manifest.Repos = append(manifest.Repos, workspace.Repo{RepoKey: key, LocalPathHint: repo})
 		if name == "Broken" {
-			brainDir, err := brainDirForKey(env, key)
+			brainDir, err := base.BrainDirForKey(env, key)
 			if err != nil {
 				t.Fatal(err)
 			}

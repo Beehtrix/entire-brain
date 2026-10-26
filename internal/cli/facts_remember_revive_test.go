@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -19,7 +20,7 @@ func rememberReviveEnv(t *testing.T, now time.Time) (Options, string, string) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
 	opts := Options{Version: "test", Env: env, Runner: semanticFixtureRunner(repoDir, ""), Now: func() time.Time { return now }}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	return opts, brainDir, "feature" // the fixture runner reports "feature" as the current branch
 }
 

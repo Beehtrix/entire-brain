@@ -15,7 +15,7 @@ import (
 // Reverting setup_render.go's Next block to string literals still compiles, and
 // fails here.
 func TestSetupPrintsTheCommandTheReaderTyped(t *testing.T) {
-	t.Setenv(envCLIVersion, "1.2.3")
+	t.Setenv(base.EnvCLIVersion, "1.2.3")
 	f := newSetupTestFixture(t)
 	printed := runSetupForTest(t, f, defaultSetupOptions(), &recordedSetup{})
 
@@ -37,7 +37,7 @@ func TestSetupPrintsTheCommandTheReaderTyped(t *testing.T) {
 // a reader who ran this binary directly may not have the Entire CLI at all, so
 // the standalone name stays the honest answer.
 func TestSetupKeepsTheStandaloneSpellingWithoutTheHostSignal(t *testing.T) {
-	t.Setenv(envCLIVersion, "")
+	t.Setenv(base.EnvCLIVersion, "")
 	f := newSetupTestFixture(t)
 	printed := runSetupForTest(t, f, defaultSetupOptions(), &recordedSetup{})
 

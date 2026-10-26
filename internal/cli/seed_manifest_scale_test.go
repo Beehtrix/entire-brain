@@ -146,7 +146,7 @@ func TestSeedOnAManyCommitRepositoryLeavesAReadableManifest(t *testing.T) {
 		t.Fatalf("seed on a 50,000-commit repository failed: %v\n%s", err, out)
 	}
 
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {
 		t.Fatalf("stat manifest: %v", err)

@@ -48,11 +48,11 @@ func seedMemberCorpus(t *testing.T, brainDir, repoKey, intentSig string, count i
 
 func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, err := brainDirForKey(env, "gh/acme/a")
+	aDir, err := base.BrainDirForKey(env, "gh/acme/a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bDir, err := brainDirForKey(env, "gh/acme/b")
+	bDir, err := base.BrainDirForKey(env, "gh/acme/b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,8 +113,8 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 
 func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
@@ -186,8 +186,8 @@ func TestSplitWorkspaceIDPattern(t *testing.T) {
 // contributing to a cross-repo aggregate.
 func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
@@ -244,8 +244,8 @@ func workspaceHasDeploy(t *testing.T, wsDir string) bool {
 // stale verdict cannot join onto a newly-rebuilt pattern with the same stable id.
 func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
@@ -309,8 +309,8 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 // run, mirroring the repo corpus build.
 func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
@@ -335,7 +335,7 @@ func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
 
 func TestWorkspaceCorpusHandlesMissingMember(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	// gh/acme/missing has no corpus on disk.
 	manifest := workspace.Manifest{

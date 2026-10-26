@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ func mcpScopeTestOptions(t *testing.T, repoDir string) (Options, EntireEnv) {
 // an exported session) for repoKey, so a delete is observably destructive.
 func writeScopeTestBrain(t *testing.T, env EntireEnv, repoKey string) string {
 	t.Helper()
-	brainDir, err := brainDirForKey(env, repoKey)
+	brainDir, err := base.BrainDirForKey(env, repoKey)
 	if err != nil {
 		t.Fatalf("brain dir for %s: %v", repoKey, err)
 	}

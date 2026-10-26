@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"io"
 	"strings"
 	"testing"
@@ -69,16 +70,16 @@ func TestPrintMCPServerConfigBindsARepository(t *testing.T) {
 	opts, boundDir, _ := workspaceSiblingFixture(t, "printed")
 
 	env := mcpPrintedServerEnv(t, opts)
-	root, ok := env[envRepoRoot]
+	root, ok := env[base.EnvRepoRoot]
 	if !ok {
-		t.Fatalf("printed env must set %s, got %#v", envRepoRoot, env)
+		t.Fatalf("printed env must set %s, got %#v", base.EnvRepoRoot, env)
 	}
 	want, err := canonicalLocalRepoRoot(boundDir)
 	if err != nil {
 		t.Fatalf("canonical repository root: %v", err)
 	}
 	if root != want {
-		t.Fatalf("printed %s = %q, want the canonical repository root %q", envRepoRoot, root, want)
+		t.Fatalf("printed %s = %q, want the canonical repository root %q", base.EnvRepoRoot, root, want)
 	}
 }
 
@@ -96,13 +97,13 @@ func TestPrintMCPServerConfigOmitsABindingOutsideARepository(t *testing.T) {
 	}
 
 	env := mcpPrintedServerEnv(t, opts)
-	if root, ok := env[envRepoRoot]; ok {
-		t.Fatalf("a non-repository must print no %s binding, got %q", envRepoRoot, root)
+	if root, ok := env[base.EnvRepoRoot]; ok {
+		t.Fatalf("a non-repository must print no %s binding, got %q", base.EnvRepoRoot, root)
 	}
 	// The STORE is a different thing from the BINDING and is still printed: it
 	// says which brain to read, not which repository to serve, and a host that
 	// prunes the environment needs it either way.
-	if _, ok := env[envPluginDataDir]; !ok {
+	if _, ok := env[base.EnvPluginDataDir]; !ok {
 		t.Errorf("the store binding must survive a missing repository binding, got %#v", env)
 	}
 }
@@ -123,7 +124,7 @@ func TestPrintedMCPConfigMakesEveryScopedToolReachable(t *testing.T) {
 
 	hostOpts := opts
 	hostOpts.Env = opts.Env
-	hostOpts.Env.RepoRoot = mcpPrintedServerEnv(t, opts)[envRepoRoot]
+	hostOpts.Env.RepoRoot = mcpPrintedServerEnv(t, opts)[base.EnvRepoRoot]
 
 	for _, tool := range mcpRepoScopedTools {
 		response := mcpScopeCall(t, hostOpts, tool, mcpBoundScopeToolArgs(t, hostOpts, tool, "printed"))
@@ -169,10 +170,10 @@ func TestMCPUnboundScopeRefusalNamesRepoRootBeforeTheOptOut(t *testing.T) {
 
 	for _, tool := range mcpBoundAnchorTools {
 		message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, tool, scopeToolArgs(tool, "unbound")))
-		root := strings.Index(message, envRepoRoot)
+		root := strings.Index(message, base.EnvRepoRoot)
 		gate := strings.Index(message, mcpAllowCrossRepoEnv)
 		if root < 0 {
-			t.Fatalf("%s: an unbound server's refusal must name %s, the setting that actually fixes it: %s", tool, envRepoRoot, message)
+			t.Fatalf("%s: an unbound server's refusal must name %s, the setting that actually fixes it: %s", tool, base.EnvRepoRoot, message)
 		}
 		if gate < 0 {
 			t.Fatalf("%s: refusal must still name the opt-out %s: %s", tool, mcpAllowCrossRepoEnv, message)
@@ -195,7 +196,7 @@ func TestMCPCrossRepoRefusalStillNamesTheBoundRepositoryAndTheGate(t *testing.T)
 
 	message := mcpScopeErrorMessage(t, mcpScopeCall(t, opts, "brain_delete_project",
 		map[string]any{"repo_key": victimKey, "confirm": true}))
-	for _, want := range []string{mcpAllowCrossRepoEnv, envRepoRoot, "names a different project"} {
+	for _, want := range []string{mcpAllowCrossRepoEnv, base.EnvRepoRoot, "names a different project"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("cross-repo refusal must mention %q: %s", want, message)
 		}

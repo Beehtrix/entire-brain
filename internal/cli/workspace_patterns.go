@@ -178,7 +178,7 @@ func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatter
 	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := clibase.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: %v", repo.RepoKey, err))
 			continue

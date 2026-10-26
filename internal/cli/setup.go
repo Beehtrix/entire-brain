@@ -1716,12 +1716,12 @@ func setupChildEnv(env EntireEnv, repoDir string) []string {
 }
 
 func setupPluginEnv(env EntireEnv, repoDir string) map[string]string {
-	values := map[string]string{envRepoRoot: repoDir}
+	values := map[string]string{base.EnvRepoRoot: repoDir}
 	for key, value := range map[string]string{
-		envPluginConfigDir: env.PluginConfigDir,
-		envPluginDataDir:   env.PluginDataDir,
-		envPluginStateDir:  env.PluginStateDir,
-		envPluginCacheDir:  env.PluginCacheDir,
+		base.EnvPluginConfigDir: env.PluginConfigDir,
+		base.EnvPluginDataDir:   env.PluginDataDir,
+		base.EnvPluginStateDir:  env.PluginStateDir,
+		base.EnvPluginCacheDir:  env.PluginCacheDir,
 	} {
 		if strings.TrimSpace(value) != "" {
 			values[key] = value
@@ -1757,7 +1757,7 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve home directory: %w", err)
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve plugin state dir: %w", err)
 	}
@@ -1769,7 +1769,7 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 		LogPath:    filepath.Join(dirs.State, "logs", setupDaemonLogFile),
 		Env:        daemonEnv(opts.Env),
 	}
-	plan, err := planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
+	plan, err := planBrainWatchDaemon(goos, home, os.Getenv(base.XDGConfigHome), os.Getenv(envDaemonUnitDir), spec)
 	if err != nil {
 		return daemonPlan{}, err
 	}
@@ -1819,10 +1819,10 @@ func brainWatchDaemonArgs(setupCommandOptions) []string {
 func daemonEnv(env EntireEnv) map[string]string {
 	values := map[string]string{}
 	for key, value := range map[string]string{
-		envPluginConfigDir: env.PluginConfigDir,
-		envPluginDataDir:   env.PluginDataDir,
-		envPluginStateDir:  env.PluginStateDir,
-		envPluginCacheDir:  env.PluginCacheDir,
+		base.EnvPluginConfigDir: env.PluginConfigDir,
+		base.EnvPluginDataDir:   env.PluginDataDir,
+		base.EnvPluginStateDir:  env.PluginStateDir,
+		base.EnvPluginCacheDir:  env.PluginCacheDir,
 	} {
 		if strings.TrimSpace(value) != "" {
 			values[key] = value

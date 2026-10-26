@@ -455,7 +455,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (every %s, max-sessions=%s, run-budget=%s)\n",
 			manifest.Name, len(manifest.Repos), w.distill, w.distillEvery,
 			watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
-		dirs, err := resolvePluginDirs(opts.Env)
+		dirs, err := base.ResolvePluginDirs(opts.Env)
 		if err != nil {
 			return err
 		}
@@ -712,7 +712,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceContextResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return err
 		}
@@ -770,7 +770,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceImpactResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return err
 		}
@@ -883,7 +883,7 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		freshness := workspaceRepoFreshnessForRepo(ctx, opts, repo)
 		result := workspaceGraphResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness}
 		repoIndex := workspace.RepoGraphIndex{RepoKey: repo.RepoKey}
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return workspaceGraphPayload{}, err
 		}
@@ -989,7 +989,7 @@ func writeWorkspaceGraphPayload(env EntireEnv, payload workspaceGraphPayload) (s
 	if err != nil {
 		return "", err
 	}
-	rel := filepath.ToSlash(filepath.Join(workspace.DirName, payload.Workspace, workspaceGraphName))
+	rel := filepath.ToSlash(filepath.Join(base.WorkspacesDirName, payload.Workspace, workspaceGraphName))
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", err
@@ -1039,12 +1039,12 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if err != nil {
 		return err
 	}
-	dirs, dirsErr := resolvePluginDirs(opts.Env)
+	dirs, dirsErr := base.ResolvePluginDirs(opts.Env)
 	var results []workspaceRetrieveResult
 	for _, repo := range manifest.Repos {
 		freshness := workspaceRepoFreshnessForRepo(cmd.Context(), opts, repo)
 		result := workspaceRetrieveResult{RepoKey: repo.RepoKey, Name: repo.Name, Freshness: freshness, Results: []unifiedResult{}}
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			return err
 		}
@@ -1110,7 +1110,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if results[i].RepoKey == manifest.Name {
 				continue
 			}
-			brainDir, brainErr := brainDirForKey(opts.Env, results[i].RepoKey)
+			brainDir, brainErr := base.BrainDirForKey(opts.Env, results[i].RepoKey)
 			if brainErr != nil {
 				return brainErr
 			}
@@ -1190,7 +1190,7 @@ func captureWorkspaceRetrievalPrivacyPolicies(env EntireEnv, manifest workspace.
 		if _, exists := byRepo[repo.RepoKey]; exists {
 			continue
 		}
-		brainDir, err := brainDirForKey(env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(env, repo.RepoKey)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1320,10 +1320,10 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 	if wsResult != nil {
 		results = append(results, *wsResult)
 	}
-	dirs, dirsErr := resolvePluginDirs(opts.Env)
+	dirs, dirsErr := base.ResolvePluginDirs(opts.Env)
 	for _, repoKey := range repoOrder {
 		result := workspaceGetResult{RepoKey: repoKey, Results: []unifiedResult{}, Missing: []string{}}
-		brainDir, err := brainDirForKey(opts.Env, repoKey)
+		brainDir, err := base.BrainDirForKey(opts.Env, repoKey)
 		if err != nil {
 			return err
 		}
@@ -1550,7 +1550,7 @@ func splitWorkspaceID(qualified string) (repoKey, id string, err error) {
 // member's failure never aborts the others. refreshRepo is injected so the
 // fan-out is testable without a real refresh (matching workspaceWatchLoop).
 func workspaceFullRefresh(ctx context.Context, out io.Writer, opts Options, manifest workspace.Manifest, refreshRepo func(repoDir string) error) error {
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
@@ -1600,7 +1600,7 @@ func workspaceFreshness(ctx context.Context, opts Options, manifest workspace.Ma
 
 func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo workspace.Repo) workspace.RepoFreshness {
 	status := workspace.RepoFreshness{RepoKey: repo.RepoKey, Name: repo.Name}
-	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+	brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
 		status.State = "unsafe"
 		status.Detail = err.Error()
@@ -1780,7 +1780,7 @@ func newWorkspaceListCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
@@ -1789,8 +1789,8 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	// bulk-migration path for old installs).
 	names := map[string]struct{}{}
 	for _, root := range []string{
-		filepath.Join(dirs.Data, workspace.DirName),
-		filepath.Join(dirs.Data, repoStoreDirName, workspace.DirName),
+		filepath.Join(dirs.Data, base.WorkspacesDirName),
+		filepath.Join(dirs.Data, base.RepoStoreDirName, base.WorkspacesDirName),
 	} {
 		entries, err := os.ReadDir(root)
 		if err != nil {
@@ -1994,7 +1994,7 @@ func workspaceRepoBlockNeedsHeader(state string, anomalies, warnings int, errTex
 // cannot tell "compared the tree and found nothing wrong" from "never opened a file", and the
 // review summary went on to assert the first. See workspaceReviewSummary.
 func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo workspace.Repo, ro regressionDetectorOptions, query string) (string, []regressionAnomaly, int, []string, bool, string) {
-	brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+	brainDir, err := base.BrainDirForKey(opts.Env, repo.RepoKey)
 	if err != nil {
 		return "", nil, 0, nil, false, err.Error()
 	}
@@ -2332,7 +2332,7 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 	}
 	members := make([]memberSource, 0, len(manifest.Repos))
 	for _, repo := range manifest.Repos {
-		brainDir, err := brainDirForKey(env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(env, repo.RepoKey)
 		if err != nil {
 			return "", err
 		}

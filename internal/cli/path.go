@@ -72,7 +72,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 	if pathOpts.ensure {
 		slugForHost = repoDomainSlug
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
@@ -89,7 +89,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if !ok {
 			return err
 		}
-		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		brainDir, dirErr := base.BrainDirForKey(opts.Env, key)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -133,7 +133,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		// answer to the same reserved-segment and symlink refusals. A path this
 		// helper refuses is one no other verb will read or write, so printing it
 		// hands the caller a location the tool does not honour.
-		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		brainDir, dirErr := base.BrainDirForKey(opts.Env, key)
 		if dirErr != nil {
 			return dirErr
 		}

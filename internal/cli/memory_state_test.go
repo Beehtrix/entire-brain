@@ -221,12 +221,12 @@ func TestMemoryNotifyIgnoresWorkerOriginBeforeRepoResolution(t *testing.T) {
 func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 	environ := []string{
 		"PATH=/bin",
-		envRepoRoot + "=/repo/a",
+		base.EnvRepoRoot + "=/repo/a",
 		memoryWorkerOriginEnv + "=0",
-		envRepoRoot + "=/repo/stale",
+		base.EnvRepoRoot + "=/repo/stale",
 	}
 	got := memoryWorkerChildEnvironment(environ, "/repo/b")
-	wantValues := map[string]string{envRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
+	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
 	counts := map[string]int{}
 	values := map[string]string{}
 	for _, entry := range got {

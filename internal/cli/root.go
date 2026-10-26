@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"io"
 	"os"
 	"reflect"
@@ -23,7 +24,7 @@ import (
 func Execute(version string) error {
 	cmd := NewRootCommand(Options{
 		Version: version,
-		Env:     EnvFromOS(),
+		Env:     base.EnvFromOS(),
 	})
 	err := cmd.Execute()
 	if err != nil && commandErrorWasRendered(err) {

@@ -1,13 +1,13 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/entireio/entire-brain/factmerge"
-	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -77,7 +77,7 @@ func TestHostedFeedCacheSkipsCorruptLines(t *testing.T) {
 
 func TestHostedFeedDirForKeyRejectsReservedSegment(t *testing.T) {
 	env := EntireEnv{PluginCacheDir: t.TempDir()}
-	if _, err := hostedFeedDirForKey(env, workspace.DirName+"/acme/widgets"); err == nil || !strings.Contains(err.Error(), "reserved") {
+	if _, err := hostedFeedDirForKey(env, base.WorkspacesDirName+"/acme/widgets"); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("want reserved-segment error, got %v", err)
 	}
 }

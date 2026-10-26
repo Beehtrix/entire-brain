@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ func TestMain(m *testing.M) {
 
 func TestTestMainPinsXDGRoots(t *testing.T) {
 	var root string
-	for _, key := range []string{xdgConfigHome, xdgDataHome, xdgStateHome, xdgCacheHome} {
+	for _, key := range []string{base.XDGConfigHome, base.XDGDataHome, base.XDGStateHome, base.XDGCacheHome} {
 		dir := os.Getenv(key)
 		if !filepath.IsAbs(dir) || filepath.Base(dir) != key {
 			t.Fatalf("%s = %q, want an absolute per-run root", key, dir)
@@ -33,7 +34,7 @@ func TestTestMainPinsXDGRoots(t *testing.T) {
 			t.Fatalf("%s = %q, want a child of the shared temporary root %q", key, dir, root)
 		}
 	}
-	dirs, err := resolvePluginDirs(EntireEnv{})
+	dirs, err := base.ResolvePluginDirs(EntireEnv{})
 	if err != nil {
 		t.Fatal(err)
 	}

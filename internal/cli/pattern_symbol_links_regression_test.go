@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,7 +37,7 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if err := runSemanticIndex(context.Background(), &cobra.Command{}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repo); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := brainDirForKey(env, "gh/example/repo")
+	dir, err := base.BrainDirForKey(env, "gh/example/repo")
 	if err != nil {
 		t.Fatal(err)
 	}

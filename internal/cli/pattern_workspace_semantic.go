@@ -74,7 +74,7 @@ func proposeWorkspaceFamilies(ctx context.Context, env EntireEnv, manifest works
 
 func proposeWorkspaceFamiliesInDB(ctx context.Context, db *sql.DB, env EntireEnv, manifest workspace.Manifest, repoDir, agent, model, effort string, run base.DistillAgentRunner, now time.Time) (patterncore.VerifyStats, error) {
 	return patterncore.ProposeWorkspaceFamilies(db, manifest, func(repoKey string) ([]map[string]any, error) {
-		memberDir, err := brainDirForKey(env, repoKey)
+		memberDir, err := base.BrainDirForKey(env, repoKey)
 		if err != nil {
 			return nil, nil
 		}

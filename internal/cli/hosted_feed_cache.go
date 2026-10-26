@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -35,15 +35,15 @@ type hostedFeedState struct {
 // hostedFeedDirForKey resolves the feed cache path for a repo key —
 // <cache>/brain/<key>/hostedfeed — with gitmetaDirForKey's key guards.
 func hostedFeedDirForKey(env EntireEnv, key string) (string, error) {
-	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
-		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
+	if first, _, _ := strings.Cut(key, "/"); first == base.WorkspacesDirName {
+		return "", fmt.Errorf("repo key uses the reserved %q segment: %s", base.WorkspacesDirName, key)
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", err
 	}
 	root := filepath.Join(dirs.Cache, "brain")
-	if err := rejectBrainRootPathSymlinks(root, filepath.FromSlash(key)); err != nil {
+	if err := base.RejectBrainRootPathSymlinks(root, filepath.FromSlash(key)); err != nil {
 		return "", err
 	}
 	return filepath.Join(root, filepath.FromSlash(key), "hostedfeed"), nil

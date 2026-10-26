@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
@@ -32,7 +33,7 @@ func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map
 	}
 	ids := map[string]string{}
 	for i, repo := range manifest.Repos {
-		brainDir, err := brainDirForKey(env, repo.RepoKey)
+		brainDir, err := base.BrainDirForKey(env, repo.RepoKey)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +90,7 @@ func TestRetrieveRootRouteSourceIsolationNoResultsAndLimit(t *testing.T) {
 
 func mustBrainDirForKey(t *testing.T, env EntireEnv, key string) string {
 	t.Helper()
-	dir, err := brainDirForKey(env, key)
+	dir, err := base.BrainDirForKey(env, key)
 	if err != nil {
 		t.Fatal(err)
 	}

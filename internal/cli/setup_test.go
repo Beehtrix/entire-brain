@@ -1078,10 +1078,10 @@ func TestSetupChildEnvCarriesPluginDirs(t *testing.T) {
 	t.Parallel()
 	env := EntireEnv{PluginDataDir: "/data", PluginStateDir: "/state"}
 	values := setupPluginEnv(env, "/repo")
-	if values[envPluginDataDir] != "/data" || values[envPluginStateDir] != "/state" || values[envRepoRoot] != "/repo" {
+	if values[base.EnvPluginDataDir] != "/data" || values[base.EnvPluginStateDir] != "/state" || values[base.EnvRepoRoot] != "/repo" {
 		t.Fatalf("detached child must inherit the plugin store it was launched against: %+v", values)
 	}
-	if _, ok := values[envPluginConfigDir]; ok {
+	if _, ok := values[base.EnvPluginConfigDir]; ok {
 		t.Fatalf("unset dirs must not be forwarded as empty: %+v", values)
 	}
 }
@@ -1094,8 +1094,8 @@ func TestSetupChildEnvCarriesPluginDirs(t *testing.T) {
 // append order load-bearing.
 func TestSetupChildEnvMergesTheProcessEnvironment(t *testing.T) {
 	t.Setenv("ENTIRE_SETUP_CHILD_ENV_MARKER", "inherited")
-	t.Setenv(envPluginStateDir, "/stale-from-parent")
-	t.Setenv(envRepoRoot, "/stale-repo")
+	t.Setenv(base.EnvPluginStateDir, "/stale-from-parent")
+	t.Setenv(base.EnvRepoRoot, "/stale-repo")
 
 	got := setupChildEnv(EntireEnv{PluginStateDir: "/state"}, "/repo")
 
@@ -1109,11 +1109,11 @@ func TestSetupChildEnvMergesTheProcessEnvironment(t *testing.T) {
 	if resolved["ENTIRE_SETUP_CHILD_ENV_MARKER"] != "inherited" {
 		t.Fatalf("the child must inherit the process environment (PATH, HOME, ...): %+v", resolved["ENTIRE_SETUP_CHILD_ENV_MARKER"])
 	}
-	if resolved[envPluginStateDir] != "/state" {
-		t.Fatalf("the resolved plugin dir must override the inherited one, got %q", resolved[envPluginStateDir])
+	if resolved[base.EnvPluginStateDir] != "/state" {
+		t.Fatalf("the resolved plugin dir must override the inherited one, got %q", resolved[base.EnvPluginStateDir])
 	}
-	if resolved[envRepoRoot] != "/repo" {
-		t.Fatalf("the child must target the repo setup ran in, got %q", resolved[envRepoRoot])
+	if resolved[base.EnvRepoRoot] != "/repo" {
+		t.Fatalf("the child must target the repo setup ran in, got %q", resolved[base.EnvRepoRoot])
 	}
 	if len(got) <= len(setupPluginEnv(EntireEnv{PluginStateDir: "/state"}, "/repo")) {
 		t.Fatalf("setupChildEnv must MERGE os.Environ, not replace it (%d entries)", len(got))

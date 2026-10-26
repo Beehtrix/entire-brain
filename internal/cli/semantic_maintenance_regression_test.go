@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,7 @@ func buildSemanticMaintenanceFixture(t *testing.T) (string, EntireEnv, *fakeComm
 
 func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	sentinel := filepath.Join(brainDir, "unrelated-state.json")
 	if err := os.WriteFile(sentinel, []byte("keep me"), 0o600); err != nil {
 		t.Fatal(err)
@@ -53,7 +54,7 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 
 func TestSemanticResetRequiresForceBeforeTouchingState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	_ = mustSemanticSource(t, env)
 	err := runSemanticReset(context.Background(), &cobra.Command{Use: "reset"}, opts, semanticResetOptions{semanticOnly: true}, repo)
 	if err == nil || !strings.Contains(err.Error(), "--force") {
@@ -66,7 +67,7 @@ func TestSemanticResetRequiresForceBeforeTouchingState(t *testing.T) {
 
 func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testing.T) {
 	_, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	_ = mustSemanticSource(t, env)
 	before, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {

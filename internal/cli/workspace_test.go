@@ -220,10 +220,10 @@ func TestWorkspaceCreateAddRefreshAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
-	if !strings.Contains(out, filepath.Join(workspacelib.DirName, "payments-platform")) {
+	if !strings.Contains(out, filepath.Join(base.WorkspacesDirName, "payments-platform")) {
 		t.Fatalf("create output = %q", out)
 	}
-	if strings.Contains(out, filepath.Join(repoStoreDirName, workspacelib.DirName)) {
+	if strings.Contains(out, filepath.Join(base.RepoStoreDirName, base.WorkspacesDirName)) {
 		t.Fatalf("workspace must live beside repos/, not inside it: %q", out)
 	}
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
@@ -300,7 +300,7 @@ func TestWorkspaceContextAndImpactReportLockedSemanticIndex(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	unlock, err := acquireSemanticIndexLock(brainDir)
 	if err != nil {
 		t.Fatalf("acquire lock: %v", err)
@@ -361,7 +361,7 @@ func TestWorkspaceStoresRepoKeyAndLocalPathHint(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "add", "payments-platform", repoDir, "--name", "api"); err != nil {
 		t.Fatalf("workspace add: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, workspacelib.DirName, "payments-platform", workspacelib.ManifestName))
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, base.WorkspacesDirName, "payments-platform", workspacelib.ManifestName))
 	if err != nil {
 		t.Fatalf("read workspace: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestWorkspaceCreateDoesNotOverwriteExistingWorkspace(t *testing.T) {
 
 func TestWorkspacePropagatesPluginDirErrors(t *testing.T) {
 	env := EntireEnv{PluginDataDir: "relative-data"}
-	if _, err := workspaceStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), envPluginDataDir) {
+	if _, err := workspaceStore(env).LoadManifest("payments-platform"); err == nil || !strings.Contains(err.Error(), base.EnvPluginDataDir) {
 		t.Fatalf("load workspace err = %v", err)
 	}
 }
@@ -460,7 +460,7 @@ func TestWorkspaceRejectsDotNamesBeforePathResolution(t *testing.T) {
 			t.Fatalf("workspace create accepted %q", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, repoStoreDirName, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, exportManifestFileName)); !os.IsNotExist(err) {
 		t.Fatalf("dot workspace wrote outside workspaces: %v", err)
 	}
 }
@@ -485,7 +485,7 @@ func TestWorkspaceRejectsUnsafeRepoKey(t *testing.T) {
 
 func TestWorkspaceRejectsSymlinkedWorkspacePath(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	workspacesRoot := filepath.Join(env.PluginDataDir, workspacelib.DirName)
+	workspacesRoot := filepath.Join(env.PluginDataDir, base.WorkspacesDirName)
 	if err := os.MkdirAll(workspacesRoot, 0o700); err != nil {
 		t.Fatalf("mkdir workspaces: %v", err)
 	}
@@ -507,9 +507,9 @@ func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
 	// blocks workspace create — but the legacy-migration path must refuse to
 	// read through it, and nothing may be written behind the symlink.
 	env := semanticTestEnv(t, t.TempDir())
-	brainRoot := filepath.Join(env.PluginDataDir, repoStoreDirName)
+	brainRoot := filepath.Join(env.PluginDataDir, base.RepoStoreDirName)
 	external := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(external, workspacelib.DirName, "payments-platform"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(external, base.WorkspacesDirName, "payments-platform"), 0o700); err != nil {
 		t.Fatalf("seed external legacy tree: %v", err)
 	}
 	if err := os.Symlink(external, brainRoot); err != nil {
@@ -519,11 +519,11 @@ func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
 	if _, err := execute(t, cmd, "workspace", "create", "payments-platform"); err != nil {
 		t.Fatalf("workspace create: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspacelib.DirName, "payments-platform", workspacelib.ManifestName)); err != nil {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.WorkspacesDirName, "payments-platform", workspacelib.ManifestName)); err != nil {
 		t.Fatalf("workspace not created at its new home: %v", err)
 	}
 	// The symlinked legacy entry was neither migrated nor written through.
-	if _, err := os.Stat(filepath.Join(external, workspacelib.DirName, "payments-platform", workspacelib.ManifestName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(external, base.WorkspacesDirName, "payments-platform", workspacelib.ManifestName)); !os.IsNotExist(err) {
 		t.Fatalf("write leaked through symlinked legacy tree: %v", err)
 	}
 }
@@ -531,7 +531,7 @@ func TestWorkspaceCreateIgnoresSymlinkedLegacyTree(t *testing.T) {
 func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	// A pre-relocation workspace at repos/workspaces/<name> with a valid manifest.
-	legacy := filepath.Join(env.PluginDataDir, repoStoreDirName, workspacelib.DirName, "payments-platform")
+	legacy := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, base.WorkspacesDirName, "payments-platform")
 	if err := os.MkdirAll(legacy, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -551,7 +551,7 @@ func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
 	if len(loaded.Repos) != 1 || loaded.Repos[0].RepoKey != "gh/acme/api" {
 		t.Fatalf("migrated manifest content wrong: %+v", loaded)
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, workspacelib.DirName, "payments-platform", workspacelib.ManifestName)); err != nil {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.WorkspacesDirName, "payments-platform", workspacelib.ManifestName)); err != nil {
 		t.Fatalf("manifest not at the new home after migration: %v", err)
 	}
 	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
@@ -561,10 +561,10 @@ func TestWorkspaceLegacyDirMigratesOnTouch(t *testing.T) {
 
 func TestBrainDirForKeyReservesWorkspacesSegment(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
-	if _, err := brainDirForKey(env, "workspaces/acme/api"); err == nil || !strings.Contains(err.Error(), "reserved") {
+	if _, err := base.BrainDirForKey(env, "workspaces/acme/api"); err == nil || !strings.Contains(err.Error(), "reserved") {
 		t.Fatalf("workspaces/ must be reserved in the repo keyspace, got %v", err)
 	}
-	if _, err := brainDirForKey(env, "gh/acme/api"); err != nil {
+	if _, err := base.BrainDirForKey(env, "gh/acme/api"); err != nil {
 		t.Fatalf("ordinary key must resolve: %v", err)
 	}
 }
@@ -649,7 +649,7 @@ func TestWorkspaceGraphReportsSharedExternalContracts(t *testing.T) {
 	if !strings.Contains(out.String(), `"metrics"`) || !strings.Contains(out.String(), `"relation_types"`) {
 		t.Fatalf("workspace graph missing per-repo graph metadata:\n%s", out.String())
 	}
-	artifactPath := filepath.Join(env.PluginDataDir, workspacelib.DirName, "graph", workspaceGraphName)
+	artifactPath := filepath.Join(env.PluginDataDir, base.WorkspacesDirName, "graph", workspaceGraphName)
 	artifact, err := os.ReadFile(artifactPath)
 	if err != nil {
 		t.Fatalf("read workspace graph artifact: %v", err)
@@ -934,7 +934,7 @@ func workspaceGraphQualifiedSymbolSnapshot(repoKey, path, symbolName, qualifiedN
 `
 }
 
-// writeWorkspaceBrainRepo builds a sessions-only brain at brainDirForKey(env, key) plus a working
+// writeWorkspaceBrainRepo builds a sessions-only brain at base.BrainDirForKey(env, key) plus a working
 // tree, so the cross-repo regression/review fan-out can be exercised without a semantic index.
 func writeWorkspaceBrainRepo(t *testing.T, env EntireEnv, key, sessionText, repoRel, fileBody string) string {
 	t.Helper()
@@ -953,7 +953,7 @@ func writeLocalWorkspaceBrainRepo(t *testing.T, env EntireEnv, sessionText, repo
 
 func writeWorkspaceBrainRepoAt(t *testing.T, env EntireEnv, key, repoDir, sessionText, repoRel, fileBody string) {
 	t.Helper()
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
 	sessDir := filepath.Join(brainDir, "sessions")
 	if err := os.MkdirAll(sessDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -1196,7 +1196,7 @@ func TestWorkspaceRegressionsSkipsUnsafeRepo(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	// Seed a session asserting the invariant + a regressed working tree, so a scan WOULD fire.
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1266,7 +1266,7 @@ func TestWorkspaceRegressionsSkipsUnsafeSessionsOnlyRepo(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1324,7 +1324,7 @@ func TestWorkspaceRegressionsSkipsUnverifiableRemoteKeyHint(t *testing.T) {
 	}}
 	cmd := NewRootCommand(Options{Version: "test-version", Env: env, Runner: runner, Now: time.Now})
 
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(filepath.Join(brainDir, "sessions"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1457,7 +1457,7 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 
 func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...docRecord) {
 	t.Helper()
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
 	if err := os.MkdirAll(filepath.Join(brainDir, docDirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1728,7 +1728,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 	// one about billing. Each member brain indexes its own sessions.
 	writeMemberConversation := func(key, sessionID, request, response string) {
 		t.Helper()
-		brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+		brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
 		rel := "sessions/main/20260808T100000Z_" + sessionID + ".jsonl"
 		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
 			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
@@ -1860,7 +1860,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 
 	writeMemberConversation := func(key, sessionID, request, response string) {
 		t.Helper()
-		brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, filepath.FromSlash(key))
+		brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
 		rel := "sessions/main/20260808T100000Z_" + sessionID + ".jsonl"
 		body := `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + request + `"}]}}` + "\n" +
 			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + response + `"}]}}` + "\n"
@@ -1978,7 +1978,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 // before the member row exists, not after.
 func workspaceManifestRepos(t *testing.T, env EntireEnv, workspace string) []workspacelib.Repo {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, workspacelib.DirName, workspace, workspacelib.ManifestName))
+	data, err := os.ReadFile(filepath.Join(env.PluginDataDir, base.WorkspacesDirName, workspace, workspacelib.ManifestName))
 	if err != nil {
 		t.Fatalf("read workspace: %v", err)
 	}

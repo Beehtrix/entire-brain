@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,7 +302,7 @@ func TestWorkspaceCommandMalformedManifestErrorsAtEveryRoute(t *testing.T) {
 
 func TestWorkspaceCommandMalformedMemberPrivacyFailsClosed(t *testing.T) {
 	opts, env, manifest := workspaceCommandFixture(t)
-	memberDir, err := brainDirForKey(env, manifest.Repos[0].RepoKey)
+	memberDir, err := base.BrainDirForKey(env, manifest.Repos[0].RepoKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +438,7 @@ func TestWorkspaceCommandHandlesMissingAndMalformedMembers(t *testing.T) {
 	t.Run("malformed member corpus fails closed", func(t *testing.T) {
 		opts, env, manifest := workspaceCommandFixture(t)
 		badKey := "gh/acme/bad"
-		badDir, err := brainDirForKey(env, badKey)
+		badDir, err := base.BrainDirForKey(env, badKey)
 		if err != nil {
 			t.Fatal(err)
 		}

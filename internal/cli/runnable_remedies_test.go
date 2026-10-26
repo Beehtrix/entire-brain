@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"regexp"
 	"strings"
@@ -103,7 +104,7 @@ func TestConvertedRemediesFollowTheDispatchSpelling(t *testing.T) {
 		{"host-dispatched", "0.3.0", "entire brain refresh", "entire-brain "},
 	} {
 		t.Run(mode.name, func(t *testing.T) {
-			t.Setenv(envCLIVersion, mode.cliVersion)
+			t.Setenv(base.EnvCLIVersion, mode.cliVersion)
 			rendered := render()
 			if len(rendered) < 3 {
 				t.Fatalf("rendered only %d remedies", len(rendered))

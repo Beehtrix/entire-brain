@@ -568,7 +568,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryJobsDirRel, entry.Name()))
-		if err := rejectBrainRootPathSymlinks(brainDir, filepath.FromSlash(rel)); err != nil {
+		if err := base.RejectBrainRootPathSymlinks(brainDir, filepath.FromSlash(rel)); err != nil {
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}

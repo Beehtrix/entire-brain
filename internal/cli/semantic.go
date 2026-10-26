@@ -5026,13 +5026,6 @@ func rejectSymlinkPathComponents(root, rel string) error {
 	return nil
 }
 
-func rejectBrainRootPathSymlinks(brainRoot, rel string) error {
-	if err := clibase.RejectSymlinkedBrainRoot(brainRoot); err != nil {
-		return err
-	}
-	return clibase.RejectExistingSymlinkPathComponents(brainRoot, rel)
-}
-
 func rejectBundleOutputInsideBrain(output, brainDir string) error {
 	outputAbs, err := filepath.Abs(output)
 	if err != nil {

@@ -126,7 +126,7 @@ func newPublishCmd(t *testing.T, repoDir, dataDir string, runner *fakeCommandRun
 }
 
 func publishBrainDir(dataDir string) string {
-	return filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	return filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 }
 
 func expectedDigest(data []byte) string {
@@ -498,7 +498,7 @@ func TestPublishFailsFastForNonGitHubRemote(t *testing.T) {
 	dataDir := t.TempDir()
 	// gitlab.com stores under the "gl" slug; lay the brain down there so the command
 	// reaches wire-repo_key derivation rather than failing at "no brain found".
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gl", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gl", "example", "repo")
 	writePublishBrainFixture(t, brainDir)
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")

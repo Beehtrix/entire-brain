@@ -13,14 +13,14 @@ import (
 func workspaceStore(env EntireEnv) workspace.StoreConfig {
 	return workspace.StoreConfig{
 		Env:               env,
-		LegacyRepoDirName: repoStoreDirName,
+		LegacyRepoDirName: base.RepoStoreDirName,
 		LockDirName:       brainstore.BrainLockDirName,
 		Deps: workspace.StoreDeps{
 			DataDir: func(env base.EntireEnv) (string, error) {
-				dirs, err := resolvePluginDirs(env)
+				dirs, err := base.ResolvePluginDirs(env)
 				return dirs.Data, err
 			},
-			RejectRootPath:       rejectBrainRootPathSymlinks,
+			RejectRootPath:       base.RejectBrainRootPathSymlinks,
 			RejectPathComponents: base.RejectExistingSymlinkPathComponents,
 			AcquireLock: func(path string) (io.Closer, error) {
 				lock, err := brainstore.AcquireFileLock(path, "workspace_manifest_locked", brainstore.BrainWriteLockTimeout)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
@@ -74,7 +75,7 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 			t.Fatalf("refresh output missing %q:\n%s", want, out)
 		}
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
 	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
 	if err != nil {
@@ -615,7 +616,7 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path --ensure: %v\n%s", err, out)
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if out != brainDir+"\n" {
 		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
 	}
@@ -638,7 +639,7 @@ func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
 
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}

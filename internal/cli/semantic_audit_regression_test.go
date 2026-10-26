@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ func TestSemanticAuditReadsGraphCoverage(t *testing.T) {
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatal(err)
 	}
-	brainDir, err := brainDirForKey(env, "gh/example/repo")
+	brainDir, err := base.BrainDirForKey(env, "gh/example/repo")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -136,7 +137,7 @@ func refreshWithoutHostCLI(t *testing.T, exportErr error, args ...string) (strin
 	runner.responses[fakeRoutedCheckpointListKey("entire-test", true)] = fakeCommandResponse{err: exportErr}
 	runner.responses[fakeRoutedCheckpointListKey("entire-test", false)] = fakeCommandResponse{err: exportErr}
 
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	opts := Options{
 		Version: "test-version",
 		Env: EntireEnv{

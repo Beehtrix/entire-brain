@@ -26,7 +26,7 @@ func indexFixtureBrain(t *testing.T, snapshot string) (string, string, Options) 
 	if err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"}, opts, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	m, err := loadGraphManifest(context.Background(), opts, repoDir, brainDir)
 	if err != nil {
 		t.Fatal(err)

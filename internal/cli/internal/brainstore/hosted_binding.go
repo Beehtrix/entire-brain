@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
@@ -17,10 +18,16 @@ import (
 // `connect` rewrites the binding. The coordinates are kept through an opt-out
 // so re-connecting works without placement resolution. Disconnect never purges
 // memories already pulled into the local store.
+//
+// NoAccessUntil pauses sync after the server denied access to the bound repo
+// (deleted, or this caller lost its grant — COR-2279): background triggers
+// skip the repo until it passes. `entire brain connect` clears it by writing
+// a fresh binding.
 type HostedRepoBinding struct {
-	RepoID   string `json:"repo_id"`
-	BaseURL  string `json:"base_url"`
-	OptedOut bool   `json:"opted_out,omitempty"`
+	RepoID        string    `json:"repo_id"`
+	BaseURL       string    `json:"base_url"`
+	OptedOut      bool      `json:"opted_out,omitempty"`
+	NoAccessUntil time.Time `json:"no_access_until,omitzero"`
 }
 
 const HostedRepoBindingFile = "hosted.json"
@@ -59,6 +66,26 @@ func SetHostedOptOut(brainDir string) (HostedRepoBinding, error) {
 		return writeHostedRepoBindingLocked(brainDir, existing)
 	})
 	return binding, err
+}
+
+// MutateHostedRepoBinding applies update to the current binding as one locked
+// read-modify-write, so a concurrent connect/disconnect cannot interleave
+// between the caller's earlier read and this write. update returns the new
+// binding and whether to write it. An absent or unreadable binding is left
+// untouched — this never creates, repairs, or overwrites consent state it
+// could not read (the file may record an opt-out).
+func MutateHostedRepoBinding(brainDir string, update func(HostedRepoBinding) (HostedRepoBinding, bool)) error {
+	return WithBrainWriteLock(brainDir, func() error {
+		current, present, err := ReadHostedRepoBinding(brainDir)
+		if err != nil || !present {
+			return err
+		}
+		next, write := update(current)
+		if !write {
+			return nil
+		}
+		return writeHostedRepoBindingLocked(brainDir, next)
+	})
 }
 
 func ReadHostedRepoBinding(brainDir string) (HostedRepoBinding, bool, error) {

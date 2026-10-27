@@ -208,6 +208,19 @@ func bindHostedRepo(brainDir, repoID, apiURL string) (brainstore.HostedRepoBindi
 	return binding, nil
 }
 
+// ResolveBinding resolves this repo's CURRENT hosted placement through the
+// host CLI and normalizes it to a writable binding. The background sync uses
+// it to detect a deleted-and-reonboarded repo behind a stale binding
+// (COR-2279); it resolves only — writing a binding stays with connect and the
+// sync's own guarded rebind.
+func ResolveBinding(ctx context.Context, runner base.CommandRunner, repoDir string) (brainstore.HostedRepoBinding, error) {
+	placement, err := resolveHostedPlacement(ctx, runner, repoDir)
+	if err != nil {
+		return brainstore.HostedRepoBinding{}, err
+	}
+	return normalizeHostedBinding(placement.RepoID, placement.APIURL)
+}
+
 // resolveHostedPlacement shells out to the host CLI for this repo's hosted
 // placement.
 func resolveHostedPlacement(ctx context.Context, runner base.CommandRunner, repoDir string) (hostedPlacement, error) {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -23,7 +24,7 @@ import (
 func writeLegacyHistoryIdentityFixture(t testing.TB, index historyIndex) (string, *historySourceManifest) {
 	t.Helper()
 	brainDir, strong := writeDirectHistoryFTSFixture(t, index)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func loadLegacyHistoryIdentityCandidate(t testing.TB, brainDir string, source *h
 
 func assertHistoryIdentityMissing(t testing.TB, brainDir string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +68,7 @@ func assertHistoryIdentityMissing(t testing.TB, brainDir string) {
 
 func assertHistoryIdentityPersisted(t testing.TB, brainDir string, identity *historyLegacyIdentity) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestHistoryLegacyIdentityUpgradeRequiresVerifiedTruthAndDirectPayload(t *te
 	}
 	assertHistoryIdentityPersisted(t, brainDir, identity)
 
-	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestBefore, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +137,7 @@ func TestHistoryLegacyIdentityUpgradeRequiresVerifiedTruthAndDirectPayload(t *te
 	if !bytes.Equal(readmeAfter, readmeBefore) {
 		t.Fatal("identity-only migration rewrote README")
 	}
-	manifestAfter, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	manifestAfter, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestHistoryLegacyIdentityConcurrentMigrationPreservesNewerFields(t *testing
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 	_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +222,7 @@ func TestHistoryLegacyIdentityConcurrentMigrationPreservesNewerFields(t *testing
 	close(start)
 	wg.Wait()
 	assertHistoryIdentityPersisted(t, brainDir, identity)
-	got, err := loadBrainManifest(brainDir)
+	got, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +244,7 @@ func TestHistoryLegacyIdentityRejectsStaleManifestCoordinates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 			_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -273,7 +274,7 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: legacy}}); err != nil {
+		if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{History: legacy}}); err != nil {
 			t.Fatal(err)
 		}
 		_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
@@ -336,7 +337,7 @@ func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
 	t.Parallel()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 	_, identity := loadLegacyHistoryIdentityCandidate(t, brainDir, legacy)
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	oldData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -408,7 +409,7 @@ func TestHistoryLegacyIdentityManifestReplacementIsAtomic(t *testing.T) {
 	if bytes.Equal(oldData, newData) {
 		t.Fatal("migration did not replace legacy manifest")
 	}
-	if matches, err := filepath.Glob(filepath.Join(brainDir, "."+exportManifestFileName+".tmp-*")); err != nil || len(matches) != 0 {
+	if matches, err := filepath.Glob(filepath.Join(brainDir, "."+bmanifest.FileName+".tmp-*")); err != nil || len(matches) != 0 {
 		t.Fatalf("atomic manifest temp leak: matches=%v err=%v", matches, err)
 	}
 	if info, err := os.Stat(manifestPath); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
@@ -456,7 +457,7 @@ func TestBrainBriefLegacyHistoryIdentityFirstAndDirectPacketsAreExact(t *testing
 	}
 	want := runBrainBriefRawHistoryEndToEnd(t, fixture, brainBriefRawHistoryMatchesObserved)
 
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +474,7 @@ func TestBrainBriefLegacyHistoryIdentityFirstAndDirectPacketsAreExact(t *testing
 	}
 	// Reload the now-strong source for an exact assertion without reconstructing
 	// identity values from profile counts.
-	upgraded, err := loadBrainManifest(storage.BrainDir)
+	upgraded, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

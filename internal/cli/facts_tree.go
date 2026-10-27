@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -37,7 +38,7 @@ func buildFactTree(facts []factRecord, includeAll bool) *factTreeNode {
 			continue
 		}
 		for _, path := range f.Paths {
-			cat := factTopLevel(path)
+			cat := factstore.TopLevel(path)
 			if cats[cat] == nil {
 				cats[cat] = map[string]*leaf{}
 			}
@@ -194,11 +195,11 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
-			facts = filterFactsByKind(filterFactsByScope(facts, scope), kind)
+			facts = factstore.FilterByKind(factstore.FilterByScope(facts, scope), kind)
 			tree := buildFactTree(facts, includeAll)
 			if path != "" {
 				if pruned := filterTreeByPath(tree, path); pruned != nil {

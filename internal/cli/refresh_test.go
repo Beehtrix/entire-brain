@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,7 +78,7 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	}
 	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -316,7 +317,7 @@ func newHistoryFreshnessFixture(t *testing.T, transcript []byte) historyFreshnes
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources:       &brainSources{Sessions: sessionSource},
 	}); err != nil {
 		t.Fatalf("write manifest: %v", err)
@@ -324,7 +325,7 @@ func newHistoryFreshnessFixture(t *testing.T, transcript []byte) historyFreshnes
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatalf("build history: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -357,7 +358,7 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 1, 0, time.UTC), nil); err != nil {
 		t.Fatalf("rebuild history: %v", err)
 	}
-	rebuiltManifest, err := loadBrainManifest(fixture.brainDir)
+	rebuiltManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load rebuilt manifest: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
 		t.Fatalf("rebuild corrupted history: %v", err)
 	}
-	corruptManifest, err := loadBrainManifest(fixture.brainDir)
+	corruptManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load corrupted-source manifest: %v", err)
 	}
@@ -443,7 +444,7 @@ func TestHistoryIndexRejectsTranscriptSymlinkWithoutFollowingIt(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
 		t.Fatalf("publish safe index after removing the symlink: %v", err)
 	}
-	stableManifest, err := loadBrainManifest(fixture.brainDir)
+	stableManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load safe manifest: %v", err)
 	}
@@ -645,7 +646,7 @@ func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
 	}
 	// A manifest from a build that knew a field this one has since retired.
 	skewed := []byte(`{"schema_version":3,"repo_key":"gh/example/repo","retired_field":0}` + "\n")
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), skewed, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), skewed, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -680,14 +681,14 @@ func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
 		t.Fatalf("discard ran after the export, so the export hit the write guard first:\n%s", out)
 	}
 
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read rebuilt manifest: %v", err)
 	}
 	if strings.Contains(string(data), "retired_field") {
 		t.Fatalf("manifest was not rebuilt; it still carries the retired field:\n%s", data)
 	}
-	if _, err := loadBrainManifestForReplace(brainDir); err != nil {
+	if _, err := bmanifest.LoadForReplace(brainDir); err != nil {
 		t.Fatalf("the rebuilt manifest must be writable by this build: %v", err)
 	}
 }

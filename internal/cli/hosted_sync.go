@@ -13,6 +13,7 @@ import (
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
@@ -128,7 +129,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 // caller owns presentation: background sync degrades to pull-only with one
 // stderr line, manual sync fails the command (COR-2202 honesty).
 func pushHostedFacts(ctx context.Context, storage repoStorage, srv *factsync.HTTPServer, repoID, branch string) (factsync.UpsertCounts, int, error) {
-	facts, err := loadFacts(storage.BrainDir, branch)
+	facts, err := factstore.Load(storage.BrainDir, branch)
 	if err != nil {
 		return factsync.UpsertCounts{}, 0, err
 	}
@@ -259,7 +260,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			return err
 		}
 
-		existing, err := loadFacts(storage.BrainDir, branch)
+		existing, err := factstore.Load(storage.BrainDir, branch)
 		if err != nil {
 			return err
 		}
@@ -302,7 +303,7 @@ func pullHostedFacts(ctx context.Context, opts Options, repoDir string, storage 
 			}
 			rebuilt = append(rebuilt, rec)
 		}
-		if err := writeFacts(storage.BrainDir, branch, rebuilt); err != nil {
+		if err := factstore.Write(storage.BrainDir, branch, rebuilt); err != nil {
 			return err
 		}
 		// A manifest failure reports alongside the successful pull instead of

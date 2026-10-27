@@ -31,13 +31,15 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
 const (
 	distillCacheFileName    = "distill-cache.json"
-	distillCachePath        = factsDirName + "/" + distillCacheFileName
+	distillCachePath        = factstore.DirName + "/" + distillCacheFileName
 	distillCacheVersion     = 1
 	defaultDistillChunkSize = 48 * 1024
 	defaultDistillTimeout   = 10 * time.Minute
@@ -979,7 +981,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
 	ctx = withDistillAgentChildEnv(ctx, distillOpts.agent)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -996,7 +998,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		distillOpts.maxChunkBytes = defaultDistillChunkSize
 	}
 
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
 		return nil, err
 	}
@@ -1118,7 +1120,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		if loaded[branch] {
 			return
 		}
-		existing, loadErr := loadFacts(brainDir, branch)
+		existing, loadErr := factstore.Load(brainDir, branch)
 		if loadErr != nil {
 			warnings = append(warnings, fmt.Sprintf("load facts for %s: %v", branch, loadErr))
 		}
@@ -1141,7 +1143,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				// candidate has the same content-derived id, so upsertFact lands on
 				// the tombstone and leaves its status alone, and a supersede the
 				// rebuild does replay re-marks it identically.
-				if record.Origin != factOriginDistilled || record.Status != factStatusActive || reviewIDs[record.ID] {
+				if record.Origin != factstore.OriginDistilled || record.Status != factStatusActive || reviewIDs[record.ID] {
 					kept = append(kept, record)
 				}
 			}
@@ -1194,7 +1196,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 				return rebaseErr
 			}
 			byBranch[branch] = rebased
-			if err := writeFacts(brainDir, branch, byBranch[branch]); err != nil {
+			if err := factstore.Write(brainDir, branch, byBranch[branch]); err != nil {
 				return err
 			}
 			baselineByBranch[branch] = cloneDistillFacts(byBranch[branch])
@@ -1309,7 +1311,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 			return nil, fmt.Errorf("load pending review for %s: %w", b, err)
 		}
 		queuedByBranch[b] = queued
-		stored, err := loadFacts(brainDir, b)
+		stored, err := factstore.Load(brainDir, b)
 		if err != nil {
 			return nil, fmt.Errorf("load staged candidates for %s: %w", b, err)
 		}
@@ -1529,14 +1531,14 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	writeStarted := time.Now()
 	var source *factSourceManifest
 	err = brainstore.WithBrainWriteLock(brainDir, func() error {
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}
 		if err := flushFactStoresLocked(true); err != nil {
 			return err
 		}
-		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+		if err := factstore.WriteTaxonomy(brainDir, taxonomy); err != nil {
 			return err
 		}
 
@@ -1545,7 +1547,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		// loads a subset into byBranch; folding that subset into the manifest would
 		// drop counts/branches/proposals for facts that still exist on other
 		// branches. Re-reading the store after writing keeps sources.facts whole.
-		allBranches, err := loadAllFactBranches(brainDir)
+		allBranches, err := factstore.LoadAllBranches(brainDir)
 		if err != nil {
 			return err
 		}
@@ -1555,7 +1557,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 		}
 		totalProposals := countFactProposals(brainDir, branchNames)
 
-		source = summarizeFactSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
+		source = factstore.SummarizeSource(now, allBranches, chunksScanned, chunksDistilled, totalProposals, warnings)
 		source.LastDistilledAt = now
 		source.CacheHits = cacheHits
 		source.FailedChunks = failedChunks
@@ -1603,7 +1605,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 }
 
 func buildDistillDryRunReportContext(ctx context.Context, brainDir string, distillOpts distillCommandOptions, now time.Time) (distillDryRunReport, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}
@@ -2345,7 +2347,7 @@ func grandfatheredDistillFingerprint(cache distillCache, session exportSession, 
 }
 
 func distillCacheSaltForBrain(brainDir string, distillOpts distillCommandOptions, now time.Time) (string, error) {
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
 		return "", err
 	}
@@ -2965,7 +2967,7 @@ func cloneDistillFacts(records []factRecord) []factRecord {
 // changed on disk since the previous read/flush win conflicts; unchanged fields
 // retain this run's reconciliation. Provenance is additive on both sides.
 func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecord, force bool) ([]factRecord, error) {
-	onDisk, err := loadFacts(brainDir, branch)
+	onDisk, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -2980,7 +2982,7 @@ func rebaseFactsOntoDisk(brainDir, branch string, inMemory, baseline []factRecor
 		old, existed := before[record.ID]
 		i := indexOfFact(out, record.ID)
 		if i < 0 {
-			if force && record.Origin == factOriginDistilled && record.Status == factStatusActive && existed && reflect.DeepEqual(old, record) {
+			if force && record.Origin == factstore.OriginDistilled && record.Status == factStatusActive && existed && reflect.DeepEqual(old, record) {
 				continue // only discard the unchanged facts this force run owns
 			}
 			// A staged candidate this run flushed and then CONSUMED — merged

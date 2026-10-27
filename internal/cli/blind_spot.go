@@ -9,6 +9,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // distillCoverage reports the last recorded distillation and sessions created
@@ -46,9 +48,9 @@ func emptyResultBlindSpot(brainDir string) string {
 // "nothing anywhere" are different answers and only this variant can tell them
 // apart.
 func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
-	// Sources is exactly that case: normalizeBrainManifest gives every manifest
+	// Sources is exactly that case: bmanifest.Normalize gives every manifest
 	// it actually parsed a non-nil Sources, so only the absent-manifest path
 	// reaches here with nil. That is the NO-BRAIN case, and it is the one this
 	// line most needs to cover — see noBrainBlindSpot.
@@ -64,7 +66,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// This single choke point is why recall, search, query and retrieve all
 	// inherit the correction without each having to remember to ask.
-	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+	if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	// A connected repo whose branch never synced may be missing the whole
@@ -141,7 +143,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if branch == "" {
 		return ""
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return ""
 	}
@@ -166,7 +168,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if total == 0 {
 		return ""
 	}
-	// Deterministic: loadAllFactBranches returns a map, and Go randomises map
+	// Deterministic: factstore.LoadAllBranches returns a map, and Go randomises map
 	// iteration, so an unsorted list would reorder between identical runs.
 	sort.Strings(names)
 	shown, suffix := names, ""
@@ -224,7 +226,7 @@ func briefBranchBlindSpot(brainDir, branch string) string {
 	if brainDir == "" {
 		return ""
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil || len(byBranch) == 0 {
 		return ""
 	}
@@ -294,7 +296,7 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 	if branch == "" {
 		return ""
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return ""
 	}

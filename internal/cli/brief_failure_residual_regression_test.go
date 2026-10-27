@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -121,7 +122,7 @@ func TestBriefResidualCorruptFTSPayloadRebuildsFromCanonicalHistory(t *testing.T
 	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, indexData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +175,7 @@ func TestBriefResidualLegacyHistoryFallsBackInMemoryWhenFTSUnavailable(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +203,7 @@ func TestBriefResidualLegacyHistoryFallsBackInMemoryWhenFTSUnavailable(t *testin
 
 func TestBriefResidualProfileRecordsCanonicalHistoryLoadFailure(t *testing.T) {
 	fixture := newBrainBriefProfileFixture(t)
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +257,7 @@ func TestBriefResidualCorruptFTSRebuildContentionFallsBackAndRetries(t *testing.
 	if err := brainstore.WriteBrainRelativeFileAtomic(fixture.brainDir, historyIndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

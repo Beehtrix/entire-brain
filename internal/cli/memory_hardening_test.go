@@ -13,13 +13,14 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func checkedProjectionFixture(t *testing.T, state projectionState) (string, *historySourceManifest) {
 	t.Helper()
 	brainDir := t.TempDir()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       "test/receipt-health",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
 			DefaultBranch: "main",
@@ -110,7 +111,7 @@ func TestProjectionStateCheckedClassifiesFailures(t *testing.T) {
 	})
 	t.Run("canonical sessions stale", func(t *testing.T) {
 		brainDir, source := checkedProjectionFixture(t, validProjectionStateForTest(now))
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -138,7 +139,7 @@ func TestMemoryStatusReportsJobIssuesWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	jobsDir := filepath.Join(storage.BrainDir, filepath.FromSlash(memoryJobsDirRel))
@@ -439,7 +440,7 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{{
 			SessionID: "private-session", Branch: "main", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour),
 		}}}},

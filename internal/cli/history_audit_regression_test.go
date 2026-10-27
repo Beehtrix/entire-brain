@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -147,7 +148,7 @@ func TestHistoryAuditEmptyReplacementHidesAllOldViews(t *testing.T) {
 	if _, err := buildShortTermResult(t, brainDir); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +276,7 @@ func TestHistoryAuditEvidenceScoreIsTopicNeutral(t *testing.T) {
 func TestHistoryAuditOverlayRepairsCorruptPayload(t *testing.T) {
 	dir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, dir)
-	manifest, err := loadBrainManifest(dir)
+	manifest, err := bmanifest.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

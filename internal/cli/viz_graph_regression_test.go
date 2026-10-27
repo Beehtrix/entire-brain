@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -21,13 +23,13 @@ func TestVizFactGraphDeduplicatesAndTruncatesWithoutDanglingEdges(t *testing.T) 
 	dir := t.TempDir()
 	a := factRecord{ID: "fact:a", Text: "Keep token validation independent of transports", Kind: "convention", Status: "active", Confidence: "high", Locus: []string{" TOKEN.go "}, RelatedIDs: []string{"fact:b", "fact:missing"}, Provenance: []factAnchor{{SessionID: "session-public"}}}
 	b := factRecord{ID: "fact:b", Text: "Verify token expiry before access", Kind: "learning", Locus: []string{"token.go"}, RelatedIDs: []string{"fact:a"}}
-	if err := writeFacts(dir, "main", []factRecord{a, b}); err != nil {
+	if err := factstore.Write(dir, "main", []factRecord{a, b}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(dir, "feature", []factRecord{a, {ID: "", Text: "invalid record"}}); err != nil {
+	if err := factstore.Write(dir, "feature", []factRecord{a, {ID: "", Text: "invalid record"}}); err != nil {
 		t.Fatal(err)
 	}
-	corrupt := filepath.Join(dir, filepath.FromSlash(factsFileRelPath("broken")))
+	corrupt := filepath.Join(dir, filepath.FromSlash(factstore.FileRelPath("broken")))
 	if err := os.MkdirAll(filepath.Dir(corrupt), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +104,7 @@ func TestVizNodePublicResponseUsesGraphStore(t *testing.T) {
 		t.Fatalf("node=%+v", store)
 	}
 	manifest.Sources.Facts = &factSourceManifest{Branches: []string{"main"}, Facts: 1}
-	diskManifest, err := loadBrainManifest(dir)
+	diskManifest, err := bmanifest.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestVizNodePublicResponseUsesGraphStore(t *testing.T) {
 	if err := writeBrainManifestAndReadme(dir, *diskManifest); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFacts(dir, "main", []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
+	if err := factstore.Write(dir, "main", []factRecord{{ID: "fact:token", Branch: "main", Text: "ValidateToken checks token expiry", Status: factStatusActive}}); err != nil {
 		t.Fatal(err)
 	}
 	s.branch = "main"

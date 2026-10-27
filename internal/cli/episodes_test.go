@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 type sessionFixture struct {
@@ -46,7 +48,7 @@ func writeEpisodeFixture(t *testing.T, now time.Time, repoKey string, sessions [
 		manifestSessions = append(manifestSessions, es)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       repoKey,
 		DefaultBranch: "main",
@@ -175,7 +177,7 @@ func TestRefreshPatternLayer(t *testing.T) {
 			t.Errorf("missing %s after refresh: %v", rel, statErr)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +194,7 @@ func TestRefreshPatternLayer(t *testing.T) {
 		t.Errorf("forced refresh rebuilt=%v err=%v, want true/nil", rebuilt, err)
 	}
 	// Changed session fingerprint -> rebuild.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	manifest.Sources.Sessions.Sessions[0].LatestCheckpoint = "cp1-moved"
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
@@ -293,7 +295,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	}
 
 	// Mutating the session fingerprint makes the layer stale without rebuilding.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

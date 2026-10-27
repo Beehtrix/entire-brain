@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -966,7 +967,7 @@ func getMissNote(brainDir, branch string, missing []string) string {
 	if len(missing) == 0 {
 		return ""
 	}
-	if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
+	if integrity := factstore.InspectBrain(brainDir); !integrity.OK() {
 		return fmt.Sprintf("note: \"not found\" is NOT evidence of absence — %s", integrity.Warning())
 	}
 	if !missingFactIDs(missing) {

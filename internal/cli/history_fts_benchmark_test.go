@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -95,7 +96,7 @@ func BenchmarkHistoryLegacyIdentityUpgrade(b *testing.B) {
 	legacy.IndexBytes = 0
 	legacy.IndexSHA256 = ""
 	legacy.RecordsFingerprint = ""
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: &legacy}}
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{History: &legacy}}
 	query := "embedding cache invalidation fingerprint"
 
 	b.Run("first_legacy_upgrade", func(b *testing.B) {
@@ -116,7 +117,7 @@ func BenchmarkHistoryLegacyIdentityUpgrade(b *testing.B) {
 		}
 	})
 
-	upgraded, err := loadBrainManifest(brainDir)
+	upgraded, err := bmanifest.Load(brainDir)
 	if err != nil {
 		b.Fatal(err)
 	}

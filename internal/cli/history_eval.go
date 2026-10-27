@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -60,7 +61,7 @@ Emits a tasks.json consumable by 'history-eval --tasks'.`,
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -291,7 +292,7 @@ Arms:
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}

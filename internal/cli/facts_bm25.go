@@ -7,6 +7,7 @@ import (
 	"unicode"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // BM25 replaces the flat term-overlap text score on the facts path. The flat
@@ -202,10 +203,10 @@ func factBM25Score(f factRecord, c bm25Corpus, i int, terms []string, queryLocus
 	if score <= 0 {
 		return 0
 	}
-	if overlap := locusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
+	if overlap := factstore.LocusOverlapTokens(queryLocus, base.FactLocusOf(f)); overlap > 0 {
 		score += float64(overlap) * bm25LocusBoost
 	}
-	if factKindOrInferred(f) == factKindClosedNegative {
+	if factstore.KindOrInferred(f) == factKindClosedNegative {
 		score += bm25ClosedNegativeBoost
 	}
 	return score

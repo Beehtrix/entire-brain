@@ -9,6 +9,8 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // writeOrderedDistillFixture lays down N same-branch sessions whose transcripts
@@ -37,7 +39,7 @@ func writeOrderedDistillFixture(t *testing.T, now time.Time, ids ...string) stri
 		})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -280,7 +282,7 @@ func TestForcedCappedDistillDoesNotStrandDeferredSessions(t *testing.T) {
 func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := writeOrderedDistillFixture(t, now, "old", "mid", "new")
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -334,7 +336,7 @@ func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

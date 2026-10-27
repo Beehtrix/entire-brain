@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // doc.go is the `doc` source: it indexes the brain's own markdown — the
@@ -32,14 +33,6 @@ const (
 // A doc index aggregates multiple seed documents, so use the general 64 MiB
 // ceiling rather than the smaller manifest limit. Variable for boundary tests.
 var maxDocIndexBytes int64 = base.DefaultMaxReadBytes
-
-type docSourceManifest struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	IndexPath   string    `json:"index_path"`
-	Records     int       `json:"records"`
-	Files       int       `json:"files"`
-	Warnings    []string  `json:"warnings,omitempty"`
-}
 
 type docIndex struct {
 	GeneratedAt time.Time   `json:"generated_at"`
@@ -200,7 +193,7 @@ func writeDocIndexAndSourceLocked(brainDir string, now time.Time) (*docSourceMan
 	if db, ftsErr := openDocFTSLocked(brainDir, index); ftsErr == nil {
 		_ = db.Close()
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

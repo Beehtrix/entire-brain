@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
@@ -190,7 +191,7 @@ func hostedSyncAnchoredFact(text string, now time.Time, anchors ...factmerge.Anc
 		Paths:      paths,
 		Text:       text,
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: anchors,
 		CreatedAt:  now,
@@ -283,7 +284,7 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -295,7 +296,7 @@ func TestHostedSyncPublishesAndPulls(t *testing.T) {
 	if !fake.has(localFact.ID) {
 		t.Fatal("the local fact must be upserted to the hosted store")
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +334,7 @@ func TestHostedSyncEmptyStoreSkipsPush(t *testing.T) {
 	if fake.upsertCount() != 0 {
 		t.Fatalf("an empty store must not post an upsert, got %d calls", fake.upsertCount())
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +356,7 @@ func TestHostedSyncFilterDropsUnreachable(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +385,7 @@ func TestHostedSyncMemberFactsFollowTheAccount(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +417,7 @@ func TestHostedSyncCursorResumes(t *testing.T) {
 			t.Fatal("the second sync must resume from the stored cursor, not replay from the start")
 		}
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func TestHostedSyncCursorResetOnRejectedToken(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +470,7 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true} // keep localFact out of the hosted feed
 	fake.seed(teammate, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 	reachable := true
@@ -487,7 +488,7 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +505,7 @@ func TestHostedSyncRemovesFilterRejectedCachedFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err = loadFacts(storage.BrainDir, "main")
+	local, err = factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +530,7 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{retracted}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{retracted}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -537,7 +538,7 @@ func TestPullPreservesLocalStatus(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,10 +560,10 @@ func TestPullRefusesForgedFeedWithoutWrite(t *testing.T) {
 	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -571,7 +572,7 @@ func TestPullRefusesForgedFeedWithoutWrite(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("sync failure must be non-fatal, got %v", err)
 	}
-	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -595,7 +596,7 @@ func TestPullServerAttributionBeatsBlobAuthor(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +795,7 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteRetired, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localActive}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -802,7 +803,7 @@ func TestPullAppliesRemoteRetirement(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -824,7 +825,7 @@ func TestPullNeverRevivesFromAnActiveFeed(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(remoteActive, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localRetired}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -832,7 +833,7 @@ func TestPullNeverRevivesFromAnActiveFeed(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +851,7 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	fake := &hostedFake{denyPush: true}
 	fake.seed(remoteFact, "trail-1", "acct-teammate", "teammate")
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -858,7 +859,7 @@ func TestHostedSyncFallsBackToPullOnlyWhenPublishDenied(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("publish denial must be non-fatal, got %v", err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -891,10 +892,10 @@ func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 	fake.put(factsync.FeedItem{Record: forged, TrailID: "trail-1", CreatedBy: "acct-teammate", CreatedByHandle: "teammate"})
 	fake.mu.Unlock()
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{localFact}); err != nil {
 		t.Fatal(err)
 	}
-	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	before, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,7 +904,7 @@ func TestPullOnlyRejectsAForgedFeed(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatalf("must be non-fatal, got %v", err)
 	}
-	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factsFileRelPath("main"))))
+	after, err := os.ReadFile(filepath.Join(storage.BrainDir, filepath.FromSlash(factstore.FileRelPath("main"))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -926,7 +927,7 @@ func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true}
 	fake.seed(theirs, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mine}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -934,7 +935,7 @@ func TestPullRemovalSparesLocallyDistilledFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -958,7 +959,7 @@ func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
 	fake := &hostedFake{}
 	fake.seed(cached, "", "ulrich", "ulrich")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{cached}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{cached}); err != nil {
 		t.Fatal(err)
 	}
 	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -972,7 +973,7 @@ func TestPullRemovalDisabledWithoutMemberIdentity(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1001,7 +1002,7 @@ func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
 	fake := &hostedFake{denyPush: true} // keep the local copy's anchors out of the feed
 	fake.seed(theirs, "", "acct-teammate", "teammate")
 	opts, storage, repoDir, _ := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{mine}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{mine}); err != nil {
 		t.Fatal(err)
 	}
 	opts.Runner = clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
@@ -1018,7 +1019,7 @@ func TestPullRemovalSparesLocallyAnchoredAuthoredFacts(t *testing.T) {
 	if _, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main"); err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1063,7 +1064,7 @@ func TestPushSkipsUnverifiableRecordsAndUploadsTheRest(t *testing.T) {
 	corrupt.ID = "fact:id-that-does-not-match-content"
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{good, corrupt}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1093,7 +1094,7 @@ func TestPushWithNothingPublishableIsPullOnly(t *testing.T) {
 	corrupt.ID = "fact:id-that-does-not-match-content"
 	fake := &hostedFake{}
 	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{corrupt}); err != nil {
 		t.Fatal(err)
 	}
 

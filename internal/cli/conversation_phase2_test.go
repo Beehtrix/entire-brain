@@ -11,6 +11,7 @@ import (
 
 	entirebrain "github.com/entireio/entire-brain"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -36,7 +37,7 @@ func TestHistoryIndexDedupesReexportedSessionCopies(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "sess-dup", Branch: "main", Agent: "claude", LatestCheckpoint: "cp1", TranscriptPath: older, CreatedAt: now.Add(-2 * time.Hour)},
 			{SessionID: "sess-dup", Branch: "main", Agent: "claude", LatestCheckpoint: "cp2", TranscriptPath: newer, CreatedAt: now.Add(-time.Hour)},
@@ -141,7 +142,7 @@ func writeConversationFilterFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   index.GeneratedAt,
 		Sources: &brainSources{History: &historySourceManifest{
 			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
@@ -336,7 +337,7 @@ func writeConversationWindowFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   index.GeneratedAt,
 		Sources: &brainSources{History: &historySourceManifest{
 			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
@@ -492,7 +493,7 @@ func TestBrainBriefFlagGatesConversationSection(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "brief-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -639,7 +640,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "doc-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -676,7 +677,7 @@ func TestBrainDoctorChecksCaptureToRecallChain(t *testing.T) {
 	// history_freshness to warn until the next refresh repairs it. Reload the
 	// on-disk manifest first; the index build annotated it with the history
 	// source, which the tampered rewrite must preserve.
-	onDisk, err := loadBrainManifest(storage.BrainDir)
+	onDisk, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

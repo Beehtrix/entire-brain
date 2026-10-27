@@ -11,6 +11,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -209,9 +210,9 @@ func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
 		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
 		t.Fatalf("remember failed because a webhook could not be delivered: %v", err)
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
-		t.Fatalf("loadFacts: %v", err)
+		t.Fatalf("factstore.Load: %v", err)
 	}
 	found := false
 	for _, fact := range facts {
@@ -327,7 +328,7 @@ func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
 	if rec.Count() != 0 {
 		t.Fatalf("no-egress mode still sent %d webhook(s)", rec.Count())
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil || len(facts) == 0 {
 		t.Fatalf("the fact was not recorded under no-egress: %v", err)
 	}

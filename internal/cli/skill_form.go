@@ -142,7 +142,7 @@ func skillDestinations(target, scope, name, repoDir string) ([]skillDestination,
 // safeSkillNameComponent reduces a synthesized skill name to exactly one safe
 // path component.
 //
-// safePathComponent alone is enough for containment — its output is ASCII
+// base.SafePathComponent alone is enough for containment — its output is ASCII
 // [a-z0-9._-] trimmed of "-._", so it can never be empty, ".", ".." or carry a
 // separator. It is not enough for identity: a name with no representable
 // characters at all (an all-CJK name, say) collapses to the bare fallback, and
@@ -152,7 +152,7 @@ func skillDestinations(target, scope, name, repoDir string) ([]skillDestination,
 // existing installs do not move.
 func safeSkillNameComponent(name string) string {
 	const fallback = "skill"
-	slug := safePathComponent(name, fallback, 64)
+	slug := clibase.SafePathComponent(name, fallback, 64)
 	if slug != fallback || strings.EqualFold(strings.TrimSpace(name), fallback) {
 		return slug
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -167,7 +168,7 @@ func refreshWithoutHostCLI(t *testing.T, exportErr error, args ...string) (strin
 	if firstErr != nil {
 		t.Fatalf("the FIRST refresh already fails; the fixture no longer reproduces the defect: %v\n%s", firstErr, first)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName)); err != nil {
 		t.Fatalf("the first refresh wrote no manifest, so the second run is not the case under test: %v", err)
 	}
 	// Run TWO: same machine, same condition, manifest now present.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +20,7 @@ import (
 func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 	t.Helper()
 	f := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(f.BrainDir)
+	manifest, err := bmanifest.Load(f.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +81,7 @@ func TestRegressionPrivacySurfaces(t *testing.T) {
 				}); err != nil {
 					t.Fatal(err)
 				}
-				m, err := loadBrainManifest(f.BrainDir)
+				m, err := bmanifest.Load(f.BrainDir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -142,7 +143,7 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 	for _, state := range []string{"derived", "manifest", "tombstones"} {
 		t.Run(state, func(t *testing.T) {
 			f := regressionPrivacyFixture(t)
-			m, err := loadBrainManifest(f.BrainDir)
+			m, err := bmanifest.Load(f.BrainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -163,7 +164,7 @@ func TestRegressionPrivacySkipsDerivedAndFailsClosed(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else if state == "manifest" {
-				if err := os.WriteFile(filepath.Join(f.BrainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+				if err := os.WriteFile(filepath.Join(f.BrainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			} else {

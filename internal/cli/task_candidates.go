@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"math"
 	"os"
@@ -272,7 +273,7 @@ func matchFactsToTask(facts []factRecord, label string, cmdFreq map[string]int) 
 
 // loadAllActiveFacts flattens active facts across every branch, deduped by id.
 func loadAllActiveFacts(brainDir string) []factRecord {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil
 	}

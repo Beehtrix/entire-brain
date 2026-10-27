@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func assertHistoryManifestUnchanged(t *testing.T, brainDir string, before *historySourceManifest) {
@@ -424,7 +425,7 @@ func TestHistoryIndexReadIsBoundedRegularAndNoFollow(t *testing.T) {
 
 func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestProjectionMutationsRefuseUnsupportedActiveReceipts(t *testing.T) {
 		return publishErr
 	})
 	assertUnsupported("publish", err)
-	after, err := loadBrainManifest(brainDir)
+	after, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,7 +535,7 @@ func TestMemoryRepairRecoversCorruptHistoryIndexDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "repair-session", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour)},
 		}}},

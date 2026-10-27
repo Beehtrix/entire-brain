@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // The first wiring of the pre-edit hook passed `--file "$CLAUDE_FILE_PATH"`.
@@ -133,7 +135,7 @@ func TestInstalledWiringDoesNotReferenceANonexistentVariable(t *testing.T) {
 func TestPreEditServesFactsFromAHarnessPayloadOnStdin(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("internal/cli/distill_cmd.go owns the distill flag surface.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -275,7 +277,7 @@ func (neverEOFReader) Read([]byte) (int, error) { select {} }
 func TestPreEditMatchesRepositoryPathsFromAbsolutePayloads(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("`internal/cli/distill_cmd.go` owns the distill flag surface.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {

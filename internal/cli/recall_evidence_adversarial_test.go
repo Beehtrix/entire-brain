@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRecallEvidenceLargeOutputBudgets(t *testing.T) {
@@ -22,7 +24,7 @@ func TestRecallEvidenceLargeOutputBudgets(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, brain := evidenceFixture(t)
-			m, err := loadBrainManifest(brain)
+			m, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,7 +72,7 @@ func TestRecallEvidenceLargeOutputBudgets(t *testing.T) {
 
 func TestRecallEvidenceRejectsAmbiguityBeyondScanLimit(t *testing.T) {
 	opts, brain := evidenceFixture(t)
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

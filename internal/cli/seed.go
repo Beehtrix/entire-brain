@@ -20,6 +20,7 @@ import (
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/docextract"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -70,101 +71,6 @@ func (o seedCommandOptions) reportProgress(phase string) {
 	if o.progress != nil {
 		o.progress(phase)
 	}
-}
-
-type seedSourceManifest struct {
-	GeneratedAt       time.Time            `json:"generated_at"`
-	Commit            string               `json:"commit,omitempty"`
-	WorktreeMode      string               `json:"worktree_mode"`
-	WorktreeHash      string               `json:"worktree_hash,omitempty"`
-	FileFingerprint   string               `json:"file_fingerprint"`
-	SummaryPath       string               `json:"summary_path"`
-	Documents         []seedDocument       `json:"documents,omitempty"`
-	Entrypoints       []string             `json:"entrypoints,omitempty"`
-	Commands          []seedCommand        `json:"commands,omitempty"`
-	HistoryBaseline   *seedHistoryBaseline `json:"history_baseline,omitempty"`
-	HistoryCoverage   *seedHistoryCoverage `json:"history_coverage,omitempty"`
-	Agent             *seedAgentManifest   `json:"agent,omitempty"`
-	Warnings          []string             `json:"warnings,omitempty"`
-	DeterministicPath []string             `json:"deterministic_paths,omitempty"`
-}
-
-type seedDocument struct {
-	Path      string `json:"path"`
-	SeedPath  string `json:"seed_path,omitempty"`
-	Bytes     int64  `json:"bytes,omitempty"`
-	Truncated bool   `json:"truncated,omitempty"`
-	Reason    string `json:"reason,omitempty"`
-	// Extracted marks a document whose text was read out of a binary container
-	// (PDF, Office) rather than copied. The seed file is then derived, not a
-	// copy, which matters to anyone reading the brain directory.
-	Extracted bool `json:"extracted,omitempty"`
-}
-
-type seedCommand struct {
-	Name    string `json:"name"`
-	Command string `json:"command"`
-	Source  string `json:"source"`
-}
-
-type seedHistoryBaseline struct {
-	OldestCommitAt  *time.Time `json:"oldest_commit_at,omitempty"`
-	OldestSessionAt *time.Time `json:"oldest_session_at,omitempty"`
-	SeedRequired    bool       `json:"seed_required"`
-	Reason          string     `json:"reason"`
-	Confidence      string     `json:"confidence"`
-}
-
-type seedHistoryCoverage struct {
-	Path                    string              `json:"path"`
-	TotalCommits            int                 `json:"total_commits"`
-	PreSessionCommits       int                 `json:"pre_session_commits"`
-	CoveredCommits          int                 `json:"covered_commits"`
-	MissingSessionCommits   int                 `json:"missing_session_commits"`
-	NoSessionHistoryCommits int                 `json:"no_session_history_commits"`
-	MergeCommits            int                 `json:"merge_commits"`
-	OldestSessionAt         *time.Time          `json:"oldest_session_at,omitempty"`
-	ExportedCheckpoints     int                 `json:"exported_checkpoints"`
-	UncoveredCommits        []seedCoveredCommit `json:"uncovered_commits,omitempty"`
-	// UncoveredCommitsTotal / UncoveredCommitsTruncated are how the manifest
-	// copy of this record admits it is a sample. They are omitempty, so a
-	// coverage record that carries every uncovered commit is byte-identical to
-	// what previous builds wrote; they appear only when rows were dropped, and
-	// then they say how many there were. See manifestSeedHistoryCoverage.
-	UncoveredCommitsTotal     int    `json:"uncovered_commits_total,omitempty"`
-	UncoveredCommitsTruncated bool   `json:"uncovered_commits_truncated,omitempty"`
-	GeneratedFrom             string `json:"generated_from"`
-}
-
-type seedCoveredCommit struct {
-	Hash        string    `json:"hash"`
-	CommittedAt time.Time `json:"committed_at"`
-	AuthorName  string    `json:"author_name,omitempty"`
-	AuthorEmail string    `json:"author_email,omitempty"`
-	Subject     string    `json:"subject,omitempty"`
-	Coverage    string    `json:"coverage"`
-	Checkpoints []string  `json:"checkpoints,omitempty"`
-	Merge       bool      `json:"merge,omitempty"`
-	Parents     []string  `json:"parents,omitempty"`
-	BodyExcerpt string    `json:"body_excerpt,omitempty"`
-}
-
-type seedAgentManifest struct {
-	Mode  string         `json:"mode"`
-	Quick seedAgentPhase `json:"quick"`
-	Deep  seedAgentPhase `json:"deep"`
-}
-
-type seedAgentPhase struct {
-	Status           string    `json:"status"`
-	Timeout          string    `json:"timeout"`
-	TimeoutAction    string    `json:"timeout_action,omitempty"`
-	InputFingerprint string    `json:"input_fingerprint,omitempty"`
-	OutputPaths      []string  `json:"output_paths,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Warnings         []string  `json:"warnings,omitempty"`
-	StartedAt        time.Time `json:"started_at,omitempty"`
-	CompletedAt      time.Time `json:"completed_at,omitempty"`
 }
 
 type seedCursor struct {
@@ -1216,7 +1122,7 @@ func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir
 			}
 		}
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err == nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		baseline.OldestSessionAt = manifest.Sources.Sessions.OldestSessionAt
 	}
@@ -1234,7 +1140,7 @@ func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir
 }
 
 func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryCoverage {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return &seedHistoryCoverage{
 			Path:          filepath.ToSlash(filepath.Join(seedDirName, "history-gaps.md")),

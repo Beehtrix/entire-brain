@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // status_truth_test.go pins the one promise `status` exists to keep: the word
@@ -57,7 +59,7 @@ func statusTruthFixture(t *testing.T) (Options, string, string) {
 // names nothing to do next.
 func TestStatusOnAnUnbuiltBrainSaysSoAndNamesSetup(t *testing.T) {
 	opts, _, brainDir := statusTruthFixture(t)
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("fixture is not an unbuilt brain: stat manifest = %v", err)
 	}
 
@@ -92,7 +94,7 @@ func TestStatusAfterAManifestlessResetStillNamesSetup(t *testing.T) {
 		t.Fatalf("a built brain must not be reported as absent:\n%s", built)
 	}
 
-	if err := os.Remove(filepath.Join(brainDir, exportManifestFileName)); err != nil {
+	if err := os.Remove(filepath.Join(brainDir, bmanifest.FileName)); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "status")
@@ -119,7 +121,7 @@ func TestStatusWithNoSemanticIndexIsNotHealthy(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now},

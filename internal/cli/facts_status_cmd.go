@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"sort"
 	"strings"
 	"time"
@@ -142,7 +144,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 		Branch:        branch,
 		AllBranches:   allBranches,
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -152,7 +154,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 
 	if allBranches {
 		report.Branch = ""
-		byBranch, err := loadAllFactBranches(brainDir)
+		byBranch, err := factstore.LoadAllBranches(brainDir)
 		if err != nil {
 			return report, err
 		}
@@ -177,7 +179,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 			report.Warnings = append(report.Warnings, vitalityWarnings...)
 		}
 	} else {
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return report, err
 		}
@@ -195,7 +197,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 	// The totals above are what the store produced. If the manifest declares
 	// more, say so here too: this is the fact-health command, and a total that
 	// silently omits lost facts reads as a clean bill of health.
-	if integrity := inspectBrainFactStore(brainDir); !integrity.OK() {
+	if integrity := factstore.InspectBrain(brainDir); !integrity.OK() {
 		report.Warnings = append(report.Warnings, integrity.Warning())
 	}
 	report.Warnings = append(report.Warnings, factsStatusWarnings(report)...)
@@ -205,10 +207,10 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (factsStatusCounts, error) {
 	counts := factsStatusCounts{}
 	for _, fact := range facts {
-		// A stored line carrying no id is not a fact (see isFactRecord).
+		// A stored line carrying no id is not a fact (see factstore.IsFactRecord).
 		// Counting it would report unaddressable junk as an ACTIVE fact,
 		// because the status switch below reads an empty status as active.
-		if !isFactRecord(fact) {
+		if !factstore.IsFactRecord(fact) {
 			continue
 		}
 		counts.Facts++
@@ -221,11 +223,11 @@ func factsStatusCountsForBranch(brainDir, branch string, facts []factRecord) (fa
 			counts.Active++
 		}
 		switch fact.Origin {
-		case factOriginDistilled:
+		case factstore.OriginDistilled:
 			counts.Distilled++
-		case factOriginAuthored:
+		case factstore.OriginAuthored:
 			counts.Authored++
-		case factOriginImported:
+		case factstore.OriginImported:
 			counts.Imported++
 		}
 		for _, anchor := range fact.Provenance {

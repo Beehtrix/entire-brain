@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestLegacyBrainLayoutDetection(t *testing.T) {
@@ -98,7 +100,7 @@ func seedLegacyBrainLayout(t *testing.T, brain string) map[string][]byte {
 		t.Fatal(err)
 	}
 	before := map[string][]byte{}
-	for _, path := range []string{exportManifestFileName, rel, graphTraceFile} {
+	for _, path := range []string{bmanifest.FileName, rel, graphTraceFile} {
 		data, err := os.ReadFile(filepath.Join(brain, path))
 		if err != nil {
 			t.Fatal(err)
@@ -224,8 +226,8 @@ func TestLegacyBrainBundleImportProtectsOldDestination(t *testing.T) {
 	before := seedLegacyBrainLayout(t, brain)
 	archive := filepath.Join(t.TempDir(), "current.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
-		graphTraceFile:         `[{"from_id":"replacement"}]`,
+		bmanifest.FileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		graphTraceFile:     `[{"from_id":"replacement"}]`,
 	})
 	err := runSemanticBundleImport(context.Background(), &cobra.Command{}, opts, archive, bundleSHA256(t, archive), true)
 	if !errors.Is(err, errLegacyBrainLayout) {
@@ -247,7 +249,7 @@ func TestLegacyBundleImportRefusesBeforeChangingDestination(t *testing.T) {
 				manifest = `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"store_path":"semantic/generations/old/semantic.sqlite"}}}`
 			}
 			archive := filepath.Join(t.TempDir(), "old.tar")
-			writeTestBundle(t, archive, map[string]string{exportManifestFileName: manifest, "semantic/generations/old/semantic.sqlite": "authored legacy traces"})
+			writeTestBundle(t, archive, map[string]string{bmanifest.FileName: manifest, "semantic/generations/old/semantic.sqlite": "authored legacy traces"})
 			err := runSemanticBundleImport(context.Background(), &cobra.Command{}, opts, archive, bundleSHA256(t, archive), true)
 			if !errors.Is(err, errLegacyBrainLayout) || !strings.Contains(err.Error(), "export it again") {
 				t.Fatalf("missing bundle recovery error: %v", err)
@@ -256,7 +258,7 @@ func TestLegacyBundleImportRefusesBeforeChangingDestination(t *testing.T) {
 			if err != nil || len(rows) != 1 || rows[0] != observations[0] {
 				t.Fatalf("changed destination traces: %+v, %v", rows, err)
 			}
-			if _, err := os.Stat(filepath.Join(brain, exportManifestFileName)); !os.IsNotExist(err) {
+			if _, err := os.Stat(filepath.Join(brain, bmanifest.FileName)); !os.IsNotExist(err) {
 				t.Fatalf("published a manifest: %v", err)
 			}
 		})

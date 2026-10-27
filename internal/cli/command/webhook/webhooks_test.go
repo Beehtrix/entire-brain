@@ -282,7 +282,7 @@ func TestWebhookEndpointComesOnlyFromTheEnvironment(t *testing.T) {
 		t.Fatalf("read webhooks.go: %v", err)
 	}
 	source := string(data)
-	for _, forbidden := range []string{"os.ReadFile", "os.Open", "loadBrainManifest", "settings"} {
+	for _, forbidden := range []string{"os.ReadFile", "os.Open", "internal/cli/internal/manifest", "settings"} {
 		if strings.Contains(source, forbidden) {
 			t.Fatalf("webhooks.go references %q; the endpoint may no longer be operator-only input, "+
 				"which is what the absence of private-address filtering depends on", forbidden)

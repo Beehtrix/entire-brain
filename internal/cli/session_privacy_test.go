@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -40,7 +42,7 @@ func writePrivacyFixture(t *testing.T) (brainDir string) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/privacy", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/privacy", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "clean-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp1", TranscriptPath: clean, CreatedAt: now.Add(-2 * time.Hour)},
 			{SessionID: "secret-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp2", TranscriptPath: secret, CreatedAt: now.Add(-time.Hour)},
@@ -60,7 +62,7 @@ func writePrivacyFixture(t *testing.T) (brainDir string) {
 // and the sessions tree.
 func assertCanaryAbsent(t *testing.T, brainDir string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +113,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 	now := time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC)
 
 	// Precondition: the canary is indexed.
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +151,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brainDir, "sessions", "main", "20260802T000000Z_secret.jsonl")); err != nil {
 		t.Fatalf("exclude must keep the exported transcript: %v", err)
 	}
-	manifest, err = loadBrainManifest(brainDir)
+	manifest, err = bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 	now := time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC)
 
 	// Warm the FTS index so purge has a derived store to remove.
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +232,7 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 		t.Fatal("purge must leave a tombstone")
 	}
 	// The clean session survives untouched.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	if manifest.Sources.History.Exchanges != 1 {
 		t.Fatalf("surviving exchanges = %d, want 1 (clean session only)", manifest.Sources.History.Exchanges)
 	}
@@ -321,7 +323,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single, multi}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -402,7 +404,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 
 	// Facts: single-source deleted, corroborated fact kept with the purged
 	// anchor stripped.
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +523,7 @@ func TestPrivacyVerifyDetectsViolationsAndCleanState(t *testing.T) {
 	}
 	fact := factRecord{ID: factRecordID("leftover", nil), Text: "leftover", Branch: "main", Origin: "distilled",
 		Status: factStatusActive, CreatedAt: now, UpdatedAt: now, Provenance: []factAnchor{{SessionID: "secret-sess"}}}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	cache := loadDistillCache(brainDir)
@@ -581,7 +583,7 @@ func TestPrivacyRetentionSelectsByAgeAndBranch(t *testing.T) {
 	// Fixture sessions were captured at now-durations relative to 2026-08-07
 	// 12:00: clean-sess at -2h (10:00 on the 7th), secret-sess at -1h. Add a
 	// fresh session on another branch to prove branch and age filtering.
-	onDisk, err := loadBrainManifest(brainDir)
+	onDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +607,7 @@ func TestPrivacyRetentionSelectsByAgeAndBranch(t *testing.T) {
 	// not the 1h-old one. The policy core is exercised through the command
 	// runner path in an integration test; here the selection logic is proven
 	// via a direct dry-run application using the same building blocks.
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	cutoff := now.Add(-20 * time.Hour)
 	var selected []string
 	for _, session := range manifest.Sources.Sessions.Sessions {
@@ -652,7 +654,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -744,7 +746,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single, multi}); err != nil {
 		t.Fatal(err)
 	}
 	secretEpisode := episodeRecord{ID: "ep-secret", SessionID: "secret-sess", Intent: "rotate " + privacyCanary,
@@ -821,7 +823,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -943,7 +945,7 @@ func TestPurgeFailsNonZeroOnUndeletableStoreThenRecovers(t *testing.T) {
 // inspection even when its mtime looks fresh.
 func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

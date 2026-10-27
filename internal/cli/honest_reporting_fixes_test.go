@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ import (
 // rebuilt its derived projections" when nothing had been derived.
 func TestExcludeDoesNotClaimCleanupItNeverDid(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +51,7 @@ func TestExcludeDoesNotClaimCleanupItNeverDid(t *testing.T) {
 func privacyCommandFixture(t *testing.T) (Options, string) {
 	t.Helper()
 	opts, _, brainDir := factsAvailabilityFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

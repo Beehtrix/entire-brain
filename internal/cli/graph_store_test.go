@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -75,7 +76,7 @@ func TestGraphOwnedIndexHasNoBrainGraphArtifacts(t *testing.T) {
 	if err := runSemanticIndex(context.Background(), cmd, opts, semanticIndexOptions{}, repo); err != nil {
 		t.Fatal(err)
 	}
-	m, err := loadBrainManifest(brain)
+	m, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

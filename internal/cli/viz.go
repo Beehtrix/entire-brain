@@ -24,6 +24,7 @@ import (
 
 	entirebrain "github.com/entireio/entire-brain"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -721,7 +722,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 	all := []factRecord{}
 	var warnings []string
 	for _, br := range s.factBranches() {
-		fs, err := loadFacts(s.brainDir, br)
+		fs, err := factstore.Load(s.brainDir, br)
 		if err != nil {
 			warnings = append(warnings, "facts["+br+"]: "+err.Error())
 			continue
@@ -730,7 +731,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 		for _, f := range fs {
 			// Graph node IDs must be unique and non-empty; a record without one
 			// (corrupt or hand-edited store) would collide with its siblings in
-			// the frontend's byId map. loadFacts doesn't validate IDs — skip here.
+			// the frontend's byId map. factstore.Load doesn't validate IDs — skip here.
 			if f.ID == "" || seen[f.ID] {
 				continue
 			}

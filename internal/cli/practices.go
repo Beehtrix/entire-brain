@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // Practice detection (Pattern Consolidation, Phase 3).
@@ -25,7 +26,7 @@ import (
 //
 // Two data realities this code handles (verified against the live brain):
 //   - facts distilled before kind-storage have an empty Kind, so the kind is
-//     taken via factKindOrInferred (deterministic paths+text inference), never
+//     taken via factstore.KindOrInferred (deterministic paths+text inference), never
 //     raw f.Kind.
 //   - a fact's UpdatedAt is its distill time (uniform across a run), so recency
 //     is derived from the newest session timestamp among the fact's provenance,
@@ -91,7 +92,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 	aggs := map[string]*practiceAgg{}
 	order := []string{}
 	for _, branch := range branches {
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return nil, err
 		}
@@ -117,7 +118,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 	for _, id := range order {
 		a := aggs[id]
 		f := a.fact
-		kind := factKindOrInferred(f)
+		kind := factstore.KindOrInferred(f)
 
 		sessions := map[string]bool{}
 		var anchors []episodeAnchor
@@ -176,7 +177,7 @@ func buildBrainPractices(brainDir string, manifest *exportManifest, now time.Tim
 }
 
 func practiceStrength(kind string, support int, lastSeen, now time.Time, confidence float64) float64 {
-	kindScore := base.Clamp01(float64(factKindPriority[kind]) / 6.0)
+	kindScore := base.Clamp01(float64(factstore.KindPriority[kind]) / 6.0)
 	supportScore := base.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+float64(practiceSupportSaturat)))
 	recencyScore := recencyScore(lastSeen, now)
 	confScore := base.Clamp01(confidence)

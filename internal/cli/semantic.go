@@ -28,6 +28,8 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 )
@@ -107,62 +109,6 @@ func semanticRecordMaxBytes() int {
 	return semanticMaxRecordBytes
 }
 
-type semanticSourceManifest struct {
-	GraphRepoRoot    string `json:"graph_repo_root,omitempty"`
-	StoreOwner       string `json:"store_owner,omitempty"`
-	graphStore       *graphStoreDescriptor
-	GeneratedAt      time.Time         `json:"generated_at"`
-	Commit           string            `json:"commit,omitempty"`
-	Tree             string            `json:"tree,omitempty"`
-	Branch           string            `json:"branch,omitempty"`
-	DefaultBranch    string            `json:"default_branch,omitempty"`
-	DirtyWorktree    bool              `json:"dirty_worktree"`
-	Provider         string            `json:"provider,omitempty"`
-	ProviderVersion  string            `json:"provider_version,omitempty"`
-	IdentityRevision string            `json:"identity_revision,omitempty"`
-	SchemaVersion    string            `json:"schema_version,omitempty"`
-	SnapshotPath     string            `json:"snapshot_path,omitempty"`
-	StorePath        string            `json:"store_path,omitempty"`
-	GenerationPath   string            `json:"generation_path,omitempty"`
-	MetricsPath      string            `json:"metrics_path,omitempty"`
-	ParseCachePath   string            `json:"parse_cache_path,omitempty"`
-	OverlayPath      string            `json:"overlay_path,omitempty"`
-	Symbols          int               `json:"symbols"`
-	Relations        int               `json:"relations"`
-	Files            int               `json:"files,omitempty"`
-	Externals        int               `json:"externals,omitempty"`
-	Warnings         []semanticWarning `json:"warnings,omitempty"`
-	PartialFailures  []semanticWarning `json:"partial_failures,omitempty"`
-	Capabilities     []string          `json:"capabilities,omitempty"`
-	NoEgressVerified bool              `json:"no_egress_verified"`
-	WorktreeMode     string            `json:"worktree_mode,omitempty"`
-	WorktreeHash     string            `json:"worktree_hash,omitempty"`
-
-	// Aggregate metadata sourced from the provider's authoritative summary
-	// record. SummaryPresent records whether a summary was received, so a
-	// downgraded (lean header, no summary) provider is distinguishable from one
-	// that reported no warnings.
-	Languages []string `json:"languages,omitempty"`
-	// LanguageTiers maps each language present in the repo to "semantic" or
-	// "inventory-only" (from the provider), so retrieval can be scoped per
-	// language, not just by the repo-wide completeness/trust fields below.
-	LanguageTiers           map[string]string `json:"language_tiers,omitempty"`
-	Profile                 string            `json:"profile,omitempty"`
-	RelationSet             []string          `json:"relation_set,omitempty"`
-	SkippedRelationFamilies []string          `json:"skipped_relation_families,omitempty"`
-	Completeness            json.RawMessage   `json:"completeness,omitempty"`
-	ProfileLimits           json.RawMessage   `json:"profile_limits,omitempty"`
-	Stats                   json.RawMessage   `json:"stats,omitempty"`
-	SummaryPresent          bool              `json:"summary_present"`
-
-	// Retrieval-trust diagnostics derived from the provider's completeness so an
-	// agent reading this index knows how much to trust its semantic facts.
-	// CompletenessLevel is the provider's level (ok/degraded/unsafe); Trust is a
-	// coarse label (trusted/partial/low/unknown). See trustForCompleteness.
-	CompletenessLevel string `json:"completeness_level,omitempty"`
-	Trust             string `json:"trust,omitempty"`
-}
-
 // completenessLevelFromStats extracts completeness_level from the provider's
 // trailing summary stats blob (json.RawMessage), or "" if absent.
 func completenessLevelFromStats(stats json.RawMessage) string {
@@ -191,71 +137,6 @@ func trustForCompleteness(level string) string {
 	default:
 		return "unknown"
 	}
-}
-
-type semanticWarning struct {
-	Code     string `json:"code"`
-	Severity string `json:"severity"`
-	Path     string `json:"path,omitempty"`
-	// Language is schema 1.3's optional partial-failure classification. The
-	// provider sets it when a source fails before any file record exists, so
-	// it is the ONLY signal of what failed in that case: Path is empty there.
-	// Dropping it left those failures unattributable to any language.
-	Language string `json:"language,omitempty"`
-	Effect   string `json:"effect,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-}
-
-// UnmarshalJSON accepts both entire-brain's canonical keys (path, effect) and the
-// semantic provider's wire keys (file_path, effect_on_semantic_completeness). The
-// provider attaches the failing file to each partial failure via file_path; without
-// this alias those fields are silently dropped, leaving degraded brains unable to
-// report which files failed to parse. Canonical keys win when both are present.
-func (w *semanticWarning) UnmarshalJSON(data []byte) error {
-	type alias semanticWarning
-	var raw struct {
-		alias
-		ProviderPath   string `json:"file_path"`
-		ProviderEffect string `json:"effect_on_semantic_completeness"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	*w = semanticWarning(raw.alias)
-	if w.Path == "" {
-		w.Path = raw.ProviderPath
-	}
-	if w.Effect == "" {
-		w.Effect = raw.ProviderEffect
-	}
-	return nil
-}
-
-type semanticHeader struct {
-	SchemaVersion    string            `json:"schema_version"`
-	Provider         string            `json:"provider"`
-	ProviderVersion  string            `json:"provider_version"`
-	IdentityRevision string            `json:"identity_revision,omitempty"`
-	RepoRoot         string            `json:"repo_root,omitempty"`
-	RepoKey          string            `json:"repo_key"`
-	Commit           string            `json:"commit"`
-	Tree             string            `json:"tree"`
-	Languages        []string          `json:"languages"`
-	LanguageTiers    map[string]string `json:"language_tiers,omitempty"`
-	Capabilities     []string          `json:"capabilities"`
-	Warnings         []semanticWarning `json:"warnings"`
-	PartialFailures  []semanticWarning `json:"partial_failures"`
-
-	// Aggregate metadata carried by the authoritative trailing summary record
-	// (see semanticSummary / mergeSemanticSummary). These are omitempty so a
-	// lean streaming header round-trips unchanged and older provider headers
-	// without a summary are unaffected.
-	Profile                 string          `json:"profile,omitempty"`
-	RelationSet             []string        `json:"relation_set,omitempty"`
-	SkippedRelationFamilies []string        `json:"skipped_relation_families,omitempty"`
-	Completeness            json.RawMessage `json:"completeness,omitempty"`
-	ProfileLimits           json.RawMessage `json:"profile_limits,omitempty"`
-	Stats                   json.RawMessage `json:"stats,omitempty"`
 }
 
 type semanticRecord struct {
@@ -484,7 +365,7 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 			return err
 		}
 		defer unlock()
-		manifest, err := loadBrainManifest(storage.BrainDir)
+		manifest, err := bmanifest.Load(storage.BrainDir)
 		if err != nil {
 			return err
 		}
@@ -577,14 +458,14 @@ type semanticBuildMetrics struct {
 }
 
 func writeBrainSemanticSource(outputDir, repoKey string, semantic *semanticSourceManifest) error {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return err
 	}
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.SchemaVersion = bmanifest.SchemaVersion
 	manifest.RepoKey = repoKey
 	manifest.GeneratedAt = semantic.GeneratedAt
 	manifest.Sources.Semantic = semantic
@@ -2331,7 +2212,7 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	if err != nil {
 		return staleReport{}, err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return staleReport{}, err
 	}
@@ -2899,7 +2780,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	// means there is nothing to match a fact's locus against.
 	if !report.Clean {
 		if branch, branchErr := clibase.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
-			if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
+			if facts, factsErr := factstore.Load(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
 				report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
 			}
 		}
@@ -2940,7 +2821,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
 	}
 	for _, fact := range report.Facts {
-		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factKindOrInferred(fact), fact.Text)
+		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factstore.KindOrInferred(fact), fact.Text)
 	}
 	return nil
 }
@@ -3555,7 +3436,7 @@ func loadSemanticBoundaryRecords(brainDir string, source *semanticSourceManifest
 }
 
 func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManifest) (string, error) {
-	if source.graphStore != nil {
+	if source.GraphStore != nil {
 		return source.StorePath, nil
 	}
 	return "", fmt.Errorf("%w; run `%s`", errSemanticStoreRetired, clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb))
@@ -4639,7 +4520,7 @@ var brainBundleLayers = []brainBundleLayer{
 	{name: "runtime_traces", dir: "semantic/traces"},
 	{name: bundleLayerSeed, dir: seedDirName},
 	{name: bundleLayerDocs, dir: docDirName},
-	{name: bundleLayerFacts, dir: factsDirName},
+	{name: bundleLayerFacts, dir: factstore.DirName},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
 	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},
@@ -4756,7 +4637,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	if err := rejectBundleOutputSymlink(output); err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -4788,8 +4669,8 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			// but neither their catalog entries nor their bytes belong in a bundle.
 			// The transcript store rechecks privacy when reading each kept entry.
 			source.Sessions = guardExportSessions(guard, source.Sessions)
-			source.OldestSessionAt = oldestSessionAt(source.Sessions)
-			source.LatestCheckpointID = latestCheckpointID(source.Sessions)
+			source.OldestSessionAt = bmanifest.OldestSessionAt(source.Sessions)
+			source.LatestCheckpointID = bmanifest.LatestCheckpointID(source.Sessions)
 			branchDirs := make(map[string]string)
 			for _, branch := range manifest.Branches {
 				branchDirs[branch.Branch] = branch.Directory
@@ -4837,7 +4718,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 	mw := io.MultiWriter(f, hasher)
 	tw := tar.NewWriter(mw)
 	if err := addBundleManifest(tw, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		// GeneratedAt was never set, so every bundle ever produced carried
 		// "0001-01-01T00:00:00Z" -- an artifact with no production time at all.
 		GeneratedAt: opts.Now().UTC(),
@@ -4933,7 +4814,7 @@ func addBundleManifest(tw *tar.Writer, manifest exportManifest) error {
 		return err
 	}
 	data = append(data, '\n')
-	header := &tar.Header{Name: exportManifestFileName, Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
+	header := &tar.Header{Name: bmanifest.FileName, Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
 	if err := tw.WriteHeader(header); err != nil {
 		return err
 	}
@@ -5375,7 +5256,7 @@ func brainBundleLayerConflicts(brainDir, bundleRoot string) ([]string, error) {
 		}
 		occupied := len(existing) > 0
 		if layer.name == bundleLayerSessions && !occupied {
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return nil, err
 			}
@@ -5437,14 +5318,14 @@ func writeBrainBundleLayerSources(brainDir, repoKey string, restored []string, b
 	if bundle == nil || bundle.Sources == nil {
 		return nil
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
 	if manifest.Sources == nil {
 		manifest.Sources = &brainSources{}
 	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.SchemaVersion = bmanifest.SchemaVersion
 	manifest.RepoKey = repoKey
 	for _, name := range restored {
 		copyBundleLayerSource(manifest.Sources, bundle.Sources, name)
@@ -5462,7 +5343,7 @@ func readerSHA256(r io.Reader) (string, error) {
 }
 
 func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
-	data, err := os.ReadFile(filepath.Join(root, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(root, bmanifest.FileName))
 	if err != nil {
 		return nil, fmt.Errorf("bundle missing manifest: %w", err)
 	}
@@ -5473,8 +5354,8 @@ func validateImportedBundle(root, repoKey string) (*exportManifest, error) {
 	// Checked first, ahead of repo_key and every other field: a bundle from a
 	// newer format must be refused before this build guesses at fields it has
 	// never seen, not after it has already decided they look fine.
-	if manifest.SchemaVersion > brainManifestSchemaVersion {
-		return nil, fmt.Errorf("bundle schema_version %d is newer than supported version %d; upgrade entire-brain to import this bundle", manifest.SchemaVersion, brainManifestSchemaVersion)
+	if manifest.SchemaVersion > bmanifest.SchemaVersion {
+		return nil, fmt.Errorf("bundle schema_version %d is newer than supported version %d; upgrade entire-brain to import this bundle", manifest.SchemaVersion, bmanifest.SchemaVersion)
 	}
 	if manifest.RepoKey == "" {
 		return nil, errors.New("bundle manifest missing repo_key")
@@ -5617,7 +5498,7 @@ func validateBundleEntry(header *tar.Header) error {
 // naming them. semantic/audit.jsonl stays out for the same reason -- only the
 // snapshot and generation subtrees of semantic/ are allowed.
 func bundleEntryPathAllowed(clean, cleanSlash string) bool {
-	if clean == exportManifestFileName {
+	if clean == bmanifest.FileName {
 		return true
 	}
 	if strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir))+"/") ||

@@ -23,6 +23,8 @@ import (
 	"github.com/entireio/entire-brain/internal/brainwire"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"
@@ -234,7 +236,7 @@ func publishFlagOrEnv(flagVal, envName string) string {
 // content-addressed references) plus each snapshot/overlay/facts blob inline. It
 // returns the bundle and the repo_key it declares.
 func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, repoDir string) (publishRequestBody, string, error) {
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return publishRequestBody{}, "", fmt.Errorf("load brain manifest: %w", err)
 	}
@@ -426,7 +428,7 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 // logical branch (resolveFactStreamBranch), and registers a FactsRef on art.
 // Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy manifest: %w", err)
 	}
@@ -434,7 +436,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy policy: %w", err)
 	}
-	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "publish facts")
+	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "publish facts")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -452,7 +454,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	var streams []factStream
 	seen := make(map[string]struct{})
 	for _, dir := range dirs {
-		data, ok, err := readBrainBlob(brainDir, filepath.Join(factsDirName, dir, factsFileName))
+		data, ok, err := readBrainBlob(brainDir, filepath.Join(factstore.DirName, dir, factstore.FileName))
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
@@ -483,7 +485,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", stream.branch, err)
 		}
-		rel := factsFileRelPath(stream.branch)
+		rel := factstore.FileRelPath(stream.branch)
 		digest := contentDigest(data)
 		art.AddFacts(brainwire.FactsRef{
 			Branch:  stream.branch,
@@ -749,7 +751,7 @@ func subdirNames(entries []os.DirEntry) []string {
 // (pullHostedFacts), so after a sync on a feature branch the store also
 // carries teammates' main facts. The owner is therefore not "the records'
 // branch" but the branch that re-derives the directory name
-// (factsBranchRelDir is deterministic: slug plus a hash of the full name).
+// (factstore.BranchRelDir is deterministic: slug plus a hash of the full name).
 // Candidates are every branch the records name, plus the directory's own slug
 // for a store holding only pulled foreign records. A directory no candidate
 // re-derives is refused — publishing it under a guessed branch would corrupt
@@ -781,7 +783,7 @@ func resolveFactStreamBranch(dir string, data []byte) (string, error) {
 		candidates = append(candidates, dir[:i])
 	}
 	for _, candidate := range candidates {
-		if filepath.Base(factsBranchRelDir(candidate)) == dir {
+		if filepath.Base(factstore.BranchRelDir(candidate)) == dir {
 			return candidate, nil
 		}
 	}

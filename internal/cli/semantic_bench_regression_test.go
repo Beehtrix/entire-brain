@@ -13,6 +13,7 @@ import (
 	"time"
 
 	clitest "github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -93,7 +94,7 @@ func TestSemanticBenchKeepAndFailureCleanupContracts(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &kept); err != nil || !kept.Kept {
 		t.Fatalf("kept report: %+v err=%v", kept, err)
 	}
-	manifest, err := loadBrainManifest(kept.BrainDir)
+	manifest, err := bmanifest.Load(kept.BrainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.Symbols != 1 {
 		t.Fatalf("kept brain lost indexed evidence: %+v %v", manifest, err)
 	}

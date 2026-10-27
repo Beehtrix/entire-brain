@@ -18,6 +18,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -683,7 +684,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 		return []sessionAbstractPreview{}, truncated, nil
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1241,7 +1242,7 @@ func newSessionAbstractResolver(brainDir string) *sessionAbstractResolver {
 	resolver := &sessionAbstractResolver{inventory: loadSessionAbstractInventory(brainDir), jobStatus: map[string]string{}}
 	resolver.config, resolver.configState, resolver.configErr = loadMemoryConfigChecked(brainDir)
 	resolver.jobInventory = loadMemoryJobInventory(brainDir)
-	if manifest, err := loadBrainManifest(brainDir); err == nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil {
 		resolver.repoKey = manifest.RepoKey
 	}
 	for _, job := range resolver.jobInventory.Jobs {
@@ -1635,7 +1636,7 @@ func generateSessionAbstractContext(ctx context.Context, repoDir, brainDir strin
 }
 
 func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessionView) error {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
@@ -1909,7 +1910,7 @@ func runSessionAbstractJobGuardedWithOverride(ctx context.Context, repoDir, brai
 }
 
 func loadConversationSessionViewByRef(brainDir, ref string) (conversationSessionView, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return conversationSessionView{}, err
 	}
@@ -1945,7 +1946,7 @@ func sessionAbstractJobStatus(brainDir, sessionRef, digest string) (string, bool
 	if _, affected := inventory.issueForSessionRef(sessionRef); affected {
 		return abstractStatusCorrupt, true
 	}
-	if manifest, err := loadBrainManifest(brainDir); err == nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil {
 		jobID := memoryJobID(manifest.RepoKey, sessionRef, digest, memoryJobKindSessionAbstract)
 		if _, affected := inventory.issueForJobID(jobID); affected {
 			return abstractStatusCorrupt, true
@@ -2373,7 +2374,7 @@ func enqueueManualAbstractJobWithReceipt(brainDir, sessionRef string, override m
 		if err := ensureSessionAbstractReplaceable(brainDir, view); err != nil {
 			return err
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}

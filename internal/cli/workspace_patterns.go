@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -334,7 +335,7 @@ func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforce
 }
 
 func workspacePracticeStrength(kind string, repos, memberCount, support int) float64 {
-	kindScore := clibase.Clamp01(float64(factKindPriority[kind]) / 6.0)
+	kindScore := clibase.Clamp01(float64(factstore.KindPriority[kind]) / 6.0)
 	breadth := patterncore.RepoBreadthScore(repos, memberCount)
 	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
 	return 0.40*kindScore + 0.35*breadth + 0.25*supportScore

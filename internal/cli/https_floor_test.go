@@ -3,6 +3,8 @@ package cli
 import (
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // The scheme floor: a hosted base URL that is not https:// (and not loopback) must
@@ -66,7 +68,7 @@ func TestFactsSyncRefusesPlaintextNonLoopbackAPIURL(t *testing.T) {
 	f.writeFacts(t, "main", []factRecord{{
 		ID: factRecordID("deploys use a canary rollout", paths), Paths: paths,
 		Text: "deploys use a canary rollout", Branch: "main",
-		Origin: factOriginDistilled, Status: factStatusActive,
+		Origin: factstore.OriginDistilled, Status: factStatusActive,
 		CreatedAt: f.now, UpdatedAt: f.now,
 	}})
 

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -194,7 +196,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}
@@ -214,7 +216,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
 	}
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		facts = nil
 	}
@@ -270,7 +272,7 @@ func renderHandoff(cmd *cobra.Command, p handoffPacket) {
 	if len(p.RecentFacts) > 0 {
 		fmt.Fprintf(w, "\n## Recently updated facts\n")
 		for _, f := range p.RecentFacts {
-			fmt.Fprintf(w, "- [%s] %s\n", factKindOrInferred(f), base.TruncateString(f.Text, 200))
+			fmt.Fprintf(w, "- [%s] %s\n", factstore.KindOrInferred(f), base.TruncateString(f.Text, 200))
 		}
 	}
 	if len(p.Consolidations) > 0 {

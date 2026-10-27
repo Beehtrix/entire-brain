@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -40,11 +42,11 @@ func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map
 		text := []string{"nebula alpha public record", "nebula beta public record"}[i]
 		paths := normalizeFactPaths([]string{"architecture/retrieval.go"})
 		fact := factRecord{ID: factRecordID(text, paths), Text: text, Paths: paths, Branch: "main", Status: factStatusActive, UpdatedAt: time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC)}
-		if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+		if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 			t.Fatal(err)
 		}
 		manifestBytes := []byte(`{"schema_version":3,"sources":{"sessions":{"default_branch":"main","sessions":[]}}}`)
-		if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), manifestBytes, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), manifestBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		ids[repo.RepoKey] = fact.ID
@@ -137,7 +139,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 	}
 	paths := normalizeFactPaths([]string{"architecture/retrieval.go"})
 	visible := factRecord{ID: factRecordID("orion visible retrieval fact", paths), Text: "orion visible retrieval fact", Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: opts.Now()}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{visible}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{visible}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(storage.BrainDir, "hidden.txt"), []byte("HIDDEN-ORION-CANARY"), 0o600); err != nil {
@@ -175,7 +177,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 func TestWorkspaceRetrieveMalformedMemberAndOutputFailure(t *testing.T) {
 	opts, manifest, _ := retrieveRegressionWorkspace(t)
 	badBrain := mustBrainDirForKey(t, opts.Env, manifest.Repos[1].RepoKey)
-	if err := os.WriteFile(filepath.Join(badBrain, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(badBrain, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
@@ -285,7 +287,7 @@ func TestWorkspaceRetrieveMultiConceptJSONAndTextProofs(t *testing.T) {
 func TestWorkspaceRetrieveCorruptMemberCorpusIsReported(t *testing.T) {
 	opts, manifest, ids := retrieveRegressionWorkspace(t)
 	badBrain := mustBrainDirForKey(t, opts.Env, manifest.Repos[1].RepoKey)
-	if err := os.WriteFile(filepath.Join(badBrain, filepath.FromSlash(factsFileRelPath("main"))), []byte("{broken\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(badBrain, filepath.FromSlash(factstore.FileRelPath("main"))), []byte("{broken\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}
@@ -304,14 +306,14 @@ func TestWorkspaceRetrieveLimitTruncatesEachMember(t *testing.T) {
 	secondIDs := map[string]string{}
 	for _, repo := range manifest.Repos {
 		dir := mustBrainDirForKey(t, opts.Env, repo.RepoKey)
-		facts, err := loadFacts(dir, "main")
+		facts, err := factstore.Load(dir, "main")
 		if err != nil {
 			t.Fatal(err)
 		}
 		second := factFor(t, "nebula companion public record "+repo.Name, []string{"architecture.retrieval.contract"}, opts.Now())
 		second.Branch = "main"
 		secondIDs[repo.RepoKey] = second.ID
-		if err := writeFacts(dir, "main", append(facts, second)); err != nil {
+		if err := factstore.Write(dir, "main", append(facts, second)); err != nil {
 			t.Fatal(err)
 		}
 	}

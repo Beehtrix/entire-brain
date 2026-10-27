@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -72,7 +73,7 @@ func loadGlobalFacts(env EntireEnv) ([]factRecord, error) {
 		}
 		return nil, statErr
 	}
-	return loadFacts(brainDir, globalFactBranch)
+	return factstore.Load(brainDir, globalFactBranch)
 }
 
 // globalFactIDs is how the rest of the code knows which facts are global.

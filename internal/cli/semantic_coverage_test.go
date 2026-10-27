@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
 	"path/filepath"
@@ -97,7 +98,7 @@ func semanticCoverageIndex(t *testing.T, env EntireEnv, runner *fakeCommandRunne
 	}
 	// semanticFixtureRunner scripts an origin remote, so the store lands under
 	// the remote-derived key rather than a local one.
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

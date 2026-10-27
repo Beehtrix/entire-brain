@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -114,7 +115,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/stm", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/stm", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "sess-live", Branch: "main", Agent: "claude", LatestCheckpoint: "cp1", TranscriptPath: changedRel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -146,7 +147,7 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 	if err := os.WriteFile(newFull, []byte(second), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	onDisk, err := loadBrainManifest(brainDir)
+	onDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestShortTermDeltaRejectsLongTermCacheOnSameMetadataReplacement(t *testing.
 	if stats.Scanned != 1 || stats.Reused != 0 {
 		t.Fatalf("same-metadata long-term replacement stats = %+v, want one scan", stats)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +212,7 @@ func TestShortTermDeltaRejectsPriorOverlayOnSameMetadataReplacement(t *testing.T
 	if err != nil || firstStats.Scanned != 1 {
 		t.Fatalf("first delta stats=%+v err=%v", firstStats, err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +280,7 @@ func TestShortTermDeltaOversizeTranscriptIsRecordedNotRefused(t *testing.T) {
 	if bytes.Equal(after, before) {
 		t.Fatal("the overlay was not republished, so the delta still refused over the bound")
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +305,7 @@ func TestShortTermDeltaIndexesOnlyChangedTranscripts(t *testing.T) {
 	if stats.Exchanges < 3 {
 		t.Fatalf("exchanges = %d, want >= 3 (two from the changed session, one from the new)", stats.Exchanges)
 	}
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if len(overlay.Files) != 2 {
 		t.Fatalf("overlay files = %v", len(overlay.Files))
@@ -398,7 +399,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 	brainDir, changedRel, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +433,7 @@ func TestShortTermSupersedesLongTermRecordsOfChangedFiles(t *testing.T) {
 func TestShortTermLexicalOverlayPreservesDirectFTSPayloadPath(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +508,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	// NO delta ran: rankFreshHistory must return the long-term ranking
 	// bit-for-bit (scores included).
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	fresh, err := loadFreshHistory(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
@@ -535,7 +536,7 @@ func TestShortTermEmptyOverlayPreservesRankingExactly(t *testing.T) {
 func TestShortTermStaleBasePinIsIgnored(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	if got := loadHistoryShortTerm(brainDir, manifest.Sources.History); len(got.Files) == 0 {
 		t.Fatal("precondition: overlay valid")
 	}
@@ -561,7 +562,7 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 	if stats.Files != 1 {
 		t.Fatalf("tombstoned session entered short-term memory: %+v", stats)
 	}
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	overlay := loadHistoryShortTerm(brainDir, manifest.Sources.History)
 	if _, ok := overlay.Files[newRel]; ok {
 		t.Fatal("excluded transcript in overlay")
@@ -820,7 +821,7 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   generated,
 		Sources: &brainSources{History: &historySourceManifest{
 			GeneratedAt: generated, IndexPath: historyIndexPath, Records: len(index.Records),
@@ -926,7 +927,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	baseRel := "sessions/main/20260808T100000Z_base.jsonl"
 	writeTranscript(baseRel, "fix the exporter", "Decision: pinned the exporter version.")
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "base-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: baseRel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -939,7 +940,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 	}
 	addSession := func(id, rel string) {
 		t.Helper()
-		onDisk, err := loadBrainManifest(brainDir)
+		onDisk, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -970,7 +971,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 		t.Fatalf("complete overlay must cover the gap: %s %q", state, detail)
 	}
 
-	onDiskManifest, err := loadBrainManifest(brainDir)
+	onDiskManifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1047,7 @@ func TestShortTermOverlayStatesNeverClaimCoverage(t *testing.T) {
 func TestShortTermReconcilerVersionGate(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

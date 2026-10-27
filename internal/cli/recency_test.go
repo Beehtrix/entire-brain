@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"math"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestRetrievalRecencyPromotesCandidateBelowCutoff(t *testing.T) {
 		{ID: "fact:old", Text: "alpha beta retrieval", Status: factStatusActive, UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
 		{ID: "fact:fresh", Text: "alpha retrieval", Status: factStatusActive, UpdatedAt: now},
 	}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {
@@ -52,7 +53,7 @@ func TestRetrievalRecencyDemotesDatedCandidateOutsidePage(t *testing.T) {
 		{ID: "fact:old", Text: "alpha beta retrieval", Status: factStatusActive, UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
 		{ID: "fact:undated", Text: "alpha retrieval", Status: factStatusActive},
 	}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {
@@ -101,7 +102,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 			if tc.empty {
 				facts = nil
 			}
-			if err := writeFacts(brainDir, "main", facts); err != nil {
+			if err := factstore.Write(brainDir, "main", facts); err != nil {
 				t.Fatal(err)
 			}
 			results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, Recency: tc.enabled, Now: now})

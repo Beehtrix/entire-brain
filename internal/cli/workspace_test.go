@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -107,7 +108,7 @@ func TestWorkspaceWatchMemoryQueuesStayIsolatedAcrossRepoCopies(t *testing.T) {
 	writeQueueManifest := func(storage repoStorage, sessionID string) {
 		t.Helper()
 		manifest := exportManifest{
-			SchemaVersion: brainManifestSchemaVersion,
+			SchemaVersion: bmanifest.SchemaVersion,
 			RepoKey:       storage.Key,
 			Sources: &brainSources{Sessions: &sessionSourceManifest{
 				DefaultBranch: "main",
@@ -460,7 +461,7 @@ func TestWorkspaceRejectsDotNamesBeforePathResolution(t *testing.T) {
 			t.Fatalf("workspace create accepted %q", name)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("dot workspace wrote outside workspaces: %v", err)
 	}
 }
@@ -1739,7 +1740,7 @@ func TestWorkspaceConversationRecallFanOut(t *testing.T) {
 		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1871,7 +1872,7 @@ func TestWorkspaceConversationSourceIsolationAndBranchPropagation(t *testing.T) 
 		if err := os.WriteFile(full, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

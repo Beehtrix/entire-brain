@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestGuardUnifiedFactResultsCollapsesReviewAndBackfills(t *testing.T) {
@@ -111,7 +113,7 @@ func TestFactReviewAliasSurvivesGroupGrowth(t *testing.T) {
 		t.Fatalf("existing proposal id %s stopped resolving after its group grew", oldID)
 	}
 	brainDir := t.TempDir()
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(brainDir, "main", []factProposal{p1, p2}); err != nil {
@@ -165,7 +167,7 @@ func TestGetUnifiedBatchAddressesReviewAndAnnotatesFacts(t *testing.T) {
 		{ID: "fact:current", Text: "Current implementation fact.", Locus: []string{"internal/current.go"}, Status: factStatusActive},
 	}
 	proposal := factProposal{Action: factActionSupersede, CandidateID: "fact:candidate", TargetID: "fact:target", Confidence: 0.55, Branch: "main"}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(brainDir, "main", []factProposal{proposal}); err != nil {
@@ -214,7 +216,7 @@ func TestEmptyGuardPreservesArrayShape(t *testing.T) {
 func TestMalformedProposalQueueCaveatsFactsButKeepsGetAvailable(t *testing.T) {
 	brainDir := t.TempDir()
 	fact := factRecord{ID: "fact:a", Text: "A", Status: factStatusActive}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	proposalPath := filepath.Join(brainDir, filepath.FromSlash(factsProposalsRelPath("main")))
@@ -268,7 +270,7 @@ func TestSearchCollapsesPendingFactsAndGetAddressesReview(t *testing.T) {
 		{ID: "fact:old", Text: "cache contract uses the old implementation", Paths: []string{"architecture.data.flow"}, Branch: "feature", Status: factStatusActive, UpdatedAt: now.Add(-time.Hour)},
 	}
 	proposal := factProposal{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62, Branch: "feature"}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(storage.BrainDir, "feature", []factProposal{proposal}); err != nil {
@@ -363,7 +365,7 @@ func TestRecallAnnotatesPendingFactReview(t *testing.T) {
 		{ID: "fact:old", Text: "cache contract uses the old implementation", Paths: []string{"architecture.data.flow"}, Branch: "feature", Status: factStatusActive, UpdatedAt: now.Add(-time.Hour)},
 	}
 	proposal := factProposal{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62, Branch: "feature"}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeFactProposals(storage.BrainDir, "feature", []factProposal{proposal}); err != nil {
@@ -418,7 +420,7 @@ func TestRecallWarnsWhenProposalQueueUnreadable(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	fact := factRecord{ID: "fact:a", Text: "cache contract fact", Branch: "feature", Status: factStatusActive, UpdatedAt: now}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	proposalPath := filepath.Join(storage.BrainDir, filepath.FromSlash(factsProposalsRelPath("feature")))

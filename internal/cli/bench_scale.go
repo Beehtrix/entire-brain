@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -253,7 +255,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 	}
 	brainDir := storage.BrainDir
 	indexed := false
-	if manifest, merr := loadBrainManifest(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
+	if manifest, merr := bmanifest.Load(brainDir); merr == nil && manifest != nil && manifest.Sources != nil && manifest.Sources.Semantic != nil {
 		indexed = true
 		report.IndexedFiles = manifest.Sources.Semantic.Files
 		report.Symbols = manifest.Sources.Semantic.Symbols
@@ -619,7 +621,7 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 // Count stored records before query-specific ranking and filtering. History
 // includes the reconciled short-term overlay, just as retrieval does.
 func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return 0, err
 	}
@@ -630,7 +632,7 @@ func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
 	} else if !os.IsNotExist(err) {
 		return 0, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}

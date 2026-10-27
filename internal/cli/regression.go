@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -339,7 +340,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	caps := regressionScanCaps{MaxFiles: maxFiles, MaxSignals: maxSignalsEach}
 	// Resolve excluded transcript paths before reading any history. A broken
 	// manifest or privacy policy must fail closed, not disable exclusion.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, nil, nil, caps, err
 	}

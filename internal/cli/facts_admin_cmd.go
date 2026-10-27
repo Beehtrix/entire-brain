@@ -10,6 +10,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -79,7 +80,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// record cannot be re-read after the mutation.
 			retracted := factRecord{ID: factID}
 			if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-				facts, err := loadFacts(brainDir, resolvedBranch)
+				facts, err := factstore.Load(brainDir, resolvedBranch)
 				if err != nil {
 					return err
 				}
@@ -101,7 +102,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if i := indexOfFact(facts, factID); i >= 0 {
 					retracted = facts[i]
 				}
-				if err := writeFacts(brainDir, resolvedBranch, facts); err != nil {
+				if err := factstore.Write(brainDir, resolvedBranch, facts); err != nil {
 					return err
 				}
 				return updateFactSourceManifestLocked(brainDir, now)
@@ -212,7 +213,7 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err != nil {
 			return err
 		}
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return err
 		}
@@ -236,7 +237,7 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 		if err != nil {
 			return err
 		}
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return err
 		}
@@ -283,7 +284,7 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 			}
 			return fmt.Errorf("no proposal matched")
 		}
-		if err := writeFacts(brainDir, branch, facts); err != nil {
+		if err := factstore.Write(brainDir, branch, facts); err != nil {
 			return err
 		}
 		if err := writeFactProposals(brainDir, branch, keep); err != nil {
@@ -383,7 +384,7 @@ func newFactsPromoteCommand(opts Options) *cobra.Command {
 // because a merged feature branch is commonly deleted while its facts live on,
 // and promoting those forward is the whole point of the command.
 func factsBranchIsReal(ctx context.Context, opts Options, repoDir, brainDir, branch string) bool {
-	if factBranchStoreExists(brainDir, branch) {
+	if factstore.BranchStoreExists(brainDir, branch) {
 		return true
 	}
 	return gitRefExists(ctx, opts.Runner, repoDir, "refs/heads/"+branch) ||
@@ -393,11 +394,11 @@ func factsBranchIsReal(ctx context.Context, opts Options, repoDir, brainDir, bra
 // validateFactsPromoteEndpoints checks the two branch names promote was handed.
 // Neither used to be checked at all, and each typo failed in its own quiet way:
 //
-//   - a bad --from loaded nothing (loadFacts reads a missing store as an empty
+//   - a bad --from loaded nothing (factstore.Load reads a missing store as an empty
 //     branch) and reported "promoted 0 fact(s)" — the same success line a real
 //     but empty source produces, so the user had no way to tell a typo from a
 //     branch that genuinely had nothing to give;
-//   - a bad --into was worse than quiet. writeFacts creates the target store on
+//   - a bad --into was worse than quiet. factstore.Write creates the target store on
 //     demand, so promote happily forked the fact set into a directory keyed to a
 //     branch that does not exist. Nothing reads it back, no later command names
 //     it, and no branch can ever reach it: the facts are gone while the command
@@ -409,7 +410,7 @@ func validateFactsPromoteEndpoints(ctx context.Context, opts Options, repoDir, b
 	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, from) {
 		return fmt.Errorf("--from %q is not a branch: git does not know it and this brain holds no memories for it", from)
 	}
-	if !factBranchStoreExists(brainDir, from) {
+	if !factstore.BranchStoreExists(brainDir, from) {
 		return fmt.Errorf("--from %q has no memories to promote", from)
 	}
 	if !factsBranchIsReal(ctx, opts, repoDir, brainDir, into) {
@@ -422,18 +423,18 @@ func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, str
 	now := opts.Now().UTC()
 	var promoted, proposalCount int
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		source, err := loadFacts(brainDir, from)
+		source, err := factstore.Load(brainDir, from)
 		if err != nil {
 			return err
 		}
-		target, err := loadFacts(brainDir, into)
+		target, err := factstore.Load(brainDir, into)
 		if err != nil {
 			return err
 		}
 		merged, proposals, promotedCount := promoteFacts(source, target, strategy, into, now)
 		promoted = promotedCount
 		proposalCount = len(proposals)
-		if err := writeFacts(brainDir, into, merged); err != nil {
+		if err := factstore.Write(brainDir, into, merged); err != nil {
 			return err
 		}
 		if len(proposals) > 0 {
@@ -536,14 +537,14 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 	// concurrent writer that commits between this read and this write is
 	// silently overwritten, and its facts disappear.
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		loaded, err := loadFacts(brainDir, branch)
+		loaded, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return err
 		}
 		facts = loaded
-		changed = reclassifyFacts(facts, force)
+		changed = factstore.Reclassify(facts, force)
 		if changed > 0 {
-			if err := writeFacts(brainDir, branch, facts); err != nil {
+			if err := factstore.Write(brainDir, branch, facts); err != nil {
 				return err
 			}
 		}
@@ -557,7 +558,7 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 	byKind := map[string]int{}
 	for _, f := range facts {
 		if f.Status == factStatusActive {
-			byKind[factKindOrInferred(f)]++
+			byKind[factstore.KindOrInferred(f)]++
 		}
 	}
 	if jsonOut {
@@ -589,7 +590,7 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
@@ -647,7 +648,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			// fingerprint still matches — so a summary for a changed subtree is
 			// hidden rather than shown stale, and no `facts outline` run is required
 			// to see the map.
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
@@ -664,7 +665,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			if _, ok := outline.Nodes[node]; !ok {
 				return fmt.Errorf("no outline node %q on %s", path, resolvedBranch)
 			}
-			// The outline counts what loadFacts produced. When the manifest
+			// The outline counts what factstore.Load produced. When the manifest
 			// declares more than that, "root (4 facts)" is a count of survivors
 			// rendered as if it were the corpus. Qualify it before rendering,
 			// and exit nonzero so a caller cannot read the map as complete.
@@ -693,12 +694,12 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 }
 
 func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force bool, retain time.Duration, jsonOut bool) error {
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return err
 	}
 	now := opts.Now().UTC()
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
 		return err
 	}
@@ -713,11 +714,11 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 	}
 	if force {
 		if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-			facts, err := loadFacts(brainDir, branch)
+			facts, err := factstore.Load(brainDir, branch)
 			if err != nil {
 				return err
 			}
-			taxonomy, err := loadFactTaxonomy(brainDir, now)
+			taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 			if err != nil {
 				return err
 			}
@@ -725,7 +726,7 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 			summary["pruned"] = len(result.Pruned)
 			summary["orphans"] = len(result.Orphans)
 			summary["remaining"] = len(result.Kept)
-			if err := writeFacts(brainDir, branch, result.Kept); err != nil {
+			if err := factstore.Write(brainDir, branch, result.Kept); err != nil {
 				return err
 			}
 			return updateFactSourceManifestLocked(brainDir, now)

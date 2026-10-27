@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // agent_wiring_test.go covers the first-run defect that made a successful
@@ -394,10 +395,10 @@ func TestHookPreEditClaudeHookEmitsTheHostEnvelope(t *testing.T) {
 	paths := []string{"architecture.boundaries.rationale"}
 	fact := factRecord{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Kind: factKindDecision,
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -434,14 +435,14 @@ func TestHookPreEditClaudeHookStaysSilentWithoutAMatch(t *testing.T) {
 	// would pass however the emitter behaved.
 	text := "The export cursor is advanced only after a successful flush."
 	paths := []string{"architecture.data.flow"}
-	if err := writeFacts(brainDir, "main", []factRecord{{
+	if err := factstore.Write(brainDir, "main", []factRecord{{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Kind: factKindDecision,
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if facts, err := loadFacts(brainDir, "main"); err != nil || len(facts) == 0 {
+	if facts, err := factstore.Load(brainDir, "main"); err != nil || len(facts) == 0 {
 		t.Fatalf("fixture must hold facts for this test to mean anything: %d facts, err %v", len(facts), err)
 	}
 	cmd := newHookCommand(opts)

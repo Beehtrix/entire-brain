@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
@@ -36,35 +37,6 @@ import (
 // Error -> WorkFailed signal (the manifest session record does not carry it).
 
 const patternsEpisodesPath = "patterns/episodes.ndjson"
-
-// patternSourceManifest is the brain-manifest entry for the patterns layer. It
-// parallels historySourceManifest/factSourceManifest. Freshness is derived from
-// the same sessions fingerprint the history source uses, so `patterns status` can
-// report current/stale without re-running extraction. The procedure/practice/
-// pattern/skill-memory counters are reserved for later phases and stay zero until
-// then.
-type patternSourceManifest struct {
-	GeneratedAt  time.Time `json:"generated_at"`
-	EpisodesPath string    `json:"episodes_path"`
-	// PrivacyIdentity binds this corpus to the exact tombstone bytes the build
-	// filtered against, exactly as historySourceManifest does. The sessions
-	// fingerprint alone cannot see a privacy change: exclude/include leave the
-	// canonical session set untouched, so without this an exclusion sweep
-	// (which rewrites episodes.ndjson in place, behind this manifest's back)
-	// left `patterns status` reporting the pre-sweep episode count as
-	// "current", and a later `privacy include` never rebuilt the corpus at all
-	// because nothing had changed as far as the fingerprint could tell.
-	PrivacyIdentity     string              `json:"privacy_identity,omitempty"`
-	SessionsFingerprint string              `json:"sessions_fingerprint,omitempty"`
-	Episodes            int                 `json:"episodes"`
-	Reinforcement       reinforcementCounts `json:"reinforcement"`
-	Tasks               int                 `json:"tasks,omitempty"`
-	Procedures          int                 `json:"procedures,omitempty"`
-	Practices           int                 `json:"practices,omitempty"`
-	Patterns            int                 `json:"patterns,omitempty"`
-	SkillMemory         int                 `json:"skill_memory,omitempty"`
-	Warnings            []string            `json:"warnings,omitempty"`
-}
 
 // episodeRecord is one episode persisted to patterns/episodes.ndjson.
 type episodeRecord struct {
@@ -123,7 +95,7 @@ func intentSignature(intent string) string {
 // and size failures refuse the whole build so callers never publish a partial
 // episode/pattern projection.
 func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patternSourceManifest, error) {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -288,7 +260,7 @@ func writeBrainEpisodesAndSourceLocked(outputDir string, now time.Time) (*patter
 	}
 	source.Procedures = len(procedures)
 
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +321,7 @@ func patternSourceCurrent(source *patternSourceManifest, brainDir string) bool {
 // rebuilt. Deterministic and token-free; called by `entire brain refresh` so the
 // pattern layer is populated without a separate command.
 func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return false, err
 	}

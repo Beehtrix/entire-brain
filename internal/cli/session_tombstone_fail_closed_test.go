@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -172,7 +173,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: storage.Key,
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: storage.Key,
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, Sessions: []exportSession{{
 			SessionID: "private", Branch: "feature", Summary: &checkpointSummary{Intent: "PRIVATE-STARTUP-CANARY"},
 		}}}},

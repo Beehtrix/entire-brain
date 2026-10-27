@@ -14,6 +14,7 @@ import (
 	"github.com/entireio/entire-brain/internal/brainwire"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // A distilled fact's anchor carries two LOCAL-ONLY coordinates: the brain-relative
@@ -44,11 +45,11 @@ func newTestBrainArtifact() *brainwire.BrainArtifact {
 
 func writeFactsStream(t *testing.T, brainDir, slug, content string) {
 	t.Helper()
-	dir := filepath.Join(brainDir, factsDirName, slug)
+	dir := filepath.Join(brainDir, factstore.DirName, slug)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, factsFileName), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, factstore.FileName), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

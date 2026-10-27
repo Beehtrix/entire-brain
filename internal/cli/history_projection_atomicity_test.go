@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
@@ -28,7 +29,7 @@ func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       "test/projection-atomicity",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
@@ -47,7 +48,7 @@ func historyProjectionFixture(t *testing.T) (string, string, time.Time) {
 
 func activeHistoryProjection(t *testing.T, brainDir string) (*historySourceManifest, historyIndex) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +72,7 @@ func TestHistoryProjectionPublishFailurePreservesPreviousGeneration(t *testing.T
 
 	originalWrite := historyProjectionWriteFile
 	historyProjectionWriteFile = func(brainDir, rel string, data []byte, perm os.FileMode) error {
-		if rel == exportManifestFileName {
+		if rel == bmanifest.FileName {
 			return errors.New("injected manifest replacement failure")
 		}
 		return originalWrite(brainDir, rel, data, perm)
@@ -363,7 +364,7 @@ func TestPrivacyGenerationInventoryFailsClosedOnWalkError(t *testing.T) {
 func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
 	now := time.Date(2026, 8, 9, 18, 0, 0, 0, time.UTC)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -427,7 +428,7 @@ func TestPrivacyCleanupRemovesInactiveLegacyProjectionAndEgressReceipt(t *testin
 
 func TestHistoryProjectionMigrationRemovesLegacyFilesOnlyAfterSwitch(t *testing.T) {
 	brainDir, _, now := historyProjectionFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

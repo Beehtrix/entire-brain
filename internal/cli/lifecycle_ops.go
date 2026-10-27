@@ -12,6 +12,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -180,7 +182,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	}
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
-	// untyped compile-time constants (brainManifestSchemaVersion = 3,
+	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
 	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
 	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
@@ -421,14 +423,14 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	}
 
 	// Durable facts: the manifest's fact counts are a claim about the store,
-	// not an observation of it. loadFacts reads an absent store as an empty
+	// not an observation of it. factstore.Load reads an absent store as an empty
 	// branch, and a readable-but-short facts.ndjson reads as a complete one, so
 	// "facts: ok (5 fact(s))" survived a store that could only produce four.
 	// Cross-check the claim and report the failure at error level; the exit
 	// gate belongs to `doctor --fail-on`, not to this check.
 	if manifest.Sources != nil && manifest.Sources.Facts != nil {
 		facts := manifest.Sources.Facts
-		if integrity := inspectFactStore(brainDir, facts); !integrity.OK() {
+		if integrity := factstore.Inspect(brainDir, facts); !integrity.OK() {
 			add("facts", "error", integrity.Warning())
 		} else {
 			add("facts", "ok", fmt.Sprintf("%d memory(ies) across %d branch(es)", facts.Facts, len(facts.Branches)))
@@ -644,7 +646,7 @@ func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOu
 
 func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, error) {
 	report := brainStatsReport{GeneratedAt: now}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}

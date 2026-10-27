@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -117,7 +118,7 @@ func TestHistoryEvalCommandsMalformedEmptyAndOutputFailure(t *testing.T) {
 		t.Fatalf("invalid arm error = %v", err)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

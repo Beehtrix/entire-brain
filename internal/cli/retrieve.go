@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"sort"
 	"strings"
@@ -229,7 +231,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		// whose only anchor had no session id survived on query/search/vsearch
 		// while brief, dash, handoff, viz, and the pattern corpus all hid it.
 		// Only tombstoned brains pay the manifest read.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -239,7 +241,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		}
 		guardPred = func(r historyRecord) bool { return !guardBlocksRecord(guard, r) }
 	}
-	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
+	// factstore.Load surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
 	var globalFactIDs map[string]bool
@@ -248,7 +250,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	var proposalsErr error
 	if includeFacts {
 		var err error
-		all, err = loadFacts(brainDir, branch)
+		all, err = factstore.Load(brainDir, branch)
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +311,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if candidateLimit <= int(^uint(0)>>1)/3 {
 			historyCandidateLimit = candidateLimit * 3
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -473,7 +475,7 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	// fact ids are already prefixed "fact:" (factRecordID); history likewise.
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
-		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
+		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factstore.KindOrInferred(f), Text: f.Text}
 		if !f.CreatedAt.IsZero() {
 			out[i].CreatedAt = f.CreatedAt.UTC().Format(time.RFC3339)
 		}
@@ -500,7 +502,7 @@ const conversationSessionTopKDivisor = 2
 // ranking otherwise; vsearch is semantic-only and returns a structured
 // unavailable error when the arm is closed.
 func retrieveConversation(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -871,7 +873,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		// filters below, so a fact whose only anchor lost its session id blocks
 		// by path here too. The history arm's later re-resolution ran after
 		// guardFactRecords and therefore never protected `get fact:`.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -887,7 +889,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	var proposalStateUnavailable bool
 	if wantFact || wantReview {
 		// Surface a corrupt facts store as an error, not a misleading "not found".
-		facts, ferr := loadFacts(brainDir, branch)
+		facts, ferr := factstore.Load(brainDir, branch)
 		if ferr != nil {
 			return nil, nil, ferr
 		}
@@ -924,7 +926,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		// missing/unreadable, is a real storage problem — surface it rather than
 		// reporting every history:* id as "not found". A brain with no history source
 		// (nil) legitimately has no such records, so leave histByID empty.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}

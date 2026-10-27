@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -95,7 +96,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       "gh/example/repo",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{{
 			SessionID: "history-session", Branch: "main", TranscriptPath: transcriptRel,
@@ -108,7 +109,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh history: %v\n%s", err, out)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		t.Fatalf("history source missing: %v %+v", err, manifest)
 	}
@@ -156,7 +157,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 			t.Fatalf("unexpected vector/provider call: %+v", call)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{malformed"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{malformed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	malformedOut, err := execute(t, NewRootCommand(opts), "refresh", "history")
@@ -166,7 +167,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 	if malformedOut != "" {
 		t.Fatalf("malformed history refresh produced output: %q", malformedOut)
 	}
-	if got, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName)); err != nil || string(got) != "{malformed" {
+	if got, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName)); err != nil || string(got) != "{malformed" {
 		t.Fatalf("failed history refresh rewrote malformed manifest: %q, %v", got, err)
 	}
 }

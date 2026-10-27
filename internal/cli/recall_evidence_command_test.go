@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +29,7 @@ func TestRecallEvidenceCommandReturnsOriginalSourceWithoutModel(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brain, rel), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m := exportManifest{SchemaVersion: brainManifestSchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "release", Branch: "main", TranscriptPath: rel}}}}}
+	m := exportManifest{SchemaVersion: bmanifest.SchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "release", Branch: "main", TranscriptPath: rel}}}}}
 	if err := writeBrainManifestAndReadme(brain, m); err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +112,7 @@ func TestRecallEvidenceRejectsUnsupportedOptions(t *testing.T) {
 
 func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 	opts, brain := evidenceFixture(t)
-	factsBefore, err := loadFacts(brain, "main")
+	factsBefore, err := factstore.Load(brain, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +130,7 @@ func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factsAfter, err := loadFacts(brain, "main")
+	factsAfter, err := factstore.Load(brain, "main")
 	if err != nil || !reflect.DeepEqual(factsBefore, factsAfter) || before != after {
 		t.Fatalf("evidence recall changed facts: %v", err)
 	}
@@ -145,7 +147,7 @@ func TestRecallEvidenceExclusionsAndUnsafePaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				m, err := loadBrainManifest(brain)
+				m, err := bmanifest.Load(brain)
 				if err != nil {
 					t.Fatal(err)
 				}

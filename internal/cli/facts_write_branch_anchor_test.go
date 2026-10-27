@@ -2,6 +2,8 @@ package cli
 
 import (
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // releaseBranchTip is a commit that exists only on `release`.
@@ -25,7 +27,7 @@ func TestRememberAnchorsToTheBranchItFilesTheFactOn(t *testing.T) {
 
 	fixture.run(t, "remember", "--branch", "release", "--path", "architecture.data.flow", "The release branch pins the v1 payload schema.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "release")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "release")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -50,7 +52,7 @@ func TestRememberKeepsHeadWhenNoBranchOverrideIsGiven(t *testing.T) {
 
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "The payload schema is versioned.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}
@@ -76,7 +78,7 @@ func TestRememberStampsSessionID(t *testing.T) {
 	t.Setenv(rememberSessionEnv, "")
 	fixture.run(t, "remember", "--path", "architecture.data.flow", "No session anywhere stays valid.")
 
-	facts, err := loadFacts(fixture.storage.BrainDir, "main")
+	facts, err := factstore.Load(fixture.storage.BrainDir, "main")
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}

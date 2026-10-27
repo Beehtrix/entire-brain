@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
@@ -31,7 +32,7 @@ func TestUnsyncedHostedFactsBlindSpot(t *testing.T) {
 func TestHostedNoteWinsOverTheOtherBranchNote(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Now().UTC()
-	if err := writeFacts(brainDir, "main", []factRecord{
+	if err := factstore.Write(brainDir, "main", []factRecord{
 		vitalityTestFact("retries are capped at three", "main", now),
 	}); err != nil {
 		t.Fatal(err)

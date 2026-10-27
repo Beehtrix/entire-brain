@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -123,7 +125,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if evidence {
 				return runRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
-			allFacts, err := loadFacts(brainDir, resolvedBranch)
+			allFacts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
@@ -145,11 +147,11 @@ func newRecallCommand(opts Options) *cobra.Command {
 				}
 			}
 			var storeWarning string
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
 			} else if manifest != nil && manifest.Sources != nil {
-				storeWarning = missingFactStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
+				storeWarning = factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
 			}
 			candidateFacts := allFacts
 			var eligibility *factEligibilityAudit
@@ -168,7 +170,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				candidateFacts = filtered
 				eligibility = &audit
 			}
-			facts := filterFactsByLocus(filterFactsByKind(filterFactsByScope(candidateFacts, scope), kind), locus)
+			facts := factstore.FilterByLocus(factstore.FilterByKind(factstore.FilterByScope(candidateFacts, scope), kind), locus)
 			effectiveQuery := query
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
@@ -331,10 +333,10 @@ func newRecallCommand(opts Options) *cobra.Command {
 // validateScopeFlag rejects an unrecognized --scope value.
 func validateScopeFlag(scope string) error {
 	switch scope {
-	case "", factScopeLocal, factScopeCrossCutting:
+	case "", factstore.ScopeLocal, factstore.ScopeCrossCutting:
 		return nil
 	default:
-		return fmt.Errorf("--scope must be %q or %q", factScopeLocal, factScopeCrossCutting)
+		return fmt.Errorf("--scope must be %q or %q", factstore.ScopeLocal, factstore.ScopeCrossCutting)
 	}
 }
 
@@ -361,7 +363,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}
@@ -373,7 +375,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			if jsonOut {
 				return cmdutil.WriteJSON(cmd, fact)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s] %s\n", fact.ID, factKindOrInferred(fact), strings.Join(fact.Paths, ","), fact.Text)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s] %s\n", fact.ID, factstore.KindOrInferred(fact), strings.Join(fact.Paths, ","), fact.Text)
 			fmt.Fprintf(cmd.OutOrStdout(), "  origin=%s status=%s\n", fact.Origin, fact.Status)
 			for _, a := range fact.Provenance {
 				verified := "unsigned"
@@ -422,7 +424,7 @@ func printGlobalFactLine(out io.Writer, f factRecord) {
 	case factStatusRetracted:
 		marker = " (retracted)"
 	}
-	fmt.Fprintf(out, "%s %s [%s] (global)%s\n  %s\n", f.ID, factKindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
+	fmt.Fprintf(out, "%s %s [%s] (global)%s\n  %s\n", f.ID, factstore.KindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
 }
 
 // sortedGlobalFactIDs returns the ids of the surfaced facts that are global, in
@@ -446,5 +448,5 @@ func printFactLine(out io.Writer, f factRecord) {
 	case factStatusRetracted:
 		marker = " (retracted)"
 	}
-	fmt.Fprintf(out, "%s %s [%s]%s\n  %s\n", f.ID, factKindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
+	fmt.Fprintf(out, "%s %s [%s]%s\n  %s\n", f.ID, factstore.KindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
 }

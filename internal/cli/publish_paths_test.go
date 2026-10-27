@@ -9,16 +9,17 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 	overlay := filepath.Join(semanticDirName, "overlays", testPublishCommit+".."+testPublishHead+".json")
-	facts := filepath.FromSlash(factsFileRelPath("main"))
+	facts := filepath.FromSlash(factstore.FileRelPath("main"))
 	for _, tc := range []struct {
 		name, rel string
 		collect   func(*brainwire.BrainArtifact, string) ([]publishArtifact, error)
 	}{
-		{"facts-root", factsDirName, collectFactArtifacts},
+		{"facts-root", factstore.DirName, collectFactArtifacts},
 		{"facts-leaf", facts, collectFactArtifacts},
 		{"overlay-semantic-parent", semanticDirName, collectOverlayArtifacts},
 		{"overlay-root", filepath.Join(semanticDirName, "overlays"), collectOverlayArtifacts},
@@ -49,7 +50,7 @@ func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 
 func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 	brainDir := t.TempDir()
-	rel := filepath.FromSlash(factsFileRelPath("main"))
+	rel := filepath.FromSlash(factstore.FileRelPath("main"))
 	target := filepath.Join(brainDir, rel)
 	outside := filepath.Join(t.TempDir(), "external.ndjson")
 	writePublishFile(t, target, []byte("local"))
@@ -77,7 +78,7 @@ func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 
 func TestPublishBlobBoundsAndOptionalFiles(t *testing.T) {
 	brainDir := t.TempDir()
-	rel := filepath.FromSlash(factsFileRelPath("main"))
+	rel := filepath.FromSlash(factstore.FileRelPath("main"))
 	if data, ok, err := readBrainBlob(brainDir, rel); err != nil || ok || len(data) != 0 {
 		t.Fatalf("missing optional blob: data=%q ok=%v err=%v", data, ok, err)
 	}

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
-
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func runSessionEndHook(t *testing.T, opts Options) (string, string) {
@@ -68,7 +68,7 @@ func TestSessionEndHookSyncsAndPullsWithCleanStdout(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("session-end stdout must stay empty (machine-read contract), got %q", stdout)
 	}
-	local, err := loadFacts(storage.BrainDir, distillDefaultBranch)
+	local, err := factstore.Load(storage.BrainDir, distillDefaultBranch)
 	if err != nil {
 		t.Fatal(err)
 	}

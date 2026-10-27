@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // A persisted source without the live graph handle is the pre-0.2.0 layout;
@@ -39,7 +41,7 @@ func TestDashSymbolsTreatRetiredSourceAsUnreadable(t *testing.T) {
 func TestBundleImportIgnoresUnsupportedSemanticSchema(t *testing.T) {
 	root := t.TempDir()
 	manifest := `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"99.0","snapshot_path":"semantic/snapshots/aaa/snapshot.ndjson"}}}`
-	if err := os.WriteFile(filepath.Join(root, exportManifestFileName), []byte(manifest), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, bmanifest.FileName), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	imported, err := validateImportedBundle(root, "gh/example/repo")

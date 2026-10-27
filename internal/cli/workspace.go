@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -1475,7 +1476,7 @@ func workspaceMemberBranch(brainDir, override string) (string, error) {
 	if b := strings.TrimSpace(override); b != "" {
 		return b, nil
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return "", err
 	}
@@ -1563,7 +1564,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.Detail = err.Error()
 		return status
 	}
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	_, manifestErr := os.Stat(manifestPath)
 	manifestMissing := os.IsNotExist(manifestErr)
 	if manifestErr != nil && !manifestMissing {
@@ -1612,7 +1613,7 @@ func workspaceRepoFreshnessForRepo(ctx context.Context, opts Options, repo works
 		status.State = "missing-brain"
 		return status
 	}
-	brainManifest, err := loadBrainManifest(brainDir)
+	brainManifest, err := bmanifest.Load(brainDir)
 	switch {
 	case err != nil:
 		status.State = "unsafe"
@@ -1660,7 +1661,7 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.R
 		return nil, err
 	}
 	source := manifest.Sources.Semantic
-	if !semanticRepoKeyEqual(source.graphStore.Header.RepoKey, repo.RepoKey) {
+	if !semanticRepoKeyEqual(source.GraphStore.Header.RepoKey, repo.RepoKey) {
 		storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repo.LocalPathHint)
 		if err != nil {
 			return nil, err
@@ -1668,7 +1669,7 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.R
 		if !semanticRepoKeyEqual(storage.Key, repo.RepoKey) {
 			return nil, errors.New("Graph repository identity does not match workspace member")
 		}
-		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repo.LocalPathHint, repo.RepoKey, source.graphStore.Header.RepoKey, "", ""); err != nil {
+		if err := validateSemanticProviderRepoKey(ctx, opts.Runner, repo.LocalPathHint, repo.RepoKey, source.GraphStore.Header.RepoKey, "", ""); err != nil {
 			return nil, err
 		}
 	}
@@ -2248,7 +2249,7 @@ func workspaceGraphGeneration(env EntireEnv, manifest workspace.Manifest) (strin
 		if err != nil {
 			return "", err
 		}
-		source, err := loadBrainManifest(brainDir)
+		source, err := bmanifest.Load(brainDir)
 		// The builder reports source failures per member and still serves healthy
 		// repositories. Bind that degraded state too, so recovery invalidates it.
 		member := memberSource{Repo: repo, Manifest: source, Unavailable: err != nil}

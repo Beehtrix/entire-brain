@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestPublishRefusesMalformedOrAmbiguousFactStreams(t *testing.T) {
@@ -19,7 +20,7 @@ func TestPublishRefusesMalformedOrAmbiguousFactStreams(t *testing.T) {
 		t.Run(data, func(t *testing.T) {
 			brainDir := t.TempDir()
 			writePublishBrainFixture(t, brainDir)
-			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main"))), []byte(data))
+			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main"))), []byte(data))
 			art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
 			got, err := collectFactArtifacts(art, brainDir)
 			if err == nil || len(got) != 0 {
@@ -84,7 +85,7 @@ func TestPublishAcceptsPulledCrossBranchFactStreams(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			brainDir := t.TempDir()
 			writePublishBrainFixture(t, brainDir)
-			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(tc.branch))), []byte(tc.data))
+			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(tc.branch))), []byte(tc.data))
 			art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
 			got, err := collectFactArtifacts(art, brainDir)
 			if err != nil || len(got) != 2 {
@@ -109,7 +110,7 @@ func TestPublishAcceptsPulledCrossBranchFactStreams(t *testing.T) {
 func TestPublishRefusesUnresolvableFactStream(t *testing.T) {
 	brainDir := t.TempDir()
 	writePublishBrainFixture(t, brainDir)
-	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("evis/feature"))), []byte("{\"branch\":\"main\",\"text\":\"pulled\"}\n"))
+	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("evis/feature"))), []byte("{\"branch\":\"main\",\"text\":\"pulled\"}\n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
 	got, err := collectFactArtifacts(art, brainDir)
 	if err == nil || len(got) != 0 {
@@ -123,7 +124,7 @@ func TestPublishRefusesUnresolvableFactStream(t *testing.T) {
 func TestPublishRefusesDuplicateBranchStreams(t *testing.T) {
 	brainDir := t.TempDir()
 	writePublishBrainFixture(t, brainDir)
-	writePublishFile(t, filepath.Join(brainDir, factsDirName, "duplicate", factsFileName), []byte("{\"branch\":\"main\",\"text\":\"second stream\"}\n"))
+	writePublishFile(t, filepath.Join(brainDir, factstore.DirName, "duplicate", factstore.FileName), []byte("{\"branch\":\"main\",\"text\":\"second stream\"}\n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
 	got, err := collectFactArtifacts(art, brainDir)
 	if err == nil || len(got) != 0 {
@@ -134,7 +135,7 @@ func TestPublishRefusesDuplicateBranchStreams(t *testing.T) {
 func TestPublishEmptyFactStreamRemainsOptional(t *testing.T) {
 	brainDir := t.TempDir()
 	writePublishBrainFixture(t, brainDir)
-	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main"))), []byte("\n \n"))
+	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main"))), []byte("\n \n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
 	got, err := collectFactArtifacts(art, brainDir)
 	if err != nil || len(got) != 0 {

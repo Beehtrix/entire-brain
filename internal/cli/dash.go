@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -208,7 +209,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	snap.Home = dashHomeView(status, manifest, branch, guard)
 
 	// Facts (per branch).
-	if facts, err := loadFacts(brainDir, branch); err != nil {
+	if facts, err := factstore.Load(brainDir, branch); err != nil {
 		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
 		facts = guardFactRecords(guard, facts)

@@ -13,28 +13,10 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
-
-// This descriptor is resolved for each operation, never persisted. Graph owns
-// the filename, schema, cache identity and lifecycle. Brain opens only its
-// versioned views, read-only; no graph rows are copied into Brain storage.
-type graphStoreDescriptor struct {
-	BrainDir         string         `json:"brain_dir,omitempty"`
-	ContractVersion  int            `json:"contract_version"`
-	Path             string         `json:"path"`
-	EntryDigest      string         `json:"entry_digest"`
-	Commit           string         `json:"commit"`
-	Tree             string         `json:"tree"`
-	Header           semanticHeader `json:"header"`
-	Files            int            `json:"files"`
-	Symbols          int            `json:"symbols"`
-	Relations        int            `json:"relations"`
-	Externals        int            `json:"externals"`
-	StoreUnavailable bool           `json:"store_unavailable"`
-	Detail           string         `json:"detail"`
-}
 
 const graphStoreHandlePrefix = "graph-store-v1:"
 
@@ -136,7 +118,7 @@ func graphStoreSource(d graphStoreDescriptor, brainDir string) *semanticSourceMa
 	// here and must be recorded as a warning before SchemaVersion is copied, so
 	// the persisted source does not silently claim full ingestion.
 	warnings := append(append([]semanticWarning(nil), h.Warnings...), semanticSchemaWarnings(h.SchemaVersion)...)
-	return &semanticSourceManifest{Provider: "entire-graph", ProviderVersion: h.ProviderVersion, IdentityRevision: h.IdentityRevision, SchemaVersion: h.SchemaVersion, Commit: d.Commit, Tree: d.Tree, Profile: h.Profile, Symbols: d.Symbols, Relations: d.Relations, Externals: d.Externals, Files: d.Files, NoEgressVerified: true, StoreOwner: "graph", StorePath: graphStoreHandlePrefix + base64.RawURLEncoding.EncodeToString(encoded), graphStore: &d, Languages: h.Languages, LanguageTiers: h.LanguageTiers, Capabilities: h.Capabilities, Warnings: warnings, PartialFailures: h.PartialFailures, Completeness: h.Completeness, Stats: h.Stats, ProfileLimits: h.ProfileLimits, RelationSet: h.RelationSet, CompletenessLevel: completenessLevelFromStats(h.Stats), Trust: trustForCompleteness(completenessLevelFromStats(h.Stats))}
+	return &semanticSourceManifest{Provider: "entire-graph", ProviderVersion: h.ProviderVersion, IdentityRevision: h.IdentityRevision, SchemaVersion: h.SchemaVersion, Commit: d.Commit, Tree: d.Tree, Profile: h.Profile, Symbols: d.Symbols, Relations: d.Relations, Externals: d.Externals, Files: d.Files, NoEgressVerified: true, StoreOwner: "graph", StorePath: graphStoreHandlePrefix + base64.RawURLEncoding.EncodeToString(encoded), GraphStore: &d, Languages: h.Languages, LanguageTiers: h.LanguageTiers, Capabilities: h.Capabilities, Warnings: warnings, PartialFailures: h.PartialFailures, Completeness: h.Completeness, Stats: h.Stats, ProfileLimits: h.ProfileLimits, RelationSet: h.RelationSet, CompletenessLevel: completenessLevelFromStats(h.Stats), Trust: trustForCompleteness(completenessLevelFromStats(h.Stats))}
 }
 
 // semanticSchemaWarnings returns the minor-skew warning for a live Graph store
@@ -151,7 +133,7 @@ func semanticSchemaWarnings(schemaVersion string) []semanticWarning {
 }
 
 func loadGraphManifest(ctx context.Context, opts Options, repoDir, brainDir string) (*exportManifest, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

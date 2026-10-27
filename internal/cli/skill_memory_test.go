@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func procView(id, label string, support, success, corrected int) patternView {
@@ -103,7 +105,7 @@ func TestSkillMemoryStatusCounts(t *testing.T) {
 	}
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now,
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now,
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{Sessions: []exportSession{{SessionID: "s1"}}},
 			Patterns: &patternSourceManifest{GeneratedAt: now, Episodes: 1, Procedures: 2},

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,7 +50,7 @@ func TestStatusSkipsDirtySnapshotFingerprints(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}

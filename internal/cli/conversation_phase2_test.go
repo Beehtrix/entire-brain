@@ -204,7 +204,7 @@ func TestConversationStructuredFilters(t *testing.T) {
 	}
 
 	// Filters on non-conversation sources are a structured error.
-	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 10, modeLexical, retrievalOptions{Source: retrievalSourceHistory, Agent: "Codex"}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory, Agent: "Codex"}); err == nil {
 		t.Fatal("agent filter with source=history must error")
 	}
 

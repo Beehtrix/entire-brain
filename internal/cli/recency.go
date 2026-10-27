@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // withRecencyOptions validates the recency opt-in contract.
@@ -19,7 +21,7 @@ func withRecencyOptions(opts retrievalOptions, enabled bool, halfLife string) (r
 		}
 		opts.RecencyHalfLife = duration
 	}
-	if enabled && opts.Source == retrievalSourceConversation {
+	if enabled && opts.Source == brainstore.RetrievalSourceConversation {
 		return retrievalOptions{}, fmt.Errorf("recency is not supported for source conversation")
 	}
 	return opts, nil
@@ -115,7 +117,7 @@ func applyRecency(results []unifiedResult, now time.Time, halfLife time.Duration
 		stamp := results[i].CreatedAt
 		// A revised fact is current regardless of when it was created, but
 		// its public created_at field must still mean creation time.
-		if results[i].Source == retrievalSourceFact && results[i].UpdatedAt != "" {
+		if results[i].Source == brainstore.RetrievalSourceFact && results[i].UpdatedAt != "" {
 			stamp = results[i].UpdatedAt
 		}
 		multiplier, ok := recencyMultiplierFor(stamp, now, halfLife)

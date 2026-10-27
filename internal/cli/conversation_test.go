@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -519,7 +520,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 		t.Fatal("expected conversation results")
 	}
 	for _, result := range results {
-		if result.Source != retrievalSourceConversation || result.Heading != conversationKind {
+		if result.Source != brainstore.RetrievalSourceConversation || result.Heading != conversationKind {
 			t.Fatalf("non-conversation record leaked: %+v", result)
 		}
 		if !result.VerificationRequired {
@@ -564,13 +565,13 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 		t.Fatalf("default retrieval: %v", err)
 	}
 	for _, result := range unified {
-		if result.Source == retrievalSourceConversation || strings.HasPrefix(result.ID, conversationIDPrefix) {
+		if result.Source == brainstore.RetrievalSourceConversation || strings.HasPrefix(result.ID, conversationIDPrefix) {
 			t.Fatalf("conversation result leaked into default retrieval: %+v", result)
 		}
 	}
 
 	// vsearch over conversation is a structured unsupported error in Phase 1.
-	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", "q", 10, modeVector, retrievalOptions{Source: retrievalSourceConversation}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", "q", 10, modeVector, retrievalOptions{Source: brainstore.RetrievalSourceConversation}); err == nil {
 		t.Fatal("vsearch over conversation must be a structured unsupported error")
 	}
 }
@@ -766,12 +767,12 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 
 func TestParseRetrievalSource(t *testing.T) {
 	for input, want := range map[string]string{
-		"":             retrievalSourceAll,
-		"all":          retrievalSourceAll,
-		"  Fact ":      retrievalSourceFact,
-		"conversation": retrievalSourceConversation,
-		"history":      retrievalSourceHistory,
-		"doc":          retrievalSourceDoc,
+		"":             brainstore.RetrievalSourceAll,
+		"all":          brainstore.RetrievalSourceAll,
+		"  Fact ":      brainstore.RetrievalSourceFact,
+		"conversation": brainstore.RetrievalSourceConversation,
+		"history":      brainstore.RetrievalSourceHistory,
+		"doc":          brainstore.RetrievalSourceDoc,
 	} {
 		got, err := parseRetrievalSource(input)
 		if err != nil || got != want {
@@ -795,18 +796,18 @@ func TestConversationSourceScopedRetrievalDoesNotReturnOtherLayers(t *testing.T)
 	if err := writeFacts(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
-	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceConversation})
+	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation})
 	if err != nil {
 		t.Fatalf("conversation source over factless brain: %v", err)
 	}
 	if len(results) != 0 {
 		t.Fatalf("conversation source must not return facts: %+v", results)
 	}
-	factScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceFact})
+	factScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact})
 	if err != nil || len(factScoped) != 1 || factScoped[0].Source != "fact" {
 		t.Fatalf("fact-scoped retrieval = %+v (%v)", factScoped, err)
 	}
-	docScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: retrievalSourceDoc})
+	docScoped, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceDoc})
 	if err != nil || len(docScoped) != 0 {
 		t.Fatalf("doc-scoped retrieval leaked: %+v (%v)", docScoped, err)
 	}

@@ -76,17 +76,6 @@ const (
 	modeHybrid                       // query
 )
 
-// Retrieval source selectors. Phase 1 of the conversational-memory plan:
-// "all" retains the pre-Phase-1 source set (facts + classified history + docs);
-// conversation exchanges are returned only when explicitly selected.
-const (
-	retrievalSourceAll          = "all"
-	retrievalSourceFact         = "fact"
-	retrievalSourceHistory      = "history"
-	retrievalSourceConversation = "conversation"
-	retrievalSourceDoc          = "doc"
-)
-
 // retrievalOptions is the shared retrieval-options contract; extend it
 // rather than widening positional signatures (cross-cutting rule of the
 // conversational-memory plan).
@@ -167,8 +156,8 @@ func parseRetrievalSource(value string) (string, error) {
 	source := strings.ToLower(strings.TrimSpace(value))
 	switch source {
 	case "":
-		return retrievalSourceAll, nil
-	case retrievalSourceAll, retrievalSourceFact, retrievalSourceHistory, retrievalSourceConversation, retrievalSourceDoc:
+		return brainstore.RetrievalSourceAll, nil
+	case brainstore.RetrievalSourceAll, brainstore.RetrievalSourceFact, brainstore.RetrievalSourceHistory, brainstore.RetrievalSourceConversation, brainstore.RetrievalSourceDoc:
 		return source, nil
 	default:
 		return "", fmt.Errorf("source must be one of all, fact, history, conversation, doc (got %q)", value)
@@ -195,12 +184,12 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	}
 	source := opts.Source
 	if source == "" {
-		source = retrievalSourceAll
+		source = brainstore.RetrievalSourceAll
 	}
-	if opts.IncludeAbstract && source != retrievalSourceConversation {
+	if opts.IncludeAbstract && source != brainstore.RetrievalSourceConversation {
 		return nil, fmt.Errorf(`include_abstract requires source "conversation" (got %q)`, source)
 	}
-	if source == retrievalSourceConversation {
+	if source == brainstore.RetrievalSourceConversation {
 		if opts.Recency {
 			return nil, fmt.Errorf("recency is not supported for source conversation")
 		}
@@ -212,9 +201,9 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	if opts.hasConversationOnlyFilters() {
 		return nil, fmt.Errorf(`after/before/session/agent filters require source "conversation" (got %q)`, source)
 	}
-	includeFacts := source == retrievalSourceAll || source == retrievalSourceFact
-	includeHistory := source == retrievalSourceAll || source == retrievalSourceHistory
-	includeDocs := source == retrievalSourceAll || source == retrievalSourceDoc
+	includeFacts := source == brainstore.RetrievalSourceAll || source == brainstore.RetrievalSourceFact
+	includeHistory := source == brainstore.RetrievalSourceAll || source == brainstore.RetrievalSourceHistory
+	includeDocs := source == brainstore.RetrievalSourceAll || source == brainstore.RetrievalSourceDoc
 	// Preserve the existing 2x per-layer candidate budget. The facts arm adds a
 	// bounded collapse reserve before applying trust state, so unrelated
 	// history/doc RRF candidates never change merely because a proposal entered
@@ -705,7 +694,7 @@ func capConversationSessionShare(scored []scoredHistoryRecord, limit int, opts r
 // contract. Full bounded content is get's job.
 func conversationToUnified(record historyRecord) unifiedResult {
 	return unifiedResult{
-		Source:               retrievalSourceConversation,
+		Source:               brainstore.RetrievalSourceConversation,
 		ID:                   record.ID,
 		Path:                 record.Path,
 		Heading:              conversationKind,

@@ -137,7 +137,7 @@ func TestAbstractRetrievalOptionParity(t *testing.T) {
 	if cmd.Flags().Lookup("include-abstract") == nil {
 		t.Fatal("CLI retrieval must expose --include-abstract")
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: retrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
 		t.Fatalf("non-conversation include_abstract must fail, got %v", err)
 	}
 }
@@ -380,8 +380,8 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 		t.Fatalf("status after generation = %s", status)
 	}
 	previews, truncated, err := abstractPreviewsForResults(brainDir, []unifiedResult{
-		{Source: retrievalSourceConversation, ID: view.Records[0].ID, SessionRef: view.Ref},
-		{Source: retrievalSourceConversation, ID: view.Records[1].ID, SessionRef: view.Ref},
+		{Source: brainstore.RetrievalSourceConversation, ID: view.Records[0].ID, SessionRef: view.Ref},
+		{Source: brainstore.RetrievalSourceConversation, ID: view.Records[1].ID, SessionRef: view.Ref},
 	})
 	if err != nil || truncated || len(previews) != 1 || previews[0].Overview == nil || previews[0].Overview.Text != artifact.Overview.Text {
 		t.Fatalf("previews=%+v truncated=%v err=%v", previews, truncated, err)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -116,7 +117,7 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 			if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {
 				t.Fatal(err)
 			}
-			paths := []string{patternsEpisodesPath, patternsTasksPath, patternsProceduresPath, patternsPracticesPath, bmanifest.FileName}
+			paths := []string{patternsEpisodesPath, patternsTasksPath, patterncore.ProceduresPath, patterncore.PracticesPath, bmanifest.FileName}
 			before := make(map[string][]byte, len(paths))
 			for _, rel := range paths {
 				data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(rel)))

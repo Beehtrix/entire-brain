@@ -606,7 +606,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		// content-bearing formats before treating that mtime as proof: corrupt
 		// or opaque state can never make the read gate return clean.
 		switch rel {
-		case patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patterncore.RunsRelPath:
+		case patternsTasksPath, patterncore.ProceduresPath, patterncore.PracticesPath, patterncore.RunsRelPath:
 			if err := validatePrivacyJSONLines(brainDir, rel); err != nil {
 				return report, err
 			}

@@ -1,8 +1,8 @@
 [
   {
     "name": "refresh must publish corpus",
-    "file": "internal/cli/patterns_cmd.go",
-    "original": "// Explicit refresh is the stricter surface: a corpus failure is fatal here.\n\tif err := buildPatternCorpus(brainDir, opts.Now().UTC(), patternCorpusGraphContext{Context: ctx, Options: opts, RepoDir: repoDir}); err != nil {\n\t\treturn fmt.Errorf(\"pattern corpus: %w\", err)\n\t}",
+    "file": "internal/cli/patterns_commands.go",
+    "original": "// Explicit refresh is the stricter surface: a corpus failure is fatal here.\n\tif err := buildPatternCorpus(brainDir, opts.Now().UTC(), patternCorpusGraphContext{Context: ctx, Options: opts, RepoDir: repoDir}); err != nil {\n\t\treturn nil, fmt.Errorf(\"pattern corpus: %w\", err)\n\t}",
     "replacement": "// MUTANT: omit corpus publication after the episode rebuild.\n\t_ = repoDir",
     "test": "TestRootCommandPatternsLifecycleAndPrivacyFailures",
     "diagnostic": "refresh did not publish corpus"

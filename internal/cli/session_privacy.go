@@ -1010,8 +1010,8 @@ func privacyDerivedStoreRels() []string {
 		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, historyVecStoreFileNamePortable)),
 		filepath.ToSlash(filepath.Join(brainstore.HistoryDirName, embedStoreDirName, conversationVecStoreFileNamePortable)),
 		patternsTasksPath,
-		patternsProceduresPath,
-		patternsPracticesPath,
+		patterncore.ProceduresPath,
+		patterncore.PracticesPath,
 		patterncore.RunsRelPath,
 	}
 	rels = append(rels, patterncore.CorpusPrivacyArtifactRels()...)

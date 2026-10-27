@@ -30,7 +30,7 @@ func newPatternsSkillsCommand(opts Options) *cobra.Command {
 		Short: "List recurring task candidates that can be synthesized into skills",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPatternsSkillsList(cmd.Context(), cmd, opts, targetFromArgs(opts, args), asJSON, limit)
+			return runPatternsSkillsList(cmd.Context(), cmd, opts, agentSurfaceTarget(opts, args), asJSON, limit)
 		},
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit task candidates as JSON")
@@ -46,7 +46,7 @@ func newPatternsSkillsFormCommand(opts Options) *cobra.Command {
 		Short: "Synthesize a SKILL.md from a task candidate (previews until --yes)",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			target := targetFromArgs(opts, nil)
+			target := agentSurfaceTarget(opts, nil)
 			if len(args) == 2 {
 				target = args[1]
 			}
@@ -357,8 +357,8 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 		installs = append(installs, skillInstall{Agents: d.Agents, Path: d.Path, ContentSHA: sha})
 	}
 	if err := recordSkillDecision(storeDir, skillMemoryRecord{
-		PatternID: cand.ID, Scope: candScope(cand), Status: skillStatusActive, SkillName: name,
-		Installs: installs, Fingerprint: patternEvidenceFingerprint(taskView(cand)),
+		PatternID: cand.ID, Scope: candScope(cand), Status: patterncore.SkillStatusActive, SkillName: name,
+		Installs: installs, Fingerprint: patterncore.PatternEvidenceFingerprint(taskView(cand)),
 		Support: cand.Support, Reinforcement: cand.Reinforcement, CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		return err

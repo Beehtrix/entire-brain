@@ -37,6 +37,14 @@ func WriteTextToWriter(writer io.Writer, render func(io.Writer)) error {
 	return out.Err
 }
 
+func JSONOutputBytes(value any) ([]byte, error) {
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
 // ValueOrUnset renders an optional string field for human output, making an
 // absent value explicit instead of printing an empty gap.
 func ValueOrUnset(value string) string {

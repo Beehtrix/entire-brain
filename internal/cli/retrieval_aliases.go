@@ -19,3 +19,15 @@ type (
 	abstractCoverageRange = retrieval.AbstractCoverageRange
 	conceptMatch          = retrieval.ConceptMatch
 )
+
+// Payload shapes shared with the extracted retrieve command surface
+// (internal/cli/command/retrieve); same alias contract as above.
+type (
+	compactUnifiedResult     = retrieval.CompactResult
+	retrievalTaskHints       = retrieval.TaskHints
+	brainBriefAction         = retrieval.BriefAction
+	sessionAbstractPreview   = retrieval.SessionAbstractPreview
+	relatedPatternRef        = retrieval.RelatedPatternRef
+	retrievalTransportExtras = retrieval.TransportExtras
+	getOptions               = retrieval.GetOptions
+)

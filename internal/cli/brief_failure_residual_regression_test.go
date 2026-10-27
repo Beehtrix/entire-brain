@@ -64,7 +64,7 @@ for (const item of items) {
 func TestBriefResidualMalformedKnowledgeStoresEmitNoPacket(t *testing.T) {
 	t.Run("legacy patterns", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patternsProceduresPath))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(patterncore.ProceduresPath))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}

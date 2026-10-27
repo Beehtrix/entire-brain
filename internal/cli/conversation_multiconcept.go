@@ -17,15 +17,10 @@ import (
 // the session's virtual identity plus the exact supporting exchanges, so the
 // caller keeps the deterministic query-then-get workflow.
 
+// retrieval.ConversationConceptsMaxTotal and retrieval.ConversationConceptResultMax moved to
+// retrieval (payload.go) with the extracted command surface.
 const (
-	// conversationConceptsMaxTotal bounds primary query plus extra concepts.
-	conversationConceptsMaxTotal = 5
-	conversationConceptMaxBytes  = 512
-	// conversationConceptResultMax is shared by the core, CLI, workspace,
-	// transports. It bounds candidate/result allocations before any
-	// ranking work starts; transport byte budgets are enforced separately on
-	// the exact serialized response shape.
-	conversationConceptResultMax = 50
+	conversationConceptMaxBytes = 512
 	// conversationConceptResponseMaxBytes caps the complete multi-concept
 	// response; whole tail results drop, never a cut record.
 	conversationConceptResponseMaxBytes = 128 * 1024
@@ -39,8 +34,8 @@ var conversationConceptScanCeiling = 10000
 // concepts: whitespace-normalized, case-insensitively deduplicated, bounded,
 // two to five total. Every violation is a structured input error.
 func normalizeConversationConcepts(query string, extras []string) ([]string, error) {
-	if len(extras) > conversationConceptsMaxTotal-1 {
-		return nil, fmt.Errorf("multi-concept search takes at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(extras))
+	if len(extras) > retrieval.ConversationConceptsMaxTotal-1 {
+		return nil, fmt.Errorf("multi-concept search takes at most %d additional concepts (got %d)", retrieval.ConversationConceptsMaxTotal-1, len(extras))
 	}
 	all := append([]string{query}, extras...)
 	seen := map[string]bool{}
@@ -60,8 +55,8 @@ func normalizeConversationConcepts(query string, extras []string) ([]string, err
 		seen[key] = true
 		out = append(out, concept)
 	}
-	if len(out) < 2 || len(out) > conversationConceptsMaxTotal {
-		return nil, fmt.Errorf("multi-concept search takes two to %d concepts including the query (got %d)", conversationConceptsMaxTotal, len(out))
+	if len(out) < 2 || len(out) > retrieval.ConversationConceptsMaxTotal {
+		return nil, fmt.Errorf("multi-concept search takes two to %d concepts including the query (got %d)", retrieval.ConversationConceptsMaxTotal, len(out))
 	}
 	return out, nil
 }
@@ -82,7 +77,7 @@ type conceptRankList struct {
 // (memory_query_too_broad) beyond it; vector and hybrid modes are explicitly
 // approximate but never violate filters.
 func retrieveConversationMultiConcept(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
-	if err := validateRetrievalLimit(limit); err != nil {
+	if err := retrieval.ValidateRetrievalLimit(limit); err != nil {
 		return nil, err
 	}
 	concepts, err := normalizeConversationConcepts(query, opts.Concepts)
@@ -252,13 +247,6 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		out = append(out, result)
 	}
 	return out, nil
-}
-
-func validateRetrievalLimit(limit int) error {
-	if limit < 1 || limit > conversationConceptResultMax {
-		return fmt.Errorf("limit must be between 1 and %d (got %d)", conversationConceptResultMax, limit)
-	}
-	return nil
 }
 
 func errConversationConceptTooBroad(concept string) error {

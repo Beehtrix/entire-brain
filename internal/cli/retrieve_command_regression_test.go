@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
@@ -112,7 +113,7 @@ func TestRetrieveCommandsRejectInvalidContractsBeforeReadingState(t *testing.T) 
 		"workspace fact abstract":            "--include-abstract requires --source conversation",
 	}
 	for name, err := range map[string]error{
-		"single zero limit":                  runRetrieve(cmd.Context(), cmd, Options{}, "q", retrieval.ModeLexical, 0, "", retrievalOptions{}, false, false, "search"),
+		"single zero limit":                  retrieve.Run(cmd.Context(), cmd, retrieveCommandConfig(Options{}), "q", retrieval.ModeLexical, 0, "", retrievalOptions{}, false, false, "search"),
 		"workspace zero limit":               runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 0}, retrieval.ModeLexical, "missing", "q"),
 		"workspace malformed source":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: "private"}, retrieval.ModeLexical, "missing", "q"),
 		"workspace missing manifest":         runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 1, source: brainstore.RetrievalSourceFact}, retrieval.ModeLexical, "missing", "q"),
@@ -147,7 +148,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	invalidAbstract := &cobra.Command{}
-	if err := runRetrieve(invalidAbstract.Context(), invalidAbstract, opts, "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}, false, false, "search"); err == nil || !strings.Contains(err.Error(), "conversation") {
+	if err := retrieve.Run(invalidAbstract.Context(), invalidAbstract, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}, false, false, "search"); err == nil || !strings.Contains(err.Error(), "conversation") {
 		t.Fatalf("fact abstract error = %v", err)
 	}
 
@@ -155,7 +156,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 		cmd := &cobra.Command{}
 		var out strings.Builder
 		cmd.SetOut(&out)
-		err := runRetrieve(cmd.Context(), cmd, opts, "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, jsonOut, false, "search")
+		err := retrieve.Run(cmd.Context(), cmd, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, jsonOut, false, "search")
 		if err != nil || !strings.Contains(out.String(), visible.ID) || strings.Contains(out.String(), "HIDDEN-ORION-CANARY") {
 			t.Fatalf("json=%v result contract: err=%v output=%s", jsonOut, err, out.String())
 		}
@@ -164,13 +165,13 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 	empty := &cobra.Command{}
 	var emptyOut strings.Builder
 	empty.SetOut(&emptyOut)
-	if err := runRetrieve(empty.Context(), empty, opts, "not-present", retrieval.ModeLexical, 2, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, false, false, "search"); err != nil || !strings.Contains(emptyOut.String(), `no results for "not-present"`) {
+	if err := retrieve.Run(empty.Context(), empty, retrieveCommandConfig(opts), "not-present", retrieval.ModeLexical, 2, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, false, false, "search"); err != nil || !strings.Contains(emptyOut.String(), `no results for "not-present"`) {
 		t.Fatalf("no-results contract: err=%v output=%s", err, emptyOut.String())
 	}
 
 	failing := &cobra.Command{}
 	failing.SetOut(retrieveRegressionFailWriter{})
-	if err := runRetrieve(failing.Context(), failing, opts, "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "search"); err == nil || !strings.Contains(err.Error(), "output failure") {
+	if err := retrieve.Run(failing.Context(), failing, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 1, "feature", retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "search"); err == nil || !strings.Contains(err.Error(), "output failure") {
 		t.Fatalf("writer error = %v", err)
 	}
 }

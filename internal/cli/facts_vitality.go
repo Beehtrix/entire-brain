@@ -337,18 +337,8 @@ func factRecordIDs(facts []factRecord) []string {
 	return ids
 }
 
-// unifiedFactIDs extracts the fact-layer ids from unified retrieval results.
-// Only source "fact" is a served fact; review groups, history, and docs carry
-// no per-fact vitality.
-func unifiedFactIDs(results []unifiedResult) []string {
-	var ids []string
-	for _, r := range results {
-		if r.Source == "fact" {
-			ids = append(ids, r.ID)
-		}
-	}
-	return ids
-}
+// unifiedFactIDs moved to internal/cli/command/retrieve with its only callers
+// (retrieve.Run/retrieve.RunGet).
 
 func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityRollupRelPath(branch)))

@@ -1181,7 +1181,7 @@ func TestHostedSyncPullNoAccessPausesRepo(t *testing.T) {
 	if quiet.Len() != 0 {
 		t.Fatalf("a paused repo must be silent, got %q", quiet.String())
 	}
-	hosted, _ := buildHostedStatus(storage.BrainDir, nil)
+	hosted, _ := buildHostedStatus(storage.BrainDir, nil, opts.Now().UTC())
 	if hosted.NoAccessUntil.IsZero() || !strings.Contains(hostedStatusLine(hosted), "paused") {
 		t.Fatalf("status must surface the pause, got %+v / %q", hosted, hostedStatusLine(hosted))
 	}
@@ -1300,5 +1300,36 @@ func TestPauseNoAccessSilentWhenBindingChanged(t *testing.T) {
 	binding := readBindingOrFatal(t, storage.BrainDir)
 	if !binding.NoAccessUntil.IsZero() {
 		t.Fatalf("the current binding must not be paused, got %v", binding.NoAccessUntil)
+	}
+}
+
+// Once the pause expires and the grant is back, the next successful pull must
+// retire the recorded pause — and status must never report an expired pause
+// as active in the meantime (PR #535 review finding).
+func TestHostedSyncSuccessClearsExpiredNoAccessPause(t *testing.T) {
+	fake := &hostedFake{}
+	opts, storage, repoDir, baseURL := hostedSyncHarness(t, fake, true)
+	expired := opts.Now().UTC().Add(-time.Minute)
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{
+		RepoID: "repo1", BaseURL: baseURL, NoAccessUntil: expired,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	hosted, _ := buildHostedStatus(storage.BrainDir, nil, opts.Now().UTC())
+	if !hosted.NoAccessUntil.IsZero() {
+		t.Fatalf("status must not report an expired pause as active, got %v", hosted.NoAccessUntil)
+	}
+
+	var errOut bytes.Buffer
+	outcome, err := hostedFactsSyncAndPull(context.Background(), &errOut, opts, repoDir, storage, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.PullSucceeded {
+		t.Fatalf("an expired pause must not block the sync: %q", errOut.String())
+	}
+	if binding := readBindingOrFatal(t, storage.BrainDir); !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("a successful pull must retire the pause, got %v", binding.NoAccessUntil)
 	}
 }

@@ -157,6 +157,15 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		if manifestErr != nil {
 			fmt.Fprintf(errW, "hosted sync: facts updated, but the source manifest could not be refreshed: %v\n", manifestErr)
 		}
+		if !binding.NoAccessUntil.IsZero() {
+			// This run started past an expired pause and the pull succeeded:
+			// access is back, so retire the pause instead of leaving status
+			// reporting it forever. Guarded like the pause write — a binding
+			// another writer replaced meanwhile is not touched.
+			if err := clearHostedSyncNoAccess(storage.BrainDir, binding); err != nil {
+				fmt.Fprintf(errW, "hosted sync: clear expired no-access pause: %v\n", err)
+			}
+		}
 		fmt.Fprintf(errW, "hosted sync: branch %s pushed added=%d changed=%d unchanged=%d; feed facts=%d kept=%d\n",
 			branch, counts.Added, counts.Changed, counts.Unchanged, total, kept)
 		return hostedSyncOutcome{Attempted: true, PullSucceeded: true}, nil
@@ -188,6 +197,17 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 	}
 	fmt.Fprintf(errW, "hosted sync: repo was re-onboarded on Entire; rebound %s -> %s\n", stale.RepoID, fresh.RepoID)
 	return fresh, true
+}
+
+// clearHostedSyncNoAccess retires a pause whose repo answered a pull again.
+func clearHostedSyncNoAccess(brainDir string, stale brainstore.HostedRepoBinding) error {
+	return brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
+		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL || current.NoAccessUntil.IsZero() {
+			return current, false
+		}
+		current.NoAccessUntil = time.Time{}
+		return current, true
+	})
 }
 
 // pauseHostedSyncNoAccess records the no-access pause next to the binding and

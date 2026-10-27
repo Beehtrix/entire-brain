@@ -28,8 +28,10 @@ type brainStatusHosted struct {
 	// matches the current binding; a marker left by an older target does not
 	// count.
 	SyncedBranches []string `json:"synced_branches,omitempty"`
-	// NoAccessUntil is the recorded no-access pause (COR-2279): background
-	// sync skips the repo until then because the server denied access.
+	// NoAccessUntil is the ACTIVE no-access pause (COR-2279): background sync
+	// skips the repo until then because the server denied access. An expired
+	// pause is dead state (the next successful sync retires it) and is not
+	// reported.
 	NoAccessUntil time.Time `json:"no_access_until,omitzero"`
 }
 
@@ -44,7 +46,7 @@ const (
 // decides. The binding stays visible under the kill switch so the reader sees
 // what it suppresses. A corrupt binding degrades to disconnected with a warning
 // rather than failing status over a sync-state file.
-func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, string) {
+func buildHostedStatus(brainDir string, factBranches []string, now time.Time) (*brainStatusHosted, string) {
 	var warning string
 	hosted := &brainStatusHosted{RepoState: hostedStateDisconnected}
 	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
@@ -60,7 +62,9 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 		hosted.RepoState = hostedStateConnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
-		hosted.NoAccessUntil = binding.NoAccessUntil
+		if binding.NoAccessUntil.After(now) {
+			hosted.NoAccessUntil = binding.NoAccessUntil
+		}
 		// A broken marker is corruption, not "never synced" — report it like
 		// the unreadable top-level binding above instead of posing as a
 		// healthy unsynced branch. The two warnings cannot co-occur: markers

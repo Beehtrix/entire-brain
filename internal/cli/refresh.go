@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
@@ -525,7 +526,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
-	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
+	webhook.NotifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, webhook.WebhookBrainRefreshed, opts.Now())
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}

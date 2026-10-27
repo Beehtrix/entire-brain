@@ -16,7 +16,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
+	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -103,8 +105,8 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("setup", newSetupCommand(opts))
 	addGrouped("setup", newAddCommand(opts))
 	addGrouped("setup", newBrainGuideCommand(opts))
-	addGrouped("setup", newWebhookCommand(opts))
-	addGrouped("setup", newConfigCommand(opts.Env))
+	addGrouped("setup", webhook.New(opts))
+	addGrouped("setup", config.New(opts.Env))
 
 	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))

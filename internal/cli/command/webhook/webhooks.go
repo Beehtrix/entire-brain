@@ -1,4 +1,4 @@
-package cli
+package webhook
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -52,9 +53,9 @@ import (
 //     something unrelated is down.
 
 const (
-	webhookURLEnv         = "ENTIRE_BRAIN_WEBHOOK_URL"
+	WebhookURLEnv         = "ENTIRE_BRAIN_WEBHOOK_URL"
 	webhookSecretEnv      = "ENTIRE_BRAIN_WEBHOOK_SECRET"
-	webhookIncludeTextEnv = "ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT"
+	WebhookIncludeTextEnv = "ENTIRE_BRAIN_WEBHOOK_INCLUDE_TEXT"
 	webhookTimeoutEnv     = "ENTIRE_BRAIN_WEBHOOK_TIMEOUT"
 
 	// Delivery is synchronous and therefore on the critical path of every
@@ -108,7 +109,7 @@ func webhookCatalogue() []struct{ Name, Description string } {
 	}
 }
 
-func webhookEventNames() []string {
+func WebhookEventNames() []string {
 	names := make([]string, 0, 4)
 	for _, event := range webhookCatalogue() {
 		names = append(names, event.Name)
@@ -116,7 +117,7 @@ func webhookEventNames() []string {
 	return names
 }
 
-type webhookFact struct {
+type WebhookFact struct {
 	ID    string   `json:"id"`
 	Kind  string   `json:"kind,omitempty"`
 	Paths []string `json:"paths,omitempty"`
@@ -124,13 +125,13 @@ type webhookFact struct {
 	Text string `json:"text,omitempty"`
 }
 
-type webhookEvent struct {
+type WebhookEvent struct {
 	Event     string         `json:"event"`
 	Timestamp string         `json:"timestamp"`
 	Repo      string         `json:"repo,omitempty"`
 	Branch    string         `json:"branch,omitempty"`
 	Global    bool           `json:"global,omitempty"`
-	Fact      *webhookFact   `json:"fact,omitempty"`
+	Fact      *WebhookFact   `json:"fact,omitempty"`
 	Counts    map[string]int `json:"counts,omitempty"`
 }
 
@@ -145,7 +146,7 @@ func webhookRepoName(repoDir string) string {
 	return filepath.Base(filepath.Clean(repoDir))
 }
 
-// webhookRepoIdentity resolves the name every event for one repository reports.
+// WebhookRepoIdentity resolves the name every event for one repository reports.
 //
 // It must be one source for all of them. Call sites had drifted between the
 // git-toplevel path and the configured repo root, which differ whenever a
@@ -155,7 +156,7 @@ func webhookRepoName(repoDir string) string {
 //
 // The git toplevel is the one that is stable under both, and it falls back to
 // the configured root when git cannot answer.
-func webhookRepoIdentity(ctx context.Context, opts Options) string {
+func WebhookRepoIdentity(ctx context.Context, opts base.Options) string {
 	if top, err := base.GitScalar(ctx, opts.Runner, opts.Env.RepoRoot, "rev-parse", "--show-toplevel"); err == nil {
 		if name := webhookRepoName(strings.TrimSpace(top)); name != "" {
 			return name
@@ -168,12 +169,12 @@ func webhookRepoIdentity(ctx context.Context, opts Options) string {
 // whether fact text leaves the machine. Callers pass the whole record and get
 // back a payload already redacted, so forgetting to redact is not something a
 // call site can do.
-func newFactWebhookEvent(name, repoName, branch string, record factRecord, now time.Time) webhookEvent {
-	fact := &webhookFact{ID: record.ID, Kind: record.Kind, Paths: record.Paths}
-	if base.EnvBool(webhookIncludeTextEnv) {
+func newFactWebhookEvent(name, repoName, branch string, record factmerge.Record, now time.Time) WebhookEvent {
+	fact := &WebhookFact{ID: record.ID, Kind: record.Kind, Paths: record.Paths}
+	if base.EnvBool(WebhookIncludeTextEnv) {
 		fact.Text = record.Text
 	}
-	return webhookEvent{
+	return WebhookEvent{
 		Event:     name,
 		Timestamp: now.UTC().Format(time.RFC3339),
 		Repo:      repoName,
@@ -189,13 +190,13 @@ func webhookEndpoint() (endpoint string, ok bool, reason string) {
 	if base.BrainNoEgressMode() {
 		return "", false, "egress is disabled by " + base.NoEgressToggleName()
 	}
-	raw := strings.TrimSpace(os.Getenv(webhookURLEnv))
+	raw := strings.TrimSpace(os.Getenv(WebhookURLEnv))
 	if raw == "" {
-		return "", false, webhookURLEnv + " is not set"
+		return "", false, WebhookURLEnv + " is not set"
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", false, fmt.Sprintf("%s is not a valid URL", webhookURLEnv)
+		return "", false, fmt.Sprintf("%s is not a valid URL", WebhookURLEnv)
 	}
 	// Scheme before host, deliberately: file:///tmp/x parses with an empty host,
 	// so checking the host first reports it as a malformed URL when the real
@@ -223,10 +224,10 @@ func webhookEndpoint() (endpoint string, ok bool, reason string) {
 		if scheme == "" {
 			scheme = "no scheme"
 		}
-		return "", false, fmt.Sprintf("%s must be http or https, not %s", webhookURLEnv, scheme)
+		return "", false, fmt.Sprintf("%s must be http or https, not %s", WebhookURLEnv, scheme)
 	}
 	if parsed.Host == "" {
-		return "", false, fmt.Sprintf("%s has no host", webhookURLEnv)
+		return "", false, fmt.Sprintf("%s has no host", WebhookURLEnv)
 	}
 	return raw, true, ""
 }
@@ -270,7 +271,7 @@ func redactWebhookURL(err error) error {
 // errWebhookRedirect is returned rather than followed. See the header comment:
 // the payload and its signature must not be delivered to a host the user did
 // not configure.
-var errWebhookRedirect = errors.New("webhook endpoint redirected; point " + webhookURLEnv + " at the final URL instead")
+var errWebhookRedirect = errors.New("webhook endpoint redirected; point " + WebhookURLEnv + " at the final URL instead")
 
 // Two bounds, deliberately: the client timeout covers the request and the
 // context covers the whole operation. They are mutually redundant today —
@@ -289,7 +290,7 @@ func newWebhookClient() *http.Client {
 // emitWebhook delivers one event, or does nothing when webhooks are off. It
 // returns an error so tests and `webhook test` can assert on delivery; the
 // write paths use notifyWebhook instead and do not fail on it.
-func emitWebhook(ctx context.Context, event webhookEvent) error {
+func emitWebhook(ctx context.Context, event WebhookEvent) error {
 	endpoint, ok, _ := webhookEndpoint()
 	if !ok {
 		return nil // not configured is the normal case, not a failure
@@ -297,7 +298,7 @@ func emitWebhook(ctx context.Context, event webhookEvent) error {
 	return deliverWebhook(ctx, endpoint, event)
 }
 
-func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) error {
+func deliverWebhook(ctx context.Context, endpoint string, event WebhookEvent) error {
 	body, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("encode webhook: %w", err)
@@ -336,7 +337,7 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 	return nil
 }
 
-// notifyFactWebhook is what the fact write paths call.
+// NotifyFactWebhook is what the fact write paths call.
 //
 // It checks whether webhooks are on BEFORE resolving anything, because
 // resolving the repository identity shells out to git. Building the event
@@ -345,16 +346,16 @@ func deliverWebhook(ctx context.Context, endpoint string, event webhookEvent) er
 // webhook — which is the opposite of the promise that an unconfigured webhook
 // costs nothing, on a path the rest of this file notes is called by agents,
 // often.
-func notifyFactWebhook(ctx context.Context, errOut io.Writer, opts Options, event, branch string, record factRecord, now time.Time) {
+func NotifyFactWebhook(ctx context.Context, errOut io.Writer, opts base.Options, event, branch string, record factmerge.Record, now time.Time) {
 	if _, ok, _ := webhookEndpoint(); !ok {
 		return
 	}
-	notifyWebhook(ctx, errOut, newFactWebhookEvent(event, webhookRepoIdentity(ctx, opts), branch, record, now))
+	notifyWebhook(ctx, errOut, newFactWebhookEvent(event, WebhookRepoIdentity(ctx, opts), branch, record, now))
 }
 
 // Global mutations belong to no repository, including the current checkout.
 // Keep the same redaction and delivery policy without resolving a repo identity.
-func notifyGlobalFactWebhook(ctx context.Context, errOut io.Writer, event string, record factRecord, now time.Time) {
+func NotifyGlobalFactWebhook(ctx context.Context, errOut io.Writer, event string, record factmerge.Record, now time.Time) {
 	if _, ok, _ := webhookEndpoint(); !ok {
 		return
 	}
@@ -363,15 +364,15 @@ func notifyGlobalFactWebhook(ctx context.Context, errOut io.Writer, event string
 	notifyWebhook(ctx, errOut, payload)
 }
 
-// notifyBrainWebhook is the same short-circuit for events that carry no fact.
-func notifyBrainWebhook(ctx context.Context, errOut io.Writer, opts Options, event string, now time.Time) {
+// NotifyBrainWebhook is the same short-circuit for events that carry no fact.
+func NotifyBrainWebhook(ctx context.Context, errOut io.Writer, opts base.Options, event string, now time.Time) {
 	if _, ok, _ := webhookEndpoint(); !ok {
 		return
 	}
-	notifyWebhook(ctx, errOut, webhookEvent{
+	notifyWebhook(ctx, errOut, WebhookEvent{
 		Event:     event,
 		Timestamp: now.UTC().Format(time.RFC3339),
-		Repo:      webhookRepoIdentity(ctx, opts),
+		Repo:      WebhookRepoIdentity(ctx, opts),
 	})
 }
 
@@ -380,7 +381,7 @@ func notifyBrainWebhook(ctx context.Context, errOut io.Writer, opts Options, eve
 // block, for up to the timeout, and calling it "fire and forget" was wrong.
 // A slow endpoint slows the command; ENTIRE_BRAIN_WEBHOOK_TIMEOUT is how that
 // is bounded.
-func notifyWebhook(ctx context.Context, errOut io.Writer, event webhookEvent) {
+func notifyWebhook(ctx context.Context, errOut io.Writer, event WebhookEvent) {
 	if err := emitWebhook(ctx, event); err != nil && errOut != nil {
 		fmt.Fprintf(errOut, "warning: webhook %s not delivered: %v\n", event.Event, err)
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"strings"
 
@@ -238,7 +239,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
 	}
 	if rememberOpts.json {
-		return writeJSON(cmd, record)
+		return cmdutil.WriteJSON(cmd, record)
 	}
 	where := "on " + branch
 	if global {

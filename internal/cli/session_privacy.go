@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"io/fs"
 	"net/url"
@@ -178,9 +179,9 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				if entries == nil {
 					entries = []sessionListEntry{}
 				}
-				return writeJSON(cmd, map[string]any{"sessions": entries})
+				return cmdutil.WriteJSON(cmd, map[string]any{"sessions": entries})
 			}
-			return writeText(cmd, func(out io.Writer) {
+			return cmdutil.WriteText(cmd, func(out io.Writer) {
 				// An empty session list is the normal state of a brain that has
 				// never captured a session, and printing nothing for it made the
 				// one command a privacy-conscious user reaches for indistinguishable
@@ -350,7 +351,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{
+		return cmdutil.WriteJSON(cmd, map[string]any{
 			"excluded": sessionID,
 			// matched says whether anything in this brain answered to the id.
 			// A false here is not a failure: the tombstone is recorded and
@@ -365,7 +366,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 			"transcripts":           len(plan.Transcripts),
 		})
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		// Report what happened, not what the command is for. Excluding an id no
 		// session in this brain answers to is a legitimate PRE-EMPTIVE privacy
 		// operation -- arming the tombstone before capture is strictly safer
@@ -448,7 +449,7 @@ func newSessionsIncludeCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"included": sessionID})
+				return cmdutil.WriteJSON(cmd, map[string]any{"included": sessionID})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "re-included %s and rebuilt the history projection\n", sessionID)
 			return nil
@@ -781,9 +782,9 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, plan)
+		return cmdutil.WriteJSON(cmd, plan)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		// Same honesty rule as exclude: an id no captured session answers to
 		// must not report as a cleanup. The tombstone still lands (pre-emptive
 		// arming is strictly safer than refusing and losing the race), so the

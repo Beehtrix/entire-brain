@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"sort"
 	"strings"
 	"time"
@@ -118,7 +119,7 @@ func newFactsStatusCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeJSON(cmd, report)
+				return cmdutil.WriteJSON(cmd, report)
 			}
 			printFactsStatus(cmd, report)
 			return nil

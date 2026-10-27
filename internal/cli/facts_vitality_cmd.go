@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"sort"
 	"strings"
 	"time"
@@ -82,7 +83,7 @@ func newFactsVitalityCommand(opts Options) *cobra.Command {
 				report.Facts = report.Facts[:limit]
 			}
 			if jsonOut {
-				return writeJSON(cmd, report)
+				return cmdutil.WriteJSON(cmd, report)
 			}
 			printFactsVitality(cmd, report, factID)
 			return nil

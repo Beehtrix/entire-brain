@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 	"time"
 
@@ -117,7 +118,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				}
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
+				return cmdutil.WriteJSON(cmd, map[string]any{"id": factID, "branch": resolvedBranch, "status": factStatusRetracted, "changed": changed})
 			}
 			where := "on " + resolvedBranch
 			if global {
@@ -215,7 +216,7 @@ func runFactsReview(cmd *cobra.Command, opts Options, brainDir, branch string, a
 			return err
 		}
 		if act.jsonOut {
-			return writeJSON(cmd, map[string]any{"branch": branch, "proposals": proposals})
+			return cmdutil.WriteJSON(cmd, map[string]any{"branch": branch, "proposals": proposals})
 		}
 		if len(proposals) == 0 {
 			fmt.Fprintf(cmd.OutOrStdout(), "no pending proposals on %s\n", branch)
@@ -446,7 +447,7 @@ func runFactsPromote(cmd *cobra.Command, opts Options, brainDir, from, into, str
 	}
 	summary := map[string]any{"from": from, "into": into, "strategy": strategy, "promoted": promoted, "proposals": proposalCount}
 	if jsonOut {
-		return writeJSON(cmd, summary)
+		return cmdutil.WriteJSON(cmd, summary)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "promoted %d memory(ies) from %s into %s (%s); %d conflict(s) queued for review\n", promoted, from, into, strategy, proposalCount)
 	return nil
@@ -559,7 +560,7 @@ func runFactsReclassify(cmd *cobra.Command, opts Options, brainDir, branch strin
 		}
 	}
 	if jsonOut {
-		return writeJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
+		return cmdutil.WriteJSON(cmd, map[string]any{"branch": branch, "changed": changed, "facts": len(facts), "by_kind": byKind})
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "reclassified %d of %d memory(ies) on %s\n", changed, len(facts), branch)
 	for _, kind := range []string{factKindDecision, factKindInvariant, factKindGotcha, factKindPreference, factKindConvention} {
@@ -604,7 +605,7 @@ func newFactsOutlineCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"branch": resolvedBranch, "nodes": len(outline.Nodes), "regenerated": regenerated})
+				return cmdutil.WriteJSON(cmd, map[string]any{"branch": resolvedBranch, "nodes": len(outline.Nodes), "regenerated": regenerated})
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "outline for %s: %d node(s), %d summary(ies) regenerated\n", resolvedBranch, len(outline.Nodes), regenerated)
 			return nil
@@ -668,7 +669,7 @@ func newFactsMapCommand(opts Options) *cobra.Command {
 			// and exit nonzero so a caller cannot read the map as complete.
 			integrityErr := reportFactStoreIntegrity(cmd, brainDir, jsonOut)
 			if jsonOut {
-				if err := writeJSON(cmd, outline); err != nil {
+				if err := cmdutil.WriteJSON(cmd, outline); err != nil {
 					return err
 				}
 				return integrityErr
@@ -732,7 +733,7 @@ func runFactsGC(cmd *cobra.Command, opts Options, brainDir, branch string, force
 		}
 	}
 	if jsonOut {
-		return writeJSON(cmd, summary)
+		return cmdutil.WriteJSON(cmd, summary)
 	}
 	verb := "would prune"
 	if force {

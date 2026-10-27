@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -348,7 +349,7 @@ func TestWriteTextStreamsAndShortCircuitsOnFailure(t *testing.T) {
 	w := &chunkFailWriter{failAfter: 5}
 	cmd := &cobra.Command{}
 	cmd.SetOut(w)
-	err := writeText(cmd, func(out io.Writer) {
+	err := cmdutil.WriteText(cmd, func(out io.Writer) {
 		fmt.Fprint(out, "aaa") // 3 bytes, accepted
 		fmt.Fprint(out, "bbb") // total now 6 -> subsequent writes fail
 		fmt.Fprint(out, "ccc") // dropped by the sticky writer

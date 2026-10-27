@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"sort"
@@ -129,7 +130,7 @@ func runPatternsList(ctx context.Context, cmd *cobra.Command, opts Options, targ
 
 	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		if listOpts.asJSON {
-			return writeJSON(cmd, filtered)
+			return cmdutil.WriteJSON(cmd, filtered)
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
@@ -470,7 +471,7 @@ func runPatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, ta
 			return err
 		}
 		if asJSON {
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "patterns verify: %d %s(s) — %d verified, %d cached, %d failed\n",
 			stats.Considered, mode, stats.Verified, stats.Cached, stats.Failed)
@@ -526,7 +527,7 @@ func runPatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, t
 		return fmt.Errorf("pattern corpus: %w", err)
 	}
 	if asJSON {
-		return writeJSON(cmd, source)
+		return cmdutil.WriteJSON(cmd, source)
 	}
 	r := source.Reinforcement
 	fmt.Fprintf(cmd.OutOrStdout(), "patterns: rebuilt %d episode(s) (success %d, corrected %d, neutral %d)\n",
@@ -571,7 +572,7 @@ func runPatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, ta
 	}
 	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		if asJSON {
-			return writeJSON(cmd, report)
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		if !report.Present {
 			fmt.Fprintln(cmd.OutOrStdout(), "patterns: not built (run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`)")

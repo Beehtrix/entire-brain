@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"math"
 	"os"
 	"sort"
@@ -113,7 +114,7 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 			return err
 		}
 		if asJSON {
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "workspace %s verify: %d family proposal(s) — %d accepted, %d cached, %d dropped\n",
 			name, stats.Considered, stats.Verified, stats.Cached, stats.Failed)
@@ -500,7 +501,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
 		if list.asJSON {
-			return writeJSON(cmd, filtered)
+			return cmdutil.WriteJSON(cmd, filtered)
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
@@ -694,7 +695,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 	}
 	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
 		if asJSON {
-			return writeJSON(cmd, families)
+			return cmdutil.WriteJSON(cmd, families)
 		}
 		out := cmd.OutOrStdout()
 		if len(families) == 0 {

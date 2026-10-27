@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"sort"
@@ -459,7 +460,7 @@ The tasks file is a JSON array:
 				TurnSigningLimitation: "turn-level cryptographic verification remains pending CLI-side turn signing",
 			})
 			if jsonOut {
-				return writeJSON(cmd, summary)
+				return cmdutil.WriteJSON(cmd, summary)
 			}
 			printEvalSummary(cmd, summary)
 			return nil

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"io/fs"
 	"os"
@@ -618,7 +619,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	}
 	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		if jsonOut {
-			return writeJSON(cmd, report)
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		renderBrainOverviewText(cmd, report)
 		return nil
@@ -1139,7 +1140,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 		report = brainStatusCompactReport(report)
 	}
 	if statusOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	} else {
@@ -1985,10 +1986,10 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 
 func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutput bool) error {
 	if jsonOutput {
-		return writeJSON(cmd, brainBriefJSONProjection(report))
+		return cmdutil.WriteJSON(cmd, brainBriefJSONProjection(report))
 	}
 	originalOut := cmd.OutOrStdout()
-	trackedOut := &stickyErrorWriter{writer: originalOut}
+	trackedOut := &cmdutil.StickyErrorWriter{Writer: originalOut}
 	cmd.SetOut(trackedOut)
 	defer cmd.SetOut(originalOut)
 	fmt.Fprintf(cmd.OutOrStdout(), "task: %s\n", report.Task)
@@ -2092,8 +2093,8 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 	for _, warning := range append(report.Status.Warnings, report.Warnings...) {
 		fmt.Fprintf(cmd.OutOrStdout(), "warning: %s\n", warning)
 	}
-	if trackedOut.err != nil {
-		return trackedOut.err
+	if trackedOut.Err != nil {
+		return trackedOut.Err
 	}
 	return nil
 }
@@ -4582,7 +4583,7 @@ func runBrainShow(ctx context.Context, cmd *cobra.Command, opts Options, showOpt
 	}
 	report := brainShowReport{Freshness: freshness, Record: record}
 	if showOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "%s %s %s:%d-%d\n", record.Kind, displaySymbolName(record), record.FilePath, record.StartLine, record.EndLine)
 	if record.Signature != "" {

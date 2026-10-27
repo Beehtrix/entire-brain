@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"maps"
 	"math"
@@ -842,7 +843,7 @@ func runDistill(ctx context.Context, cmd *cobra.Command, opts Options, distillOp
 			return err
 		}
 		if distillOpts.json {
-			return writeJSON(cmd, report)
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		printDistillDryRunReport(cmd, report)
 		return nil

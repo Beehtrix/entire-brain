@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"sort"
@@ -636,9 +637,9 @@ func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOu
 		return err
 	}
 	if jsonOut {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
-	return writeText(cmd, func(out io.Writer) { renderBrainStats(out, report) })
+	return cmdutil.WriteText(cmd, func(out io.Writer) { renderBrainStats(out, report) })
 }
 
 func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, error) {

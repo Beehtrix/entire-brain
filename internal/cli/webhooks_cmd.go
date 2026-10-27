@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"strings"
 	"time"
@@ -53,7 +54,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 			signed := strings.TrimSpace(os.Getenv(webhookSecretEnv)) != ""
 			includeText := base.EnvBool(webhookIncludeTextEnv)
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{
+				return cmdutil.WriteJSON(cmd, map[string]any{
 					"enabled":      enabled,
 					"endpoint":     endpoint,
 					"reason":       reason,

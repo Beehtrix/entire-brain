@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -375,7 +376,7 @@ func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) (
 	envelope := struct {
 		HookSpecificOutput specific `json:"hookSpecificOutput"`
 	}{specific{HookEventName: "PreToolUse", AdditionalContext: strings.Join(lines, "\n")}}
-	return kept, writeJSON(cmd, envelope)
+	return kept, cmdutil.WriteJSON(cmd, envelope)
 }
 
 func newHookPostFailureCommand(opts Options) *cobra.Command {
@@ -561,9 +562,9 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 		for _, f := range kept {
 			out.Facts = append(out.Facts, hookFact{ID: f.ID, Kind: factKindOrInferred(f), Text: f.Text, Paths: f.Paths})
 		}
-		return kept, writeJSON(cmd, out)
+		return kept, cmdutil.WriteJSON(cmd, out)
 	}
-	return kept, writeText(cmd, func(out io.Writer) {
+	return kept, cmdutil.WriteText(cmd, func(out io.Writer) {
 		for _, f := range kept {
 			fmt.Fprintf(out, "[%s] %s\n", factKindOrInferred(f), f.Text)
 		}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"net/url"
 	"os"
@@ -279,10 +280,10 @@ func newPrivacyVerifyCommand(opts Options) *cobra.Command {
 				return err
 			}
 			if jsonOut {
-				if err := writeJSON(cmd, report); err != nil {
+				if err := cmdutil.WriteJSON(cmd, report); err != nil {
 					return err
 				}
-			} else if err := writeText(cmd, func(out io.Writer) {
+			} else if err := cmdutil.WriteText(cmd, func(out io.Writer) {
 				fmt.Fprintf(out, "verified %d excluded/purged sessions\n", report.CheckedSessions)
 				for _, finding := range report.Findings {
 					fmt.Fprintf(out, "VIOLATION %s: %s (%s)\n", finding.SessionID, finding.Artifact, finding.Detail)
@@ -925,9 +926,9 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 		if len(caveats) > 0 {
 			payload["caveats"] = caveats
 		}
-		return writeJSON(cmd, payload)
+		return cmdutil.WriteJSON(cmd, payload)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		mode := "applied"
 		if dryRun {
 			mode = "dry-run: would apply"

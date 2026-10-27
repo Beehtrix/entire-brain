@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"io/fs"
 	"os"
@@ -1026,7 +1027,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
 		}
 		if setupOpts.json {
-			if err := writeJSON(cmd, report); err != nil {
+			if err := cmdutil.WriteJSON(cmd, report); err != nil {
 				return err
 			}
 		}
@@ -1232,7 +1233,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 
 	if setupOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	}
@@ -1313,7 +1314,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	if !before.Installed {
 		fmt.Fprintf(out, "setup: no watcher was installed (%s)\n", plan.Label)

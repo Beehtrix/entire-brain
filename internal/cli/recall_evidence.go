@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -92,7 +93,7 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 			return err
 		}
 		if jsonOut {
-			return writeJSON(cmd, out)
+			return cmdutil.WriteJSON(cmd, out)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "%d evidence spans for %q on %s (deterministic)\n", out.ReturnedCount, query, branch)
 		for _, warning := range out.Warnings {

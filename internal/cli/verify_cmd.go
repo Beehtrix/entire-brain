@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -169,7 +170,7 @@ func runVerify(ctx context.Context, cmd *cobra.Command, opts Options, verifyOpts
 		return err
 	}
 	if verifyOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	} else {

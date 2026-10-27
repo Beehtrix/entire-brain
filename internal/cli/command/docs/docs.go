@@ -1,12 +1,13 @@
-package cli
+package docs
 
 import (
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docextract"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +19,7 @@ import (
 // and nothing points at why. These two commands make that visible without
 // running a refresh and reading the brain directory afterwards.
 
-func newDocsCommand(opts Options) *cobra.Command {
+func New(opts base.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Inspect how non-code documents are read into the brain",
@@ -47,21 +48,21 @@ func newDocsExtractCommand() *cobra.Command {
 			// symlinks and says nothing about FIFOs, and a plain ReadFile on
 			// one blocks forever with no writer; an oversized file is refused
 			// on its stated size rather than after paying for it.
-			data, err := base.SafeReadFile(path, maxExtractDocumentBytes)
+			data, err := base.SafeReadFile(path, docextract.MaxExtractDocumentBytes)
 			if err != nil {
 				return err
 			}
-			text, extractErr := extractDocumentText(path, data)
+			text, extractErr := docextract.ExtractDocumentText(path, data)
 			if jsonOut {
 				payload := map[string]any{
 					"path":        path,
-					"format":      string(documentFormatFor(path)),
+					"format":      string(docextract.DocumentFormatFor(path)),
 					"source_size": int64(len(data)),
 					"extracted":   extractErr == nil,
 				}
 				if extractErr != nil {
 					payload["error"] = extractErr.Error()
-					var docErr *documentExtractionError
+					var docErr *docextract.DocumentExtractionError
 					if errors.As(extractErr, &docErr) {
 						payload["reason"] = docErr.Reason
 						if docErr.Remedy != "" {

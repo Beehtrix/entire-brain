@@ -1,11 +1,10 @@
-package cli
+package docextract
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 func TestXlsxSharedStringExpansionBoundedWithinRow(t *testing.T) {
@@ -83,13 +82,13 @@ func TestXlsxPreservesSparseColumns(t *testing.T) {
 
 func TestPptxUsesPresentationSlideOrder(t *testing.T) {
 	slide := func(s string) string { return `<sld><p><t>` + s + `</t></p></sld>` }
-	data := zipFile(t, map[string]string{
+	data := clitest.ZipFile(t, map[string]string{
 		"ppt/presentation.xml":            `<presentation xmlns:r="relationships"><sldIdLst><sldId id="256" r:id="r2"/><sldId id="257" r:id="r1"/></sldIdLst></presentation>`,
 		"ppt/_rels/presentation.xml.rels": `<Relationships><Relationship Id="r1" Target="slides/slide1.xml"/><Relationship Id="r2" Target="slides/slide2.xml"/></Relationships>`,
 		"ppt/slides/slide1.xml":           slide("Second slide"), "ppt/slides/slide2.xml": slide("First slide"),
 		"ppt/slides/slide3.xml": slide("Orphan slide"),
 	})
-	got, err := extractDocumentText("deck.pptx", data)
+	got, err := ExtractDocumentText("deck.pptx", data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,49 +97,9 @@ func TestPptxUsesPresentationSlideOrder(t *testing.T) {
 	}
 }
 
-func TestExtractedSeedPathsDoNotOverwriteMarkdown(t *testing.T) {
-	repo, out := t.TempDir(), t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	files := map[string][]byte{
-		"spec.pdf":       simplePDF(t, "BT /F1 12 Tf (PDF project knowledge.) Tj ET"),
-		"spec.pdf.md":    []byte("Markdown project knowledge."),
-		"spec.pdf.md.md": []byte("More markdown knowledge."),
-	}
-	for name, data := range files {
-		if err := os.WriteFile(filepath.Join(repo, "docs", name), data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	scan, err := scanSeedRepository(context.Background(), &fakeCommandRunner{}, repo, "test", seedCommandOptions{maxFiles: 100, maxFileBytes: 1 << 20})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(scan.Docs) != 3 {
-		t.Fatalf("got %d documents", len(scan.Docs))
-	}
-	if err := writeSeedArtifacts(out, &scan); err != nil {
-		t.Fatal(err)
-	}
-	for _, doc := range scan.Docs {
-		got, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(doc.SeedPath)))
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := string(files[filepath.Base(doc.Path)])
-		if doc.Extracted {
-			want = "PDF project knowledge."
-		}
-		if !strings.Contains(string(got), want) {
-			t.Fatalf("%s was overwritten: %q", doc.Path, got)
-		}
-	}
-}
-
 func TestOfficeTableExtractionAllocationsStayLinear(t *testing.T) {
 	raw := []byte(`<document><tbl>` + strings.Repeat(`<tr><tc><p><t>`+strings.Repeat("word ", 12)+`</t></p></tc></tr>`, 1000) + `</tbl></document>`)
-	used := allocatedBy(t, func() {
+	used := clitest.AllocatedBy(t, func() {
 		text, err := officeXMLText(raw)
 		if err != nil || !strings.Contains(text, "word word") {
 			t.Fatalf("extraction: %v", err)

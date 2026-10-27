@@ -1,4 +1,4 @@
-package cli
+package clitest
 
 import (
 	"archive/zip"
@@ -13,7 +13,7 @@ import (
 // see exactly what shape of document each test claims to cover — and so a
 // fixture cannot quietly stop matching what the test says it is.
 
-func zipFile(t *testing.T, parts map[string]string) []byte {
+func ZipFile(t *testing.T, parts map[string]string) []byte {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	w := zip.NewWriter(buf)
@@ -46,13 +46,13 @@ func sortedKeys(m map[string]string) []string {
 	return keys
 }
 
-// docxFixture builds a WordprocessingML document. The namespace prefix is `w:`
+// DocxFixture builds a WordprocessingML document. The namespace prefix is `w:`
 // here and deliberately varied in one test, because a reader that matches on the
 // prefix rather than the local name works on Word and silently returns nothing
 // on other producers.
-func docxFixture(t *testing.T, bodyXML string) []byte {
+func DocxFixture(t *testing.T, bodyXML string) []byte {
 	t.Helper()
-	return zipFile(t, map[string]string{
+	return ZipFile(t, map[string]string{
 		"[Content_Types].xml": `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>`,
 		"word/document.xml": `<?xml version="1.0"?>` +
 			`<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
@@ -60,7 +60,7 @@ func docxFixture(t *testing.T, bodyXML string) []byte {
 	})
 }
 
-func docxParagraph(runs ...string) string {
+func DocxParagraph(runs ...string) string {
 	var b strings.Builder
 	b.WriteString("<w:p>")
 	for _, run := range runs {
@@ -72,21 +72,21 @@ func docxParagraph(runs ...string) string {
 
 // --- PDF construction --------------------------------------------------------
 
-// pdfBuilder assembles a syntactically real PDF: numbered indirect objects, a
+// PDFBuilder assembles a syntactically real PDF: numbered indirect objects, a
 // catalog, a page tree and a cross-reference table. Tests that hand-wrote a
 // fragment would prove only that the parser reads that fragment.
-type pdfBuilder struct {
+type PDFBuilder struct {
 	objects []string
 }
 
-func (b *pdfBuilder) add(body string) int {
+func (b *PDFBuilder) Add(body string) int {
 	b.objects = append(b.objects, body)
 	return len(b.objects)
 }
 
 // addStream adds a Flate-compressed stream object, which is how every real
 // producer writes content.
-func (b *pdfBuilder) addStream(t *testing.T, dictExtra, content string) int {
+func (b *PDFBuilder) AddStream(t *testing.T, dictExtra, content string) int {
 	t.Helper()
 	buf := &bytes.Buffer{}
 	zw := zlib.NewWriter(buf)
@@ -97,11 +97,11 @@ func (b *pdfBuilder) addStream(t *testing.T, dictExtra, content string) int {
 		t.Fatalf("close: %v", err)
 	}
 	compressed := buf.String()
-	return b.add(fmt.Sprintf("<< /Length %d /Filter /FlateDecode %s >>\nstream\n%s\nendstream",
+	return b.Add(fmt.Sprintf("<< /Length %d /Filter /FlateDecode %s >>\nstream\n%s\nendstream",
 		len(compressed), dictExtra, compressed))
 }
 
-func (b *pdfBuilder) build() []byte {
+func (b *PDFBuilder) Build() []byte {
 	var out bytes.Buffer
 	out.WriteString("%PDF-1.7\n")
 	offsets := make([]int, len(b.objects)+1)
@@ -118,31 +118,31 @@ func (b *pdfBuilder) build() []byte {
 	return out.Bytes()
 }
 
-// simplePDF is a one-page document in a font with no ToUnicode map, where the
+// SimplePDF is a one-page document in a font with no ToUnicode map, where the
 // string bytes are the characters.
-func simplePDF(t *testing.T, content string) []byte {
+func SimplePDF(t *testing.T, content string) []byte {
 	t.Helper()
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")                                                      // 1
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")                                              // 2
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>") // 3
-	b.addStream(t, "", content)                                                                     // 4
-	b.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")                                 // 5
-	return b.build()
+	b := &PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")                                                      // 1
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")                                              // 2
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>") // 3
+	b.AddStream(t, "", content)                                                                     // 4
+	b.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")                                 // 5
+	return b.Build()
 }
 
-// identityHPDF is the modern case: a composite font addressed with two-byte
+// IdentityHPDF is the modern case: a composite font addressed with two-byte
 // glyph codes, readable only through its /ToUnicode CMap. `codes` are the raw
 // two-byte codes drawn; `cmap` is the CMap body mapping them back.
-func identityHPDF(t *testing.T, codes string, cmapBody string) []byte {
+func IdentityHPDF(t *testing.T, codes string, cmapBody string) []byte {
 	t.Helper()
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
-	b.addStream(t, "", "BT /F1 12 Tf ("+codes+") Tj ET")
-	b.add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+Test /Encoding /Identity-H /ToUnicode 6 0 R >>")
-	b.addStream(t, "", `/CIDInit /ProcSet findresource begin
+	b := &PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+	b.AddStream(t, "", "BT /F1 12 Tf ("+codes+") Tj ET")
+	b.Add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+Test /Encoding /Identity-H /ToUnicode 6 0 R >>")
+	b.AddStream(t, "", `/CIDInit /ProcSet findresource begin
 begincmap
 /CMapName /Adobe-Identity-UCS def
 /CMapType 2 def
@@ -152,5 +152,5 @@ endcodespacerange
 `+cmapBody+`
 endcmap
 end`)
-	return b.build()
+	return b.Build()
 }

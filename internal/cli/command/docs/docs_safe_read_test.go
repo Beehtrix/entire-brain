@@ -1,6 +1,6 @@
 //go:build !windows
 
-package cli
+package docs
 
 import (
 	"os"
@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/docextract"
 )
 
 // `docs extract` takes a path straight from the caller. os.Stat follows
@@ -49,7 +51,7 @@ func TestDocsExtractRefusesAnOversizedFileOnItsStatedSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Sparse: the file states a size past the ceiling without costing the disk.
-	if err := f.Truncate(maxExtractDocumentBytes + 1); err != nil {
+	if err := f.Truncate(docextract.MaxExtractDocumentBytes + 1); err != nil {
 		f.Close()
 		t.Skipf("sparse file unavailable: %v", err)
 	}

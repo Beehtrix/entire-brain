@@ -1,4 +1,4 @@
-package cli
+package docextract
 
 import (
 	"archive/zip"
@@ -42,26 +42,26 @@ import (
 // and a malformed PDF can describe an enormous stream — so extraction is bounded
 // before it starts rather than after it hurts.
 const (
-	maxExtractDocumentBytes = 32 << 20 // 32 MiB of source file
+	MaxExtractDocumentBytes = 32 << 20 // 32 MiB of source file
 	maxExtractOutputBytes   = 4 << 20  // 4 MiB of extracted text per document
 	maxExtractZipEntries    = 2048     // an Office file with more parts than this is not a document
 )
 
-// documentFormat is what the extension claims the file is.
-type documentFormat string
+// DocumentFormat is what the extension claims the file is.
+type DocumentFormat string
 
 const (
-	formatPDF     documentFormat = "pdf"
-	formatDocx    documentFormat = "docx"
-	formatXlsx    documentFormat = "xlsx"
-	formatPptx    documentFormat = "pptx"
-	formatUnknown documentFormat = ""
+	formatPDF     DocumentFormat = "pdf"
+	formatDocx    DocumentFormat = "docx"
+	formatXlsx    DocumentFormat = "xlsx"
+	formatPptx    DocumentFormat = "pptx"
+	FormatUnknown DocumentFormat = ""
 )
 
-// documentFormatFor classifies by extension. Content sniffing would be more
+// DocumentFormatFor classifies by extension. Content sniffing would be more
 // robust, but a file named .pdf that is secretly a zip is a file we should
 // refuse rather than helpfully reinterpret.
-func documentFormatFor(path string) documentFormat {
+func DocumentFormatFor(path string) DocumentFormat {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".pdf":
 		return formatPDF
@@ -72,7 +72,7 @@ func documentFormatFor(path string) documentFormat {
 	case ".pptx":
 		return formatPptx
 	default:
-		return formatUnknown
+		return FormatUnknown
 	}
 }
 
@@ -89,14 +89,14 @@ func extractableDocumentExtensions() []string {
 // separated from a parse failure because the remedy is different: this one needs
 // OCR, which is out of scope for a dependency-free binary, and saying so beats
 // indexing an empty document that looks like a successful ingest.
-type documentExtractionError struct {
+type DocumentExtractionError struct {
 	Path   string
-	Format documentFormat
+	Format DocumentFormat
 	Reason string
 	Remedy string
 }
 
-func (e *documentExtractionError) Error() string {
+func (e *DocumentExtractionError) Error() string {
 	message := fmt.Sprintf("%s: %s", e.Path, e.Reason)
 	if e.Remedy != "" {
 		message += " (" + e.Remedy + ")"
@@ -104,26 +104,26 @@ func (e *documentExtractionError) Error() string {
 	return message
 }
 
-// extractDocumentText reads one document and returns its text.
+// ExtractDocumentText reads one document and returns its text.
 //
 // data is the file's bytes; the caller has already applied its own size limit,
 // and this applies its own so a direct caller cannot skip it.
-func extractDocumentText(path string, data []byte) (string, error) {
-	format := documentFormatFor(path)
-	if format == formatUnknown {
-		return "", &documentExtractionError{
+func ExtractDocumentText(path string, data []byte) (string, error) {
+	format := DocumentFormatFor(path)
+	if format == FormatUnknown {
+		return "", &DocumentExtractionError{
 			Path:   path,
 			Reason: "not a document format this build reads",
 			Remedy: "supported: " + strings.Join(extractableDocumentExtensions(), " "),
 		}
 	}
 	if len(data) == 0 {
-		return "", &documentExtractionError{Path: path, Format: format, Reason: "the file is empty"}
+		return "", &DocumentExtractionError{Path: path, Format: format, Reason: "the file is empty"}
 	}
-	if len(data) > maxExtractDocumentBytes {
-		return "", &documentExtractionError{
+	if len(data) > MaxExtractDocumentBytes {
+		return "", &DocumentExtractionError{
 			Path: path, Format: format,
-			Reason: fmt.Sprintf("the file is %d bytes, over the %d-byte extraction limit", len(data), maxExtractDocumentBytes),
+			Reason: fmt.Sprintf("the file is %d bytes, over the %d-byte extraction limit", len(data), MaxExtractDocumentBytes),
 		}
 	}
 
@@ -142,10 +142,10 @@ func extractDocumentText(path string, data []byte) (string, error) {
 		text, err = extractPptxText(data)
 	}
 	if err != nil {
-		if _, ok := err.(*documentExtractionError); ok {
+		if _, ok := err.(*DocumentExtractionError); ok {
 			return "", err
 		}
-		return "", &documentExtractionError{Path: path, Format: format, Reason: err.Error()}
+		return "", &DocumentExtractionError{Path: path, Format: format, Reason: err.Error()}
 	}
 
 	text = normalizeExtractedText(text)
@@ -155,13 +155,13 @@ func extractDocumentText(path string, data []byte) (string, error) {
 			reason = "the PDF has no text layer"
 			remedy = "it is probably a scan; OCR is out of scope for this build"
 		}
-		return "", &documentExtractionError{Path: path, Format: format, Reason: reason, Remedy: remedy}
+		return "", &DocumentExtractionError{Path: path, Format: format, Reason: reason, Remedy: remedy}
 	}
 	// The last gate, and the one that matters most. An extractor that emits
 	// mojibake is worse than one that fails: the failure is visible and the
 	// mojibake silently fills the index with text no query can match.
 	if !extractedTextLooksLikeProse(text) {
-		return "", &documentExtractionError{
+		return "", &DocumentExtractionError{
 			Path: path, Format: format,
 			Reason: "the extracted text is not readable",
 			Remedy: "the document probably uses an embedded font encoding this build cannot map; convert it to PDF/A or paste the text into a markdown file",

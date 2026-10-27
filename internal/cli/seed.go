@@ -19,6 +19,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docextract"
 	"github.com/spf13/cobra"
 )
 
@@ -736,7 +737,7 @@ func isExtractableSeedDocument(path string) bool {
 	if !strings.HasPrefix(path, "docs/") {
 		return false
 	}
-	return documentFormatFor(path) != formatUnknown
+	return docextract.DocumentFormatFor(path) != docextract.FormatUnknown
 }
 
 // extractedSeedDocPath is where an extracted document lands in the brain.
@@ -988,13 +989,13 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			// A container has to be read whole — a PDF's cross-references and a
 			// zip's central directory both live at the end, so the prefix read
 			// below would hand the extractor a file it cannot parse. The output
-			// is bounded instead, by extractDocumentText.
-			data, err := clibase.SafeReadFile(src, maxExtractDocumentBytes)
+			// is bounded instead, by docextract.ExtractDocumentText.
+			data, err := clibase.SafeReadFile(src, docextract.MaxExtractDocumentBytes)
 			if err != nil {
 				dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 				continue
 			}
-			text, err := extractDocumentText(doc.Path, data)
+			text, err := docextract.ExtractDocumentText(doc.Path, data)
 			if err != nil {
 				// Record why and move on. A document nobody can read must not
 				// fail the refresh, and it must not be silently absent either:
@@ -1046,7 +1047,7 @@ func renderExtractedDocument(sourcePath, text string) string {
 // documentExtractionReason is the short form for the seed file index, where a
 // full error would crowd out every other entry.
 func documentExtractionReason(err error) string {
-	var extractErr *documentExtractionError
+	var extractErr *docextract.DocumentExtractionError
 	if errors.As(err, &extractErr) {
 		return "not indexed: " + extractErr.Reason
 	}

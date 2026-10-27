@@ -1,4 +1,4 @@
-package cli
+package docextract
 
 import (
 	"archive/zip"
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 // What these tests are for.
@@ -24,11 +26,11 @@ func TestDocxReadsParagraphsAndRuns(t *testing.T) {
 	// Word splits a sentence across runs whenever formatting changes, so a
 	// reader that takes one run per paragraph loses most of the words in any
 	// document that has bold in it.
-	data := docxFixture(t,
-		docxParagraph("The retry policy ", "backs off ", "exponentially.")+
-			docxParagraph("Second paragraph."))
+	data := clitest.DocxFixture(t,
+		clitest.DocxParagraph("The retry policy ", "backs off ", "exponentially.")+
+			clitest.DocxParagraph("Second paragraph."))
 
-	text, err := extractDocumentText("spec.docx", data)
+	text, err := ExtractDocumentText("spec.docx", data)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -49,12 +51,12 @@ func TestDocxDoesNotDependOnTheNamespacePrefix(t *testing.T) {
 	// The same document written by a different producer uses a different
 	// prefix. Matching on the prefix passes against Word's output and returns
 	// nothing for everyone else — a failure that a Word-only fixture hides.
-	data := zipFile(t, map[string]string{
+	data := clitest.ZipFile(t, map[string]string{
 		"word/document.xml": `<?xml version="1.0"?>` +
 			`<document xmlns="http://schemas.openxmlformats.org/wordprocessingml/2006/main">` +
 			`<body><p><r><t>Prefix-free producers exist.</t></r></p></body></document>`,
 	})
-	text, err := extractDocumentText("other.docx", data)
+	text, err := ExtractDocumentText("other.docx", data)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -73,7 +75,7 @@ func TestDocxSeparatesTableCells(t *testing.T) {
 			`</w:tr>`
 	}
 	body := `<w:tbl>` + row("Timeout", "30s") + row("Retries", "3") + `</w:tbl>`
-	text, err := extractDocumentText("table.docx", docxFixture(t, body))
+	text, err := ExtractDocumentText("table.docx", clitest.DocxFixture(t, body))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -92,7 +94,7 @@ func TestDocxSeparatesTableCells(t *testing.T) {
 
 func xlsxFixture(t *testing.T) []byte {
 	t.Helper()
-	return zipFile(t, map[string]string{
+	return clitest.ZipFile(t, map[string]string{
 		"xl/workbook.xml": `<?xml version="1.0"?><workbook xmlns:r="x"><sheets>` +
 			`<sheet name="Requirements" sheetId="1" r:id="rId1"/>` +
 			`</sheets></workbook>`,
@@ -114,7 +116,7 @@ func TestXlsxResolvesSharedStrings(t *testing.T) {
 	// Excel stores text once and refers to it by index, so a reader that only
 	// walks the sheets gets a grid of numbers. This is the difference between
 	// a searchable spreadsheet and an unsearchable one.
-	text, err := extractDocumentText("reqs.xlsx", xlsxFixture(t))
+	text, err := ExtractDocumentText("reqs.xlsx", xlsxFixture(t))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -134,7 +136,7 @@ func TestXlsxResolvesSharedStrings(t *testing.T) {
 }
 
 func TestXlsxLabelsSheetsWithTheirNames(t *testing.T) {
-	text, err := extractDocumentText("reqs.xlsx", xlsxFixture(t))
+	text, err := ExtractDocumentText("reqs.xlsx", xlsxFixture(t))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -146,7 +148,7 @@ func TestXlsxLabelsSheetsWithTheirNames(t *testing.T) {
 }
 
 func TestXlsxKeepsRowsOnSeparateLines(t *testing.T) {
-	text, err := extractDocumentText("reqs.xlsx", xlsxFixture(t))
+	text, err := ExtractDocumentText("reqs.xlsx", xlsxFixture(t))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -169,12 +171,12 @@ func TestPptxReadsSlidesInDeckOrder(t *testing.T) {
 	// slide10 sorts before slide2 lexically. A deck delivered in that order is
 	// a deck whose argument no longer follows, which is the whole value of a
 	// deck.
-	data := zipFile(t, map[string]string{
+	data := clitest.ZipFile(t, map[string]string{
 		"ppt/slides/slide1.xml":  slide("First the problem"),
 		"ppt/slides/slide2.xml":  slide("Then the approach"),
 		"ppt/slides/slide10.xml": slide("Finally the cost"),
 	})
-	text, err := extractDocumentText("deck.pptx", data)
+	text, err := ExtractDocumentText("deck.pptx", data)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -192,8 +194,8 @@ func TestPptxReadsSlidesInDeckOrder(t *testing.T) {
 // --- PDF ---------------------------------------------------------------------
 
 func TestPDFReadsASimpleFont(t *testing.T) {
-	data := simplePDF(t, "BT /F1 12 Tf (Refs are written through a compare-and-swap.) Tj ET")
-	text, err := extractDocumentText("spec.pdf", data)
+	data := clitest.SimplePDF(t, "BT /F1 12 Tf (Refs are written through a compare-and-swap.) Tj ET")
+	text, err := ExtractDocumentText("spec.pdf", data)
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -213,7 +215,7 @@ func TestPDFDecodesIdentityHThroughToUnicode(t *testing.T) {
 <0003><004C>
 <0004><004F>
 endbfchar`
-	text, err := extractDocumentText("modern.pdf", identityHPDF(t, codes, cmap))
+	text, err := ExtractDocumentText("modern.pdf", clitest.IdentityHPDF(t, codes, cmap))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -234,7 +236,7 @@ func TestPDFDecodesToUnicodeRanges(t *testing.T) {
 	cmap := `1 beginbfrange
 <0001><0003><0061>
 endbfrange`
-	text, err := extractDocumentText("range.pdf", identityHPDF(t, codes, cmap))
+	text, err := ExtractDocumentText("range.pdf", clitest.IdentityHPDF(t, codes, cmap))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -247,18 +249,18 @@ func TestPDFRefusesRatherThanEmitGlyphIndices(t *testing.T) {
 	// A composite font with no usable ToUnicode cannot be decoded. Emitting the
 	// bytes would produce fluent-looking rubbish that passes into the index and
 	// can never be searched for; the honest outcome is a named failure.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>")
 	// Printable glyph indices on purpose. Indices that happen to be control
 	// bytes would be stripped by normalization anyway, so a test using those
 	// would pass even with this guard deleted — it has to be the case where
 	// emitting the bytes produces convincing-looking letters.
-	b.addStream(t, "", "BT /F1 12 Tf (Hello there, this reads like English) Tj ET")
-	b.add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+NoMap /Encoding /Identity-H >>")
+	b.AddStream(t, "", "BT /F1 12 Tf (Hello there, this reads like English) Tj ET")
+	b.Add("<< /Type /Font /Subtype /Type0 /BaseFont /AAAAAA+NoMap /Encoding /Identity-H >>")
 
-	text, err := extractDocumentText("nomap.pdf", b.build())
+	text, err := ExtractDocumentText("nomap.pdf", b.Build())
 	if err == nil {
 		t.Fatalf("an unmappable composite font was reported as successfully extracted: %q", text)
 	}
@@ -275,7 +277,7 @@ func TestPDFTreatsLargeKernsAsWordSpaces(t *testing.T) {
 	// rather than as space characters. Verified against a real document whose
 	// kerns run -200 to -500; without this the whole page is one long word.
 	content := `BT /F1 12 Tf [(Refs)-320(are)-310(written)-300(through)-290(a)-280(swap)] TJ ET`
-	text, err := extractDocumentText("kerned.pdf", simplePDF(t, content))
+	text, err := ExtractDocumentText("kerned.pdf", clitest.SimplePDF(t, content))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -288,7 +290,7 @@ func TestPDFDoesNotInsertSpacesForOrdinaryKerning(t *testing.T) {
 	// The mirror of the test above. Small kerns are letter-fitting inside a
 	// word; turning those into spaces shatters every word in the document.
 	content := `BT /F1 12 Tf [(Ex)-12(po)-9(nen)-15(tial)] TJ ET`
-	text, err := extractDocumentText("tight.pdf", simplePDF(t, content))
+	text, err := ExtractDocumentText("tight.pdf", clitest.SimplePDF(t, content))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -300,17 +302,17 @@ func TestPDFDoesNotInsertSpacesForOrdinaryKerning(t *testing.T) {
 func TestPDFReadsEveryPageAndEveryContentStream(t *testing.T) {
 	// /Contents is routinely an array; reading only the first stream loses most
 	// of a page. And a reader that stops after page one loses the document.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 7 0 R >> >> /Contents [4 0 R 5 0 R] >>")
-	b.addStream(t, "", "BT /F1 12 Tf (First stream. ) Tj ET")
-	b.addStream(t, "", "BT /F1 12 Tf (Second stream.) Tj ET")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 7 0 R >> >> /Contents 8 0 R >>")
-	b.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
-	b.addStream(t, "", "BT /F1 12 Tf (Page two.) Tj ET")
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R 6 0 R] /Count 2 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 7 0 R >> >> /Contents [4 0 R 5 0 R] >>")
+	b.AddStream(t, "", "BT /F1 12 Tf (First stream. ) Tj ET")
+	b.AddStream(t, "", "BT /F1 12 Tf (Second stream.) Tj ET")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 7 0 R >> >> /Contents 8 0 R >>")
+	b.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+	b.AddStream(t, "", "BT /F1 12 Tf (Page two.) Tj ET")
 
-	text, err := extractDocumentText("multi.pdf", b.build())
+	text, err := ExtractDocumentText("multi.pdf", b.Build())
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}
@@ -326,14 +328,14 @@ func TestPDFWithNoTextLayerSaysSo(t *testing.T) {
 	// the single most misleading thing to handle silently: it parses perfectly
 	// and contains nothing. Verified against three real scans on disk, all of
 	// which declare zero fonts.
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
-	b.add("<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>")
-	b.addStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
-	b.add("<< /Type /XObject /Subtype /Image /Width 600 /Height 800 /Filter /DCTDecode /Length 4 >>\nstream\n\xff\xd8\xff\xd9\nendstream")
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+	b.Add("<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>")
+	b.AddStream(t, "", "q 600 0 0 800 0 0 cm /Im0 Do Q")
+	b.Add("<< /Type /XObject /Subtype /Image /Width 600 /Height 800 /Filter /DCTDecode /Length 4 >>\nstream\n\xff\xd8\xff\xd9\nendstream")
 
-	_, err := extractDocumentText("scan.pdf", b.build())
+	_, err := ExtractDocumentText("scan.pdf", b.Build())
 	if err == nil {
 		t.Fatal("a scanned PDF was reported as successfully extracted")
 	}
@@ -348,13 +350,13 @@ func TestPDFWithNoTextLayerSaysSo(t *testing.T) {
 }
 
 func TestEncryptedPDFIsReportedNotGuessedAt(t *testing.T) {
-	b := &pdfBuilder{}
-	b.add("<< /Type /Catalog /Pages 2 0 R >>")
-	b.add("<< /Type /Pages /Kids [] /Count 0 >>")
-	data := b.build()
+	b := &clitest.PDFBuilder{}
+	b.Add("<< /Type /Catalog /Pages 2 0 R >>")
+	b.Add("<< /Type /Pages /Kids [] /Count 0 >>")
+	data := b.Build()
 	data = bytes.Replace(data, []byte("/Root 1 0 R"), []byte("/Root 1 0 R /Encrypt 3 0 R"), 1)
 
-	_, err := extractDocumentText("locked.pdf", data)
+	_, err := ExtractDocumentText("locked.pdf", data)
 	if err == nil {
 		t.Fatal("an encrypted PDF was reported as successfully extracted")
 	}
@@ -394,9 +396,9 @@ func TestExtractionRejectsUnreadableOutput(t *testing.T) {
 // produces — and it must not reach the caller as text.
 func TestExtractionAppliesTheProseGateToWholeDocuments(t *testing.T) {
 	garbage := strings.Repeat(`\(\)#$%^&*{}[]<>|~`+"`", 80)
-	data := simplePDF(t, "BT /F1 12 Tf ("+garbage+") Tj ET")
+	data := clitest.SimplePDF(t, "BT /F1 12 Tf ("+garbage+") Tj ET")
 
-	text, err := extractDocumentText("mojibake.pdf", data)
+	text, err := ExtractDocumentText("mojibake.pdf", data)
 	if err == nil {
 		t.Fatalf("an unreadable document was accepted: %q", text)
 	}
@@ -412,7 +414,7 @@ func TestExtractionAppliesTheProseGateToWholeDocuments(t *testing.T) {
 func TestExtractionRejectsUnsupportedFormats(t *testing.T) {
 	// Legacy .doc is an OLE compound file, an entirely different format. Saying
 	// so beats failing to parse it as a zip and reporting a corrupt archive.
-	_, err := extractDocumentText("old.doc", []byte("\xd0\xcf\x11\xe0anything"))
+	_, err := ExtractDocumentText("old.doc", []byte("\xd0\xcf\x11\xe0anything"))
 	if err == nil {
 		t.Fatal(".doc was accepted")
 	}
@@ -455,7 +457,7 @@ func TestZipWithTooManyEntriesIsRefused(t *testing.T) {
 	for i := 0; i < maxExtractZipEntries+10; i++ {
 		parts[fmt.Sprintf("junk/%d.bin", i)] = "x"
 	}
-	_, err := extractDocumentText("many.docx", zipFile(t, parts))
+	_, err := ExtractDocumentText("many.docx", clitest.ZipFile(t, parts))
 	if err == nil {
 		t.Fatal("an archive past the entry limit was accepted")
 	}
@@ -489,14 +491,14 @@ func TestHighlyCompressedPartIsRefusedRatherThanExpanded(t *testing.T) {
 	if len(buf.Bytes()) > 200<<10 {
 		t.Fatalf("the fixture is not actually compressed (%d bytes)", len(buf.Bytes()))
 	}
-	_, err = extractDocumentText("bomb.docx", buf.Bytes())
+	_, err = ExtractDocumentText("bomb.docx", buf.Bytes())
 	if err == nil {
 		t.Fatal("a part expanding past the output limit was accepted")
 	}
 }
 
 func TestOversizedFileIsRefusedBeforeParsing(t *testing.T) {
-	_, err := extractDocumentText("huge.pdf", make([]byte, maxExtractDocumentBytes+1))
+	_, err := ExtractDocumentText("huge.pdf", make([]byte, MaxExtractDocumentBytes+1))
 	if err == nil {
 		t.Fatal("a file past the size limit was accepted")
 	}
@@ -526,7 +528,7 @@ func TestMalformedInputTerminates(t *testing.T) {
 					t.Errorf("%s panicked: %v", name, r)
 				}
 			}()
-			_, _ = extractDocumentText("bad.pdf", data)
+			_, _ = ExtractDocumentText("bad.pdf", data)
 		}()
 		<-done
 	}
@@ -553,7 +555,7 @@ func TestTextlessOfficePartsSpendTheBudget(t *testing.T) {
 		parts[fmt.Sprintf("word/endnotes%02d.xml", i)] = filler
 	}
 
-	text, err := extractDocumentText("big.docx", zipFile(t, parts))
+	text, err := ExtractDocumentText("big.docx", clitest.ZipFile(t, parts))
 	if err != nil {
 		t.Fatalf("extract: %v", err)
 	}

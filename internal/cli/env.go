@@ -20,7 +20,6 @@ import (
 )
 
 var repoKeyUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-var repoRemoteSCPRegex = regexp.MustCompile(`^(?:[^@]+@)?([^:/]+):(.+)$`)
 var knownRepoDomainSlugs = map[string]string{
 	"github.com":    "gh",
 	"gitlab.com":    "gl",
@@ -417,7 +416,7 @@ func parseRepoRemote(remote string) (string, []string, bool) {
 	if parsed, ok := parseURLRemote(remote); ok {
 		host = parsed.host
 		path = parsed.path
-	} else if match := repoRemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
+	} else if match := clibase.RemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
 		if looksLikeWindowsDriveRemotePath(remote, match[2]) {
 			return "", nil, false
 		}

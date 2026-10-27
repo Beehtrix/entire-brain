@@ -1,4 +1,4 @@
-package cli
+package add
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
 
@@ -32,7 +33,7 @@ func newAddTestCmd() *cobra.Command {
 func TestRunBrainAddRejectsUnsafeNames(t *testing.T) {
 	for _, url := range []string{"https://h/..", "https://h/.", "git@h:..", "-/oops", "--upload-pack=x"} {
 		rr := &recordingRunner{}
-		opts := Options{Runner: rr}
+		opts := base.Options{Runner: rr}
 		err := runBrainAdd(newAddTestCmd(), opts, addFlags{dir: t.TempDir(), build: false}, url)
 		if err == nil {
 			t.Errorf("runBrainAdd(%q) should reject the unsafe URL", url)
@@ -45,7 +46,7 @@ func TestRunBrainAddRejectsUnsafeNames(t *testing.T) {
 
 func TestRunBrainAddCloneUsesEndOfOptions(t *testing.T) {
 	rr := &recordingRunner{}
-	opts := Options{Runner: rr}
+	opts := base.Options{Runner: rr}
 	dir := t.TempDir()
 	if err := runBrainAdd(newAddTestCmd(), opts, addFlags{dir: dir, build: false}, "https://github.com/acme/widget"); err != nil {
 		t.Fatal(err)
@@ -67,18 +68,6 @@ func TestRunBrainAddCloneUsesEndOfOptions(t *testing.T) {
 	}
 	if !sawSep {
 		t.Errorf("`--` must directly precede the repo URL: %v", clone)
-	}
-}
-
-func TestSearchResultFromUnifiedGatesOpenPath(t *testing.T) {
-	// history/doc hits carry a real file path; fact hits carry taxonomy labels.
-	hist := searchResultFromUnified(unifiedResult{Source: "history", ID: "h1", Path: "sessions/x.jsonl", Line: 4, Text: "t"}, "/brain")
-	if hist.OpenPath != filepath.Join("/brain", "sessions/x.jsonl") || hist.OpenLine != 4 {
-		t.Errorf("history result open target = %q:%d", hist.OpenPath, hist.OpenLine)
-	}
-	fact := searchResultFromUnified(unifiedResult{Source: "fact", ID: "fact:x", Path: "arch.storage.layout,perf.io.batching", Text: "t"}, "/brain")
-	if fact.OpenPath != "" {
-		t.Errorf("fact result must have no open target (Path is a taxonomy label), got %q", fact.OpenPath)
 	}
 }
 
@@ -123,7 +112,7 @@ func TestRunBrainAddHonorsNoEgress(t *testing.T) {
 					}
 				}
 				rr := &recordingRunner{}
-				err := runBrainAdd(newAddTestCmd(), Options{Runner: rr}, addFlags{dir: dir}, "https://example.invalid/acme/widget")
+				err := runBrainAdd(newAddTestCmd(), base.Options{Runner: rr}, addFlags{dir: dir}, "https://example.invalid/acme/widget")
 				if err == nil || !strings.Contains(err.Error(), "no_egress") {
 					t.Errorf("expected no-egress error: %v", err)
 				}
@@ -200,7 +189,7 @@ func TestRunBrainAddCloneFailureIsOneCleanLine(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := runBrainAdd(newAddTestCmd(), Options{Runner: &cloneFailRunner{stderr: tc.stderr}}, addFlags{dir: t.TempDir(), build: false}, repo)
+			err := runBrainAdd(newAddTestCmd(), base.Options{Runner: &cloneFailRunner{stderr: tc.stderr}}, addFlags{dir: t.TempDir(), build: false}, repo)
 			if err == nil {
 				t.Fatal("expected a clone failure")
 			}
@@ -245,7 +234,7 @@ func TestRunBrainAddChecksExistingOrigin(t *testing.T) {
 				t.Fatal(err)
 			}
 			rr := &addOriginRunner{origin: tc.origin}
-			err := runBrainAdd(newAddTestCmd(), Options{Runner: rr}, addFlags{dir: dir}, "https://second.invalid/acme/widget")
+			err := runBrainAdd(newAddTestCmd(), base.Options{Runner: rr}, addFlags{dir: dir}, "https://second.invalid/acme/widget")
 			if (err != nil) != tc.wantError {
 				t.Errorf("add error=%v, wantError=%v", err, tc.wantError)
 			}

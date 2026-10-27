@@ -29,7 +29,7 @@ var hardcodedBrainVerb = regexp.MustCompile(`entire brain [a-z][a-z-]*\b`)
 // deliberatelyHardcoded names the lines that keep the literal spelling, and why.
 // Each reason is a category, not a per-line excuse.
 var deliberatelyHardcoded = []struct{ file, contains, reason string }{
-	{"add.go", "with ` + \"`entire brain dash`\"", "cobra Long help text built at command-construction time, before any lookup exists"},
+	{"command/add/add.go", "with ` + \"`entire brain dash`\"", "cobra Long help text built at command-construction time, before any lookup exists"},
 	{"retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
 	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
@@ -41,11 +41,11 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	scanned, helperSites, allowed := 0, 0, 0
-	// "." plus internal/factstore: the fact-store remedies sank there
-	// (COR-2268) and must stay under this guard rather than escape it by
-	// moving.
+	// "." plus internal/factstore and command/add: the fact-store remedies and
+	// the add command sank there (COR-2268) and must stay under this guard
+	// rather than escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

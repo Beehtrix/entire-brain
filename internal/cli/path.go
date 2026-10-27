@@ -197,7 +197,7 @@ func looksLikeWindowsDriveTargetPath(target string) bool {
 	if !looksLikeWindowsDrivePath(target) {
 		return false
 	}
-	if match := repoRemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
+	if match := base.RemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
 		return false
 	}
 	return true

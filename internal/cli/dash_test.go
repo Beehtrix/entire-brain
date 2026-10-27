@@ -190,3 +190,15 @@ func TestBrainRelPathRejectsTraversal(t *testing.T) {
 		t.Errorf("in-brain nested path rejected: %q", got)
 	}
 }
+
+func TestSearchResultFromUnifiedGatesOpenPath(t *testing.T) {
+	// history/doc hits carry a real file path; fact hits carry taxonomy labels.
+	hist := searchResultFromUnified(unifiedResult{Source: "history", ID: "h1", Path: "sessions/x.jsonl", Line: 4, Text: "t"}, "/brain")
+	if hist.OpenPath != filepath.Join("/brain", "sessions/x.jsonl") || hist.OpenLine != 4 {
+		t.Errorf("history result open target = %q:%d", hist.OpenPath, hist.OpenLine)
+	}
+	fact := searchResultFromUnified(unifiedResult{Source: "fact", ID: "fact:x", Path: "arch.storage.layout,perf.io.batching", Text: "t"}, "/brain")
+	if fact.OpenPath != "" {
+		t.Errorf("fact result must have no open target (Path is a taxonomy label), got %q", fact.OpenPath)
+	}
+}

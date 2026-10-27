@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -152,7 +153,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		if err != nil {
 			return fmt.Errorf("resolve output directory: %w", err)
 		}
-		manifest, _ := loadBrainManifest(outputDir)
+		manifest, _ := bmanifest.Load(outputDir)
 		if err := checkLegacyBrainLayout(outputDir, manifest); err != nil {
 			return err
 		}
@@ -198,7 +199,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Manifest parse errors retain their existing handling below (including
 	// --force repair); leftover directories still identify an old layout.
 	if !outputExplicit {
-		manifestBeforeRefresh, _ := loadBrainManifest(brainDir)
+		manifestBeforeRefresh, _ := bmanifest.Load(brainDir)
 		if err := checkLegacyBrainLayout(brainDir, manifestBeforeRefresh); err != nil {
 			return err
 		}
@@ -249,7 +250,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		progress.Skip("export sessions")
 	}
 
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
 	// A failed freshness probe is a seed-stage failure, not permission to rebuild.
 	var seedProbeErr error
@@ -311,7 +312,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// Seed may have updated the manifest before a later best-effort step
 		// failed. History freshness must use the state now on disk in either
 		// outcome, not the snapshot loaded before seed ran.
-		manifest, _ = loadBrainManifest(brainDir)
+		manifest, _ = bmanifest.Load(brainDir)
 		if seedErr != nil {
 			seedTask.Finish(seedErr)
 			if reportStageAndShouldAbort(brainComponentSeed, seedErr) {
@@ -347,7 +348,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		} else {
 			historyTask.Update(refreshHistoryLabel(historySource))
 			historyTask.Finish(nil)
-			manifest, _ = loadBrainManifest(brainDir)
+			manifest, _ = bmanifest.Load(brainDir)
 			reportStageAndShouldAbort(brainComponentHistory, nil)
 		}
 	} else if refreshOpts.historyIndex {
@@ -380,7 +381,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 			docTask.Update(docLabel)
 			docTask.Finish(nil)
-			manifest, _ = loadBrainManifest(brainDir)
+			manifest, _ = bmanifest.Load(brainDir)
 			reportStageAndShouldAbort(brainComponentDocs, nil)
 		}
 	} else {
@@ -456,7 +457,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 						noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)
 					}
 				} else {
-					manifest, _ = loadBrainManifest(brainDir)
+					manifest, _ = bmanifest.Load(brainDir)
 					semanticTask.Update(refreshSemanticLabel(existingSemanticSource(manifest)))
 					semanticTask.Finish(nil)
 					reportStageAndShouldAbort(brainComponentSemantic, nil)
@@ -486,7 +487,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
 	// distilled before kind-storage (or otherwise left empty) is repaired here
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
 		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
@@ -502,7 +503,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Pattern layer (episodes -> tasks/procedures/practices). Deterministic and
 	// token-free, so it is part of the normal refresh — the user never has to
 	// discover a second build command. Rebuilt when sessions changed or --force.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
 		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
@@ -933,7 +934,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	defer unlock()
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return err
 	}

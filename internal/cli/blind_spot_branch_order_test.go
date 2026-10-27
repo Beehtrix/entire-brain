@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // The branch note must win over the coverage notes when BOTH are true.
@@ -81,7 +83,7 @@ func TestBranchNoteFiresOnABrainThatWasNeverDistilled(t *testing.T) {
 // the undigested>0 path untestable.
 func declareFactsAt(t *testing.T, brainDir string, lastDistilled, generated time.Time, total int, branches ...string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

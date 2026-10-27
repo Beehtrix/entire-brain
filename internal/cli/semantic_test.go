@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
@@ -67,7 +68,7 @@ func TestSemanticIndexAcceptsEntireProxyOrigin(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 
-	manifestPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", exportManifestFileName)
+	manifestPath := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo", bmanifest.FileName)
 	if _, err := os.Stat(manifestPath); err != nil {
 		t.Fatalf("manifest under canonical proxy path: %v", err)
 	}
@@ -628,7 +629,7 @@ func TestSemanticResetRequiresForceAndSemanticOnlyPreservesManifest(t *testing.T
 	if _, err := os.Stat(filepath.Join(brainDir, semanticDirName)); !os.IsNotExist(err) {
 		t.Fatalf("semantic dir still exists: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -810,7 +811,7 @@ func TestBundleExportSanitizesLegacyManifestWarnings(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -829,7 +830,7 @@ func TestBundleExportSanitizesLegacyManifestWarnings(t *testing.T) {
 	if err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false); err != nil {
 		t.Fatalf("bundle export: %v", err)
 	}
-	bundleManifest := readTestBundleFile(t, output, exportManifestFileName)
+	bundleManifest := readTestBundleFile(t, output, bmanifest.FileName)
 	if strings.Contains(string(bundleManifest), repoDir) || strings.Contains(string(bundleManifest), absPath) {
 		t.Fatalf("bundle manifest leaked legacy absolute warning path:\n%s", bundleManifest)
 	}
@@ -843,7 +844,7 @@ func TestSemanticIndexDoesNotDefaultIgnoreGitHubPaths(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -893,7 +894,7 @@ func TestSemanticIndexKeepsRelationsWhenIgnorePatternMatchesRepoKey(t *testing.T
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -915,7 +916,7 @@ func TestSemanticIndexDoesNotTreatSecretDirectoryAsDefaultIgnore(t *testing.T) {
 	if err := runSemanticIndex(cmd.Context(), cmd, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatalf("index: %v", err)
 	}
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -1250,7 +1251,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeIngest, err := loadBrainManifest(storage.BrainDir)
+	beforeIngest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1264,7 +1265,7 @@ func TestSemanticGraphCommandsUseSQLiteStore(t *testing.T) {
 	if !strings.Contains(out.String(), `"matched_static_edges": 1`) {
 		t.Fatalf("trace ingest did not validate static edge:\n%s", out.String())
 	}
-	afterIngest, err := loadBrainManifest(storage.BrainDir)
+	afterIngest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2145,7 +2146,7 @@ func TestBundleImportLockFailsFast(t *testing.T) {
 	writeSemanticTestLock(t, brainDir)
 	archive := filepath.Join(t.TempDir(), "semantic.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"generated_at":"2026-05-31T00:00:00Z","provider":"entire-graph","schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"generated_at":"2026-05-31T00:00:00Z","provider":"entire-graph","schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 
@@ -2375,7 +2376,7 @@ func TestBundleExportRejectsHardLinkedOutputToBrainFile(t *testing.T) {
 	}
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 
-	snapshotPath := filepath.Join(brainDir, exportManifestFileName)
+	snapshotPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(snapshotPath)
 	if err != nil {
 		t.Fatalf("read snapshot: %v", err)
@@ -2403,7 +2404,7 @@ func TestBundleImportRejectsRepoKeyMismatch(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "bad.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/other/repo","sources":{"semantic":{"snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/other/repo","sources":{"semantic":{"snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
@@ -2418,7 +2419,7 @@ func TestBundleImportRejectsLegacySnapshot(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "blank-lines.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","commit":"aaa111","tree":"tree111","provider":"entire-graph","provider_version":"0.1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson","symbols":1,"relations":1}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": strings.Replace(semanticFixtureSnapshot("1.0"), "\n{\"record_type\":\"relation\"", "\n\n{\"record_type\":\"relation\"", 1),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
@@ -2433,7 +2434,7 @@ func TestBundleImportRejectsAuditLogEntry(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "audit.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/audit.jsonl":                      `{"path":"/local/path"}` + "\n",
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
@@ -2449,7 +2450,7 @@ func TestBundleImportRejectsSymlinkedAuditLog(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "brain.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
@@ -2471,7 +2472,7 @@ func TestBundleImportRejectsSymlinkedAuditLog(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("import err = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName)); !os.IsNotExist(err) {
 		t.Fatalf("manifest was written despite audit preflight failure: %v", err)
 	}
 }
@@ -2486,7 +2487,7 @@ func TestBundleExportUsesSanitizedManifest(t *testing.T) {
 		t.Fatalf("index: %v", err)
 	}
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -2499,7 +2500,7 @@ func TestBundleExportUsesSanitizedManifest(t *testing.T) {
 	if err := runSemanticBundleExport(cmd.Context(), cmd, opts, output, false); err != nil {
 		t.Fatalf("export: %v", err)
 	}
-	manifestData := readTestBundleFile(t, output, exportManifestFileName)
+	manifestData := readTestBundleFile(t, output, bmanifest.FileName)
 	if strings.Contains(string(manifestData), "repo_root") || strings.Contains(string(manifestData), "sessions/main/session.jsonl") {
 		t.Fatalf("bundle manifest was not sanitized:\n%s", manifestData)
 	}
@@ -2544,7 +2545,7 @@ func TestBundleImportRejectsMissingRepoKey(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "missing-repo-key.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
@@ -2559,7 +2560,7 @@ func TestBundleImportRejectsOperationalSemanticState(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "lock.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/locks/index.lock":                 "locked",
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
@@ -2575,7 +2576,7 @@ func TestBundleImportRejectsChecksumMismatch(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "bad-checksum.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, strings.Repeat("0", sha256.Size*2), false)
@@ -2596,14 +2597,14 @@ func TestBundleImportRefusesNewerSchema(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "newer-schema.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName: `{"schema_version":99}`,
+		bmanifest.FileName: `{"schema_version":99}`,
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
 	if err == nil {
 		t.Fatal("import err = nil, want rejection of a newer bundle schema")
 	}
 	msg := err.Error()
-	for _, want := range []string{"99", strconv.Itoa(brainManifestSchemaVersion), "upgrade entire-brain"} {
+	for _, want := range []string{"99", strconv.Itoa(bmanifest.SchemaVersion), "upgrade entire-brain"} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("import err = %q, want it to contain %q", msg, want)
 		}
@@ -2616,7 +2617,7 @@ func TestBundleImportAcceptsOlderSchema(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "current-schema.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName: fmt.Sprintf(`{"schema_version":%d,"repo_key":"gh/example/repo","sources":{}}`, brainManifestSchemaVersion),
+		bmanifest.FileName: fmt.Sprintf(`{"schema_version":%d,"repo_key":"gh/example/repo","sources":{}}`, bmanifest.SchemaVersion),
 	})
 	if err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false); err != nil {
 		t.Fatalf("import: %v", err)
@@ -2635,7 +2636,7 @@ func TestBundleImportNoticesDiscardedCodeIndex(t *testing.T) {
 		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 		archive := filepath.Join(t.TempDir(), "legacy-semantic.tar")
 		writeTestBundle(t, archive, map[string]string{
-			exportManifestFileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{"semantic":{"store_owner":"graph","provider":"entire-graph"}}}`,
+			bmanifest.FileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{"semantic":{"store_owner":"graph","provider":"entire-graph"}}}`,
 		})
 		cmd := &cobra.Command{Use: "bundle import"}
 		var out bytes.Buffer
@@ -2654,7 +2655,7 @@ func TestBundleImportNoticesDiscardedCodeIndex(t *testing.T) {
 		runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 		archive := filepath.Join(t.TempDir(), "no-semantic.tar")
 		writeTestBundle(t, archive, map[string]string{
-			exportManifestFileName: `{"schema_version":3,"repo_key":"gh/example/repo","sources":{}}`,
+			bmanifest.FileName: `{"schema_version":3,"repo_key":"gh/example/repo","sources":{}}`,
 		})
 		cmd := &cobra.Command{Use: "bundle import"}
 		var out bytes.Buffer
@@ -2674,7 +2675,7 @@ func TestBundleImportChecksumCoversTrailingBytes(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "trailing.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"schema_version":"1.0","snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	originalChecksum := bundleSHA256(t, archive)
@@ -2701,7 +2702,7 @@ func TestBundleImportRejectsUnreferencedSnapshots(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "extra-snapshot.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                     `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		bmanifest.FileName:                         `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
 		"semantic/snapshots/extra/snapshot.ndjson": `{"schema_version":"1.0","repo_key":"gh/other/repo"}` + "\n",
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
@@ -2724,7 +2725,7 @@ func TestBundleImportRejectsTotalSizeLimit(t *testing.T) {
 	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
 	archive := filepath.Join(t.TempDir(), "large.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:                      `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
+		bmanifest.FileName:                          `{"schema_version":3,"repo_key":"gh/example/repo","sources":{"semantic":{"snapshot_path":"semantic/snapshots/aaa111/snapshot.ndjson"}}}`,
 		"semantic/snapshots/aaa111/snapshot.ndjson": semanticFixtureSnapshot("1.0"),
 	})
 	err := runSemanticBundleImport((&cobra.Command{}).Context(), &cobra.Command{Use: "bundle import"}, Options{Env: env, Runner: runner, Now: time.Now}, archive, bundleSHA256(t, archive), false)
@@ -2782,7 +2783,7 @@ func semanticTestSQLCount(t *testing.T, path, table string) int {
 
 func mustSemanticSource(t *testing.T, env EntireEnv) *semanticSourceManifest {
 	t.Helper()
-	manifest, err := loadBrainManifest(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
+	manifest, err := bmanifest.Load(filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo"))
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

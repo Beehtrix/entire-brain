@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -210,7 +211,7 @@ func TestBestEffortRefreshReportsTheSeedProbeFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -406,7 +407,7 @@ func TestWatchDistillReportsContentionToItsCaller(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(f.storage.BrainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{

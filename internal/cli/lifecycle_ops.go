@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -180,7 +181,7 @@ func memoryDoctorChecks(snapshot memoryReadOnlyHealthSnapshot) []doctorCheckResu
 	}
 	// There is deliberately no memory_schema_capabilities check either. Its
 	// state was the literal "ok" and its detail was formatted purely from
-	// untyped compile-time constants (brainManifestSchemaVersion = 3,
+	// untyped compile-time constants (bmanifest.SchemaVersion = 3,
 	// historyShortTermVersion = 3, historyFTSSchema = "3", memoryVectorSchema
 	// = 2, abstractSchemaVersion = 1, memoryJobSchemaVersion = 2): the same
 	// sentence for every brain built from a given binary. What this build
@@ -644,7 +645,7 @@ func runBrainStats(ctx context.Context, cmd *cobra.Command, opts Options, jsonOu
 
 func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, error) {
 	report := brainStatsReport{GeneratedAt: now}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}

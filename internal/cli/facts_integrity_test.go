@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // facts_integrity_test.go pins the cross-check that was missing: the manifest
@@ -426,7 +427,7 @@ func TestFactStoreIntegrityEmptyBrainReportsNoLoss(t *testing.T) {
 
 	// A declared-but-genuinely-empty fact source is the sharper case: zero
 	// declared and zero readable agree, and nothing is wrong.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const evidenceInputBytes = 128 * 1024
@@ -207,7 +209,7 @@ func collectEvidence(ctx context.Context, brainDir, branch, query string, limit,
 	// Keep the research pool at the default output budget, but let larger
 	// requests retrieve larger blocks and more context before exact packing.
 	candidateBudget := max(evidenceCandidateBytes, 3*outputBudget)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		c.State = "unavailable"
 		c.Warnings = append(c.Warnings, "session manifest unavailable")

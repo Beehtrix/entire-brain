@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestReclassifyAllFactBranches(t *testing.T) {
@@ -30,7 +32,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A manifest must exist for updateFactSourceManifestLocked to write into.
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -55,7 +57,7 @@ func TestReclassifyAllFactBranches(t *testing.T) {
 	}
 
 	// The manifest by_kind histogram is rebuilt.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +107,7 @@ func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
 	if err := writeFacts(brainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -137,7 +139,7 @@ func TestReclassifyDoesNotFoldMirrorsIntoMainAndHealsDuplicates(t *testing.T) {
 	}
 
 	// Integrity: the cross-file mirror is ordinary, not corruption.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -252,7 +253,7 @@ func fileSHA256Hex(path string) string {
 }
 
 func evalBrainManifestSHA256(brainDir string) string {
-	return fileSHA256Hex(filepath.Join(brainDir, exportManifestFileName))
+	return fileSHA256Hex(filepath.Join(brainDir, bmanifest.FileName))
 }
 
 // --- agent judge ----------------------------------------------------------
@@ -630,7 +631,7 @@ func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limi
 		}
 		return factsToEvalItems(arm(facts, query, limit)), nil
 	case evalRetrieverHistory:
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -670,7 +671,7 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 	if len(active) > 0 {
 		lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -753,7 +754,7 @@ type scoredEvalItem struct {
 }
 
 func rankRawSessionChunks(ctx context.Context, brainDir, branch, query string, limit int) ([]evalRetrievedItem, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -278,7 +279,7 @@ func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStat
 
 func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (shortTermStats, error) {
 	var stats shortTermStats
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return stats, err
 	}

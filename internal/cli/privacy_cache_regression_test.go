@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestPrivacyVerifyRejectsMalformedAndFutureCachesWithoutMutation(t *testing.T) {
@@ -82,7 +83,7 @@ func TestPrivacyRetentionReportsRetainedSharedFactCopies(t *testing.T) {
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
 			opts, dir := privacyRegressionCommandFixture(t, time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC))
-			manifest, err := loadBrainManifest(dir)
+			manifest, err := bmanifest.Load(dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,7 +150,7 @@ func TestPrivacyRetentionRefusesUnresolvedRepoAndCorruptApplyPlan(t *testing.T) 
 			if kind == "repository" {
 				opts.Env.RepoRoot = filepath.Join("relative", "unresolved-repository")
 				opts.Runner = &fakeCommandRunner{}
-			} else if err := os.WriteFile(filepath.Join(dir, exportManifestFileName), []byte("{corrupt retention source"), 0o600); err != nil {
+			} else if err := os.WriteFile(filepath.Join(dir, bmanifest.FileName), []byte("{corrupt retention source"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			before := purgeCommandDataDigest(t, dir)

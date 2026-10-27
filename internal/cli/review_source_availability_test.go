@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,7 @@ func TestFactAvailabilityRejectsEmptyCorruptAndSymlinkStores(t *testing.T) {
 			} else if status.Integrity != "not_checked" || status.Facts.Integrity != nil {
 				t.Fatalf("status must defer content validation to doctor: %+v", status)
 			}
-			manifest, err := loadBrainManifest(brain)
+			manifest, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatalf("load manifest after %s fixture: %v", mode, err)
 			}
@@ -112,7 +113,7 @@ func TestBriefFactWarningOnlyNamesTheBranchRead(t *testing.T) {
 
 func TestOverviewIgnoresRetiredSemanticStore(t *testing.T) {
 	opts, brain := overviewHistoryFixture(t)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

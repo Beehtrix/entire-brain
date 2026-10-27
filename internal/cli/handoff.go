@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -194,7 +195,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}

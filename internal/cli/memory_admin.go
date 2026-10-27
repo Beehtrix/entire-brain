@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -179,7 +180,7 @@ func memoryDerivedArtifactStates(brainDir string) []memoryReceiptArtifact {
 	var artifacts []memoryReceiptArtifact
 	indexRel := historyIndexPath
 	receiptRel := projectionStateRel
-	if manifest, err := loadBrainManifest(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		if manifest.Sources.History.IndexPath != "" {
 			indexRel = manifest.Sources.History.IndexPath
 		}
@@ -206,7 +207,7 @@ func markProjectionRefreshStates(brainDir string, artifacts *[]memoryReceiptArti
 		return nil
 	}
 	current := map[string]bool{}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return fmt.Errorf("%s: load rebuilt manifest for receipt: %w", brainstore.StateCorruptCode, err)
 	}
@@ -410,7 +411,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			fail := func(cause error) error {
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return fail(err)
 			}
@@ -469,7 +470,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 					return fail(fmt.Errorf("%s: repair rebuilt the active projection but %d privacy violations remain; run `"+base.BrainInvocation(os.LookupEnv, "privacy purge")+" <session-id>` and retry repair", brainstore.PrivacyDirtyCode, len(postVerify.Findings)))
 				}
 				verify = postVerify
-				postManifest, manifestErr := loadBrainManifest(brainDir)
+				postManifest, manifestErr := bmanifest.Load(brainDir)
 				if manifestErr != nil {
 					return fail(manifestErr)
 				}
@@ -552,7 +553,7 @@ func newMemoryRebuildCommand(opts Options) *cobra.Command {
 				return finishMemoryOperationFailure(cmd, &receipt, jsonOut, opts.Now(), cause)
 			}
 			if sessionRef != "" {
-				manifest, err := loadBrainManifest(brainDir)
+				manifest, err := bmanifest.Load(brainDir)
 				if err != nil {
 					return fail(err)
 				}
@@ -841,7 +842,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				return err
 			}
 			now := opts.Now().UTC()
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -944,7 +945,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 					}
 					migrated++
 				}
-				postManifest, postManifestErr := loadBrainManifest(brainDir)
+				postManifest, postManifestErr := bmanifest.Load(brainDir)
 				if postManifestErr != nil {
 					return fail(postManifestErr)
 				}
@@ -1486,8 +1487,8 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 		health["error_code"] = configState
 	}
 	validated := false
-	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: exportManifestFileName, Code: "unverifiable"}
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	prerequisiteIssue := memoryStateIssue{Kind: "manifest", File: bmanifest.FileName, Code: "unverifiable"}
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
 		guard, guardErr := loadSessionReadGuard(brainDir, manifest)
@@ -1551,16 +1552,16 @@ type memoryHealthIssue struct {
 
 func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifestHealth, *memoryHealthIssue) {
 	health := memoryManifestHealth{
-		Path:                   exportManifestFileName,
+		Path:                   bmanifest.FileName,
 		State:                  "absent",
-		SupportedSchemaVersion: brainManifestSchemaVersion,
+		SupportedSchemaVersion: bmanifest.SchemaVersion,
 		RecommendedAction:      "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` to create the canonical manifest",
 	}
-	manifest, version, droppedUnknownFields, present, err := readBrainManifestFile(brainDir, true)
+	manifest, version, droppedUnknownFields, present, err := bmanifest.ReadFile(brainDir, true)
 	if !present && err == nil {
 		// Preserve the established status shape for a not-yet-built Brain while
 		// keeping absence distinct from a current on-disk manifest.
-		return &exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{}}, health, nil
+		return &exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{}}, health, nil
 	}
 	health.Present = present
 	health.SchemaVersion = version
@@ -1580,13 +1581,13 @@ func inspectBrainManifestHealth(brainDir string) (*exportManifest, memoryManifes
 			// declares no version this project ever wrote, so no build reads it
 			// and there is nothing to upgrade INTO -- the way out is to rebuild
 			// it from the canonical sources it was derived from.
-			if version < brainManifestMinSchemaVersion {
+			if version < bmanifest.MinSchemaVersion {
 				health.RecommendedAction = "run `" + base.BrainInvocation(os.LookupEnv, "refresh") + " --force` to rebuild the manifest from canonical sources"
 			} else {
 				health.RecommendedAction = "upgrade entire-brain; this newer manifest remains read-only"
 			}
 		}
-		issue := memoryHealthIssue{Kind: "manifest", Path: exportManifestFileName, Code: code, Version: version, Action: health.RecommendedAction}
+		issue := memoryHealthIssue{Kind: "manifest", Path: bmanifest.FileName, Code: code, Version: version, Action: health.RecommendedAction}
 		return nil, health, &issue
 	}
 	health.State = "current"
@@ -1650,8 +1651,8 @@ func memoryLockHealth(brainDir string) map[string]any {
 
 func memorySchemaHealth(manifestHealth memoryManifestHealth, payload map[string]any) map[string]any {
 	compiled := map[string]any{
-		"brain_manifest":     brainManifestSchemaVersion,
-		"source_manifest":    brainManifestSchemaVersion,
+		"brain_manifest":     bmanifest.SchemaVersion,
+		"source_manifest":    bmanifest.SchemaVersion,
 		"history_scan_cache": historyScanCacheVersion,
 		"overlay":            historyShortTermVersion,
 		"overlay_reconciler": historyShortTermReconcilerVersion,

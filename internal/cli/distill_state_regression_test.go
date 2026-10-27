@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestDistillRejectsNonfiniteConfidenceBeforeAgent(t *testing.T) {
@@ -40,7 +41,7 @@ func TestDistillPreservesConcurrentSessionManifest(t *testing.T) {
 		if !fired {
 			fired = true
 			if err := brainstore.WithBrainWriteLock(d, func() error {
-				m, err := loadBrainManifest(d)
+				m, err := bmanifest.Load(d)
 				if err != nil {
 					return err
 				}
@@ -56,7 +57,7 @@ func TestDistillPreservesConcurrentSessionManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := loadBrainManifest(d)
+	m, err := bmanifest.Load(d)
 	if err != nil {
 		t.Fatal(err)
 	}

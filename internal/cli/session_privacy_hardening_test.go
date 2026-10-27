@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"errors"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"io"
 	"io/fs"
@@ -143,7 +144,7 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	tombstonePrivacyFixture(t, brainDir)
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	guard, err := loadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +186,7 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 
 func TestPrivacyDerivationBlocksDuplicateManifestTranscriptAlias(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

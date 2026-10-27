@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -248,7 +249,7 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	}
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "gh/example/repo", DefaultBranch: "feature",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "gh/example/repo", DefaultBranch: "feature",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "feature", Sessions: []exportSession{{
 			SessionID: "privacy-race-session", Branch: "feature", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now,
 		}}}},
@@ -259,7 +260,7 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	manifestOnDisk, err := loadBrainManifest(brainDir)
+	manifestOnDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +745,7 @@ func (w *blockingHTTPResponseWriter) Write(p []byte) (int, error) {
 
 func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(fixture.BrainDir)
+	manifest, err := bmanifest.Load(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +789,7 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 
 func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
 	fixture := writeRetrievalEmissionPrivacyFixture(t)
-	manifest, err := loadBrainManifest(fixture.BrainDir)
+	manifest, err := bmanifest.Load(fixture.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

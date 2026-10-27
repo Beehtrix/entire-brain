@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"sort"
 	"strings"
 	"time"
@@ -142,7 +143,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 		Branch:        branch,
 		AllBranches:   allBranches,
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}

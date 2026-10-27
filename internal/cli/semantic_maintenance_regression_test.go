@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ func TestSemanticResetRequiresForceBeforeTouchingState(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("reset without force error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName)); err != nil {
 		t.Fatalf("state changed before force validation: %v", err)
 	}
 }
@@ -69,7 +70,7 @@ func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testi
 	_, env, _, opts := buildSemanticMaintenanceFixture(t)
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	_ = mustSemanticSource(t, env)
-	before, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	before, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,7 @@ func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testi
 		(!strings.Contains(err.Error(), "invalid tar") && !strings.Contains(err.Error(), "unexpected EOF") && !strings.Contains(err.Error(), "archive/tar")) {
 		t.Fatalf("malformed archive diagnostic = %v", err)
 	}
-	if got, readErr := os.ReadFile(filepath.Join(brainDir, exportManifestFileName)); readErr != nil || !bytes.Equal(got, before) {
+	if got, readErr := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName)); readErr != nil || !bytes.Equal(got, before) {
 		t.Fatalf("failed import changed active snapshot: %v", readErr)
 	}
 }

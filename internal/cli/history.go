@@ -23,6 +23,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -71,45 +72,6 @@ const (
 	// wrapper-filtered user requests from document transcripts.
 	historyScanCacheVersion = 10
 )
-
-type historySourceManifest struct {
-	GeneratedAt time.Time `json:"generated_at"`
-	IndexPath   string    `json:"index_path"`
-	// IndexBytes/IndexSHA256/RecordsFingerprint let a reader rank straight from
-	// the FTS payload table without loading index.json, and give the FTS
-	// freshness check an O(1) key.
-	IndexBytes             int64  `json:"index_bytes,omitempty"`
-	IndexSHA256            string `json:"index_sha256,omitempty"`
-	RecordsFingerprint     string `json:"records_fingerprint,omitempty"`
-	TranscriptsFingerprint string `json:"transcripts_fingerprint,omitempty"`
-	// IndexDigest commits the exact bounded index bytes selected by IndexPath.
-	// It is optional only for manifests written before generation integrity was
-	// introduced; every new projection publishes it with the manifest-last
-	// commit so readers can distinguish legacy from corrupt state.
-	IndexDigest string `json:"index_digest,omitempty"`
-	// PrivacyIdentity binds this generation to the exact tombstone bytes used
-	// while building it. Vector backfill refuses to consume an index whose
-	// privacy epoch is not the current one.
-	PrivacyIdentity     string `json:"privacy_identity,omitempty"`
-	SessionsFingerprint string `json:"sessions_fingerprint,omitempty"`
-	Records             int    `json:"records"`
-	Decisions           int    `json:"decisions"`
-	Learnings           int    `json:"learnings"`
-	Validations         int    `json:"validations"`
-	ToolCalls           int    `json:"tool_calls"`
-	CodeFacts           int    `json:"code_facts"`
-	Exchanges           int    `json:"exchanges,omitempty"`
-	IncompleteExchanges int    `json:"incomplete_exchanges,omitempty"`
-	// ExcludedSessions counts tombstoned sessions skipped before derived
-	// indexing (their content is never retained; see session_privacy.go).
-	ExcludedSessions int      `json:"excluded_sessions,omitempty"`
-	Warnings         []string `json:"warnings,omitempty"`
-	// ProjectionStatePath/Digest publish the projection receipt file; the
-	// manifest's atomic replacement is the commit point, so an interruption
-	// before it leaves readers on the previous receipt set.
-	ProjectionStatePath   string `json:"projection_state_path,omitempty"`
-	ProjectionStateDigest string `json:"projection_state_digest,omitempty"`
-}
 
 type historyIndex struct {
 	GeneratedAt time.Time       `json:"generated_at"`
@@ -441,7 +403,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if !current.sameMetadata(prepared.identity) {
 		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed before history commit")
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +442,7 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 	if !current.sameMetadata(prepared.identity) {
 		return nil, errors.New("memory_source_stale: sessions, privacy state, or short-term overlay changed at history commit")
 	}
-	normalizeBrainManifest(manifest)
+	bmanifest.Normalize(manifest)
 	// Normalization may fill default fields on the canonical sessions source.
 	// Publish the fingerprint of the exact normalized source written below so
 	// checked receipt readers do not mistake our own commit for source drift.
@@ -488,10 +450,10 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		manifest.Sources.History.SessionsFingerprint = sessionSourceFingerprint(manifest.Sources.Sessions)
 		source = *manifest.Sources.History
 	}
-	manifest.SchemaVersion = brainManifestSchemaVersion
+	manifest.SchemaVersion = bmanifest.SchemaVersion
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+		return nil, fmt.Errorf("encode %s: %w", bmanifest.FileName, err)
 	}
 	if err := promotePreparedHistoryProjection(outputDir, prepared); err != nil {
 		return nil, err
@@ -504,12 +466,12 @@ func publishBrainHistoryProjectionLocked(outputDir string, prepared *preparedHis
 		// The strict reader is what makes that refusal happen: the bytes below
 		// are marshalled from a struct, so a field it could not name would be
 		// erased here.
-		if _, err := loadBrainManifestForReplace(outputDir); err != nil {
+		if _, err := bmanifest.LoadForReplace(outputDir); err != nil {
 			return err
 		}
-		return historyProjectionWriteFile(outputDir, exportManifestFileName, append(manifestData, '\n'), 0o600)
+		return historyProjectionWriteFile(outputDir, bmanifest.FileName, append(manifestData, '\n'), 0o600)
 	}); err != nil {
-		return nil, fmt.Errorf("write %s: %w", exportManifestFileName, err)
+		return nil, fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 	}
 	committed = true
 	// README is descriptive, not a projection pointer. Refresh it best-effort
@@ -590,7 +552,7 @@ func promotePreparedHistoryProjection(outputDir string, prepared *preparedHistor
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return fmt.Errorf("history projection generation must be an exact directory, not a symlink or special file: %s", finalRel)
 		}
-		manifest, manifestErr := loadBrainManifest(outputDir)
+		manifest, manifestErr := bmanifest.Load(outputDir)
 		if manifestErr != nil {
 			return manifestErr
 		}
@@ -645,7 +607,7 @@ func discardPreparedHistoryProjection(outputDir string, prepared *preparedHistor
 	if err := removeHistoryProjectionDirectory(outputDir, prepared.stagingDir); err != nil {
 		cleanupErr = err
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err == nil && manifest.Sources != nil && manifest.Sources.History != nil &&
 		filepath.ToSlash(manifest.Sources.History.IndexPath) == prepared.indexPath {
 		return cleanupErr
@@ -658,7 +620,7 @@ func discardPreparedHistoryProjection(outputDir string, prepared *preparedHistor
 }
 
 func pruneInactiveHistoryGenerations(outputDir string) {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return
 	}
@@ -931,7 +893,7 @@ func removeKnownHistoryProjectionContents(abs, display string, expected os.FileI
 // restored; every other valid quarantine is deleted through the same closed
 // two-file remover. Invalid or unknown contents fail closed.
 func recoverHistoryProjectionQuarantines(outputDir string) error {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return err
 	}
@@ -1034,7 +996,7 @@ func captureHistoryProjectionIdentityMode(ctx context.Context, outputDir string,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return historyProjectionIdentity{}, nil, sessionTombstones{}, err
 	}
@@ -1165,7 +1127,7 @@ func historyIndexBytesFingerprint(data []byte) string {
 }
 
 func buildBrainHistoryIndex(outputDir string, now time.Time, progress historyIndexProgress) (historyIndex, *historySourceManifest, error) {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return historyIndex{}, nil, err
 	}
@@ -1852,7 +1814,7 @@ func encodeHistoryScanCache(cache historyScanCache) ([]byte, error) {
 const sessionSourceFingerprintAbsent = "absent"
 
 func brainSessionsFingerprint(outputDir string) string {
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		// The manifest itself is unreadable, so the current source cannot be
 		// named at all. Unknown, which is not the same as absent.
@@ -3149,7 +3111,7 @@ func loadBrainHistoryIndex(brainDir string, source *historySourceManifest) (hist
 	// writer committed and pruned that generation. Resolve the manifest again
 	// and retry once only when it names a different index. A corrupt current
 	// generation is never hidden by this race recovery path.
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return historyIndex{}, err
 	}

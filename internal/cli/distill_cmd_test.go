@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // writeDistillFixture lays down a brain dir with a session manifest and two
@@ -42,7 +43,7 @@ func writeDistillFixture(t *testing.T, now time.Time) string {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -70,7 +71,7 @@ func writeSingleSessionFixture(t *testing.T, now time.Time, transcript string) s
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
@@ -132,7 +133,7 @@ func TestRunDistillForBrainWritesFactsAndManifest(t *testing.T) {
 	}
 
 	// Manifest source and taxonomy snapshot must be written.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
 		t.Fatalf("manifest facts source not written: %v", err)
 	}
@@ -403,7 +404,7 @@ func TestRunDistillForBrainBranchFilterResolvesDefault(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -485,7 +486,7 @@ func TestRunDistillForBrainBranchLimitedPreservesManifest(t *testing.T) {
 		t.Fatalf("summary lost whole-store counts: %+v", source)
 	}
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Facts == nil {
 		t.Fatalf("manifest facts source not written: %v", err)
 	}
@@ -559,7 +560,7 @@ func TestRunDistillForBrainCacheIgnoresStrippedToolChurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}}},
@@ -615,7 +616,7 @@ func TestRunDistillForBrainCacheIgnoresStrippedToolChurn(t *testing.T) {
 func TestRunDistillForBrainNoSessions(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	brainDir := t.TempDir()
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{}}
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +685,7 @@ func TestRunDistillForBrainAbortsOnSystematicAgentFailure(t *testing.T) {
 		sessions = append(sessions, exportSession{SessionID: id, Branch: "main", LatestCheckpoint: "cp" + id, TranscriptPath: tp, CreatedAt: now.Add(-time.Duration(i) * time.Hour)})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -727,7 +728,7 @@ func TestRunDistillForBrainRejectsSmallAllFailureCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
@@ -1396,7 +1397,7 @@ func TestDistillCacheGrandfathersLegacyEntries(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},
@@ -1788,7 +1789,7 @@ func writeDistillFixtureAt(t *testing.T, brainDir string, now time.Time) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -1922,7 +1923,7 @@ func TestRunDistillForBrainCachesDuplicateSessionIDs(t *testing.T) {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},

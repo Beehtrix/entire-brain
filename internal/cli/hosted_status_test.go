@@ -11,6 +11,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // hostedStatusFixture builds the smallest brain whose status report can carry
@@ -31,7 +32,7 @@ func hostedStatusFixture(t *testing.T) (Options, string, string) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		GeneratedAt:   now,
 		Sources: &brainSources{

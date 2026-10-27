@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // conversation_multiconcept.go implements multi-concept session recall:
@@ -96,7 +97,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

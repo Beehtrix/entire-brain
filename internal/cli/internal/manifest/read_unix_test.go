@@ -1,6 +1,6 @@
 //go:build !windows
 
-package cli
+package manifest
 
 import (
 	"os"
@@ -14,7 +14,7 @@ import (
 
 func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
 	dir := writeTestManifest(t, `{"schema_version":3}`)
-	path := filepath.Join(dir, exportManifestFileName)
+	path := filepath.Join(dir, FileName)
 	originalOpen := brainstore.MemoryStateOpenFile
 	brainstore.MemoryStateOpenFile = func(name string, flags int, perm os.FileMode) (*os.File, error) {
 		if name == path {
@@ -28,7 +28,7 @@ func TestBrainManifestReaderRejectsFIFOSwap(t *testing.T) {
 		return originalOpen(name, flags, perm)
 	}
 	t.Cleanup(func() { brainstore.MemoryStateOpenFile = originalOpen })
-	if _, err := loadBrainManifest(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("FIFO swap: %v", err)
 	}
 }

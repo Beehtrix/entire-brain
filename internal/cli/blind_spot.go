@@ -9,6 +9,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // distillCoverage reports the last recorded distillation and sessions created
@@ -46,9 +47,9 @@ func emptyResultBlindSpot(brainDir string) string {
 // "nothing anywhere" are different answers and only this variant can tell them
 // apart.
 func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	// A missing manifest loads as an empty struct, not an error, and a nil
-	// Sources is exactly that case: normalizeBrainManifest gives every manifest
+	// Sources is exactly that case: bmanifest.Normalize gives every manifest
 	// it actually parsed a non-nil Sources, so only the absent-manifest path
 	// reaches here with nil. That is the NO-BRAIN case, and it is the one this
 	// line most needs to cover — see noBrainBlindSpot.
@@ -294,7 +295,7 @@ func otherBranchSessionBlindSpot(brainDir, branch string) string {
 	if branch == "" {
 		return ""
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return ""
 	}

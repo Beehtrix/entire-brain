@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestFirstUserRequestCodex(t *testing.T) {
@@ -103,7 +105,7 @@ func TestGenerateEvalTasksFromProvenance(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl", "what is the testing workflow")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -173,7 +175,7 @@ func TestGenerateEvalTasksScopesSessionFactsByResolvedBranch(t *testing.T) {
 	writeTranscript("sessions/feature/same.jsonl", "what is the feature testing workflow")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "same-session", TranscriptPath: "sessions/main/same.jsonl", CreatedAt: now},
@@ -257,7 +259,7 @@ func TestGenerateEvalTasksScopesDuplicateSessionIDByTranscript(t *testing.T) {
 	}
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: sessionID, Branch: "main", TranscriptPath: firstTranscript, CreatedAt: now},
@@ -305,7 +307,7 @@ func TestGenerateSessionEvalTasksDisambiguatesSameBranchShortIDCollisions(t *tes
 	writeTranscript("sessions/main/one.jsonl", "inspect alpha collision")
 	writeTranscript("sessions/main/two.jsonl", "inspect beta collision")
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "abcdefghijkl-session-one", Branch: "main", TranscriptPath: "sessions/main/one.jsonl", CreatedAt: now},
@@ -350,7 +352,7 @@ func TestGenerateSessionEvalTasksIncludesZeroFactSessions(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl", "how does recall rank durable facts")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -401,7 +403,7 @@ func TestGenerateSessionEvalTasksKeepsDuplicateRequests(t *testing.T) {
 	writeTranscript("sessions/main/s2.jsonl")
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
 			{SessionID: "s1", Branch: "main", TranscriptPath: "sessions/main/s1.jsonl", CreatedAt: now},
@@ -500,7 +502,7 @@ func TestFactsEvalGenRefineOllamaNoEgressSendsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoRoot:      repoDir,
 		RepoKey:       storage.Key,

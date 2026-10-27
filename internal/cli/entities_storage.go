@@ -13,6 +13,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // gitmetaDirForKey resolves the local git-meta store path for a repo key
@@ -83,7 +84,7 @@ func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir
 			add(member.CheckpointID, member.SessionID)
 		}
 	}
-	if manifest, err := loadBrainManifest(brainDir); err == nil && manifest != nil {
+	if manifest, err := bmanifest.Load(brainDir); err == nil && manifest != nil {
 		sessions := manifest.Sessions
 		if manifest.Sources != nil && manifest.Sources.Sessions != nil && len(manifest.Sources.Sessions.Sessions) > 0 {
 			sessions = manifest.Sources.Sessions.Sessions

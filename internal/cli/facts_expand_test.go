@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,7 +173,7 @@ func TestRecallExpandOllamaUsesLoopbackRunner(t *testing.T) {
 	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 

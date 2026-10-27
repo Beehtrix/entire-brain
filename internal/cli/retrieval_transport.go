@@ -9,6 +9,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -120,7 +121,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	if !allowed {
 		return nil, "", fmt.Errorf("%s: retrieval state changed after ranking; retry after excluded-session cleanup verifies clean", brainstore.PrivacyDirtyCode)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, "", err
 	}

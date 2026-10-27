@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"io"
 	"os"
@@ -109,7 +110,7 @@ type brainStatusOnboarding struct {
 // re-run from re-spending on it.
 func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 	status := factsBackfillStatus{}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return status
 	}

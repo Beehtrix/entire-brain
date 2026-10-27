@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // An external tool that hardlink-copies the brain's history tree (a backup, or
@@ -37,7 +39,7 @@ func TestMemoryRepairRecoversHardlinkedHistoryProjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now.Add(-time.Hour), RepoKey: storage.Key, DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now.Add(-time.Hour), DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "hardlink-session", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-2 * time.Hour)},
 		}}},

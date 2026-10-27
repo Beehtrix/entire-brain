@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,7 +33,7 @@ func writeSessionNavigationFixture(t *testing.T) (brainDir string, records []his
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/nav", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/nav", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "nav-sess", Branch: "main", Agent: "claude", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now.Add(-time.Hour)},
 		}}},
@@ -43,7 +44,7 @@ func writeSessionNavigationFixture(t *testing.T) (brainDir string, records []his
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, now, nil); err != nil {
 		t.Fatal(err)
 	}
-	onDisk, err := loadBrainManifest(brainDir)
+	onDisk, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +248,7 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: generated, RepoKey: "test/collide",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: generated, RepoKey: "test/collide",
 		Sources: &brainSources{History: &historySourceManifest{GeneratedAt: generated, IndexPath: historyIndexPath, Records: 2}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {

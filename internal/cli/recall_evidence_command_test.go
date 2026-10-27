@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -27,7 +28,7 @@ func TestRecallEvidenceCommandReturnsOriginalSourceWithoutModel(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brain, rel), []byte(text), 0600); err != nil {
 		t.Fatal(err)
 	}
-	m := exportManifest{SchemaVersion: brainManifestSchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "release", Branch: "main", TranscriptPath: rel}}}}}
+	m := exportManifest{SchemaVersion: bmanifest.SchemaVersion, DefaultBranch: "main", Sources: &brainSources{Sessions: &sessionSourceManifest{DefaultBranch: "main", Sessions: []exportSession{{SessionID: "release", Branch: "main", TranscriptPath: rel}}}}}
 	if err := writeBrainManifestAndReadme(brain, m); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestRecallEvidenceExclusionsAndUnsafePaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
-				m, err := loadBrainManifest(brain)
+				m, err := bmanifest.Load(brain)
 				if err != nil {
 					t.Fatal(err)
 				}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -202,7 +203,7 @@ func verifyFailureForReport(report verifyReport, verifyOpts verifyCommandOptions
 }
 
 func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, repoKey, branch string, verifyOpts verifyCommandOptions, target string) (verifyReport, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return verifyReport{}, err
 	}

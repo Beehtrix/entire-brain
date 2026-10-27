@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
@@ -609,7 +610,7 @@ func buildPatternsStatusReport(brainDir string) patternsStatusReport {
 }
 
 func buildPatternsStatusReportChecked(brainDir string) (patternsStatusReport, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return patternsStatusReport{}, err
 	}

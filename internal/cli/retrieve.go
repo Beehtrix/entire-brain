@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"sort"
 	"strings"
@@ -229,7 +230,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		// whose only anchor had no session id survived on query/search/vsearch
 		// while brief, dash, handoff, viz, and the pattern corpus all hid it.
 		// Only tombstoned brains pay the manifest read.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -309,7 +310,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		if candidateLimit <= int(^uint(0)>>1)/3 {
 			historyCandidateLimit = candidateLimit * 3
 		}
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, err
 		}
@@ -500,7 +501,7 @@ const conversationSessionTopKDivisor = 2
 // ranking otherwise; vsearch is semantic-only and returns a structured
 // unavailable error when the arm is closed.
 func retrieveConversation(brainDir, query string, limit int, mode retrievalMode, opts retrievalOptions) ([]unifiedResult, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -871,7 +872,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		// filters below, so a fact whose only anchor lost its session id blocks
 		// by path here too. The history arm's later re-resolution ran after
 		// guardFactRecords and therefore never protected `get fact:`.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -924,7 +925,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		// missing/unreadable, is a real storage problem — surface it rather than
 		// reporting every history:* id as "not found". A brain with no history source
 		// (nil) legitimately has no such records, so leave histByID empty.
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}

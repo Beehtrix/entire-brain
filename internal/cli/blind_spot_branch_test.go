@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // seedFactBranch writes one active fact onto a branch's store.
@@ -30,7 +32,7 @@ func seedFactBranch(t *testing.T, brainDir, branch string, ids ...string) {
 // what these tests are about.
 func declareFacts(t *testing.T, brainDir string, now time.Time, total int, branches ...string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

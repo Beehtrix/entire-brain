@@ -21,6 +21,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
@@ -137,7 +138,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 				return err
 			}
 			brainDir := storage.BrainDir
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}
@@ -340,7 +341,7 @@ func runSessionsExclude(ctx context.Context, cmd *cobra.Command, opts Options, s
 			if planErr != nil {
 				return planErr
 			}
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				return manifestErr
 			}
@@ -761,7 +762,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 			if planErr != nil {
 				return planErr
 			}
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				return manifestErr
 			}
@@ -902,7 +903,7 @@ func factAnchorMatchesSession(anchor factAnchor, sessionID string, transcriptRel
 
 func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error) {
 	plan := sessionPurgePlan{SessionID: sessionID}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return plan, err
 	}
@@ -1121,7 +1122,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 		// both leaves are transient/content-bearing and privacy cleanup owns them.
 		rels = append(rels, filepath.ToSlash(filepath.Join("patterns", publication.Candidate)))
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1715,7 +1716,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if err := purgeDistillCacheEntries(brainDir, sessionID); err != nil {
 		return err
 	}
-	cleanupManifest, manifestErr := loadBrainManifest(brainDir)
+	cleanupManifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil {
 		return manifestErr
 	}

@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -355,7 +356,7 @@ func loadPatternCorpusManifest(brainDir string) (*exportManifest, error) {
 	// Derivation must use the same header-first, strict version classifier as
 	// every other Brain-manifest consumer. In particular, never partially decode
 	// or normalize a vNext document into the current schema before rebuilding.
-	return loadBrainManifest(brainDir)
+	return bmanifest.Load(brainDir)
 }
 
 // Source anchors in both document and JSONL transcripts use physical lines.

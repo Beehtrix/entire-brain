@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,7 +84,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 			t.Fatalf("failed %s input was replaced: got=%q err=%v", rel, got, err)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest.Sources == nil || manifest.Sources.Seed == nil {
 		t.Fatalf("successful seed stage was not committed: manifest=%+v err=%v", manifest, err)
 	}
@@ -118,7 +119,7 @@ func TestRefreshStrictHistoryFailureStopsBeforeSuccess(t *testing.T) {
 
 func TestRefreshBestEffortReportsFactsFailure(t *testing.T) {
 	opts, brainDir := refreshFailureFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func patternEpisodeLineCount(t *testing.T, brainDir string) int {
@@ -114,7 +116,7 @@ func TestPatternSourceWithoutPrivacyIdentityStaysCurrentUntilATombstoneExists(t 
 	if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {
 		t.Fatalf("build episodes: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +135,7 @@ func TestPatternSourceWithoutPrivacyIdentityStaysCurrentUntilATombstoneExists(t 
 	if err := executeSessionCleanup(brainDir, "secret-sess", plan, now, "test", true); err != nil {
 		t.Fatalf("exclude: %v", err)
 	}
-	after, err := loadBrainManifest(brainDir)
+	after, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

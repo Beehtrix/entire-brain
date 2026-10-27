@@ -8,6 +8,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -44,7 +45,7 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 			_ = inventory.Close()
 		}
 	}()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

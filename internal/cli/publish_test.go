@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -63,7 +64,7 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	t.Helper()
 
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   time.Date(2026, 2, 1, 12, 0, 0, 0, time.UTC),
 		RepoKey:       "gh/example/repo",
 		DefaultBranch: "main",
@@ -80,7 +81,7 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	if err != nil {
 		t.Fatalf("marshal manifest: %v", err)
 	}
-	writePublishFile(t, filepath.Join(brainDir, exportManifestFileName), append(manifestData, '\n'))
+	writePublishFile(t, filepath.Join(brainDir, bmanifest.FileName), append(manifestData, '\n'))
 
 	writePublishFile(t,
 		filepath.Join(brainDir, semanticDirName, semanticSnapshotsDir, testPublishCommit, semanticSnapshotName),

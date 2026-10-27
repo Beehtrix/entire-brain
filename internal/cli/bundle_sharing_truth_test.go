@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Sharing a brain with a teammate is the one path that works today, and it is
@@ -307,7 +309,7 @@ func TestTheImportNoteStopsLeadingOnceWorkWasDistilledSince(t *testing.T) {
 	withDistillation := func(t *testing.T) string {
 		t.Helper()
 		dir := writeDistillFixture(t, distilled)
-		m, err := loadBrainManifest(dir)
+		m, err := bmanifest.Load(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -391,7 +393,7 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 	// A bundle that CARRIES facts, into a brain that has none.
 	archive := filepath.Join(t.TempDir(), "with-facts.tar")
 	writeTestBundle(t, archive, map[string]string{
-		exportManifestFileName:             `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
+		bmanifest.FileName:                 `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
 		"facts/taxonomy.json":              `{"version":1}`,
 		"facts/main-0000/" + factsFileName: "{}\n",
 	})

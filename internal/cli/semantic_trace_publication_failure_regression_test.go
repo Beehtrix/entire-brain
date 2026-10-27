@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRuntimeTracePublicationFailurePreservesStoreAndRetry(t *testing.T) {
 	brain, _, opts := indexFixtureBrain(t, semanticBoundaryFixtureSnapshot())
 	d := opts.Runner.(*fakeCommandRunner).graphStoreFixtures[opts.Env.RepoRoot+"\x00full"]
 	original := fileDigest(t, d.Path)
-	manifest := fileDigest(t, filepath.Join(brain, exportManifestFileName))
+	manifest := fileDigest(t, filepath.Join(brain, bmanifest.FileName))
 	parent := filepath.Join(brain, "semantic", "traces")
 	if err := os.MkdirAll(filepath.Dir(parent), 0700); err != nil {
 		t.Fatal(err)
@@ -28,7 +30,7 @@ func TestRuntimeTracePublicationFailurePreservesStoreAndRetry(t *testing.T) {
 	if err := runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true}, input); err == nil || out.Len() != 0 {
 		t.Fatalf("failed publication returned success: %v %s", err, out.String())
 	}
-	if original != fileDigest(t, d.Path) || manifest != fileDigest(t, filepath.Join(brain, exportManifestFileName)) {
+	if original != fileDigest(t, d.Path) || manifest != fileDigest(t, filepath.Join(brain, bmanifest.FileName)) {
 		t.Fatal("failed trace publication changed Graph or manifest")
 	}
 	if err := os.Remove(parent); err != nil {

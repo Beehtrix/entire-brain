@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,7 +41,7 @@ func docsAvailabilityFixture(t *testing.T) (Options, string, string) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		GeneratedAt:   now,
 		Sources: &brainSources{

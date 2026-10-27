@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 type verifyFixture struct {
@@ -53,7 +55,7 @@ func newVerifyFixture(t *testing.T) verifyFixture {
 func (f verifyFixture) writeSessions(t *testing.T, sessions []exportSession) {
 	t.Helper()
 	manifest := exportManifest{
-		SchemaVersion:      brainManifestSchemaVersion,
+		SchemaVersion:      bmanifest.SchemaVersion,
 		GeneratedAt:        f.now,
 		RepoRoot:           f.repoDir,
 		RepoKey:            f.storage.Key,
@@ -576,7 +578,7 @@ func TestVerifyDoesNotMutateStoredAnchorMetadata(t *testing.T) {
 	if stored[0].Provenance[0].Verified {
 		t.Fatalf("verify mutated stored anchor metadata: %+v", stored[0].Provenance[0])
 	}
-	manifest, err := loadBrainManifest(f.brainDir)
+	manifest, err := bmanifest.Load(f.brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

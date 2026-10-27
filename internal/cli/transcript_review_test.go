@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
 	"os/exec"
@@ -33,7 +34,7 @@ func TestFilelessReadsSurviveExportingWorktreeRemoval(t *testing.T) {
 		t.Fatal(err)
 	}
 	runFilelessExport(t, opts, "", false)
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +103,7 @@ func TestFilelessRoutedCatalogUsesLocalIdentities(t *testing.T) {
 			if runner.calls == 0 {
 				t.Fatal("routed discovery was bypassed")
 			}
-			manifest, err := loadBrainManifest(brain)
+			manifest, err := bmanifest.Load(brain)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -110,7 +111,7 @@ func TestFilelessRoutedCatalogUsesLocalIdentities(t *testing.T) {
 			if err != nil || string(data) != conversationClaudeFixture {
 				t.Fatalf("read: %v %q", err, data)
 			}
-			before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+			before, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +123,7 @@ func TestFilelessRoutedCatalogUsesLocalIdentities(t *testing.T) {
 				if err := run(); err == nil || !strings.Contains(err.Error(), "requires local checkpoint refs") {
 					t.Fatalf("missing local identity accepted: %v", err)
 				}
-				after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+				after, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -153,7 +154,7 @@ func TestFilelessSessionsConflictWithBundleImport(t *testing.T) {
 func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 	opts, brain, _ := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", false)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +250,7 @@ func TestFilelessRefreshRejectsMissingTranscriptObjects(t *testing.T) {
 				if err := run(); err != nil {
 					t.Fatalf("initial refresh: %v", err)
 				}
-				before, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+				before, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -265,7 +266,7 @@ func TestFilelessRefreshRejectsMissingTranscriptObjects(t *testing.T) {
 				if err := run(); err == nil || !strings.Contains(err.Error(), "unreadable local transcript") || !strings.Contains(err.Error(), missingPath) {
 					t.Fatalf("missing blob was not rejected: %v", err)
 				}
-				after, err := os.ReadFile(filepath.Join(brain, exportManifestFileName))
+				after, err := os.ReadFile(filepath.Join(brain, bmanifest.FileName))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -286,7 +287,7 @@ func TestFilelessRefreshRejectsMissingTranscriptObjects(t *testing.T) {
 func TestLocalTranscriptValidationCannotFetchOrReadPayloads(t *testing.T) {
 	opts, brain, repo := filelessCheckpointFixture(t)
 	runFilelessExport(t, opts, "", false)
-	manifest, err := loadBrainManifest(brain)
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestCanonicalTranscriptReadEnforcesBoundAndReturnsNoBytes(t *testing.T) {
@@ -59,7 +60,7 @@ func TestUnsafeTranscriptNeverInvokesDistillProvider(t *testing.T) {
 
 func assertNoDistillDerivedState(t *testing.T, brainDir string) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest after refused distill: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 			if _, err := writeBrainEpisodesAndSource(brainDir, now); err != nil {
 				t.Fatal(err)
 			}
-			paths := []string{patternsEpisodesPath, patternsTasksPath, patternsProceduresPath, patternsPracticesPath, exportManifestFileName}
+			paths := []string{patternsEpisodesPath, patternsTasksPath, patternsProceduresPath, patternsPracticesPath, bmanifest.FileName}
 			before := make(map[string][]byte, len(paths))
 			for _, rel := range paths {
 				data, err := os.ReadFile(filepath.Join(brainDir, filepath.FromSlash(rel)))
@@ -143,7 +144,7 @@ func TestEpisodeUnsafeInputPublishesNoPartialPatternArtifacts(t *testing.T) {
 
 func TestHistoryProjectionDoesNotReadExcludedTranscriptContent(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

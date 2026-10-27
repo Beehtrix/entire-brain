@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -75,7 +76,7 @@ func TestBuildBrainOnboardingStatusReportsBackfillAndDaemon(t *testing.T) {
 	if err := saveWatchCursor(filepath.Join(stateDir, "watch.json"), watchCursor{LastRefreshAt: setupTestNow.Add(-5 * time.Minute)}); err != nil {
 		t.Fatalf("save watch cursor: %v", err)
 	}
-	manifest, err := loadBrainManifest(f.storage.BrainDir)
+	manifest, err := bmanifest.Load(f.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -361,7 +362,7 @@ func TestStatusDoesNotReportAReusedPidAsARunningBackfill(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write backfill state: %v", err)
 	}
-	manifest, err := loadBrainManifest(f.storage.BrainDir)
+	manifest, err := bmanifest.Load(f.storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // declared_indexes.go cross-checks the retrieval indexes the manifest DECLARES
@@ -182,7 +183,7 @@ func inspectDeclaredIndexes(brainDir string, manifest *exportManifest) []declare
 // path must not answer "your doc index is gone" when what it actually found was
 // an unparseable manifest.
 func inspectBrainDeclaredIndex(brainDir string, source declaredIndexSource) declaredIndexDefect {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return declaredIndexDefect{}
 	}

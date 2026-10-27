@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,7 +48,7 @@ func writeMultiConceptFixture(t *testing.T) string {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: index.GeneratedAt, RepoKey: "test/mc",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: index.GeneratedAt, RepoKey: "test/mc",
 		Sources: &brainSources{History: &historySourceManifest{
 			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
 		}},
@@ -166,7 +167,7 @@ func TestMultiConceptVectorModeUnavailableIsStructured(t *testing.T) {
 
 func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestMultiConceptUsesShortTermEvidence(t *testing.T) {
 
 func replaceMultiConceptLongTermRecords(t *testing.T, brainDir string, records []historyRecord) {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +420,7 @@ func TestMultiConceptTooBroadForOverlayMatches(t *testing.T) {
 	conversationConceptScanCeiling = 3
 	defer func() { conversationConceptScanCeiling = oldCeiling }()
 	replaceMultiConceptLongTermRecords(t, brainDir, nil)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +501,7 @@ func TestMultiConceptPreservesIdenticalSummariesAcrossSessions(t *testing.T) {
 	t.Run("short-term in-memory", func(t *testing.T) {
 		brainDir := writeMultiConceptFixture(t)
 		replaceMultiConceptLongTermRecords(t, brainDir, nil)
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}

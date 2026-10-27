@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // memory_receipts.go is the projection receipt: the durable, content-free
@@ -236,7 +237,7 @@ func loadProjectionStateChecked(brainDir string, source *historySourceManifest) 
 	// Match the history-index race contract: a caller may hold manifest A while
 	// a writer commits B and prunes A. Retry once only when the current manifest
 	// names a different receipt identity; never mask damage to the current one.
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		return state, readState, err
 	}

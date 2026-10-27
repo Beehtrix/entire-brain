@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Brain could export and could not import, which is the friction a switcher
@@ -312,7 +313,7 @@ func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed manifest: %v", err)
 	}
-	before, err := loadBrainManifest(brainDir)
+	before, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -338,7 +339,7 @@ func TestImportRefreshesTheFactSourceManifest(t *testing.T) {
 	if err != nil || len(facts) == 0 {
 		t.Fatalf("the import wrote no facts: %v %+v", err, facts)
 	}
-	after, err := loadBrainManifest(brainDir)
+	after, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

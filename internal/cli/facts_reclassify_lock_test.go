@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +56,7 @@ func seedReclassifyBrain(t *testing.T, now time.Time) (string, string) {
 	if err := writeFacts(brainDir, branch, seed); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 	return brainDir, branch

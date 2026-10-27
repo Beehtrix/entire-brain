@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Fixture transcripts for each supported dialect. Line numbers in assertions
@@ -343,7 +344,7 @@ func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *his
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		RepoKey:       "test/repo",
 		DefaultBranch: "main",
@@ -465,7 +466,7 @@ func TestHistoryIndexExchangeIDStableAcrossRebuildAppendAndRelocation(t *testing
 	if err := os.Rename(full, newFull); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,7 +667,7 @@ func TestConversationCanaryStaysInsideHistoricalEvidenceWrapper(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
+		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/repo", DefaultBranch: "main",
 		Sources: &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
 			{SessionID: "sc", Branch: "main", LatestCheckpoint: "cp", TranscriptPath: rel, CreatedAt: now},
 		}}},
@@ -742,7 +743,7 @@ func TestConversationScanCachePreservesExchangesAndIncompleteCounts(t *testing.T
 	if source2.Exchanges != source.Exchanges || source2.IncompleteExchanges != source.IncompleteExchanges {
 		t.Fatalf("cache-reuse counts drifted: %+v vs %+v", source2, source)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

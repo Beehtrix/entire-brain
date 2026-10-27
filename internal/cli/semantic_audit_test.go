@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
@@ -85,7 +86,7 @@ func TestStatusReportsSemanticCountsFreshnessAndBlindSpots(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",
@@ -243,7 +244,7 @@ func statusGateFixtureOptions(t *testing.T, repoDir string, partialFailures []se
 		t.Fatalf("storage: %v", err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			StoreOwner:       "graph",
 			Provider:         "entire-graph",
@@ -410,7 +411,7 @@ func TestStatusFailOnUnsafeAndReleaseEmitJSONBeforeError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := loadBrainManifest(storage.BrainDir)
+	m, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +517,7 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 		t.Fatalf("storage: %v", err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{Semantic: &semanticSourceManifest{
 			Provider:         "entire-graph",
 			ProviderVersion:  "0.1.0",

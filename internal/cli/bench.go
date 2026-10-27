@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -132,7 +133,7 @@ func runSemanticBench(ctx context.Context, cmd *cobra.Command, opts Options, ben
 	if err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return err
 	}

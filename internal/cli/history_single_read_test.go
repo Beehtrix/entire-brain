@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // TestHistoryTranscriptSingleReadYieldsDigestAndRecords locks the single-read
@@ -216,7 +217,7 @@ func buildBrainHistoryIndexHashThenScanReference(outputDir string, now time.Time
 		return index, nil, err
 	}
 	transcriptsFingerprint := historyTranscriptFilesFingerprint(files)
-	manifest, _ := loadBrainManifest(outputDir)
+	manifest, _ := bmanifest.Load(outputDir)
 	branchByPath := historyBranchByTranscriptPath(manifest)
 	newCache := historyScanCache{Version: historyScanCacheVersion, Files: make(map[string]historyScanCacheEntry, len(files))}
 	seenDecisions := map[string]struct{}{}
@@ -332,7 +333,7 @@ func publishHistoryComparisonIndex(brainDir string, index historyIndex, source *
 	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
 		return err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -145,7 +146,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				}
 			}
 			var storeWarning string
-			manifest, manifestErr := loadBrainManifest(brainDir)
+			manifest, manifestErr := bmanifest.Load(brainDir)
 			if manifestErr != nil {
 				storeWarning = "memory source manifest unavailable: " + manifestErr.Error()
 			} else if manifest != nil && manifest.Sources != nil {

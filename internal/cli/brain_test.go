@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -46,12 +47,12 @@ func TestBrainManifestMigratesFlatExportAndPreservesSeed(t *testing.T) {
 		t.Fatalf("write session source: %v", err)
 	}
 
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
-	if manifest.SchemaVersion != brainManifestSchemaVersion {
-		t.Fatalf("schema = %d, want %d", manifest.SchemaVersion, brainManifestSchemaVersion)
+	if manifest.SchemaVersion != bmanifest.SchemaVersion {
+		t.Fatalf("schema = %d, want %d", manifest.SchemaVersion, bmanifest.SchemaVersion)
 	}
 	if manifest.Sources == nil || manifest.Sources.Seed == nil || manifest.Sources.Sessions == nil {
 		t.Fatalf("manifest did not preserve both sources: %+v", manifest.Sources)
@@ -722,7 +723,7 @@ func TestIndexedDecisionsSearchesExportedText(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(storage.BrainDir, time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -1876,11 +1877,11 @@ func TestLoadBrainManifestMigratesLegacyFlatManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal legacy: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(outputDir, exportManifestFileName), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, bmanifest.FileName), data, 0o600); err != nil {
 		t.Fatalf("write legacy: %v", err)
 	}
 
-	manifest, err := loadBrainManifest(outputDir)
+	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		t.Fatalf("load legacy: %v", err)
 	}

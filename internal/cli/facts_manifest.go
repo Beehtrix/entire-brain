@@ -10,6 +10,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // loadFactStoreFiles scans the facts directory and returns every stored fact
@@ -176,7 +177,7 @@ func updateFactSourceManifestLocked(brainDir string, now time.Time) error {
 	}
 	proposals := countFactProposals(brainDir, branches)
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return err
 	}

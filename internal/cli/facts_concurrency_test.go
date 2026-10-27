@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const losslessConcurrencyTestLockTimeout = 30 * time.Second
@@ -114,7 +115,7 @@ func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 		}
 		t.Fatalf("facts are not deterministically sorted: %s", strings.Join(idsOnDisk, ", "))
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

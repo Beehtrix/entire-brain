@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestFactRecordIDStableForCanonicalPaths(t *testing.T) {
@@ -336,14 +338,14 @@ func TestUpdateFactSourceManifestPreservesDistillEvidence(t *testing.T) {
 		WriteSeconds:          0.125,
 		Warnings:              []string{"agent timeout"},
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, Sources: &brainSources{Facts: prior}}); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 
 	if err := updateFactSourceManifestLocked(brainDir, now.Add(time.Minute)); err != nil {
 		t.Fatalf("update fact source: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}

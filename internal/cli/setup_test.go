@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"io"
 	"os"
@@ -106,7 +107,7 @@ func (f *setupTestFixture) writeSessions(t *testing.T, ids ...string) {
 		})
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   setupTestNow,
 		DefaultBranch: "main",
 		Sources: &brainSources{
@@ -431,7 +432,7 @@ func TestSetupContinuesWhenTheSemanticComponentFails(t *testing.T) {
 	if len(failed) != 1 || failed[0].Name != brainComponentSemantic {
 		t.Fatalf("the failed component must be recorded for doctor: %+v", failed)
 	}
-	brainManifest, _ := loadBrainManifest(f.storage.BrainDir)
+	brainManifest, _ := bmanifest.Load(f.storage.BrainDir)
 	components := instantPhaseComponents(brainManifest, readSetupInstantRecord(stateDir), nil)
 	if state := statusComponentState(components, brainComponentSemantic); state != "failed" {
 		t.Fatalf("status must show semantic=failed, got %q: %+v", state, components)

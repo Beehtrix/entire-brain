@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -381,7 +382,7 @@ func inspectBrainFactStore(brainDir string) factStoreIntegrity {
 	if brainDir == "" {
 		return factStoreIntegrity{}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil {
 		return factStoreIntegrity{}
 	}

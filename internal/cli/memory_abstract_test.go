@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestConfiguredConversationAbstractorsAreExplicitAndBounded(t *testing.T) {
@@ -301,7 +302,7 @@ func TestLocalAbstractLinearizesProviderAndPublicationBeforePurge(t *testing.T) 
 
 func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	t.Helper()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestSessionAbstractLifecycle(t *testing.T) {
 func TestMemoryMigrateDetectsAndRepairsOldOverlay(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +517,7 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 		t.Fatal("migrate missing --resume")
 	}
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +530,7 @@ func TestMemoryAdminScopedAndResumeFlags(t *testing.T) {
 
 func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	opts, brainDir := memoryAdminCommandFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,7 +538,7 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 		manifest.Sources = &brainSources{}
 	}
 	fixtureDir, transcriptRel, _ := historyProjectionFixture(t)
-	fixtureManifest, err := loadBrainManifest(fixtureDir)
+	fixtureManifest, err := bmanifest.Load(fixtureDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -581,7 +582,7 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	}
 	generation := strings.Repeat("a", 40)
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{History: &historySourceManifest{
 			IndexPath:           historyGenerationArtifactPath(generation, historyIndexFileName),
 			ProjectionStatePath: historyGenerationArtifactPath(generation, projectionStateFileName),
@@ -658,7 +659,7 @@ func TestProjectionReceiptsCommitThroughManifest(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

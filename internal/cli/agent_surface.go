@@ -22,6 +22,7 @@ import (
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
@@ -4616,7 +4617,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	}
 	generatedAt := opts.Now().UTC()
 	manifestState := "current"
-	manifestSchema := brainManifestSchemaVersion
+	manifestSchema := bmanifest.SchemaVersion
 	var manifest *exportManifest
 	var healthIssues []memoryHealthIssue
 	if lightweight {
@@ -4629,7 +4630,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 			healthIssues = append(healthIssues, *issue)
 		}
 	} else {
-		manifest, err = loadBrainManifest(storage.BrainDir)
+		manifest, err = bmanifest.Load(storage.BrainDir)
 		if err != nil {
 			return brainStatusReport{}, err
 		}
@@ -4675,7 +4676,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 		Brain: brainStatusBrain{
 			Path:            storage.BrainDir,
 			Schema:          manifestSchema,
-			SupportedSchema: brainManifestSchemaVersion,
+			SupportedSchema: bmanifest.SchemaVersion,
 			ManifestState:   manifestState,
 		},
 		Manifest: manifest,
@@ -5096,7 +5097,7 @@ func (r *brainBriefCountingReader) Read(p []byte) (int, error) {
 // exists to hide. Both raw walkers share this rule; keeping it in one place is
 // what stops the two skip lists from drifting apart again.
 func brainRawScanSkipsDerived(relSlash string) bool {
-	if relSlash == exportManifestFileName {
+	if relSlash == bmanifest.FileName {
 		return true
 	}
 	for _, dir := range []string{
@@ -5134,9 +5135,9 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	// this walk (there is no session id to match against a bare file), and it
 	// is populated only from the manifest, so a manifest that fails to load
 	// must fail the scan rather than silently scanning excluded transcripts.
-	// An absent manifest is not an error: loadBrainManifest returns an empty
+	// An absent manifest is not an error: bmanifest.Load returns an empty
 	// one, and a brain with no manifest has no exported sessions to exclude.
-	rawManifest, manifestErr := loadBrainManifest(brainDir)
+	rawManifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil {
 		return report, manifestErr
 	}
@@ -5393,7 +5394,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 	// exclusion mechanism available in a raw file walk, and it is populated
 	// only from the manifest, so an unreadable manifest must fail the scan
 	// rather than scan unguarded. An absent manifest is not an error.
-	rawManifest, manifestErr := loadBrainManifest(brainDir)
+	rawManifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr != nil {
 		return nil, manifestErr
 	}

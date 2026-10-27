@@ -20,6 +20,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -346,7 +347,7 @@ func memoryManifestIdentity(manifest *exportManifest) (string, error) {
 }
 
 func prepareMemoryReconcileSnapshot(ctx context.Context, brainDir string) (*memoryReconcileSnapshot, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +413,7 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot
 }
 
 func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot, dryRun bool, receipt *memoryOperationReceipt) (created int, err error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -667,7 +668,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err := rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir); err != nil {
 		return 0, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -793,7 +794,7 @@ func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) 
 
 func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *memoryReconcileSnapshot) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return stats, err
 	}
@@ -1064,7 +1065,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 			published = publishErr == nil
 		}
 		settledAt := memoryClockNow(clock)
-		manifest, manifestErr := loadBrainManifest(brainDir)
+		manifest, manifestErr := bmanifest.Load(brainDir)
 		var receipts projectionState
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)

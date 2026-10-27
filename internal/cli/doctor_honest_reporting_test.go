@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -326,7 +327,7 @@ func TestDoctorReconciliationWarningCarriesItsReason(t *testing.T) {
 	// disk: the ordinary "this brain was never reconciled here" state, and the
 	// one a user hits after a partial restore.
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		Sources: &brainSources{History: &historySourceManifest{
 			GeneratedAt:           now,
@@ -655,7 +656,7 @@ func TestEmptyDerivedFTSStoreIsNotCorruption(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 10, 2, 0, 0, 0, time.UTC)
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 	}); err != nil {
 		t.Fatal(err)

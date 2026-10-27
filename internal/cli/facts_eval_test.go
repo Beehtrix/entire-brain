@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -164,7 +165,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}},
@@ -258,7 +259,7 @@ func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{
@@ -319,7 +320,7 @@ func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{{SessionID: "session-one", Branch: "main", TranscriptPath: transcriptRel, CreatedAt: now}}},
@@ -559,7 +560,7 @@ func TestFactsEvalRawSessionsJSONIncludesProofBoundaryMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{{

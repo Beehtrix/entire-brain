@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestRefreshCommandUpdatesFactEvidenceWithoutTranscriptChanges(t *testing.T) {
@@ -26,7 +28,7 @@ func TestRefreshCommandUpdatesFactEvidenceWithoutTranscriptChanges(t *testing.T)
 		t.Fatal(err)
 	}
 	brainDir = storage.BrainDir
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

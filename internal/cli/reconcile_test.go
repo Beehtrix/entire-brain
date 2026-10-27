@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestParseReconcileActions(t *testing.T) {
@@ -183,7 +185,7 @@ func writeSameBranchFixture(t *testing.T, now time.Time) string {
 		}
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   now,
 		DefaultBranch: "main",
 		Sources:       &brainSources{Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: sessions}},

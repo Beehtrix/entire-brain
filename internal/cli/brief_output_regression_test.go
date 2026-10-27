@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
 )
@@ -175,7 +176,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed manifest fails closed before output", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		if err := os.WriteFile(filepath.Join(fixture.brainDir, exportManifestFileName), []byte("{not-json"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(fixture.brainDir, bmanifest.FileName), []byte("{not-json"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		profile := filepath.Join(t.TempDir(), "profile.json")
@@ -254,7 +255,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed history stores degrade with public warning", func(t *testing.T) {
 		fixture := newBrainBriefOutputFixture(t)
-		manifest, err := loadBrainManifest(fixture.brainDir)
+		manifest, err := bmanifest.Load(fixture.brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -313,7 +314,7 @@ func TestBriefOutputRawHistoryFailureIsPublicWarning(t *testing.T) {
 func TestBriefOutputCurrentOverlaySupersedesLongTermHistory(t *testing.T) {
 	t.Parallel()
 	fixture := newBrainBriefOutputFixture(t)
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,7 +622,7 @@ func newBrainBriefOutputFixture(t *testing.T) brainBriefProfileFixture {
 		}
 		exported = append(exported, exportSession{SessionID: "brief-evidence-" + string(rune('0'+i)), Branch: "main", TranscriptPath: rel})
 	}
-	manifest, err := loadBrainManifest(fixture.brainDir)
+	manifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

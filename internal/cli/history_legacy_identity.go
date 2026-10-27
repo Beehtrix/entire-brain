@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // historyLegacyIdentity is a complete strong identity derived from one fully
@@ -107,7 +108,7 @@ func persistHistoryLegacyIdentity(brainDir string, identity *historyLegacyIdenti
 	// Strict: this migration rewrites the manifest from this struct further
 	// down, so a field this build cannot name must stop it rather than be
 	// dropped on the way through.
-	manifest, err := loadBrainManifestForReplace(brainDir)
+	manifest, err := bmanifest.LoadForReplace(brainDir)
 	if err != nil {
 		return err
 	}
@@ -225,11 +226,11 @@ func historyIndexFingerprintForIdentityRecheck(brainDir, indexPath string, expec
 func writeHistoryIdentityManifestAtomic(brainDir string, manifest exportManifest) error {
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encode %s: %w", exportManifestFileName, err)
+		return fmt.Errorf("encode %s: %w", bmanifest.FileName, err)
 	}
 	data = append(data, '\n')
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, exportManifestFileName, data, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", exportManifestFileName, err)
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, bmanifest.FileName, data, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", bmanifest.FileName, err)
 	}
 	return nil
 }

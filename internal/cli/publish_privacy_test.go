@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func writePublishPrivacyFacts(t *testing.T, brainDir string) {
@@ -34,7 +35,7 @@ func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {
 	brainDir := t.TempDir()
 	writePublishBrainFixture(t, brainDir)
 	writePublishPrivacyFacts(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +44,7 @@ func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writePublishFile(t, filepath.Join(brainDir, exportManifestFileName), manifestData)
+	writePublishFile(t, filepath.Join(brainDir, bmanifest.FileName), manifestData)
 	tombstonePrivacyFixture(t, brainDir) // Failed cleanup leaves the facts on disk.
 	art := newTestBrainArtifact()
 	artifacts, err := collectFactArtifacts(art, brainDir)

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // Imported text is UNTRUSTED CONTENT, not merely untrusted size.
@@ -501,7 +503,7 @@ func TestADoomedImportDoesNotTouchTheBrainFirst(t *testing.T) {
 	f := newVerifyFixture(t)
 	writeDistillFixtureAt(t, f.brainDir, f.now)
 
-	manifestPath := filepath.Join(f.brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(f.brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)

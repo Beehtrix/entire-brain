@@ -31,6 +31,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -979,7 +980,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	runStarted := time.Now()
 	ctx, usageCollector := withDistillUsageCollector(ctx)
 	ctx = withDistillAgentChildEnv(ctx, distillOpts.agent)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -1529,7 +1530,7 @@ func runDistillForBrain(ctx context.Context, repoDir, brainDir string, distillOp
 	writeStarted := time.Now()
 	var source *factSourceManifest
 	err = brainstore.WithBrainWriteLock(brainDir, func() error {
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}
@@ -1603,7 +1604,7 @@ func buildDistillDryRunReport(brainDir string, distillOpts distillCommandOptions
 }
 
 func buildDistillDryRunReportContext(ctx context.Context, brainDir string, distillOpts distillCommandOptions, now time.Time) (distillDryRunReport, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return distillDryRunReport{}, err
 	}

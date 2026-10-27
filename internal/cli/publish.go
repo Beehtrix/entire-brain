@@ -23,6 +23,7 @@ import (
 	"github.com/entireio/entire-brain/internal/brainwire"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/entireio/entire-brain/internal/httpx"
 	"github.com/entireio/entire-brain/internal/repoid"
@@ -234,7 +235,7 @@ func publishFlagOrEnv(flagVal, envName string) string {
 // content-addressed references) plus each snapshot/overlay/facts blob inline. It
 // returns the bundle and the repo_key it declares.
 func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, repoDir string) (publishRequestBody, string, error) {
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return publishRequestBody{}, "", fmt.Errorf("load brain manifest: %w", err)
 	}
@@ -426,7 +427,7 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 // logical branch (resolveFactStreamBranch), and registers a FactsRef on art.
 // Streams are keyed by branch and emitted in branch order.
 func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy manifest: %w", err)
 	}

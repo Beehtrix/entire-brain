@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -102,7 +103,7 @@ func TestVizNodePublicResponseUsesGraphStore(t *testing.T) {
 		t.Fatalf("node=%+v", store)
 	}
 	manifest.Sources.Facts = &factSourceManifest{Branches: []string{"main"}, Facts: 1}
-	diskManifest, err := loadBrainManifest(dir)
+	diskManifest, err := bmanifest.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

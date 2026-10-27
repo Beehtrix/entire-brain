@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -65,7 +66,7 @@ func writeDirectHistoryFTSFixture(t testing.TB, index historyIndex) (string, *hi
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: source}}); err != nil {
+	if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{History: source}}); err != nil {
 		t.Fatal(err)
 	}
 	return brainDir, source
@@ -297,7 +298,7 @@ func TestHistoryFTSReadOnlyMissDoesNotCreateCache(t *testing.T) {
 func TestHistoryFTSDirectSizeMismatchIsHardWithoutWriter(t *testing.T) {
 	index := ftsTestIndex()
 	brainDir, source := writeDirectHistoryFTSFixture(t, index)
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, Sources: &brainSources{History: source}}
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{History: source}}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -608,7 +609,7 @@ func TestHistoryFTSRebuildsForEqualTimeAndCountGeneration(t *testing.T) {
 func TestBriefFocusedHistoryNeverRebuildsFTSFromMergedRecords(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

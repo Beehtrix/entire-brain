@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,7 +33,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
-			m, err := loadBrainManifest(b)
+			m, err := bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -67,7 +68,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err := executeSessionCleanup(b, "secret-sess", retry, now.Add(time.Minute), name, keep); err != nil {
 				t.Fatal(err)
 			}
-			m, err = loadBrainManifest(b)
+			m, err = bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -81,7 +82,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 				t.Fatalf("old transcript after %s: %v", name, err)
 			}
 			// A later refresh drops every manifest entry for the excluded session.
-			m, err = loadBrainManifest(b)
+			m, err = bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -132,7 +133,7 @@ func TestPrivacyRetryRejectsUnsafeDurableScope(t *testing.T) {
 			if err := brainstore.SaveSessionTombstones(b, stones); err != nil {
 				t.Fatal(err)
 			}
-			m, err := loadBrainManifest(b)
+			m, err := bmanifest.Load(b)
 			if err != nil {
 				t.Fatal(err)
 			}

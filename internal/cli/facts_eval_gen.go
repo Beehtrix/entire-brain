@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -70,7 +71,7 @@ session fact" labels for precision-clean ones (verdicts cached for reuse).`,
 			if err != nil {
 				return err
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				return err
 			}

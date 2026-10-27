@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ import (
 func TestPatternRunHistoryErrorsAreNotStatusEmpty(t *testing.T) {
 	brainDir := t.TempDir()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources:       &brainSources{Patterns: &patternSourceManifest{GeneratedAt: time.Now().UTC()}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {

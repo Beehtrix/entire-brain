@@ -20,6 +20,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -314,7 +315,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 	if err != nil {
 		return report, err
 	}
-	manifestForStorage, err := loadBrainManifest(brainDir)
+	manifestForStorage, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -362,7 +363,7 @@ func verifySessionPrivacy(brainDir string) (privacyVerifyReport, error) {
 		report.Clean = len(report.Findings) == 0
 		return report, nil
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return report, err
 	}
@@ -816,7 +817,7 @@ func newPrivacyRetentionCommand(opts Options) *cobra.Command {
 }
 
 func privacyRetentionPlan(brainDir string, cutoff time.Time, branch string, purge bool) ([]retentionPlanEntry, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -333,7 +334,7 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 }
 
 func brainExportExists(brainDir string) bool {
-	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName))
 	return err == nil && !info.IsDir()
 }
 

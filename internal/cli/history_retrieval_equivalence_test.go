@@ -11,6 +11,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // TestIncrementalHistoryMatchesFullRebuild protects the optimization boundary
@@ -23,7 +25,7 @@ func TestIncrementalHistoryMatchesFullRebuild(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	buildShortTerm(t, brainDir)
 
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +46,7 @@ func TestIncrementalHistoryMatchesFullRebuild(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = loadBrainManifest(brainDir)
+	manifest, err = bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

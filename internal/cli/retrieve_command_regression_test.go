@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
 )
@@ -44,7 +45,7 @@ func retrieveRegressionWorkspace(t *testing.T) (Options, workspace.Manifest, map
 			t.Fatal(err)
 		}
 		manifestBytes := []byte(`{"schema_version":3,"sources":{"sessions":{"default_branch":"main","sessions":[]}}}`)
-		if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), manifestBytes, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), manifestBytes, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		ids[repo.RepoKey] = fact.ID
@@ -175,7 +176,7 @@ func TestRunRetrieveRealFactTextJSONNoResultsAndWriterFailure(t *testing.T) {
 func TestWorkspaceRetrieveMalformedMemberAndOutputFailure(t *testing.T) {
 	opts, manifest, _ := retrieveRegressionWorkspace(t)
 	badBrain := mustBrainDirForKey(t, opts.Env, manifest.Repos[1].RepoKey)
-	if err := os.WriteFile(filepath.Join(badBrain, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(badBrain, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cmd := &cobra.Command{}

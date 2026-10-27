@@ -23,6 +23,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,6 @@ const (
 	// int32's maximum is the smaller of the two that still sits far beyond any
 	// real catalog, so it does not depend on the host's int being 64-bit.
 	routedCheckpointListUnlimited = math.MaxInt32
-	exportManifestFileName        = "manifest.json"
 	exportReadmeFileName          = "README.md"
 	exportBranchesDirectory       = "branches"
 	exportUnknownDirectory        = "unknown"
@@ -331,7 +331,7 @@ func runExport(ctx context.Context, cmd *cobra.Command, opts Options, exportOpts
 		// a silently emptied brain is not. A repository with no exported
 		// sessions yet has nothing to lose and still proceeds.
 		if len(sessions) == 0 {
-			if existing, err := loadBrainManifest(outputDir); err == nil && existing != nil && len(existing.Sessions) > 0 {
+			if existing, err := bmanifest.Load(outputDir); err == nil && existing != nil && len(existing.Sessions) > 0 {
 				return errors.New(emptyExportRefusalMessage(len(existing.Sessions)))
 			}
 		}
@@ -692,23 +692,23 @@ func removeForcedOutputDir(path, repoDir string) error {
 			return err
 		}
 	}
-	manifestPath := filepath.Join(abs, exportManifestFileName)
+	manifestPath := filepath.Join(abs, bmanifest.FileName)
 	manifestInfo, err := os.Lstat(manifestPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, exportManifestFileName)
+			return fmt.Errorf("--force refuses to remove %s: missing %s", abs, bmanifest.FileName)
 		}
 		return fmt.Errorf("stat forced output manifest: %w", err)
 	}
 	if manifestInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, exportManifestFileName)
+		return fmt.Errorf("--force refuses to remove %s: %s must not be a symlink", abs, bmanifest.FileName)
 	}
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("read forced output manifest: %w", err)
 	}
 	if err := validateForcedOutputManifest(data); err != nil {
-		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, exportManifestFileName, err)
+		return fmt.Errorf("--force refuses to remove %s: invalid %s: %w", abs, bmanifest.FileName, err)
 	}
 	if err := removeAllWithRetry(abs); err != nil {
 		return fmt.Errorf("remove forced output directory: %w", err)
@@ -721,7 +721,7 @@ func validateForcedOutputManifest(data []byte) error {
 	if err := json.Unmarshal(data, &manifest); err != nil {
 		return err
 	}
-	normalizeBrainManifest(&manifest)
+	bmanifest.Normalize(&manifest)
 	// A floor, not a range. This explicit-output --force path exists only to
 	// confirm the target directory holds a genuine prior brain/export before
 	// wiping it, not to gate on whether THIS build can read everything the
@@ -732,8 +732,8 @@ func validateForcedOutputManifest(data []byte) error {
 	// equality once did, would make --force refuse the one case it exists for.
 	// Only a version below the oldest this build ever reads fails the "is this
 	// a brain store" check.
-	if manifest.SchemaVersion < brainManifestMinSchemaVersion {
-		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, brainManifestMinSchemaVersion)
+	if manifest.SchemaVersion < bmanifest.MinSchemaVersion {
+		return fmt.Errorf("schema_version %d is older than the first supported version %d", manifest.SchemaVersion, bmanifest.MinSchemaVersion)
 	}
 	if manifest.Sources == nil {
 		return errors.New("missing sources")
@@ -4123,18 +4123,6 @@ type checkpointExportSession struct {
 	Error            string                `json:"error,omitempty"`
 }
 
-type checkpointTokenUsage struct {
-	InputTokens         int `json:"input_tokens"`
-	OutputTokens        int `json:"output_tokens"`
-	CacheReadTokens     int `json:"cache_read_tokens,omitempty"`
-	CacheCreationTokens int `json:"cache_creation_tokens,omitempty"`
-}
-
-type checkpointSummary struct {
-	Intent  string `json:"intent,omitempty"`
-	Outcome string `json:"outcome,omitempty"`
-}
-
 type checkpointSummaryPaths struct {
 	Branch   string                   `json:"branch,omitempty"`
 	Sessions []checkpointSessionPaths `json:"sessions,omitempty"`
@@ -4261,86 +4249,6 @@ type selectedSession struct {
 	// export reads it; until then SourceTranscriptPath stays on the raw log.
 	CompactTranscriptPath string
 	SourceKey             string
-}
-
-type exportManifest struct {
-	TranscriptStorage string    `json:"transcript_storage,omitempty"`
-	SchemaVersion     int       `json:"schema_version"`
-	GeneratedAt       time.Time `json:"generated_at"`
-	// BrainVersion is the entire-brain build that PRODUCED the document. It is
-	// set only on exported bundles -- artifacts that leave this machine and so
-	// have to be attributable to a release.
-	//
-	// It is not a duplicate of sources.semantic.provider_version, which is the
-	// semantic PROVIDER's version (entire-graph's), copied verbatim out of the
-	// snapshot header the provider wrote. That field reading "dev" on a machine
-	// whose installed Entire CLI is itself a dev build is CORRECT, and
-	// overwriting it with this binary's version would both lie and break
-	// validateSemanticSourceMatchesSnapshot, which fails an import when the
-	// manifest and the snapshot header disagree. The producing build's own
-	// version was simply never recorded anywhere; this is that field.
-	//
-	// omitempty, and never set on the on-disk brain manifest, so no stored
-	// manifest gains a field an older build would then refuse to rewrite.
-	BrainVersion string `json:"brain_version,omitempty"`
-	RepoRoot     string `json:"repo_root,omitempty"`
-	// Stable local checkpoint location, independent of the exporting worktree.
-	CheckpointGitDir   string          `json:"checkpoint_git_dir,omitempty"`
-	CheckpointPrimary  string          `json:"checkpoint_primary,omitempty"`
-	RepoKey            string          `json:"repo_key,omitempty"`
-	EntireCLIVersion   string          `json:"entire_cli_version,omitempty"`
-	DefaultBranch      string          `json:"default_branch,omitempty"`
-	TranscriptMode     string          `json:"transcript_mode"`
-	Scope              string          `json:"scope"`
-	CheckpointLimit    int             `json:"checkpoint_limit"`
-	CheckpointsScanned int             `json:"checkpoints_scanned"`
-	Branches           []exportBranch  `json:"branches,omitempty"`
-	Sessions           []exportSession `json:"sessions"`
-	Warnings           []string        `json:"warnings,omitempty"`
-	// SuppressedWarnings holds the RAW text of every warning usefulExportWarnings kept out of
-	// Warnings. It exists so a diagnostic warning -- "checkpoint snapshot unavailable:" above all,
-	// which means a transcript was not readable and the export is therefore incomplete -- is
-	// recoverable from the manifest alone, without re-running the export under --debug.
-	SuppressedWarnings []string      `json:"suppressed_warnings,omitempty"`
-	Sources            *brainSources `json:"sources,omitempty"`
-}
-
-type exportBranch struct {
-	Branch       string `json:"branch"`
-	Directory    string `json:"directory"`
-	SessionCount int    `json:"session_count"`
-	Default      bool   `json:"default,omitempty"`
-}
-
-type exportSession struct {
-	SessionID            string                `json:"session_id"`
-	Branch               string                `json:"branch,omitempty"`
-	SourceBranch         string                `json:"source_branch,omitempty"`
-	Authors              []exportAuthor        `json:"authors,omitempty"`
-	Agent                string                `json:"agent,omitempty"`
-	Model                string                `json:"model,omitempty"`
-	Kind                 string                `json:"kind,omitempty"`
-	ReviewSkills         []string              `json:"review_skills,omitempty"`
-	LatestCheckpoint     string                `json:"latest_checkpoint_id"`
-	SessionIndex         int                   `json:"session_index"`
-	CreatedAt            time.Time             `json:"created_at"`
-	TurnID               string                `json:"turn_id,omitempty"`
-	IsTask               bool                  `json:"is_task,omitempty"`
-	ToolUseID            string                `json:"tool_use_id,omitempty"`
-	FilesTouched         []string              `json:"files_touched,omitempty"`
-	TokenUsage           *checkpointTokenUsage `json:"token_usage,omitempty"`
-	Summary              *checkpointSummary    `json:"summary,omitempty"`
-	CheckpointsCount     int                   `json:"checkpoints_count,omitempty"`
-	TranscriptPath       string                `json:"transcript_path"`
-	SourceTranscriptPath string                `json:"-"`
-	SourceKey            string                `json:"-"`
-}
-
-type exportAuthor struct {
-	Name         string     `json:"name,omitempty"`
-	Email        string     `json:"email,omitempty"`
-	Commits      int        `json:"commits,omitempty"`
-	LastCommitAt *time.Time `json:"last_commit_at,omitempty"`
 }
 
 type exportCursor struct {

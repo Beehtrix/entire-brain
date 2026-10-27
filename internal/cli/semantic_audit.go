@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"sort"
 	"strings"
@@ -68,7 +69,7 @@ func semanticAuditFailureForReport(severity string, blindSpots int, failOn strin
 	case semanticAuditFailOnRelease:
 		var failures []string
 		if severity != "ok" {
-			failures = append(failures, "freshness is "+valueOrUnset(severity))
+			failures = append(failures, "freshness is "+cmdutil.ValueOrUnset(severity))
 		}
 		if blindSpots > 0 {
 			failures = append(failures, fmt.Sprintf("%d blind spot(s)", blindSpots))
@@ -225,7 +226,7 @@ func semanticAuditCountSummary(items []semanticAuditCount) string {
 }
 
 func semanticAuditWarningSummary(warning semanticWarning) string {
-	parts := []string{valueOrUnset(warning.Code)}
+	parts := []string{cmdutil.ValueOrUnset(warning.Code)}
 	if warning.Severity != "" {
 		parts = append(parts, warning.Severity)
 	}

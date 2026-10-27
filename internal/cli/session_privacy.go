@@ -208,7 +208,7 @@ func newSessionsListCommand(opts Options) *cobra.Command {
 					case entry.Excluded:
 						state = "EXCLUDED"
 					}
-					fmt.Fprintf(out, "%-10s %s  %s  %s  %s\n", state, valueOrUnset(entry.SessionID), valueOrUnset(entry.CreatedAt), valueOrUnset(entry.Agent), entry.TranscriptPath)
+					fmt.Fprintf(out, "%-10s %s  %s  %s  %s\n", state, cmdutil.ValueOrUnset(entry.SessionID), cmdutil.ValueOrUnset(entry.CreatedAt), cmdutil.ValueOrUnset(entry.Agent), entry.TranscriptPath)
 				}
 				if unmatched > 0 {
 					fmt.Fprintf(out, "UNMATCHED: %d tombstone(s) match no captured session in this brain; each stays recorded and applies if such a session is captured later\n", unmatched)

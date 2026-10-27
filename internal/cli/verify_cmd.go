@@ -942,10 +942,10 @@ func renderVerifyReportText(cmd *cobra.Command, report verifyReport) {
 		for _, anchor := range result.Anchors {
 			fmt.Fprintf(out, "  - %s session=%s checkpoint=%s commit=%s %s:%d\n",
 				anchor.Verdict,
-				valueOrUnset(anchor.Anchor.SessionID),
-				valueOrUnset(anchor.Anchor.CheckpointID),
-				valueOrUnset(anchor.Anchor.Commit),
-				valueOrUnset(anchor.Anchor.Transcript),
+				cmdutil.ValueOrUnset(anchor.Anchor.SessionID),
+				cmdutil.ValueOrUnset(anchor.Anchor.CheckpointID),
+				cmdutil.ValueOrUnset(anchor.Anchor.Commit),
+				cmdutil.ValueOrUnset(anchor.Anchor.Transcript),
 				anchor.Anchor.Line)
 			if anchor.Reason != "" {
 				fmt.Fprintf(out, "    reason: %s\n", anchor.Reason)

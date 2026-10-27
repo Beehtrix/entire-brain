@@ -37,6 +37,15 @@ func WriteTextToWriter(writer io.Writer, render func(io.Writer)) error {
 	return out.Err
 }
 
+// ValueOrUnset renders an optional string field for human output, making an
+// absent value explicit instead of printing an empty gap.
+func ValueOrUnset(value string) string {
+	if value == "" {
+		return "<unset>"
+	}
+	return value
+}
+
 // StickyErrorWriter short-circuits after the first write failure and retains
 // the error, so streamed renderers can report output failure once at the end.
 type StickyErrorWriter struct {

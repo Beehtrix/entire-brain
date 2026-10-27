@@ -937,7 +937,7 @@ func runPrivacyRetention(cmd *cobra.Command, opts Options, maxAge time.Duration,
 		}
 		fmt.Fprintf(out, "%s retention (older than %s) to %d sessions\n", mode, cutoff.Format(time.RFC3339), len(plan))
 		for _, entry := range plan {
-			fmt.Fprintf(out, "  %s %s (%s, %s)\n", entry.Action, entry.SessionID, valueOrUnset(entry.Branch), valueOrUnset(entry.CreatedAt))
+			fmt.Fprintf(out, "  %s %s (%s, %s)\n", entry.Action, entry.SessionID, cmdutil.ValueOrUnset(entry.Branch), cmdutil.ValueOrUnset(entry.CreatedAt))
 		}
 		for _, caveat := range caveats {
 			fmt.Fprintf(out, "  NOT purged: %s\n", caveat)

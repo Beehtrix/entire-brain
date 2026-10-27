@@ -121,7 +121,7 @@ func compareEvalSummariesInternalWithOptions(a, b evalSummary, alpha float64, op
 					proofComparable = false
 				}
 				if !opts.AllowProxyComparison && !evalRelevanceSourcesComparable(ar, br) {
-					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s across different ground truths (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun both sides on the same labels or pass --allow-proxy-comparison", id, m.name, valueOrUnset(ar.RelevanceSource), valueOrUnset(ar.LabelSource), ar.Labeled, valueOrUnset(br.RelevanceSource), valueOrUnset(br.LabelSource), br.Labeled)
+					return nil, 0, missingFromA, missingFromB, fmt.Errorf("task %q compares %s across different ground truths (A=%s label_source=%s labeled=%t, B=%s label_source=%s labeled=%t); rerun both sides on the same labels or pass --allow-proxy-comparison", id, m.name, cmdutil.ValueOrUnset(ar.RelevanceSource), cmdutil.ValueOrUnset(ar.LabelSource), ar.Labeled, cmdutil.ValueOrUnset(br.RelevanceSource), cmdutil.ValueOrUnset(br.LabelSource), br.Labeled)
 				}
 			}
 			av = append(av, m.get(ar))
@@ -464,7 +464,7 @@ it to report a lift honestly instead of eyeballing two means.`,
 			out := cmd.OutOrStdout()
 			fmt.Fprintf(out, "paired A/B over %d shared tasks (Holm-corrected at alpha=%.2f)\n", n, alpha)
 			if a.Retriever != "" || b.Retriever != "" {
-				fmt.Fprintf(out, "A=%s B=%s\n", valueOrUnset(a.Retriever), valueOrUnset(b.Retriever))
+				fmt.Fprintf(out, "A=%s B=%s\n", cmdutil.ValueOrUnset(a.Retriever), cmdutil.ValueOrUnset(b.Retriever))
 			}
 			if allowProxyComparison {
 				fmt.Fprintln(out, "warning: relevance metrics may mix explicit labels, source-match proxies, and/or judge labels")

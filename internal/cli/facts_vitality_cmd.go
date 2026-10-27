@@ -188,7 +188,7 @@ func printFactsVitality(cmd *cobra.Command, report factsVitalityReport, factID s
 			marker = " (" + entry.Status + ")"
 		}
 		fmt.Fprintf(out, "%s served=%d last=%s surface=%s%s\n",
-			entry.ID, entry.Served, entry.LastServed.UTC().Format(time.RFC3339), valueOrUnset(entry.LastSurface), marker)
+			entry.ID, entry.Served, entry.LastServed.UTC().Format(time.RFC3339), cmdutil.ValueOrUnset(entry.LastSurface), marker)
 		if text := strings.TrimSpace(entry.Text); text != "" {
 			fmt.Fprintf(out, "  %s\n", base.TruncateString(text, 120))
 		}

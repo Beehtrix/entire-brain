@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -27,6 +28,9 @@ type brainStatusHosted struct {
 	// matches the current binding; a marker left by an older target does not
 	// count.
 	SyncedBranches []string `json:"synced_branches,omitempty"`
+	// NoAccessUntil is the recorded no-access pause (COR-2279): background
+	// sync skips the repo until then because the server denied access.
+	NoAccessUntil time.Time `json:"no_access_until,omitzero"`
 }
 
 const (
@@ -56,6 +60,7 @@ func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHost
 		hosted.RepoState = hostedStateConnected
 		hosted.RepoID = binding.RepoID
 		hosted.BaseURL = binding.BaseURL
+		hosted.NoAccessUntil = binding.NoAccessUntil
 		// A broken marker is corruption, not "never synced" — report it like
 		// the unreadable top-level binding above instead of posing as a
 		// healthy unsynced branch. The two warnings cannot co-occur: markers
@@ -104,6 +109,10 @@ func hostedStateLabel(state string) string {
 func hostedStatusLine(h *brainStatusHosted) string {
 	switch h.State {
 	case hostedStateConnected:
+		if !h.NoAccessUntil.IsZero() {
+			return fmt.Sprintf("Connected to Brainstore, but sync is paused until %s — the server denied access to this repo; run '%s' once access is granted",
+				h.NoAccessUntil.UTC().Format(time.RFC3339), base.BrainInvocation(os.LookupEnv, "connect"))
+		}
 		if n := len(h.SyncedBranches); n > 0 {
 			word := "branches"
 			if n == 1 {

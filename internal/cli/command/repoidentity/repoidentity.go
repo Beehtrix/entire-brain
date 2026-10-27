@@ -1,4 +1,4 @@
-package cli
+package repoidentity
 
 import (
 	"context"
@@ -22,10 +22,10 @@ import (
 // Older builds derived that key from the path STRING the caller happened to
 // supply, so one repository reached through a symlink -- /tmp on macOS is a
 // symlink to /private/tmp, so this is the default, not an edge case -- could
-// end up with two stores. resolveRepoStorageSet refuses to guess between them,
-// which means every repo-scoped command refuses, INCLUDING the deletes that
-// could clear the duplicate. The repository becomes unusable with no way out
-// through the tool.
+// end up with two stores. The cli storage-set resolver refuses to guess between
+// them, which means every repo-scoped command refuses, INCLUDING the deletes
+// that could clear the duplicate. The repository becomes unusable with no way
+// out through the tool.
 //
 // This command is the way out. It is deliberately the one verb that reads the
 // storage set WITHOUT the refusal, because a repair tool that is blocked by the
@@ -37,20 +37,43 @@ import (
 // safely -- they are two independent export histories -- so the choice stays
 // with the person who knows which one they have been using.
 
-// repoIdentityConflictSuffix dates the set-aside copy. Two repairs in the same
+// ConflictSuffix dates the set-aside copy. Two repairs in the same
 // second would otherwise collide, and a collision that silently overwrote the
 // first set-aside store would destroy the history this command exists to
 // preserve.
-func repoIdentityConflictSuffix(now time.Time) string {
+func ConflictSuffix(now time.Time) string {
 	return ".conflict-" + now.UTC().Format("20060102T150405Z")
 }
 
-type repoIdentityOptions struct {
-	keep string
+// Config supplies the shared command options and the assembly package's
+// storage-set resolution. Dependencies are per invocation, never global hooks.
+type Config struct {
+	base.Options
+	Deps Deps
 }
 
-func newRepoIdentityCommand(opts Options) *cobra.Command {
-	identityOpts := repoIdentityOptions{}
+// Deps keeps the repair command independent of command assembly and repo
+// identity resolution. The assembly package supplies the one resolver that
+// reads the storage set WITHOUT the conflict refusal.
+type Deps struct {
+	ResolveRepoStorageSet func(context.Context, base.CommandRunner, base.EntireEnv, string) (StorageSet, error)
+}
+
+// StorageSet is every store one repository could be using: the canonical one
+// its identity names, and every spelling of that same root that currently
+// holds state. More than one populated entry is the identity conflict.
+type StorageSet struct {
+	Canonical base.RepoStorage
+	Populated []base.RepoStorage
+}
+
+// RunOptions carries the repair choice.
+type RunOptions struct {
+	Keep string
+}
+
+func New(cfg Config) *cobra.Command {
+	identityOpts := RunOptions{}
 	cmd := &cobra.Command{
 		Use:   "repo-identity [path]",
 		Short: "Find and resolve conflicting brain stores",
@@ -68,40 +91,40 @@ sibling directory, so nothing is lost and the choice can be undone with mv.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
-			if opts.Env.RepoRoot != "" {
-				target = opts.Env.RepoRoot
+			if cfg.Env.RepoRoot != "" {
+				target = cfg.Env.RepoRoot
 			}
 			if len(args) == 1 {
 				target = args[0]
 			}
-			return runRepoIdentity(cmd.Context(), cmd, opts, identityOpts, target)
+			return Run(cmd.Context(), cmd, cfg, identityOpts, target)
 		},
 	}
-	cmd.Flags().StringVar(&identityOpts.keep, "keep", "",
+	cmd.Flags().StringVar(&identityOpts.Keep, "keep", "",
 		"Repo key of the store to keep; every other store for this repository is moved aside")
 	return cmd
 }
 
-func runRepoIdentity(ctx context.Context, cmd *cobra.Command, opts Options, identityOpts repoIdentityOptions, target string) error {
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
+func Run(ctx context.Context, cmd *cobra.Command, cfg Config, identityOpts RunOptions, target string) error {
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, cfg.Runner, target)
 	if err != nil {
 		return err
 	}
 	if !local {
 		return fmt.Errorf("repo-identity requires a local repository path: %s", target)
 	}
-	set, err := resolveRepoStorageSet(ctx, opts.Runner, opts.Env, repoDir)
+	set, err := cfg.Deps.ResolveRepoStorageSet(ctx, cfg.Runner, cfg.Env, repoDir)
 	if err != nil {
 		return err
 	}
-	keep := strings.TrimSpace(identityOpts.keep)
+	keep := strings.TrimSpace(identityOpts.Keep)
 	if keep == "" {
 		return reportRepoIdentity(cmd, set)
 	}
-	return resolveRepoIdentityConflict(cmd, opts, set, keep)
+	return resolveRepoIdentityConflict(cmd, cfg, set, keep)
 }
 
-func reportRepoIdentity(cmd *cobra.Command, set repoStorageSet) error {
+func reportRepoIdentity(cmd *cobra.Command, set StorageSet) error {
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "canonical repo key: %s\n", set.Canonical.Key)
 	fmt.Fprintf(out, "canonical brain:    %s\n", set.Canonical.BrainDir)
@@ -111,7 +134,7 @@ func reportRepoIdentity(cmd *cobra.Command, set repoStorageSet) error {
 	case 1:
 		fmt.Fprintf(out, "stores with state:  1 (%s), no conflict\n", set.Populated[0].Key)
 	default:
-		fmt.Fprintf(out, "stores with state:  %d, reported as %s\n", len(set.Populated), localRepoIdentityConflictCode)
+		fmt.Fprintf(out, "stores with state:  %d, reported as %s\n", len(set.Populated), base.RepoIdentityConflictCode)
 		for _, storage := range set.Populated {
 			fmt.Fprintf(out, "  %s\n    brain: %s\n    head:  %s\n", storage.Key, storage.BrainDir, storage.HeadPath)
 		}
@@ -127,7 +150,7 @@ func reportRepoIdentity(cmd *cobra.Command, set repoStorageSet) error {
 // choice must be recoverable with `mv`. os.Rename is also atomic within a
 // filesystem, so an interrupted repair leaves each store either where it was or
 // where it was moved to, never half-copied.
-func resolveRepoIdentityConflict(cmd *cobra.Command, opts Options, set repoStorageSet, keep string) error {
+func resolveRepoIdentityConflict(cmd *cobra.Command, cfg Config, set StorageSet, keep string) error {
 	keys := make([]string, 0, len(set.Populated))
 	for _, storage := range set.Populated {
 		keys = append(keys, storage.Key)
@@ -146,12 +169,12 @@ func resolveRepoIdentityConflict(cmd *cobra.Command, opts Options, set repoStora
 	}
 
 	now := time.Now
-	if opts.Now != nil {
-		now = opts.Now
+	if cfg.Now != nil {
+		now = cfg.Now
 	}
-	suffix := repoIdentityConflictSuffix(now())
+	suffix := ConflictSuffix(now())
 	out := cmd.OutOrStdout()
-	var kept repoStorage
+	var kept base.RepoStorage
 	for _, storage := range set.Populated {
 		if storage.Key == keep {
 			kept = storage
@@ -187,7 +210,7 @@ func resolveRepoIdentityConflict(cmd *cobra.Command, opts Options, set repoStora
 // the head behind would leave the conflict standing -- repoStorageContainsState
 // counts either half, so a retired brain with a live head is still a second
 // identity.
-func moveRepoStorageAside(out io.Writer, storage repoStorage, suffix string) error {
+func moveRepoStorageAside(out io.Writer, storage base.RepoStorage, suffix string) error {
 	for _, dir := range []string{storage.BrainDir, filepath.Dir(storage.HeadPath)} {
 		moved, err := moveRepoStoreAside(dir, suffix)
 		if err != nil {
@@ -209,13 +232,13 @@ func moveRepoStorageAside(out io.Writer, storage repoStorage, suffix string) err
 // identities again, so the next command reports the same conflict and this same
 // command repairs it. Nothing is lost either way, which is why this moves
 // rather than copies and never removes.
-func promoteRepoStorage(out io.Writer, kept, canonical repoStorage, suffix string) (repoStorage, error) {
+func promoteRepoStorage(out io.Writer, kept, canonical base.RepoStorage, suffix string) (base.RepoStorage, error) {
 	// Whatever is sitting at the canonical paths is not the history being kept
 	// (the caller chose against it, or it is an empty shell left by a command
 	// that resolved the key without writing). Retire it rather than write over
 	// it.
 	if err := moveRepoStorageAside(out, canonical, suffix); err != nil {
-		return repoStorage{}, err
+		return base.RepoStorage{}, err
 	}
 	moves := [][2]string{
 		{kept.BrainDir, canonical.BrainDir},
@@ -227,13 +250,13 @@ func promoteRepoStorage(out io.Writer, kept, canonical repoStorage, suffix strin
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return repoStorage{}, fmt.Errorf("inspect %s: %w", from, err)
+			return base.RepoStorage{}, fmt.Errorf("inspect %s: %w", from, err)
 		}
 		if err := os.MkdirAll(filepath.Dir(to), 0o700); err != nil {
-			return repoStorage{}, fmt.Errorf("create %s: %w", filepath.Dir(to), err)
+			return base.RepoStorage{}, fmt.Errorf("create %s: %w", filepath.Dir(to), err)
 		}
 		if err := os.Rename(from, to); err != nil {
-			return repoStorage{}, fmt.Errorf("move %s to the canonical key: %w", from, err)
+			return base.RepoStorage{}, fmt.Errorf("move %s to the canonical key: %w", from, err)
 		}
 		fmt.Fprintf(out, "promoted: %s -> %s\n", from, to)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -59,7 +60,7 @@ func TestPublishRedactsLocalOnlyFactProvenance(t *testing.T) {
 	writeFactsStream(t, brainDir, "main-0d6e4079", factsStreamWithLocalAnchors)
 
 	art := newTestBrainArtifact()
-	arts, err := collectFactArtifacts(art, brainDir)
+	arts, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err != nil {
 		t.Fatalf("collectFactArtifacts: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestPublishManifestDigestsTheRedactedFacts(t *testing.T) {
 	writeFactsStream(t, brainDir, "main-0d6e4079", factsStreamWithLocalAnchors)
 
 	art := newTestBrainArtifact()
-	arts, err := collectFactArtifacts(art, brainDir)
+	arts, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err != nil {
 		t.Fatalf("collectFactArtifacts: %v", err)
 	}
@@ -133,7 +134,7 @@ func TestPublishManifestDigestsTheRedactedFacts(t *testing.T) {
 		t.Fatalf("manifest registered %d fact refs, want 1", len(art.Facts))
 	}
 	ref := art.Facts[0].Content
-	if got, want := ref.Digest, contentDigest(arts[0].Data); got != want {
+	if got, want := ref.Digest, publish.ContentDigest(arts[0].Data); got != want {
 		t.Errorf("manifest digest %s does not describe the uploaded bytes %s", got, want)
 	}
 	if got, want := ref.Size, int64(len(arts[0].Data)); got != want {
@@ -150,7 +151,7 @@ func TestPublishRefusesFactsItCannotRedact(t *testing.T) {
 	brainDir := t.TempDir()
 	writeFactsStream(t, brainDir, "main-0d6e4079", "{\"branch\":\"main\",\"id\":\"fact:a\"}\n{not json\n")
 
-	if _, err := collectFactArtifacts(newTestBrainArtifact(), brainDir); err == nil {
+	if _, err := publishConfig(Options{}).Deps.CollectFactArtifacts(newTestBrainArtifact(), brainDir); err == nil {
 		t.Fatal("collectFactArtifacts accepted an unparseable facts stream; it must refuse rather than ship it unredacted")
 	}
 }
@@ -166,11 +167,11 @@ func TestPublishRefusesA200ThatAcknowledgesNothing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body := publishRequestBody{Artifacts: []publishArtifact{
-		{Kind: brainKindManifest, Ref: "abc", Data: []byte(`{}`)},
-		{Kind: brainKindFacts, Ref: "main", Data: []byte("{}\n")},
+	body := publish.RequestBody{Artifacts: []publish.Artifact{
+		{Kind: publish.KindManifest, Ref: "abc", Data: []byte(`{}`)},
+		{Kind: publish.KindFacts, Ref: "main", Data: []byte("{}\n")},
 	}}
-	_, err := postBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", "tok", body)
+	_, err := publish.PostBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", "tok", body)
 	if err == nil {
 		t.Fatal("publish reported success for a 200 that stored nothing")
 	}
@@ -189,7 +190,7 @@ func TestPublishRefusesA200ThatAcknowledgesNothing(t *testing.T) {
 // satisfied by simply failing every publish.
 func TestPublishAcceptsAnAcknowledged200(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var in publishRequestBody
+		var in publish.RequestBody
 		_ = json.NewDecoder(r.Body).Decode(&in)
 		out := map[string]any{"status": "ok", "stored": []map[string]string{}}
 		stored := make([]map[string]string, 0, len(in.Artifacts))
@@ -202,8 +203,8 @@ func TestPublishAcceptsAnAcknowledged200(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	body := publishRequestBody{Artifacts: []publishArtifact{{Kind: brainKindFacts, Ref: "main", Data: []byte("{}\n")}}}
-	res, err := postBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", "tok", body)
+	body := publish.RequestBody{Artifacts: []publish.Artifact{{Kind: publish.KindFacts, Ref: "main", Data: []byte("{}\n")}}}
+	res, err := publish.PostBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", "tok", body)
 	if err != nil {
 		t.Fatalf("publish refused an acknowledged 200: %v", err)
 	}
@@ -226,8 +227,8 @@ func TestPublishErrorsDoNotEchoTheBearerToken(t *testing.T) {
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"detail":"rejected credential ` + r.Header.Get("Authorization") + `"}`))
 		}))
-		body := publishRequestBody{Artifacts: []publishArtifact{{Kind: brainKindFacts, Ref: "main", Data: []byte("{}\n")}}}
-		_, err := postBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", token, body)
+		body := publish.RequestBody{Artifacts: []publish.Artifact{{Kind: publish.KindFacts, Ref: "main", Data: []byte("{}\n")}}}
+		_, err := publish.PostBrainArtifacts(t.Context(), srv.URL, "01HZZPROBE0000000000000000", token, body)
 		srv.Close()
 		if err == nil {
 			t.Errorf("HTTP %d was not reported as an error", status)

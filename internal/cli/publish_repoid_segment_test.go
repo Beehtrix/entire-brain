@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/repoid"
 )
 
@@ -54,7 +55,7 @@ func TestPostBrainArtifactsRejectsRepoIDThatIsNotOneSafeSegment(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			_, err := postBrainArtifacts(context.Background(), srv.URL, repoID, "secret", publishRequestBody{})
+			_, err := publish.PostBrainArtifacts(context.Background(), srv.URL, repoID, "secret", publish.RequestBody{})
 			if err == nil {
 				t.Fatalf("repo id %q was accepted; want a refusal before any request", repoID)
 			}
@@ -86,10 +87,10 @@ func TestPostBrainArtifactsLandsOnTheIntendedPath(t *testing.T) {
 			}))
 			defer srv.Close()
 
-			if _, err := postBrainArtifacts(context.Background(), srv.URL, repoID, "secret", publishRequestBody{}); err != nil {
-				t.Fatalf("postBrainArtifacts: %v", err)
+			if _, err := publish.PostBrainArtifacts(context.Background(), srv.URL, repoID, "secret", publish.RequestBody{}); err != nil {
+				t.Fatalf("publish.PostBrainArtifacts: %v", err)
 			}
-			want := publishAPIPathPrefix + repoID + publishAPIPathSuffix
+			want := publish.APIPathPrefix + repoID + publish.APIPathSuffix
 			if gotPath != want {
 				t.Fatalf("request path = %q, want %q", gotPath, want)
 			}
@@ -120,7 +121,7 @@ func TestPublishCannotReachAnotherRoute(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	if _, err := postBrainArtifacts(context.Background(), srv.URL, "..", "secret", publishRequestBody{}); err == nil {
+	if _, err := publish.PostBrainArtifacts(context.Background(), srv.URL, "..", "secret", publish.RequestBody{}); err == nil {
 		t.Fatal(`repo id ".." was accepted`)
 	}
 	close(reached)
@@ -137,15 +138,15 @@ func TestPublishCannotReachAnotherRoute(t *testing.T) {
 // malformed target fails with the whole brain still local.
 func TestRunPublishRefusesBadRepoIDBeforeTouchingDisk(t *testing.T) {
 
-	err := runPublish(context.Background(), nil, Options{}, publishCommandOptions{
-		repoID: "../../admin",
-		apiURL: "https://api.example.com",
-		token:  "secret",
+	err := publish.Run(context.Background(), nil, publishConfig(Options{}), publish.Flags{
+		RepoID: "../../admin",
+		APIURL: "https://api.example.com",
+		Token:  "secret",
 	})
 	if err == nil {
-		t.Fatal("runPublish accepted a repo id that is not one safe path segment")
+		t.Fatal("publish.Run accepted a repo id that is not one safe path segment")
 	}
 	if !errors.Is(err, repoid.ErrInvalid) {
-		t.Errorf("runPublish error = %v; want it to wrap repoid.ErrInvalid", err)
+		t.Errorf("publish.Run error = %v; want it to wrap repoid.ErrInvalid", err)
 	}
 }

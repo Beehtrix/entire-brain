@@ -24,6 +24,11 @@ type RepoStorage struct {
 	HeadPath string
 }
 
+// RepoIdentityConflictCode is the error code every repo-scoped command reports
+// while one repository's brain is split across more than one store. The
+// repo-identity command repairs that state and prints the same code.
+const RepoIdentityConflictCode = "repo_identity_conflict"
+
 const (
 	EnvCLIVersion      = "ENTIRE_CLI_VERSION"
 	EnvRepoRoot        = "ENTIRE_REPO_ROOT"

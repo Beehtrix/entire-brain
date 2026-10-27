@@ -513,8 +513,8 @@ func TestRepoStoragePathsCanonicalIdentityUpgradeCompatibility(t *testing.T) {
 				if !errors.As(err, &conflict) {
 					t.Fatalf("error = %v, want typed identity conflict", err)
 				}
-				if commandErrorCode(err) != localRepoIdentityConflictCode {
-					t.Fatalf("error code = %q, want %q", commandErrorCode(err), localRepoIdentityConflictCode)
+				if commandErrorCode(err) != clibase.RepoIdentityConflictCode {
+					t.Fatalf("error code = %q, want %q", commandErrorCode(err), clibase.RepoIdentityConflictCode)
 				}
 				if conflict.Canonical.Key != canonicalKey || conflict.Legacy.Key != legacyKey {
 					t.Fatalf("conflict = %+v, want canonical %q legacy %q", conflict, canonicalKey, legacyKey)

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"net/http"
@@ -277,7 +278,7 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 
 	// Manifest artifact: exactly one, addressed by HEAD, data is the wire
 	// BrainArtifact declaring the repo_key, schema version, and provider.
-	manifests := byKind[brainKindManifest]
+	manifests := byKind[publish.KindManifest]
 	if len(manifests) != 1 {
 		t.Fatalf("want 1 manifest artifact, got %d", len(manifests))
 	}
@@ -306,14 +307,14 @@ func TestPublishSendsBundleWhenOptedIn(t *testing.T) {
 	}
 
 	// Overlay: keyed by base..head; the all-branches report is not published.
-	overlays := byKind[brainKindOverlay]
+	overlays := byKind[publish.KindOverlay]
 	wantOverlayRef := testPublishCommit + ".." + testPublishHead
 	if len(overlays) != 1 || overlays[0].Ref != wantOverlayRef {
 		t.Fatalf("overlay artifacts = %+v, want one ref %q (all-branches must be skipped)", overlays, wantOverlayRef)
 	}
 
 	// Facts: keyed by branch.
-	if facts := byKind[brainKindFacts]; len(facts) != 1 || facts[0].Ref != "main" {
+	if facts := byKind[publish.KindFacts]; len(facts) != 1 || facts[0].Ref != "main" {
 		t.Fatalf("facts artifacts = %+v, want one ref \"main\"", facts)
 	}
 
@@ -473,7 +474,7 @@ func TestCanonicalWireRepoKey(t *testing.T) {
 			runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
 				fakeCommandKey("git", "remote", "get-url", "origin"): {stdout: tc.remote + "\n"},
 			}}
-			got, err := canonicalWireRepoKey(context.Background(), Options{Runner: runner}, ".")
+			got, err := publish.CanonicalWireRepoKey(context.Background(), publishConfig(Options{Runner: runner}), ".")
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 					t.Fatalf("want error containing %q; got key=%q err=%v", tc.wantErr, got, err)
@@ -540,9 +541,9 @@ func TestPublishFailsFastWhenBundleTooLarge(t *testing.T) {
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
 
-	orig := maxPublishBodyBytes
-	maxPublishBodyBytes = 16
-	defer func() { maxPublishBodyBytes = orig }()
+	orig := publish.MaxBodyBytes
+	publish.MaxBodyBytes = 16
+	defer func() { publish.MaxBodyBytes = orig }()
 
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
@@ -565,12 +566,12 @@ func TestPublishFailsFastWhenBundleTooLarge(t *testing.T) {
 // undershoots the real marshaled body — the invariant that makes the preflight a
 // sound backstop against the server body cap.
 func TestProjectedPublishBodyBytesUpperBounds(t *testing.T) {
-	body := publishRequestBody{Artifacts: []publishArtifact{
-		{Kind: brainKindManifest, Ref: testPublishHead, Digest: "sha256:deadbeef", Data: []byte(`{"manifest":{}}`)},
-		{Kind: brainKindSnapshot, Ref: testPublishCommit, Digest: "sha256:cafe", Data: make([]byte, 5000)},
-		{Kind: brainKindFacts, Ref: "main", Data: []byte(`{"branch":"main"}`)},
+	body := publish.RequestBody{Artifacts: []publish.Artifact{
+		{Kind: publish.KindManifest, Ref: testPublishHead, Digest: "sha256:deadbeef", Data: []byte(`{"manifest":{}}`)},
+		{Kind: publish.KindSnapshot, Ref: testPublishCommit, Digest: "sha256:cafe", Data: make([]byte, 5000)},
+		{Kind: publish.KindFacts, Ref: "main", Data: []byte(`{"branch":"main"}`)},
 	}}
-	projected := projectedPublishBodyBytes(body)
+	projected := publish.ProjectedBodyBytes(body)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)

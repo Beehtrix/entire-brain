@@ -1,4 +1,4 @@
-package cli
+package publish
 
 import (
 	"context"
@@ -36,9 +36,9 @@ func publishErrorServer(t *testing.T, status int, body string) *httptest.Server 
 func publishErr(t *testing.T, status int, body string) string {
 	t.Helper()
 	srv := publishErrorServer(t, status, body)
-	_, err := postBrainArtifacts(context.Background(), srv.URL, publishTestRepoID, "secret", publishRequestBody{})
+	_, err := PostBrainArtifacts(context.Background(), srv.URL, publishTestRepoID, "secret", RequestBody{})
 	if err == nil {
-		t.Fatalf("postBrainArtifacts(%d) produced no error", status)
+		t.Fatalf("PostBrainArtifacts(%d) produced no error", status)
 	}
 	return err.Error()
 }

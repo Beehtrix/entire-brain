@@ -17,3 +17,11 @@ func GitScalar(ctx context.Context, runner CommandRunner, repoDir string, args .
 	}
 	return strings.TrimSpace(string(stdout)), nil
 }
+
+func GitOutput(ctx context.Context, runner CommandRunner, repoDir string, args ...string) []byte {
+	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
+	if err != nil {
+		return nil
+	}
+	return stdout
+}

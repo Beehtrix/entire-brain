@@ -1,4 +1,4 @@
-package cli
+package publish
 
 import (
 	"bytes"
@@ -48,31 +48,21 @@ import (
 // on the same egress-free side of the disk read as the two gates above, so an
 // unsafe or malformed target never gets the brain built for it.
 const (
-	// The hosted target is resolved from these env vars (each overridable by a
-	// flag). There is no pre-existing entire-api client in this plugin, so these
-	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
-	// matching the entire-api brain publish endpoint's push gate.
-	envAPIBaseURL = "ENTIRE_API_URL"
-	envAPIToken   = "ENTIRE_API_TOKEN"
-	envRepoID     = "ENTIRE_REPO_ID"
-)
-
-const (
 	// Artifact kinds, matching the server's brainstore.Kind* constants exactly.
-	brainKindSnapshot = "snapshot"
-	brainKindOverlay  = "overlay"
-	brainKindFacts    = "facts"
-	brainKindManifest = "manifest"
+	KindSnapshot = "snapshot"
+	KindOverlay  = "overlay"
+	KindFacts    = "facts"
+	KindManifest = "manifest"
 
 	mediaTypeJSON   = "application/json"
 	mediaTypeNDJSON = "application/x-ndjson"
 
 	// publishAPIPath is the route on entire-api: POST
 	// {base}/api/v1/repos/{repo_id}/brain/artifacts.
-	publishAPIPathPrefix = "/api/v1/repos/"
-	publishAPIPathSuffix = "/brain/artifacts"
+	APIPathPrefix = "/api/v1/repos/"
+	APIPathSuffix = "/brain/artifacts"
 
-	publishRequestTimeout   = 5 * time.Minute
+	RequestTimeout          = 5 * time.Minute
 	maxPublishResponseBytes = 1 << 20 // 1 MiB is ample for the small JSON result.
 
 	// serverMaxBrainBodyBytes mirrors entire-api's maxBrainArtifactBytes: the
@@ -92,31 +82,31 @@ const (
 	publishArtifactEnvelopeBytes = 64
 )
 
-// maxPublishBodyBytes is the client-side ceiling on the projected publish request
+// MaxBodyBytes is the client-side ceiling on the projected publish request
 // body: the server cap less headroom for the projection's rounding. It is a var
 // solely so tests can shrink it to exercise the preflight without a
 // hundreds-of-MiB fixture; production never reassigns it.
-var maxPublishBodyBytes int64 = serverMaxBrainBodyBytes - publishBodyHeadroom
+var MaxBodyBytes int64 = serverMaxBrainBodyBytes - publishBodyHeadroom
 
-// publishArtifact is one artifact in the publish bundle. Its JSON tags mirror the
+// Artifact is one artifact in the publish bundle. Its JSON tags mirror the
 // server's httpapi.BrainArtifactInput exactly: kind, ref, digest (omitempty), and
 // data. Go marshals a []byte field as base64, which is exactly what the server's
 // []byte Data field expects on the wire.
-type publishArtifact struct {
+type Artifact struct {
 	Kind   string `json:"kind"`
 	Ref    string `json:"ref"`
 	Digest string `json:"digest,omitempty"`
 	Data   []byte `json:"data"`
 }
 
-// publishRequestBody is the POST body: {"artifacts":[...]}, matching the server's
+// RequestBody is the POST body: {"artifacts":[...]}, matching the server's
 // httpapi.BrainPublishInput.Body.
-type publishRequestBody struct {
-	Artifacts []publishArtifact `json:"artifacts"`
+type RequestBody struct {
+	Artifacts []Artifact `json:"artifacts"`
 }
 
-// publishResult mirrors the server's httpapi.BrainPublishOutput body.
-type publishResult struct {
+// Result mirrors the server's httpapi.BrainPublishOutput body.
+type Result struct {
 	Status string `json:"status"`
 	Stored []struct {
 		Kind string `json:"kind"`
@@ -124,14 +114,42 @@ type publishResult struct {
 	} `json:"stored"`
 }
 
-type publishCommandOptions struct {
-	repoID string
-	apiURL string
-	token  string
+// Config supplies the shared command options and the assembly package's
+// storage, hosted-target, guard, and repo-remote operations. Dependencies are
+// per invocation, never global hooks.
+type Config struct {
+	clibase.Options
+	Deps Deps
 }
 
-func newPublishCommand(opts Options) *cobra.Command {
-	publishOpts := publishCommandOptions{}
+// Deps keeps publish independent of command assembly, repo identity
+// resolution, the hosted-target resolver (shared with facts sync), and the
+// session privacy guard composition.
+type Deps struct {
+	RepoStoragePaths func(context.Context, clibase.CommandRunner, clibase.EntireEnv, string) (clibase.RepoStorage, error)
+	// ResolveManualHostedTarget resolves where this command may send data, per
+	// field: explicit flag > env override > the connected binding. It refuses
+	// egress-free when consent or a required field is missing.
+	ResolveManualHostedTarget func(ctx context.Context, opts clibase.Options, brainDir, repoDir, command, flagRepoID, flagAPIURL, flagToken string) (repoID, baseURL, token string, err error)
+	// LoadSessionReadGuard builds the privacy guard over the brain's excluded
+	// sessions; GuardFactRecords filters a fact slice through it.
+	LoadSessionReadGuard func(brainDir string, manifest *bmanifest.Manifest) (brainstore.SessionReadGuard, error)
+	GuardFactRecords     func(guard brainstore.SessionReadGuard, facts []factmerge.Record) []factmerge.Record
+	// ParseRepoRemote and NormalizeRepoHost are the same remote parsing the
+	// on-disk store key uses, so the wire key stays byte-identical to it.
+	ParseRepoRemote   func(remote string) (host string, components []string, ok bool)
+	NormalizeRepoHost func(host string) string
+}
+
+// Flags carries the explicit-target flag values.
+type Flags struct {
+	RepoID string
+	APIURL string
+	Token  string
+}
+
+func New(cfg Config) *cobra.Command {
+	publishOpts := Flags{}
 
 	cmd := &cobra.Command{
 		Use:   "publish",
@@ -155,18 +173,18 @@ Re-running publish is safe: the server overwrites each artifact at its
 coordinate, so identical bytes produce an identical result.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPublish(cmd.Context(), cmd, opts, publishOpts)
+			return Run(cmd.Context(), cmd, cfg, publishOpts)
 		},
 	}
 
-	cmd.Flags().StringVar(&publishOpts.repoID, "repo-id", "", "Target repo ULID (overrides ENTIRE_REPO_ID)")
-	cmd.Flags().StringVar(&publishOpts.apiURL, "api-url", "", "Entire API base URL, https:// (overrides ENTIRE_API_URL)")
-	cmd.Flags().StringVar(&publishOpts.token, "token", "", "Entire API bearer token (overrides ENTIRE_API_TOKEN)")
+	cmd.Flags().StringVar(&publishOpts.RepoID, "repo-id", "", "Target repo ULID (overrides ENTIRE_REPO_ID)")
+	cmd.Flags().StringVar(&publishOpts.APIURL, "api-url", "", "Entire API base URL, https:// (overrides ENTIRE_API_URL)")
+	cmd.Flags().StringVar(&publishOpts.Token, "token", "", "Entire API bearer token (overrides ENTIRE_API_TOKEN)")
 
 	return cmd
 }
 
-func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOpts publishCommandOptions) error {
+func Run(ctx context.Context, cmd *cobra.Command, cfg Config, publishOpts Flags) error {
 	// Every gate is checked BEFORE resolving any target, reading the brain, or
 	// making a network call, so a refusal is guaranteed egress-free.
 
@@ -177,11 +195,11 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 
 	// Locate the on-disk brain for this repo; the connected binding under it is
 	// the default target.
-	repoDir := opts.Env.RepoRoot
+	repoDir := cfg.Env.RepoRoot
 	if repoDir == "" {
 		repoDir = "."
 	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	storage, err := cfg.Deps.RepoStoragePaths(ctx, cfg.Runner, cfg.Env, repoDir)
 	if err != nil {
 		return fmt.Errorf("publish: resolve brain: %w", err)
 	}
@@ -190,12 +208,11 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	// path segment, URL scheme floor) happens inside, before any brain read or
 	// network call, so a malformed or missing target refuses with the whole
 	// brain still on disk — the same egress-free guarantee as the gate above.
-	target, err := resolveManualHostedTarget(ctx, opts, storage.BrainDir, repoDir, "publish", publishOpts.repoID, publishOpts.apiURL, publishOpts.token)
+	repoID, baseURL, token, err := cfg.Deps.ResolveManualHostedTarget(ctx, cfg.Options, storage.BrainDir, repoDir, "publish", publishOpts.RepoID, publishOpts.APIURL, publishOpts.Token)
 	if err != nil {
 		return err
 	}
-	repoID, baseURL, token := target.repoID, target.baseURL, target.token
-	if !brainExportExists(storage.BrainDir) {
+	if !bmanifest.Exists(storage.BrainDir) {
 		return errors.New("publish: no brain found for this repo; run '" + clibase.BrainInvocation(os.LookupEnv, "refresh") + "' first")
 	}
 
@@ -208,12 +225,12 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	}
 	defer privacyUnlock()
 
-	body, repoKey, err := buildPublishBundle(ctx, opts, storage, repoDir)
+	body, repoKey, err := buildPublishBundle(ctx, cfg, storage, repoDir)
 	if err != nil {
 		return fmt.Errorf("publish: %w", err)
 	}
 
-	result, err := postBrainArtifacts(ctx, baseURL, repoID, token, body)
+	result, err := PostBrainArtifacts(ctx, baseURL, repoID, token, body)
 	if err != nil {
 		return err
 	}
@@ -223,23 +240,14 @@ func runPublish(ctx context.Context, cmd *cobra.Command, opts Options, publishOp
 	return nil
 }
 
-// publishFlagOrEnv returns the trimmed flag value when set, else the trimmed
-// environment value.
-func publishFlagOrEnv(flagVal, envName string) string {
-	if v := strings.TrimSpace(flagVal); v != "" {
-		return v
-	}
-	return strings.TrimSpace(os.Getenv(envName))
-}
-
 // buildPublishBundle serializes the on-disk brain into the publish bundle: the
 // manifest (kind=manifest, its data is the full brainwire.BrainArtifact JSON with
 // content-addressed references) plus each snapshot/overlay/facts blob inline. It
 // returns the bundle and the repo_key it declares.
-func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, repoDir string) (publishRequestBody, string, error) {
+func buildPublishBundle(ctx context.Context, cfg Config, storage clibase.RepoStorage, repoDir string) (RequestBody, string, error) {
 	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
-		return publishRequestBody{}, "", fmt.Errorf("load brain manifest: %w", err)
+		return RequestBody{}, "", fmt.Errorf("load brain manifest: %w", err)
 	}
 	// The wire manifest's repo_key MUST equal the slug entire-api resolves the
 	// target repo_id to server-side ("gh/owner/repo"), or the server 422s the whole
@@ -247,9 +255,9 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	// forwarding the on-disk store key (whose per-host DomainSlugs prefix the
 	// GitHub-sourced server can never reproduce). The on-disk RepoKey stays the
 	// local store's identity and is intentionally not sent as the wire key.
-	repoKey, err := canonicalWireRepoKey(ctx, opts, repoDir)
+	repoKey, err := CanonicalWireRepoKey(ctx, cfg, repoDir)
 	if err != nil {
-		return publishRequestBody{}, "", err
+		return RequestBody{}, "", err
 	}
 
 	art := brainwire.NewBrainArtifact(repoKey, manifest.DefaultBranch, manifest.GeneratedAt)
@@ -260,15 +268,15 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	// Collect the heavy blobs (each also registers a content-addressed reference on
 	// the wire manifest). Order within each kind is stable so re-publishing an
 	// unchanged brain produces a byte-identical request (idempotent).
-	var blobs []publishArtifact
-	overlays, err := collectOverlayArtifacts(art, storage.BrainDir)
+	var blobs []Artifact
+	overlays, err := cfg.Deps.CollectOverlayArtifacts(art, storage.BrainDir)
 	if err != nil {
-		return publishRequestBody{}, "", err
+		return RequestBody{}, "", err
 	}
 	blobs = append(blobs, overlays...)
-	facts, err := collectFactArtifacts(art, storage.BrainDir)
+	facts, err := cfg.Deps.CollectFactArtifacts(art, storage.BrainDir)
 	if err != nil {
-		return publishRequestBody{}, "", err
+		return RequestBody{}, "", err
 	}
 	blobs = append(blobs, facts...)
 
@@ -277,24 +285,24 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 	// manifest by commit).
 	manifestData, err := json.Marshal(art)
 	if err != nil {
-		return publishRequestBody{}, "", fmt.Errorf("encode manifest: %w", err)
+		return RequestBody{}, "", fmt.Errorf("encode manifest: %w", err)
 	}
-	manifestArtifact := publishArtifact{
-		Kind:   brainKindManifest,
-		Ref:    publishManifestRef(ctx, opts, repoDir, manifest),
-		Digest: contentDigest(manifestData),
+	manifestArtifact := Artifact{
+		Kind:   KindManifest,
+		Ref:    publishManifestRef(ctx, cfg.Options, repoDir, manifest),
+		Digest: ContentDigest(manifestData),
 		Data:   manifestData,
 	}
 
-	body := publishRequestBody{
-		Artifacts: append([]publishArtifact{manifestArtifact}, blobs...),
+	body := RequestBody{
+		Artifacts: append([]Artifact{manifestArtifact}, blobs...),
 	}
 	// Preflight the total bundle size against the server's 256 MiB body cap BEFORE
 	// json.Marshal base64-expands every blob into one buffer, so an oversized brain
 	// fails with a precise local message instead of building a multi-GB body only to
 	// be 413'd with an opaque error.
 	if err := ensurePublishBodyWithinLimit(body); err != nil {
-		return publishRequestBody{}, "", err
+		return RequestBody{}, "", err
 	}
 	return body, repoKey, nil
 }
@@ -307,10 +315,10 @@ func buildPublishBundle(ctx context.Context, opts Options, storage repoStorage, 
 // wire repo_key the server accepts.
 const brainProviderPrefixGitHub = "gh"
 
-// canonicalWireRepoKey derives the wire manifest repo_key from the repo's origin
+// CanonicalWireRepoKey derives the wire manifest repo_key from the repo's origin
 // remote in the exact form entire-api's brainSlugResolver emits:
 // "gh/" + <normalized owner>/<normalized repo>. Owner/repo come from the same
-// parseRepoRemote the on-disk store key uses (each component lowercased and run
+// Deps.ParseRepoRemote the on-disk store key uses (each component lowercased and run
 // through safeRepoPathComponent — byte-identical to the server's wireRepoPath).
 //
 // Only a github.com origin is accepted: entire-api's brain store is sourced from
@@ -323,13 +331,13 @@ const brainProviderPrefixGitHub = "gh"
 // naming rules forbid an owner or repo that is all punctuation, so every valid
 // github.com full name normalizes to two non-empty components and matches the
 // server's empty-preserving join exactly.
-func canonicalWireRepoKey(ctx context.Context, opts Options, repoDir string) (string, error) {
-	remote := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "remote", "get-url", "origin")))
-	host, components, ok := parseRepoRemote(remote)
+func CanonicalWireRepoKey(ctx context.Context, cfg Config, repoDir string) (string, error) {
+	remote := strings.TrimSpace(string(clibase.GitOutput(ctx, cfg.Runner, repoDir, "remote", "get-url", "origin")))
+	host, components, ok := cfg.Deps.ParseRepoRemote(remote)
 	if !ok {
 		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a github.com origin remote")
 	}
-	if !isGitHubDotComHost(host) {
+	if !cfg.Deps.isGitHubDotComHost(host) {
 		return "", fmt.Errorf("hosted publish currently supports github.com-hosted repos only; origin remote host %q is not github.com (the hosted brain store is GitHub-sourced)", host)
 	}
 	return brainProviderPrefixGitHub + "/" + strings.Join(components, "/"), nil
@@ -340,27 +348,27 @@ func canonicalWireRepoKey(ctx context.Context, opts Options, repoDir string) (st
 // prefix. GitHub Enterprise / self-hosted / look-alike "github.*" hosts are NOT
 // accepted: the public github.com-sourced server cannot resolve them, so a wire key
 // for such a host would 422 (or collide with an unrelated github.com repo).
-func isGitHubDotComHost(host string) bool {
-	return normalizeRepoHost(host) == "github.com"
+func (d Deps) isGitHubDotComHost(host string) bool {
+	return d.NormalizeRepoHost(host) == "github.com"
 }
 
 // ensurePublishBodyWithinLimit refuses a bundle whose projected request body would
 // exceed the hosted publish size ceiling, BEFORE json.Marshal builds the
 // base64-expanded body in memory. The error names the projected size and the limit
 // so the failure is actionable rather than an opaque server 413.
-func ensurePublishBodyWithinLimit(body publishRequestBody) error {
-	if projected := projectedPublishBodyBytes(body); projected > maxPublishBodyBytes {
-		return fmt.Errorf("publish_too_large: the brain bundle is ~%d bytes, over the %d-byte hosted publish limit; refresh a smaller brain or publish fewer artifacts", projected, maxPublishBodyBytes)
+func ensurePublishBodyWithinLimit(body RequestBody) error {
+	if projected := ProjectedBodyBytes(body); projected > MaxBodyBytes {
+		return fmt.Errorf("publish_too_large: the brain bundle is ~%d bytes, over the %d-byte hosted publish limit; refresh a smaller brain or publish fewer artifacts", projected, MaxBodyBytes)
 	}
 	return nil
 }
 
-// projectedPublishBodyBytes upper-bounds the size of the marshaled JSON request
+// ProjectedBodyBytes upper-bounds the size of the marshaled JSON request
 // body without marshaling it: each artifact's Data becomes base64 (4/3 expansion,
 // rounded up) plus a generous fixed JSON envelope, summed with the array framing.
 // It never undershoots the real body, so a bundle that clears this check also
 // clears the server's body cap.
-func projectedPublishBodyBytes(body publishRequestBody) int64 {
+func ProjectedBodyBytes(body RequestBody) int64 {
 	total := int64(len(`{"artifacts":[]}`))
 	for i, a := range body.Artifacts {
 		if i > 0 {
@@ -373,10 +381,10 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 	return total
 }
 
-// collectOverlayArtifacts reads semantic/overlays/<base>..<head>.json, keying
+// CollectOverlayArtifacts reads semantic/overlays/<base>..<head>.json, keying
 // each by "base..head", and registers an OverlayRef on art. The all-branches.json
 // refresh report is not a (base,head) overlay and is skipped.
-func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
+func (d Deps) CollectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]Artifact, error) {
 	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, filepath.Join(semstore.DirName, "overlays"), "publish overlays")
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -401,39 +409,39 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 	}
 	sort.Strings(names)
 
-	var out []publishArtifact
+	var out []Artifact
 	for _, name := range names {
 		ref := strings.TrimSuffix(name, ".json")
 		base, head, _ := strings.Cut(ref, "..")
 		rel := filepath.ToSlash(filepath.Join(semstore.DirName, "overlays", name))
-		data, ok, err := readBrainBlob(brainDir, rel)
+		data, ok, err := ReadBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read overlay %s: %w", ref, err)
 		}
 		if !ok {
 			continue
 		}
-		digest := contentDigest(data)
+		digest := ContentDigest(data)
 		art.AddOverlay(brainwire.OverlayRef{
 			BaseCommit: base,
 			HeadCommit: head,
 			Branch:     overlayBranchName(data),
 			Content:    brainwire.ContentRef{Digest: digest, Size: int64(len(data)), MediaType: mediaTypeJSON, Path: rel},
 		})
-		out = append(out, publishArtifact{Kind: brainKindOverlay, Ref: ref, Digest: digest, Data: data})
+		out = append(out, Artifact{Kind: KindOverlay, Ref: ref, Digest: digest, Data: data})
 	}
 	return out, nil
 }
 
-// collectFactArtifacts reads facts/<slug>/facts.ndjson, recovering each stream's
+// CollectFactArtifacts reads facts/<slug>/facts.ndjson, recovering each stream's
 // logical branch (resolveFactStreamBranch), and registers a FactsRef on art.
 // Streams are keyed by branch and emitted in branch order.
-func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
+func (d Deps) CollectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]Artifact, error) {
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy manifest: %w", err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := d.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, fmt.Errorf("load facts privacy policy: %w", err)
 	}
@@ -455,7 +463,7 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	var streams []factStream
 	seen := make(map[string]struct{})
 	for _, dir := range dirs {
-		data, ok, err := readBrainBlob(brainDir, filepath.Join(factstore.DirName, dir, factstore.FileName))
+		data, ok, err := ReadBrainBlob(brainDir, filepath.Join(factstore.DirName, dir, factstore.FileName))
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", dir, err)
 		}
@@ -477,22 +485,22 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 	}
 	sort.Slice(streams, func(i, j int) bool { return streams[i].branch < streams[j].branch })
 
-	var out []publishArtifact
+	var out []Artifact
 	for _, stream := range streams {
 		// REDACT before the bytes become an artifact. The digest and the manifest
 		// ContentRef must describe what actually leaves, so the redaction has to
 		// happen ahead of both.
-		data, err := redactFactsForEgress(stream.data, guard)
+		data, err := d.redactFactsForEgress(stream.data, guard)
 		if err != nil {
 			return nil, fmt.Errorf("read facts %s: %w", stream.branch, err)
 		}
 		rel := factstore.FileRelPath(stream.branch)
-		digest := contentDigest(data)
+		digest := ContentDigest(data)
 		art.AddFacts(brainwire.FactsRef{
 			Branch:  stream.branch,
 			Content: brainwire.ContentRef{Digest: digest, Size: int64(len(data)), MediaType: mediaTypeNDJSON, Path: rel},
 		})
-		out = append(out, publishArtifact{Kind: brainKindFacts, Ref: stream.branch, Digest: digest, Data: data})
+		out = append(out, Artifact{Kind: KindFacts, Ref: stream.branch, Digest: digest, Data: data})
 	}
 	return out, nil
 }
@@ -522,14 +530,14 @@ func collectFactArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publ
 // A stream that will not parse is an ERROR, not a stream to ship unredacted. It is
 // also not a new class of failure: `facts sync` already refuses the same file, so a
 // brain that cannot publish here could not sync either.
-func redactFactsForEgress(data []byte, guard sessionReadGuard) ([]byte, error) {
+func (d Deps) redactFactsForEgress(data []byte, guard brainstore.SessionReadGuard) ([]byte, error) {
 	records, err := factmerge.ParseNDJSON(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
 	}
 	// Filter before sanitizing: transcript coordinates are needed to recognize
 	// excluded provenance when an anchor has no session ID.
-	records = guardFactRecords(guard, records)
+	records = d.GuardFactRecords(guard, records)
 	var buf bytes.Buffer
 	if err := factmerge.WriteNDJSON(&buf, factsync.SanitizeForEgress(records)); err != nil {
 		return nil, fmt.Errorf("cannot redact local-only provenance before upload: %w", err)
@@ -540,8 +548,8 @@ func redactFactsForEgress(data []byte, guard sessionReadGuard) ([]byte, error) {
 // publishManifestRef addresses the manifest by the repo HEAD commit (the store
 // addresses a manifest by commit), falling back to the default branch, then a
 // stable literal, when HEAD is not resolvable.
-func publishManifestRef(ctx context.Context, opts Options, repoDir string, manifest *exportManifest) string {
-	if head := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"))); head != "" {
+func publishManifestRef(ctx context.Context, opts clibase.Options, repoDir string, manifest *bmanifest.Manifest) string {
+	if head := strings.TrimSpace(string(clibase.GitOutput(ctx, opts.Runner, repoDir, "rev-parse", "HEAD"))); head != "" {
 		return head
 	}
 	if manifest != nil {
@@ -549,29 +557,29 @@ func publishManifestRef(ctx context.Context, opts Options, repoDir string, manif
 			return branch
 		}
 	}
-	return brainKindManifest
+	return KindManifest
 }
 
-// publishHTTPClient retains dial/TLS bounds and the full five-minute budget for
+// HTTPClient retains dial/TLS bounds and the full five-minute budget for
 // uploading and processing a bundle. It shares the upload connection pool, whose
 // header bound permits server processing after a large request has been sent.
-func publishHTTPClient() *http.Client {
-	return httpx.UploadClient(publishRequestTimeout)
+func HTTPClient() *http.Client {
+	return httpx.UploadClient(RequestTimeout)
 }
 
-// postBrainArtifacts POSTs the bundle to the hosted brain publish endpoint and
+// PostBrainArtifacts POSTs the bundle to the hosted brain publish endpoint and
 // maps the response to a clear error or result. It is the only network call in
 // the command; it runs only after both opt-in gates have passed.
-func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body publishRequestBody) (publishResult, error) {
+func PostBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body RequestBody) (Result, error) {
 	baseURL, err := apiurl.Validate(baseURL)
 	if err != nil {
-		return publishResult{}, fmt.Errorf("publish: %w", err)
+		return Result{}, fmt.Errorf("publish: %w", err)
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return publishResult{}, fmt.Errorf("publish: encode request: %w", err)
+		return Result{}, fmt.Errorf("publish: encode request: %w", err)
 	}
-	// The chokepoint check, not a duplicate of the one in runPublish: this is the
+	// The chokepoint check, not a duplicate of the one in Run: this is the
 	// only function that turns a repo id into a network target, and it is reachable
 	// from tests and any future caller that did not come through the command. An id
 	// that is not one bare path segment re-addresses the request — url.PathEscape
@@ -580,19 +588,19 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 	// /api/v1/brain/artifacts with the caller's bearer token and the whole brain
 	// bundle attached. Refuse before http.NewRequest exists.
 	if err := repoid.Validate(repoID); err != nil {
-		return publishResult{}, fmt.Errorf("publish: %w", err)
+		return Result{}, fmt.Errorf("publish: %w", err)
 	}
 	// Validated ids equal their own escaped form, so the id is concatenated raw.
-	endpoint := strings.TrimRight(baseURL, "/") + publishAPIPathPrefix + repoID + publishAPIPathSuffix
+	endpoint := strings.TrimRight(baseURL, "/") + APIPathPrefix + repoID + APIPathSuffix
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return publishResult{}, fmt.Errorf("publish: build request: %w", err)
+		return Result{}, fmt.Errorf("publish: build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := apiurl.WithoutRedirects(publishHTTPClient()).Do(req)
+	resp, err := apiurl.WithoutRedirects(HTTPClient()).Do(req)
 	if err != nil {
 		// The wrapped error is a *url.Error, whose own Error() renders the target
 		// through url.URL.Redacted() — any userinfo password is printed as "xxxxx".
@@ -600,16 +608,16 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		// printed the cleartext credential. apiurl.Validate now refuses a base URL
 		// carrying userinfo at all, so this is the second of two guards; the target
 		// is still named, by the half of the message that redacts it.
-		return publishResult{}, fmt.Errorf("publish: request failed: %w", err)
+		return Result{}, fmt.Errorf("publish: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxPublishResponseBytes))
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var result publishResult
+		var result Result
 		if err := json.Unmarshal(respBody, &result); err != nil {
-			return publishResult{}, fmt.Errorf("publish: decode server response: %w", err)
+			return Result{}, fmt.Errorf("publish: decode server response: %w", err)
 		}
 		// A 200 whose body acknowledges NOTHING is not a success, and reporting it as
 		// one is the worst outcome on this path: the member is told the brain is
@@ -620,7 +628,7 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 		// response that never came from the endpoint at all. Refuse, and say which
 		// of the two it is rather than guessing on the member's behalf.
 		if len(body.Artifacts) > 0 && len(result.Stored) == 0 {
-			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server answered HTTP 200 but acknowledged storing 0 of the %d artifact(s) sent%s; the brain was NOT published — check that %s is the hosted Entire API and not a proxy in front of it",
+			return Result{}, fmt.Errorf("publish_unacknowledged: the server answered HTTP 200 but acknowledged storing 0 of the %d artifact(s) sent%s; the brain was NOT published — check that %s is the hosted Entire API and not a proxy in front of it",
 				len(body.Artifacts), publishStatusDetail(result.Status, token), endpoint)
 		}
 		// Stored coordinates must cover exactly the submitted set, once each.
@@ -637,24 +645,24 @@ func postBrainArtifacts(ctx context.Context, baseURL, repoID, token string, body
 			delete(expected, key)
 		}
 		if !complete || len(expected) != 0 {
-			return publishResult{}, fmt.Errorf("publish_unacknowledged: the server did not acknowledge every submitted artifact exactly once%s; check the hosted publish response before retrying", publishStatusDetail(result.Status, token))
+			return Result{}, fmt.Errorf("publish_unacknowledged: the server did not acknowledge every submitted artifact exactly once%s; check the hosted publish response before retrying", publishStatusDetail(result.Status, token))
 		}
 		return result, nil
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return publishResult{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
+		return Result{}, fmt.Errorf("publish_auth: authentication or push authorization failed (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusUnprocessableEntity:
-		return publishResult{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, resp.StatusCode, token))
+		return Result{}, fmt.Errorf("publish_rejected: server rejected the brain artifacts (HTTP 422)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusServiceUnavailable:
 		// The server uses 503 for more than one reason (no hosted brain on this
 		// deployment, publishing disabled for this jurisdiction, a store that is
 		// temporarily read-only), so its own sentence is the only thing that says
 		// WHICH — dropping the body here left the client guessing on the member's
 		// behalf.
-		return publishResult{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, resp.StatusCode, token))
+		return Result{}, fmt.Errorf("publish_unavailable: hosted brain publishing is not available on the server (HTTP 503)%s", publishServerDetail(respBody, resp.StatusCode, token))
 	case http.StatusRequestEntityTooLarge:
-		return publishResult{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, resp.StatusCode, token))
+		return Result{}, fmt.Errorf("publish_too_large: the server rejected the brain bundle as too large (HTTP 413); its request body exceeds the hosted publish size limit%s", publishServerDetail(respBody, resp.StatusCode, token))
 	default:
-		return publishResult{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
+		return Result{}, fmt.Errorf("publish_failed: unexpected server response (HTTP %d)%s", resp.StatusCode, publishServerDetail(respBody, resp.StatusCode, token))
 	}
 }
 
@@ -698,25 +706,25 @@ func publishServerDetail(body []byte, statusCode int, token string) string {
 	return ": " + httpx.Redact(detail, token)
 }
 
-// contentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the
+// ContentDigest returns the "sha256:"-prefixed lowercase-hex digest of data, the
 // exact form the wire contract's ContentRef.Digest and the server's VerifyDigest
 // expect.
-func contentDigest(data []byte) string {
+func ContentDigest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func semanticSourceOf(manifest *exportManifest) *semanticSourceManifest {
+func semanticSourceOf(manifest *bmanifest.Manifest) *bmanifest.SemanticSource {
 	if manifest == nil || manifest.Sources == nil {
 		return nil
 	}
 	return manifest.Sources.Semantic
 }
 
-// readBrainBlob binds a payload to its brain-relative path, rejecting symlinks
+// ReadBrainBlob binds a payload to its brain-relative path, rejecting symlinks
 // in every component and validating the opened regular-file descriptor. Missing
 // files remain optional; unsafe files fail the bundle instead of being omitted.
-func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
+func ReadBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 	f, present, err := brainstore.OpenMemoryStateFileExpected(brainDir, rel, "publish artifact", nil)
 	if err != nil || !present {
 		return nil, false, err
@@ -727,7 +735,7 @@ func readBrainBlob(brainDir, rel string) ([]byte, bool, error) {
 	if info, err := f.Stat(); err != nil {
 		return nil, false, err
 	} else if info.Size() > max {
-		return nil, false, &readBoundExceededError{Source: path, Max: max}
+		return nil, false, &clibase.ReadBoundExceededError{Source: path, Max: max}
 	}
 	data, err := clibase.SafeReadAll(f, max, path)
 	if err != nil {

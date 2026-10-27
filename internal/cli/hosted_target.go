@@ -18,6 +18,25 @@ import (
 // setups should use `entire brain connect` or explicit target flags.
 const envBrainAllowHosted = "ENTIRE_BRAIN_ALLOW_HOSTED"
 
+const (
+	// The hosted target is resolved from these env vars (each overridable by a
+	// flag). There is no pre-existing entire-api client in this plugin, so these
+	// follow the plugin's ENTIRE_* environment convention. Auth is a bearer token,
+	// matching the entire-api brain publish endpoint's push gate.
+	envAPIBaseURL = "ENTIRE_API_URL"
+	envAPIToken   = "ENTIRE_API_TOKEN"
+	envRepoID     = "ENTIRE_REPO_ID"
+)
+
+// publishFlagOrEnv returns the trimmed flag value when set, else the trimmed
+// environment value.
+func publishFlagOrEnv(flagVal, envName string) string {
+	if v := strings.TrimSpace(flagVal); v != "" {
+		return v
+	}
+	return strings.TrimSpace(os.Getenv(envName))
+}
+
 // manualHostedTarget is the resolved destination for a manual hosted command
 // (publish, memories sync on the hosted backend).
 type manualHostedTarget struct {

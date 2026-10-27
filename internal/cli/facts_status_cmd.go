@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -139,7 +140,7 @@ func buildFactsStatusReport(ctx context.Context, runner CommandRunner, repoDir, 
 		GeneratedAt:   now.UTC(),
 		Repo:          repoDir,
 		BrainPath:     brainDir,
-		RepoHead:      strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD"))),
+		RepoHead:      strings.TrimSpace(string(base.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD"))),
 		BrainManifest: evalBrainManifestSHA256(brainDir),
 		Branch:        branch,
 		AllBranches:   allBranches,

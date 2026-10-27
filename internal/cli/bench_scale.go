@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -242,7 +243,7 @@ func runScaleBench(ctx context.Context, cmd *cobra.Command, opts Options, benchO
 		}, repoDir); err != nil {
 			return err
 		}
-		report.IndexWallMS = roundMillis(time.Since(start))
+		report.IndexWallMS = bench.RoundMillis(time.Since(start))
 		report.MaxRSSBytes = processMaxRSSBytes()
 		if report.IndexWallMS > 0 {
 			report.LinesPerSec = float64(report.SourceLines) / (report.IndexWallMS / 1000)

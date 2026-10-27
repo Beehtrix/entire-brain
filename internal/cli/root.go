@@ -18,8 +18,10 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
+	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
+	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
@@ -143,9 +145,9 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
 	addGrouped("operations", newWatchCommand(opts))
-	addHidden(newDaemonReregisterCommand(opts))
-	addGrouped("operations", newStopCommand(opts))
-	addGrouped("operations", newStartCommand(opts))
+	addHidden(daemonreregister.New(daemonReregisterConfig(opts)))
+	addGrouped("operations", pause.NewStop(opts))
+	addGrouped("operations", pause.NewStart(opts))
 	addGrouped("operations", newSemanticResetCommand(opts))
 
 	addGrouped("share", newWorkspaceCommand(opts))

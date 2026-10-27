@@ -4794,7 +4794,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	}
 	markMissingDeclaredIndexes(&onboarding, storage.BrainDir, manifest)
 	report.Onboarding = &onboarding
-	if backgroundPaused(opts.Env) {
+	if clibase.BackgroundPaused(opts.Env) {
 		report.Warnings = append(report.Warnings, "background work is paused, so this brain is not updating — `"+clibase.SetupCommandPrefix(os.LookupEnv)+" start` resumes it")
 	}
 	return report, nil

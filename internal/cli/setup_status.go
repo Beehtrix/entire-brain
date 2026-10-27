@@ -179,7 +179,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir), componentRunTimes(storage.BrainDir))
-	onboarding.Paused = backgroundPaused(opts.Env)
+	onboarding.Paused = clibase.BackgroundPaused(opts.Env)
 	return onboarding
 }
 

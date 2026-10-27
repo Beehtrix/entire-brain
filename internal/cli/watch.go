@@ -553,7 +553,7 @@ func watchStepsForRepo(cmd *cobra.Command, opts Options, w watchCommandOptions, 
 			}
 			return outcome.Attempted, nil
 		},
-		paused: func() bool { return backgroundPaused(opts.Env) },
+		paused: func() bool { return base.BackgroundPaused(opts.Env) },
 	}
 }
 

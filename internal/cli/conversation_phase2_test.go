@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"os"
 	"path/filepath"
 	"strings"
@@ -225,16 +226,16 @@ func TestConversationStructuredFilters(t *testing.T) {
 }
 
 func TestBuildRetrievalOptionsValidation(t *testing.T) {
-	if _, err := buildRetrievalOptions("conversation", "2026-08-01", "2026-08-05", "s", "a", "b", nil); err != nil {
+	if _, err := retrieve.BuildRetrievalOptions("conversation", "2026-08-01", "2026-08-05", "s", "a", "b", nil); err != nil {
 		t.Fatalf("valid options rejected: %v", err)
 	}
-	if _, err := buildRetrievalOptions("conversation", "not-a-date", "", "", "", "", nil); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("conversation", "not-a-date", "", "", "", "", nil); err == nil {
 		t.Fatal("bad after must error")
 	}
-	if _, err := buildRetrievalOptions("conversation", "2026-08-05", "2026-08-01", "", "", "", nil); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("conversation", "2026-08-05", "2026-08-01", "", "", "", nil); err == nil {
 		t.Fatal("after >= before must error")
 	}
-	if _, err := buildRetrievalOptions("everything", "", "", "", "", "", nil); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("everything", "", "", "", "", "", nil); err == nil {
 		t.Fatal("bad source must error")
 	}
 }

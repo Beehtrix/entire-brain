@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -95,4 +97,49 @@ func LoadAllBranches(brainDir string) (map[string][]factmerge.Record, error) {
 		}
 	}
 	return byBranch, nil
+}
+
+// OtherBranchBlindSpot reports active facts held on branches other than the one
+// queried. It returns empty when the caller did not say which branch it
+// queried, when the store cannot be read, or when no other branch holds
+// anything active — in each case the caller falls through to its normal note.
+func OtherBranchBlindSpot(brainDir, branch string) string {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return ""
+	}
+	byBranch, err := LoadAllBranches(brainDir)
+	if err != nil {
+		return ""
+	}
+	total := 0
+	var names []string
+	for other, records := range byBranch {
+		if other == branch {
+			continue
+		}
+		active := 0
+		for _, record := range records {
+			if record.Status == factmerge.StatusActive {
+				active++
+			}
+		}
+		if active == 0 {
+			continue
+		}
+		total += active
+		names = append(names, other)
+	}
+	if total == 0 {
+		return ""
+	}
+	// Deterministic: LoadAllBranches returns a map, and Go randomises map
+	// iteration, so an unsorted list would reorder between identical runs.
+	sort.Strings(names)
+	shown, suffix := names, ""
+	if len(shown) > 3 {
+		shown, suffix = shown[:3], ", ..."
+	}
+	return fmt.Sprintf("note: no matching memories on %s, but %d active memory(ies) on %d other branch(es): %s%s — retry with --branch",
+		branch, total, len(names), strings.Join(shown, ", "), suffix)
 }

@@ -179,7 +179,7 @@ func runVerify(ctx context.Context, cmd *cobra.Command, opts Options, verifyOpts
 		renderVerifyReportText(cmd, report)
 	}
 	if err := verifyFailureForReport(report, verifyOpts); err != nil {
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	}
 	return nil
 }

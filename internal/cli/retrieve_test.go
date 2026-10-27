@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -13,7 +14,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 )
@@ -75,20 +75,6 @@ func TestUnifiedIDsNotDoublePrefixed(t *testing.T) {
 	}
 }
 
-func TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract(t *testing.T) {
-	for _, command := range []*cobra.Command{
-		newQueryCommand(Options{}),
-		newSearchCommand(Options{}),
-		newVsearchCommand(Options{}),
-	} {
-		for _, flag := range []string{"limit", "number"} {
-			if got := command.Flags().Lookup(flag).DefValue; got != "10" {
-				t.Errorf("%s --%s default = %s, want 10", command.Name(), flag, got)
-			}
-		}
-	}
-}
-
 func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 	lists := [][]unifiedResult{
 		{{ID: "a"}, {ID: "b"}},
@@ -97,49 +83,6 @@ func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 	out := retrieval.RRFMergeUnified(lists, 10)
 	if len(out) != 3 || out[0].ID != "b" {
 		t.Fatalf("expected b (in both lists) ranked first, got %v", out)
-	}
-}
-
-func TestQMDOutputFormatAlias(t *testing.T) {
-	got, err := outputWantsJSON(false, "json")
-	if err != nil || !got {
-		t.Fatalf("--format json should request JSON, got %t err=%v", got, err)
-	}
-	got, err = outputWantsJSON(true, "cli")
-	if err != nil || got {
-		t.Fatalf("--format cli should force CLI output, got %t err=%v", got, err)
-	}
-	if _, err := outputWantsJSON(false, "text"); err == nil {
-		t.Fatal("--format text should be rejected; supported formats are json or cli")
-	}
-	if _, err := outputWantsJSON(false, "xml"); err == nil {
-		t.Fatal("unknown --format should error")
-	}
-}
-
-func TestRetrievalResultExcerptCentersDenseQueryTerms(t *testing.T) {
-	text := strings.Repeat("irrelevant preface ", 50) +
-		"inspect code and inspect context JSON are compact by default; use get for full details " +
-		strings.Repeat("irrelevant suffix ", 50)
-	excerpt := retrievalResultExcerpt(text, "inspect context JSON compact full details", 180)
-	for _, want := range []string{"inspect context", "JSON", "compact", "full details"} {
-		if !strings.Contains(excerpt, want) {
-			t.Fatalf("query-centered excerpt missing %q: %q", want, excerpt)
-		}
-	}
-	if len(excerpt) > 186 { // bounded window plus leading/trailing ellipses
-		t.Fatalf("excerpt is not bounded: %d bytes: %q", len(excerpt), excerpt)
-	}
-	unicodeExcerpt := retrievalResultExcerpt(strings.Repeat("界", 300)+" compact context details", "compact context", 80)
-	if !utf8.ValidString(unicodeExcerpt) {
-		t.Fatalf("excerpt split UTF-8: %q", unicodeExcerpt)
-	}
-	// Unicode lowercase can change byte length (K is three UTF-8 bytes but
-	// lowercases to one-byte k). Search offsets must still point into the
-	// original string and center the actual match.
-	foldedExcerpt := retrievalResultExcerpt(strings.Repeat("K", 100)+" TARGET context details", "target context", 64)
-	if !utf8.ValidString(foldedExcerpt) || !strings.Contains(foldedExcerpt, "TARGET context") {
-		t.Fatalf("case-folded Unicode offset missed the query window: %q", foldedExcerpt)
 	}
 }
 
@@ -247,7 +190,7 @@ func executeExpectingMissing(t *testing.T, cmd *cobra.Command, args ...string) s
 	if err == nil {
 		t.Fatalf("%s: a missing id did not fail the command:\n%s", strings.Join(args, " "), out)
 	}
-	if !errors.Is(err, errRetrievalIDsMissing) {
+	if !errors.Is(err, retrieve.ErrRetrievalIDsMissing) {
 		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
 	}
 	return out
@@ -570,36 +513,6 @@ func TestQMDTopLevelHelpListsRetrievalVerbs(t *testing.T) {
 	for _, want := range []string{"query", "get", "multi-get"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("root help missing QMD verb %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
-	var out strings.Builder
-	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
-		{
-			Kind:    retrieval.CaveatStaleLocus,
-			Message: "Current code no longer contains every recorded path.",
-			Paths:   []string{"internal/old.go", "pkg/removed.go"},
-		},
-		{
-			Kind:       retrieval.CaveatUnresolvedReview,
-			Message:    "A pending supersede proposal requires review.",
-			ReviewID:   "review:abc",
-			Action:     factActionSupersede,
-			Confidence: 0.55,
-		},
-	}})
-	text := out.String()
-	for _, want := range []string{
-		"Current code no longer contains every recorded path.",
-		"paths=internal/old.go,pkg/removed.go",
-		"review=review:abc",
-		"action=supersede",
-		"confidence=0.55",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("caveat output missing %q:\n%s", want, text)
 		}
 	}
 }

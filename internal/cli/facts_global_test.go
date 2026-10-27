@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -676,16 +677,16 @@ func retrievalSurfaceFixture(t *testing.T) (Options, string) {
 }
 
 func TestQueryAndSearchSurfaceGlobalFacts(t *testing.T) {
-	// brain_query, brain_search and brain_vsearch all run through runRetrieve.
+	// brain_query, brain_search and brain_vsearch all run through retrieve.Run.
 	// Before this, a fact recorded once reached `recall` and no other surface.
 	opts, _ := retrievalSurfaceFixture(t)
 	cmd := &cobra.Command{}
 	var out strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
-	if err := runRetrieve(context.Background(), cmd, opts, "orion", retrieval.ModeLexical, 10, "feature",
+	if err := retrieve.Run(context.Background(), cmd, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 10, "feature",
 		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
-		t.Fatalf("runRetrieve: %v", err)
+		t.Fatalf("retrieve.Run: %v", err)
 	}
 	if !strings.Contains(out.String(), "global convention applies everywhere") {
 		t.Fatalf("the global fact did not reach the query surface:\n%s", out.String())
@@ -703,9 +704,9 @@ func TestQueryRespectsTheGlobalOffSwitch(t *testing.T) {
 	var out strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
-	if err := runRetrieve(context.Background(), cmd, opts, "orion", retrieval.ModeLexical, 10, "feature",
+	if err := retrieve.Run(context.Background(), cmd, retrieveCommandConfig(opts), "orion", retrieval.ModeLexical, 10, "feature",
 		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
-		t.Fatalf("runRetrieve: %v", err)
+		t.Fatalf("retrieve.Run: %v", err)
 	}
 	if strings.Contains(out.String(), "global convention applies everywhere") {
 		t.Fatalf("ENTIRE_BRAIN_NO_GLOBAL_FACTS did not suppress the global fact:\n%s", out.String())
@@ -859,7 +860,7 @@ func TestRetrievalCommandsCanExcludeGlobalFactsPerRequest(t *testing.T) {
 				if use == "vsearch" {
 					mode = retrieval.ModeVector
 				}
-				cmd := newRetrieveCommand(opts, use, mode, "test")
+				cmd := retrieve.NewRetrieve(retrieveCommandConfig(opts), use, mode, "test")
 				var out bytes.Buffer
 				cmd.SetOut(&out)
 				cmd.SetErr(&bytes.Buffer{})
@@ -892,7 +893,7 @@ func TestGetResolvesAGlobalFactID(t *testing.T) {
 	out, errOut := &strings.Builder{}, &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	missing, err := runGet(context.Background(), cmd, opts, []string{id}, "", true, getOptions{}, "get")
+	missing, err := retrieve.RunGet(context.Background(), cmd, retrieveCommandConfig(opts), []string{id}, "", true, getOptions{}, "get")
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}

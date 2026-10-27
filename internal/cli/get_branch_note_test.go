@@ -18,7 +18,7 @@ import (
 // branch. That is a different answer, and the only one with something the
 // caller can act on.
 //
-// runGet checked ONLY the integrity path on a miss, so the branch choke point
+// retrieve.RunGet checked ONLY the integrity path on a miss, so the branch choke point
 // was unreachable from this surface.
 func TestGetOnAMissNamesTheBranchHoldingFacts(t *testing.T) {
 	f := newVerifyFixture(t)
@@ -68,33 +68,6 @@ func TestGetDoesNotTalkAboutFactBranchesForANonFactID(t *testing.T) {
 	}
 }
 
-// Gate 2: the id-shape test itself. A bare id with no prefix resolves as a fact
-// everywhere else in this codebase, so it counts here too.
-func TestMissingFactIDShapes(t *testing.T) {
-	t.Parallel()
-
-	for name, tc := range map[string]struct {
-		ids  []string
-		want bool
-	}{
-		"prefixed fact":      {[]string{"fact:abc"}, true},
-		"bare id":            {[]string{"abc123"}, true},
-		"conversation":       {[]string{"conversation:abc"}, false},
-		"history":            {[]string{"history:abc"}, false},
-		"raw has a colon":    {[]string{"raw:abc"}, false},
-		"mixed, one fact":    {[]string{"conversation:a", "fact:b"}, true},
-		"mixed, no fact":     {[]string{"conversation:a", "doc:b"}, false},
-		"empty slice":        {nil, false},
-		"blank entries only": {[]string{"", "   "}, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got := missingFactIDs(tc.ids); got != tc.want {
-				t.Errorf("missingFactIDs(%v) = %v, want %v", tc.ids, got, tc.want)
-			}
-		})
-	}
-}
-
 // Gate 3: integrity still wins. A store that lost facts must never be reported
 // as merely the wrong branch -- the branch note would send the caller hunting
 // for a fact that is actually gone.
@@ -126,7 +99,7 @@ func TestIntegrityWarningStillBeatsTheBranchNoteOnAMiss(t *testing.T) {
 
 // THE JSON SURFACE. My first version of this fix put the note only in the text
 // block, and the e2e test above used text output -- so it passed while
-// `get --json` carried nothing. mcp.go:1323,1333 call runGet with
+// `get --json` carried nothing. mcp.go:1323,1333 call retrieve.RunGet with
 // jsonOut=true for brain_get and brain_multi_get, which makes the AGENT
 // surface, the consumer most likely to act on a "--branch" hint, the one that
 // could not see it.

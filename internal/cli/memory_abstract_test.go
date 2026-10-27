@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,7 +137,7 @@ func TestMemoryInstallHealthIsReadOnly(t *testing.T) {
 }
 
 func TestAbstractRetrievalOptionParity(t *testing.T) {
-	cmd := newSearchCommand(Options{})
+	cmd := retrieve.NewSearch(retrieveCommandConfig(Options{}))
 	if cmd.Flags().Lookup("include-abstract") == nil {
 		t.Fatal("CLI retrieval must expose --include-abstract")
 	}

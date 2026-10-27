@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -139,10 +140,10 @@ func TestMultiConceptInputValidation(t *testing.T) {
 	if _, err := normalizeConversationConcepts("alpha", []string{strings.Repeat("x", conversationConceptMaxBytes+1)}); err == nil {
 		t.Fatal("over-cap concept must error")
 	}
-	if _, err := buildRetrievalOptions("history", "", "", "", "", "", []string{"beta"}); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("history", "", "", "", "", "", []string{"beta"}); err == nil {
 		t.Fatal("concepts with a non-conversation source must error")
 	}
-	if _, err := buildRetrievalOptions("conversation", "", "", "", "", "", []string{"a", "b", "c", "d", "e"}); err == nil {
+	if _, err := retrieve.BuildRetrievalOptions("conversation", "", "", "", "", "", []string{"a", "b", "c", "d", "e"}); err == nil {
 		t.Fatal("more than four extra concepts must error")
 	}
 }

@@ -791,7 +791,7 @@ func doctorSemanticProviderAhead(detail string) bool {
 // less informative copy of the same news to stderr.
 func doctorGateResult(report doctorReport, failOn string) error {
 	if err := doctorGateFailure(report, failOn); err != nil {
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	}
 	return nil
 }

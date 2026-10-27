@@ -202,12 +202,6 @@ func strongestConsolidationsChecked(brainDir string, limit int) ([]briefConsolid
 
 const patternPointerCap = 5
 
-type relatedPatternRef struct {
-	Type  string `json:"type"`
-	ID    string `json:"id"`
-	Title string `json:"title"`
-}
-
 // relatedPatternPointers returns capped pattern:/theme: pointers relevant to a
 // query by term overlap — discoverability only, never part of facts/history/docs
 // ranking. Rejected dossiers/themes are excluded; graceful (nil) when no corpus.

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
@@ -60,7 +61,7 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 		}
 	}
 	// All three compatibility surfaces advertise the same opt-in contract.
-	for _, cmd := range []*cobra.Command{newQueryCommand(opts), newSearchCommand(opts), newVsearchCommand(opts)} {
+	for _, cmd := range []*cobra.Command{retrieve.NewQuery(retrieveCommandConfig(opts)), retrieve.NewSearch(retrieveCommandConfig(opts)), retrieve.NewVsearch(retrieveCommandConfig(opts))} {
 		if cmd.Flags().Lookup("recency") == nil || cmd.Flags().Lookup("recency-half-life") == nil {
 			t.Fatalf("missing recency flags: %s", cmd.Name())
 		}

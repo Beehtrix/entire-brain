@@ -19,6 +19,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
+	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
@@ -139,7 +140,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("maintain", newAgentStatusCommand(opts))
 	addGrouped("maintain", newStatsCommand(opts))
-	addGrouped("operations", newDocsCommand(opts))
+	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
 	addGrouped("operations", newWatchCommand(opts))
 	addHidden(newDaemonReregisterCommand(opts))

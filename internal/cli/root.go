@@ -130,7 +130,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("explore", newMultiGetCommand(opts))
 	addGrouped("explore", newDashCommand(opts))
 
-	addGrouped("facts", newRecallCommand(opts))
+	addGrouped("facts", facts.NewRecall(factsCommandConfig(opts)))
 	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))

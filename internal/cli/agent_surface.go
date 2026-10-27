@@ -24,6 +24,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -1823,7 +1824,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			facts = guardFactRecords(briefPrivacyGuard, facts)
 			factsRankStarted := profile.start()
 			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
-			report.GlobalFactIDs = sortedGlobalFactIDs(report.Facts, briefGlobalIDs)
+			report.GlobalFactIDs = factscmd.SortedGlobalFactIDs(report.Facts, briefGlobalIDs)
 			if profile != nil {
 				profile.finishStage(&profile.Facts.Rank, factsRankStarted, len(facts), len(report.Facts), 0)
 			}

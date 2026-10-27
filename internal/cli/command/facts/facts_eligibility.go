@@ -1,4 +1,4 @@
-package cli
+package facts
 
 import (
 	"encoding/json"
@@ -6,18 +6,20 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/entireio/entire-brain/factmerge"
 )
 
 const (
 	eligibilityEmptyProvenance = "empty_provenance"
 	eligibilityExcludedSession = "excluded_session"
 	eligibilityUnknownSession  = "unknown_session"
-	eligibilityAtOrAfterCutoff = "at_or_after_cutoff"
+	EligibilityAtOrAfterCutoff = "at_or_after_cutoff"
 )
 
-// factEligibilityAudit records the complete candidate accounting before ranking.
+// FactEligibilityAudit records the complete candidate accounting before ranking.
 // DeliveredCount is filled by recall after the eligible corpus has been ranked.
-type factEligibilityAudit struct {
+type FactEligibilityAudit struct {
 	PrefilterCorpusCount int            `json:"prefilter_corpus_count"`
 	EligibleCount        int            `json:"eligible_count"`
 	ExcludedCounts       map[string]int `json:"excluded_counts"`
@@ -59,14 +61,14 @@ func parseEligibilityTime(value string) (time.Time, error) {
 // set before lexical or semantic ranking. Every provenance anchor must identify a
 // known, non-excluded session strictly before cutoff; uncertainty fails closed.
 func filterFactsByTemporalEligibility(
-	facts []factRecord,
+	facts []factmerge.Record,
 	sessionDates map[string]string,
 	cutoffValue string,
 	excludeSessionIDs []string,
-) ([]factRecord, factEligibilityAudit, error) {
+) ([]factmerge.Record, FactEligibilityAudit, error) {
 	cutoff, err := parseEligibilityTime(cutoffValue)
 	if err != nil {
-		return nil, factEligibilityAudit{}, fmt.Errorf("--eligible-before: %w", err)
+		return nil, FactEligibilityAudit{}, fmt.Errorf("--eligible-before: %w", err)
 	}
 	excluded := make(map[string]struct{}, len(excludeSessionIDs))
 	for _, id := range excludeSessionIDs {
@@ -74,16 +76,16 @@ func filterFactsByTemporalEligibility(
 			excluded[id] = struct{}{}
 		}
 	}
-	audit := factEligibilityAudit{
+	audit := FactEligibilityAudit{
 		PrefilterCorpusCount: len(facts),
 		ExcludedCounts: map[string]int{
 			eligibilityEmptyProvenance: 0,
 			eligibilityExcludedSession: 0,
 			eligibilityUnknownSession:  0,
-			eligibilityAtOrAfterCutoff: 0,
+			EligibilityAtOrAfterCutoff: 0,
 		},
 	}
-	eligible := make([]factRecord, 0, len(facts))
+	eligible := make([]factmerge.Record, 0, len(facts))
 	for _, fact := range facts {
 		if len(fact.Provenance) == 0 {
 			audit.ExcludedCounts[eligibilityEmptyProvenance]++
@@ -128,7 +130,7 @@ func filterFactsByTemporalEligibility(
 		case hasUnknownSession:
 			reason = eligibilityUnknownSession
 		case hasAtOrAfterCutoff:
-			reason = eligibilityAtOrAfterCutoff
+			reason = EligibilityAtOrAfterCutoff
 		}
 		if reason != "" {
 			audit.ExcludedCounts[reason]++

@@ -113,7 +113,7 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		//
 		// This file already treats the input as hostile by bounding how much
 		// of it it will read. It did not bound what is IN it: m.Memory was
-		// stored verbatim, and printFactLine (facts_read_cmd.go) and the
+		// stored verbatim, and facts.PrintFactLine (command/facts/facts_read_cmd.go) and the
 		// compact brief both print f.Text unescaped. So ANSI escapes, bidi
 		// overrides and zero-width runes from another tool's export reach the
 		// terminal and, worse, the agent's prompt.
@@ -141,7 +141,7 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		// unescaped foreign text reaches the terminal. The ids take the same
 		// path and were left raw: ForeignID is embedded in the anchor as
 		// "<tool>:<id>", and `facts show` prints anchor.SessionID straight
-		// through cmdutil.ValueOrUnset with %s (facts_read_cmd.go:540), which neither
+		// through cmdutil.ValueOrUnset with %s (inspect_blame_cmd.go), which neither
 		// quotes nor strips. An export with ANSI escapes, bidi overrides or
 		// zero-width runes in `id` reached the terminal unsanitised --
 		// contradicting this file's own stated threat model for foreign text.

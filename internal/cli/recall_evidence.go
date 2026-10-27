@@ -81,7 +81,7 @@ func runRecallEvidence(cmd *cobra.Command, brainDir, branch, query string, limit
 		// An empty evidence result on a branch that captured no sessions is the
 		// wrong-branch trap, not an answer. `--evidence` returned before
 		// reaching the blind-spot checks the other recall paths run
-		// (facts_read_cmd.go:412,430), so this surface said nothing at all.
+		// (command/facts/facts_read_cmd.go), so this surface said nothing at all.
 		//
 		// The note is in the result's OWN unit -- sessions, which is what
 		// evidence scans -- rather than the fact-branch note, which would

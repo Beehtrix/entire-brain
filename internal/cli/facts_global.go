@@ -7,6 +7,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
+	factscmd "github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
@@ -46,26 +47,12 @@ func globalFactIDs(facts []factRecord) map[string]bool {
 	return ids
 }
 
-// globalFactsEnabled reports whether global facts should be merged into a
-// repository read.
-//
-// Default on: a preference somebody recorded once is meant to apply, and a
-// memory layer that makes you ask for what you already told it is not one.
-// ENTIRE_BRAIN_NO_GLOBAL_FACTS and --no-global turn it off, for a machine where
-// repository answers must not be influenced by anything outside the repository.
-func globalFactsEnabled(noGlobalFlag bool) bool {
-	if noGlobalFlag {
-		return false
-	}
-	return !base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
-}
-
 // globalFactsForRead loads the global store for a read surface, honouring the
 // off switches. A damaged global store must not take retrieval down with it, so
 // the error comes back for the caller to warn about rather than to propagate:
 // the repository's own facts are still the answer to most queries.
 func globalFactsForRead(env EntireEnv, noGlobal bool) ([]factRecord, error) {
-	if !globalFactsEnabled(noGlobal) {
+	if !factstore.GlobalFactsEnabled(noGlobal) {
 		return nil, nil
 	}
 	return factstore.LoadGlobal(env)
@@ -163,7 +150,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				return nil
 			}
 			for _, fact := range active {
-				printFactLine(out, fact)
+				factscmd.PrintFactLine(out, fact)
 			}
 			fmt.Fprintf(out, "\n%d global memory(ies) in %s\n", len(active), brainDir)
 			return nil

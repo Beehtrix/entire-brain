@@ -7,6 +7,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
@@ -76,7 +77,7 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 	if expr := historyFTSMatchExpr("cursor"); expr == "" {
 		t.Fatal("fixture query must be indexable")
 	}
-	results, err := retrieveConversation(brainDir, "cursor", 5, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "cursor", 5, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("unfiltered conversation query must not fail: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 		t.Fatal("unfiltered conversation query returned nothing")
 	}
 	// The degraded error is reserved for a genuine filtered-scan overflow.
-	if _, err := retrieveConversation(brainDir, "a", 5, modeLexical, retrievalOptions{}); err != nil {
+	if _, err := retrieveConversation(brainDir, "a", 5, retrieval.ModeLexical, retrievalOptions{}); err != nil {
 		if strings.Contains(err.Error(), "filter scan exceeded") {
 			t.Fatalf("stopword-only query reported a filter-scan overflow: %v", err)
 		}
@@ -460,7 +461,7 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 			t.Fatalf("excluded session's fact served by get: %+v", r)
 		}
 	}
-	results, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, modeLexical, retrievalOptions{})
+	results, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -727,10 +728,10 @@ func TestDeletedTranscriptReportsStaleNotUnreadable(t *testing.T) {
 		t.Fatalf("deleted transcript = %v, want the stale classification", err)
 	}
 	result := conversationGetResult(brainDir, record)
-	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) {
+	if !hasCaveatKind(result, retrieval.CaveatConversationSourceStale) {
 		t.Fatalf("deleted transcript caveats = %+v, want stale", result.Caveats)
 	}
-	if hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+	if hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
 		t.Fatalf("deleted transcript reported unreadable: %+v", result.Caveats)
 	}
 }

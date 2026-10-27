@@ -10,6 +10,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,7 +111,7 @@ func TestGlobalFactIsRecalledFromARepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	merged, globalIDs := mergeGlobalFacts(repoFacts, global)
+	merged, globalIDs := retrieval.MergeGlobalFacts(repoFacts, global)
 
 	if len(merged) != 2 {
 		t.Fatalf("merge produced %d fact(s), want 2", len(merged))
@@ -141,7 +142,7 @@ func TestRepositoryFactWinsOverAnIdenticalGlobalOne(t *testing.T) {
 	shared := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: "main"}
 	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
-	merged, globalIDs := mergeGlobalFacts([]factRecord{shared}, []factRecord{global})
+	merged, globalIDs := retrieval.MergeGlobalFacts([]factRecord{shared}, []factRecord{global})
 	if len(merged) != 1 {
 		t.Fatalf("the same fact was surfaced twice: %+v", merged)
 	}
@@ -208,7 +209,7 @@ func TestGlobalFactCanBeRetracted(t *testing.T) {
 		t.Fatalf("the global fact was not retracted: %+v", after)
 	}
 	// A retracted global fact must stop being merged into repository reads.
-	merged, _ := mergeGlobalFacts(nil, after)
+	merged, _ := retrieval.MergeGlobalFacts(nil, after)
 	for _, fact := range factstore.FilterByScope(merged, "") {
 		if fact.Status == factStatusActive {
 			t.Fatalf("a retracted global fact is still active: %+v", fact)
@@ -530,7 +531,7 @@ func TestLocusDriftSkipsGlobalFacts(t *testing.T) {
 
 	// The production filter, not a copy of it in the test: a test that
 	// reimplements the logic it is checking passes whatever the code does.
-	drift := factsLocusDrift(repoDir, factsEligibleForLocusDrift(matches, globalIDs))
+	drift := retrieval.FactsLocusDrift(repoDir, retrieval.FactsEligibleForLocusDrift(matches, globalIDs))
 	if _, flagged := drift["global-1"]; flagged {
 		t.Fatal("a global fact was flagged as having a stale locus in a repository it was never scoped to")
 	}
@@ -619,7 +620,7 @@ func TestARetractedRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	retracted := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusRetracted, Branch: "main"}
 	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
-	merged, globalIDs := mergeGlobalFacts([]factRecord{retracted}, []factRecord{global})
+	merged, globalIDs := retrieval.MergeGlobalFacts([]factRecord{retracted}, []factRecord{global})
 	if len(merged) != 2 {
 		t.Fatalf("the active global fact was suppressed by a retracted local one: %+v", merged)
 	}
@@ -641,7 +642,7 @@ func TestASupersededRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	superseded := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusSuperseded, Branch: "main"}
 	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
-	merged, globalIDs := mergeGlobalFacts([]factRecord{superseded}, []factRecord{global})
+	merged, globalIDs := retrieval.MergeGlobalFacts([]factRecord{superseded}, []factRecord{global})
 	if len(merged) != 2 || !globalIDs["same-id"] {
 		t.Fatalf("a superseded local fact suppressed the global one: %+v %+v", merged, globalIDs)
 	}
@@ -682,7 +683,7 @@ func TestQueryAndSearchSurfaceGlobalFacts(t *testing.T) {
 	var out strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
-	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
+	if err := runRetrieve(context.Background(), cmd, opts, "orion", retrieval.ModeLexical, 10, "feature",
 		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
 		t.Fatalf("runRetrieve: %v", err)
 	}
@@ -702,7 +703,7 @@ func TestQueryRespectsTheGlobalOffSwitch(t *testing.T) {
 	var out strings.Builder
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
-	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
+	if err := runRetrieve(context.Background(), cmd, opts, "orion", retrieval.ModeLexical, 10, "feature",
 		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
 		t.Fatalf("runRetrieve: %v", err)
 	}
@@ -816,7 +817,7 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	if err := factstore.Write(brainDir, "feature", local); err != nil {
 		t.Fatal(err)
 	}
-	for _, mode := range []retrievalMode{modeLexical, modeHybrid, modeVector} {
+	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeHybrid, retrieval.ModeVector} {
 		results, err := retrieveUnifiedWithOptions(opts.Env.RepoRoot, brainDir, "feature", "orion", 10, mode,
 			retrievalOptions{Source: brainstore.RetrievalSourceFact, GlobalFacts: globals})
 		if err != nil {
@@ -851,12 +852,12 @@ func TestRetrievalCommandsCanExcludeGlobalFactsPerRequest(t *testing.T) {
 	for _, use := range []string{"search", "query", "vsearch"} {
 		for _, noGlobal := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/no-global=%v", use, noGlobal), func(t *testing.T) {
-				mode := modeLexical
+				mode := retrieval.ModeLexical
 				if use == "query" {
-					mode = modeHybrid
+					mode = retrieval.ModeHybrid
 				}
 				if use == "vsearch" {
-					mode = modeVector
+					mode = retrieval.ModeVector
 				}
 				cmd := newRetrieveCommand(opts, use, mode, "test")
 				var out bytes.Buffer
@@ -972,7 +973,7 @@ func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
 	}
 	for _, result := range found {
 		for _, caveat := range result.Caveats {
-			if caveat.Kind == retrievalCaveatUnresolvedReview {
+			if caveat.Kind == retrieval.CaveatUnresolvedReview {
 				t.Fatalf("global fallback revived a retired repository proposal: %+v", result)
 			}
 		}

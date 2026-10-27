@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // TestIncrementalHistoryMatchesFullRebuild protects the optimization boundary
@@ -89,7 +90,7 @@ func conversationRetrievalContract(t testing.TB, brainDir string) []conversation
 	}
 	var observed []conversationRetrievalObservation
 	for _, query := range queries {
-		results, err := retrieveConversation(brainDir, query, 10, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, query, 10, retrieval.ModeLexical, retrievalOptions{})
 		if err != nil {
 			t.Fatalf("retrieve %q: %v", query, err)
 		}

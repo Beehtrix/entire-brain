@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"slices"
@@ -660,7 +661,7 @@ func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	}
 	found := false
 	for _, w := range report.Warnings {
-		if w == factReviewQueueUnavailableWarning {
+		if w == retrieval.FactReviewQueueUnavailableWarning {
 			found = true
 		}
 	}
@@ -672,7 +673,7 @@ func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("brief text: %v\n%s", err, textOut)
 	}
-	if !strings.Contains(textOut, factReviewQueueUnavailableWarning) {
+	if !strings.Contains(textOut, retrieval.FactReviewQueueUnavailableWarning) {
 		t.Fatalf("text brief omitted the queue-unreadable warning:\n%s", textOut)
 	}
 }

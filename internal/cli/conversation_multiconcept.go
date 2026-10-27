@@ -7,6 +7,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 // conversation_multiconcept.go implements multi-concept session recall:
@@ -32,16 +33,6 @@ const (
 // conversationConceptScanCeiling is a var so focused tests can prove the
 // overflow contract without building ten thousand-record fixtures.
 var conversationConceptScanCeiling = 10000
-
-// conceptMatch names the best supporting exchange for one concept inside a
-// matching session.
-type conceptMatch struct {
-	Concept        string   `json:"concept"`
-	ConversationID string   `json:"conversation_id"`
-	Rank           int      `json:"rank"` // 1-based rank in the concept's own list
-	MatchedTerms   []string `json:"matched_terms,omitempty"`
-	Arm            string   `json:"arm"` // lexical | semantic | fused
-}
 
 // normalizeConversationConcepts merges the primary query with the extra
 // concepts: whitespace-normalized, case-insensitively deduplicated, bounded,
@@ -102,7 +93,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		return nil, err
 	}
 	if manifest.Sources == nil || manifest.Sources.History == nil {
-		if mode == modeVector {
+		if mode == retrieval.ModeVector {
 			return nil, errConversationVectorUnsupported
 		}
 		return nil, nil
@@ -116,7 +107,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 		return nil, err
 	}
 	winners := fresh.duplicateRecordWinners()
-	filtered := opts.hasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
+	filtered := opts.HasConversationOnlyFilters() || strings.TrimSpace(opts.Branch) != ""
 	// The predicate is always non-nil here: complete enumeration rides the
 	// same exhaustive-scan machinery as filtered single-concept search.
 	pred := func(r historyRecord) bool {
@@ -135,9 +126,9 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	rankOne := func(concept string) (conceptRankList, error) {
 		list := conceptRankList{concept: concept}
 		switch mode {
-		case modeVector:
+		case retrieval.ModeVector:
 			return list, errConversationVectorUnsupported
-		case modeHybrid:
+		case retrieval.ModeHybrid:
 			fallthrough
 		default:
 			var exhaustiveState historyExhaustiveRankState

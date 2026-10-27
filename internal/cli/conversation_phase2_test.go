@@ -13,6 +13,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -168,7 +169,7 @@ func TestConversationStructuredFilters(t *testing.T) {
 	query := "deploy pipeline"
 	get := func(opts retrievalOptions) []string {
 		t.Helper()
-		results, err := retrieveConversation(brainDir, query, 10, modeLexical, opts)
+		results, err := retrieveConversation(brainDir, query, 10, retrieval.ModeLexical, opts)
 		if err != nil {
 			t.Fatalf("retrieve: %v", err)
 		}
@@ -206,12 +207,12 @@ func TestConversationStructuredFilters(t *testing.T) {
 	}
 
 	// Filters on non-conversation sources are a structured error.
-	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory, Agent: "Codex"}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory, Agent: "Codex"}); err == nil {
 		t.Fatal("agent filter with source=history must error")
 	}
 
 	// Explainability: matched terms surface on every result.
-	results, err := retrieveConversation(brainDir, "deploy pipeline beta", 10, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "deploy pipeline beta", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -241,7 +242,7 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 	brainDir := writeConversationFilterFixture(t)
 	// limit 4 → per-session cap 2. sess-a has three strong candidates; b and c
 	// must still appear.
-	results, err := retrieveConversation(brainDir, "deploy pipeline", 4, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "deploy pipeline", 4, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -258,7 +259,7 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 
 	// Backfill: when only one session matches, the cap must not starve the
 	// result list.
-	only, err := retrieveConversation(brainDir, "alpha attempt", 3, modeLexical, retrievalOptions{})
+	only, err := retrieveConversation(brainDir, "alpha attempt", 3, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -267,7 +268,7 @@ func TestConversationSessionDiversityCap(t *testing.T) {
 	}
 
 	// An explicit session filter disables the cap.
-	scoped, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeLexical, retrievalOptions{SessionID: "sess-a"})
+	scoped, err := retrieveConversation(brainDir, "deploy pipeline", 10, retrieval.ModeLexical, retrievalOptions{SessionID: "sess-a"})
 	if err != nil {
 		t.Fatalf("retrieve: %v", err)
 	}
@@ -281,14 +282,14 @@ func TestConversationVectorModeExplicitUnavailable(t *testing.T) {
 	// On this build/environment the conversation semantic arm is closed:
 	// vsearch must return the structured unavailable error, and hybrid must
 	// produce exactly the lexical results.
-	if _, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeVector, retrievalOptions{}); err == nil {
+	if _, err := retrieveConversation(brainDir, "deploy pipeline", 10, retrieval.ModeVector, retrievalOptions{}); err == nil {
 		t.Fatal("vector mode with a closed semantic arm must error explicitly")
 	}
-	hybrid, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeHybrid, retrievalOptions{})
+	hybrid, err := retrieveConversation(brainDir, "deploy pipeline", 10, retrieval.ModeHybrid, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("hybrid: %v", err)
 	}
-	lexical, err := retrieveConversation(brainDir, "deploy pipeline", 10, modeLexical, retrievalOptions{})
+	lexical, err := retrieveConversation(brainDir, "deploy pipeline", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("lexical: %v", err)
 	}
@@ -359,7 +360,7 @@ func TestConversationFilteredCandidateWindowCompleteness(t *testing.T) {
 
 	// The fixture is genuinely adversarial: unfiltered top-k at this limit is
 	// noise only.
-	unfiltered, err := retrieveConversation(brainDir, query, 2, modeLexical, retrievalOptions{})
+	unfiltered, err := retrieveConversation(brainDir, query, 2, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("unfiltered: %v", err)
 	}
@@ -376,7 +377,7 @@ func TestConversationFilteredCandidateWindowCompleteness(t *testing.T) {
 		"branch":  {Branch: "release"},
 		"after":   {After: after},
 	}
-	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeHybrid} {
 		for name, opts := range cases {
 			results, err := retrieveConversation(brainDir, query, 2, mode, opts)
 			if err != nil {
@@ -399,7 +400,7 @@ func TestConversationFilteredCandidateWindowCompleteness(t *testing.T) {
 
 	// A filter matching nothing stays a proven-complete empty result, not an
 	// error: the scan exhausted the match set below the ceiling.
-	empty, err := retrieveConversation(brainDir, query, 2, modeLexical, retrievalOptions{SessionID: "absent-sess"})
+	empty, err := retrieveConversation(brainDir, query, 2, retrieval.ModeLexical, retrievalOptions{SessionID: "absent-sess"})
 	if err != nil {
 		t.Fatalf("proven-empty: %v", err)
 	}
@@ -417,7 +418,7 @@ func TestConversationFilteredScanDegradedState(t *testing.T) {
 	historyFTSFilteredScanCeiling = 8
 	defer func() { historyFTSFilteredScanCeiling = old }()
 
-	_, err := retrieveConversation(brainDir, "lock timeout", 2, modeLexical, retrievalOptions{SessionID: "absent-sess"})
+	_, err := retrieveConversation(brainDir, "lock timeout", 2, retrieval.ModeLexical, retrievalOptions{SessionID: "absent-sess"})
 	if err == nil {
 		t.Fatal("ceiling-truncated filtered scan must return a structured degraded state")
 	}

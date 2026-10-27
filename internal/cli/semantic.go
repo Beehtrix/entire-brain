@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"hash"
 	"io"
@@ -3598,7 +3599,7 @@ const (
 var brainBundleLayers = []brainBundleLayer{
 	{name: "runtime_traces", dir: "semantic/traces"},
 	{name: bundleLayerSeed, dir: seedDirName},
-	{name: bundleLayerDocs, dir: docDirName},
+	{name: bundleLayerDocs, dir: docstore.DirName},
 	{name: bundleLayerFacts, dir: factstore.DirName},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
 	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},

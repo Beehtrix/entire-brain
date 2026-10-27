@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"path/filepath"
@@ -75,15 +76,15 @@ type retrievalTaskHints struct {
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
 func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
+	return newRetrieveCommand(opts, "search", retrieval.ModeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
 }
 
 func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
+	return newRetrieveCommand(opts, "vsearch", retrieval.ModeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newQueryCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "query", modeHybrid, "Search the brain (BM25 lexical ranking)")
+	return newRetrieveCommand(opts, "query", retrieval.ModeHybrid, "Search the brain (BM25 lexical ranking)")
 }
 
 func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
@@ -112,7 +113,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			}
 			ropts.IncludeAbstract = includeAbstract
 			ropts.NoGlobalFacts = noGlobal
-			ropts, err = withRecencyOptions(ropts, recency, recencyHalfLife)
+			ropts, err = retrieval.WithRecencyOptions(ropts, recency, recencyHalfLife)
 			if err != nil {
 				return err
 			}
@@ -148,7 +149,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 // contract from CLI flags. branch doubles as the conversation
 // branch filter; error text names bare flag words so the CLI can prefix "--".
 func buildRetrievalOptions(source, after, before, session, agent, branch string, concepts []string) (retrievalOptions, error) {
-	parsedSource, err := parseRetrievalSource(source)
+	parsedSource, err := retrieval.ParseSource(source)
 	if err != nil {
 		return retrievalOptions{}, err
 	}
@@ -166,11 +167,11 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 	if len(trimmedConcepts) > 0 && parsedSource != brainstore.RetrievalSourceConversation {
 		return retrievalOptions{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
 	}
-	afterTime, err := parseRetrievalTimeFilter(after)
+	afterTime, err := retrieval.ParseTimeFilter(after)
 	if err != nil {
 		return retrievalOptions{}, fmt.Errorf("after: %s", err.Error())
 	}
-	beforeTime, err := parseRetrievalTimeFilter(before)
+	beforeTime, err := retrieval.ParseTimeFilter(before)
 	if err != nil {
 		return retrievalOptions{}, fmt.Errorf("before: %s", err.Error())
 	}
@@ -874,12 +875,12 @@ func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
 		return fallback, fmt.Errorf("--keyword and --semantic are mutually exclusive")
 	}
 	if s.keyword {
-		return modeLexical, nil
+		return retrieval.ModeLexical, nil
 	}
 	if s.semantic {
 		// Semantic retrieval was removed (trail #278); the flag is honored as
 		// a compatibility alias for the default BM25 ranking.
-		return modeHybrid, nil
+		return retrieval.ModeHybrid, nil
 	}
 	return fallback, nil
 }

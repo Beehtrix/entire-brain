@@ -12,6 +12,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -74,7 +75,7 @@ func TestCorruptSessionTombstonesFailClosedAcrossFreshRetrievalLoads(t *testing.
 	// retained, so each request independently reloads the durable policy.
 	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
 	for request := 1; request <= 2; request++ {
-		results, err := retrieveConversation(brainDir, "projection publication", 5, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, "projection publication", 5, retrieval.ModeLexical, retrievalOptions{})
 		if len(results) != 0 {
 			t.Fatalf("request %d served excluded results: %+v", request, results)
 		}

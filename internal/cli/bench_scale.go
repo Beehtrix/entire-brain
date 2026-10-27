@@ -15,8 +15,10 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -565,11 +567,11 @@ func measureCodeSearchLatency(ctx context.Context, opts Options, queries []strin
 // authoritative.
 func retrievalModeName(mode retrievalMode) string {
 	switch mode {
-	case modeLexical:
+	case retrieval.ModeLexical:
 		return "knowledge_lexical"
-	case modeVector:
+	case retrieval.ModeVector:
 		return "knowledge_vector"
-	case modeHybrid:
+	case retrieval.ModeHybrid:
 		return "knowledge_hybrid"
 	default:
 		return fmt.Sprintf("knowledge_mode_%d", int(mode))
@@ -589,7 +591,7 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 		warnings = append(warnings, "knowledge corpus size unavailable: "+countErr.Error())
 	}
 
-	for _, mode := range []retrievalMode{modeLexical, modeHybrid} {
+	for _, mode := range []retrievalMode{retrieval.ModeLexical, retrieval.ModeHybrid} {
 		var samples []float64
 		failures := 0
 		for _, query := range queries {
@@ -627,7 +629,7 @@ func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
 		return 0, err
 	}
 	records := len(facts)
-	index, err := loadDocIndex(brainDir)
+	index, err := docstore.Load(brainDir)
 	if err == nil {
 		records += len(index.Records)
 	} else if !os.IsNotExist(err) {

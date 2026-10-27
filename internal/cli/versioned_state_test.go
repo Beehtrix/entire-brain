@@ -35,11 +35,12 @@ var decodersAllowedToRejectUnknownFields = map[string]string{
 func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {
 	t.Parallel()
 
-	// "." plus internal/manifest, internal/factstore, internal/historystore and
-	// internal/semstore: the manifest decoder, the durable-facts store and the
-	// history-store and semantic-store read layers sank there (COR-2268) and
+	// "." plus internal/manifest, internal/factstore, internal/historystore,
+	// internal/semstore, internal/docstore and internal/retrieval: the manifest
+	// decoder, the durable-facts store, and the history-store, semantic-store,
+	// doc-store and retrieval-engine read layers sank there (COR-2268) and
 	// must stay under this guard rather than escape it by moving.
-	for _, dir := range []string{".", "internal/manifest", "internal/factstore", "internal/historystore", "internal/semstore"} {
+	for _, dir := range []string{".", "internal/manifest", "internal/factstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

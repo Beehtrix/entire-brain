@@ -1,4 +1,4 @@
-package cli
+package retrieval
 
 import (
 	"fmt"
@@ -8,21 +8,21 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
-// withRecencyOptions validates the recency opt-in contract.
-func withRecencyOptions(opts retrievalOptions, enabled bool, halfLife string) (retrievalOptions, error) {
+// WithRecencyOptions validates the recency opt-in contract.
+func WithRecencyOptions(opts Options, enabled bool, halfLife string) (Options, error) {
 	opts.Recency = enabled
 	if halfLife != "" {
 		if !enabled {
-			return retrievalOptions{}, fmt.Errorf("recency half-life requires recency to be enabled")
+			return Options{}, fmt.Errorf("recency half-life requires recency to be enabled")
 		}
 		duration, err := time.ParseDuration(halfLife)
 		if err != nil || duration <= 0 {
-			return retrievalOptions{}, fmt.Errorf("recency half-life must be a positive Go duration (for example 720h)")
+			return Options{}, fmt.Errorf("recency half-life must be a positive Go duration (for example 720h)")
 		}
 		opts.RecencyHalfLife = duration
 	}
 	if enabled && opts.Source == brainstore.RetrievalSourceConversation {
-		return retrievalOptions{}, fmt.Errorf("recency is not supported for source conversation")
+		return Options{}, fmt.Errorf("recency is not supported for source conversation")
 	}
 	return opts, nil
 }
@@ -111,7 +111,7 @@ func recencyMultiplierFor(recordedAt string, now time.Time, halfLife time.Durati
 // applyRecency reweights fused results in place and re-sorts them. It returns
 // the number of results that carried a usable timestamp, so the caller can
 // report when weighting could not run because nothing is dated.
-func applyRecency(results []unifiedResult, now time.Time, halfLife time.Duration) int {
+func applyRecency(results []Result, now time.Time, halfLife time.Duration) int {
 	dated := 0
 	for i := range results {
 		stamp := results[i].CreatedAt

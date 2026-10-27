@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,12 +40,12 @@ func (*wrongDimensionQueryEmbedder) ID() string                  { return "wrong
 
 func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, docDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, docstore.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	idx := docIndex{Records: []docRecord{{ID: "aaa", Text: "alpha"}, {ID: "bbb", Text: "beta"}}}
 	data, _ := json.Marshal(idx)
-	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(docstore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	found, missing, err := getUnifiedBatch("", dir, "main", []string{"doc:bbb", "doc:nope", "doc:aaa"})
@@ -60,15 +62,15 @@ func TestGetUnifiedBatchPreservesOrderAndReportsMissing(t *testing.T) {
 
 func TestUnifiedIDsNotDoublePrefixed(t *testing.T) {
 	// fact/history ids are already source-prefixed; docs are not.
-	f := factsToUnified([]factRecord{{ID: "fact:abc", Text: "x"}})
+	f := retrieval.FactsToUnified([]factRecord{{ID: "fact:abc", Text: "x"}})
 	if f[0].ID != "fact:abc" {
 		t.Fatalf("fact id double-prefixed: %s", f[0].ID)
 	}
-	h := historyToUnified([]scoredHistoryRecord{{Record: historyRecord{ID: "history:def", Summary: "y"}}})
+	h := retrieval.HistoryToUnified([]scoredHistoryRecord{{Record: historyRecord{ID: "history:def", Summary: "y"}}})
 	if h[0].ID != "history:def" {
 		t.Fatalf("history id double-prefixed: %s", h[0].ID)
 	}
-	if d := docToUnified(docRecord{ID: "ghi", Text: "z"}); d.ID != "doc:ghi" {
+	if d := retrieval.DocToUnified(docRecord{ID: "ghi", Text: "z"}); d.ID != "doc:ghi" {
 		t.Fatalf("doc id: %s", d.ID)
 	}
 }
@@ -92,7 +94,7 @@ func TestRRFMergeUnifiedFavorsCrossListMatches(t *testing.T) {
 		{{ID: "a"}, {ID: "b"}},
 		{{ID: "b"}, {ID: "c"}},
 	}
-	out := rrfMergeUnified(lists, 10)
+	out := retrieval.RRFMergeUnified(lists, 10)
 	if len(out) != 3 || out[0].ID != "b" {
 		t.Fatalf("expected b (in both lists) ranked first, got %v", out)
 	}
@@ -216,18 +218,6 @@ func TestSeedAgentCommandArgsClaudeCodeDisablesToolsAndSessions(t *testing.T) {}
 	}
 }
 
-func TestFilterHistoryRetrievalSelfEchoesRefillsWithEvidence(t *testing.T) {
-	scored := []scoredHistoryRecord{
-		{Record: historyRecord{Kind: "tool_call", Summary: `entire brain search '.github symbol was unexpectedly ignored' --json`}},
-		{Record: historyRecord{Kind: "code_fact", Summary: `t.Fatalf(".github symbol was unexpectedly ignored")`}},
-		{Record: historyRecord{Kind: "tool_call", Summary: `go test ./internal/cli -run TestSemantic`}},
-	}
-	got := filterHistoryRetrievalSelfEchoes(scored, ".github symbol was unexpectedly ignored")
-	if len(got) != 2 || got[0].Record.Kind != "code_fact" || got[1].Record.Kind != "tool_call" {
-		t.Fatalf("filtered history = %+v", got)
-	}
-}
-
 func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 	query := ".github symbol was unexpectedly ignored"
 	index := historyIndex{Records: []historyRecord{
@@ -236,7 +226,7 @@ func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 		{ID: "history:evidence", Kind: "code_fact", Path: "sessions/main/a.jsonl", Line: 3, Summary: `Regression coverage proves the .github symbol was unexpectedly ignored.`},
 	}}
 	brainDir, _ := writeDirectHistoryFTSFixture(t, index)
-	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
+	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,12 +578,12 @@ func TestPrintRetrievalCaveatsIncludesStructuredContext(t *testing.T) {
 	var out strings.Builder
 	printRetrievalCaveats(&out, unifiedResult{Caveats: []retrievalCaveat{
 		{
-			Kind:    retrievalCaveatStaleLocus,
+			Kind:    retrieval.CaveatStaleLocus,
 			Message: "Current code no longer contains every recorded path.",
 			Paths:   []string{"internal/old.go", "pkg/removed.go"},
 		},
 		{
-			Kind:       retrievalCaveatUnresolvedReview,
+			Kind:       retrieval.CaveatUnresolvedReview,
 			Message:    "A pending supersede proposal requires review.",
 			ReviewID:   "review:abc",
 			Action:     factActionSupersede,

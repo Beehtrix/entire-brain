@@ -46,40 +46,6 @@ func globalFactIDs(facts []factRecord) map[string]bool {
 	return ids
 }
 
-// mergeGlobalFacts appends global facts to a repository's, dropping any whose
-// id a repository fact already has.
-//
-// The repository's copy wins on a collision. Fact ids are content-derived, so a
-// collision means the same statement is recorded in both places; the local one
-// is the more specific claim and carries that repo's provenance, which is the
-// evidence somebody would check.
-func mergeGlobalFacts(repoFacts, global []factRecord) ([]factRecord, map[string]bool) {
-	// Only a live repository fact shadows. The precedence above is justified by
-	// the local copy being the more specific claim carrying checkable
-	// provenance; a retracted or superseded fact makes no claim, so it has
-	// nothing to shadow with. Letting it shadow anyway would mean retracting a
-	// local duplicate silently removed the global statement from this one repo.
-	seen := make(map[string]bool, len(repoFacts))
-	for _, fact := range repoFacts {
-		switch fact.Status {
-		case "", factStatusActive:
-			seen[fact.ID] = true
-		}
-	}
-	merged := repoFacts
-	globalIDs := map[string]bool{}
-	for _, fact := range global {
-		if seen[fact.ID] {
-			continue
-		}
-		// A retracted or superseded global fact is filtered by the same code
-		// that filters repository ones; nothing special happens here.
-		merged = append(merged, fact)
-		globalIDs[fact.ID] = true
-	}
-	return merged, globalIDs
-}
-
 // globalFactsEnabled reports whether global facts should be merged into a
 // repository read.
 //

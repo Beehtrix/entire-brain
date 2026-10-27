@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	workspacelib "github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -1460,14 +1461,14 @@ func TestWorkspaceRefreshReportsMissingBrains(t *testing.T) {
 func writeWorkspaceDocIndex(t *testing.T, env EntireEnv, key string, records ...docRecord) {
 	t.Helper()
 	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Join(brainDir, docDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, docstore.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	data, err := json.Marshal(docIndex{Records: records})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(docstore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
@@ -70,9 +71,9 @@ func declaredIndexPath(manifest *exportManifest, source brainstore.DeclaredIndex
 			return ""
 		}
 		// The docs source records index_path, but every reader of the doc index
-		// opens the constant (see openDeclaredDocIndex). Report the path that is
+		// opens the constant (see docstore.OpenDeclaredIndex). Report the path that is
 		// actually read, so the remedy names the file that is actually missing.
-		return docIndexPath
+		return docstore.IndexPath
 	}
 	return ""
 }

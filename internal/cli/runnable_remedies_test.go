@@ -31,10 +31,10 @@ var hardcodedBrainVerb = regexp.MustCompile(`entire brain [a-z][a-z-]*\b`)
 // Each reason is a category, not a per-line excuse.
 var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"command/add/add.go", "with ` + \"`entire brain dash`\"", "cobra Long help text built at command-construction time, before any lookup exists"},
-	{"retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
+	{"internal/retrieval/retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
-	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
-	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
+	{"internal/retrieval/retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
+	{"internal/retrieval/retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
 	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
 	{"command/publish/publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
 	{"doctor.go", "cd '<your repository>' && entire brain doctor", "a shell TEMPLATE with a cd and a placeholder, not a verb the lookup can render"},
@@ -44,10 +44,10 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	scanned, helperSites, allowed := 0, 0, 0
 	// "." plus the packages remedies have sunk into (COR-2268): the fact-store
 	// remedies, the add command, the declared-index repair hint, and the
-	// history-store and semantic-store read-layer remedies must stay under
-	// this guard rather than escape it by moving.
+	// history-store, semantic-store, doc-store, and retrieval-engine read
+	// layers must stay under this guard rather than escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "internal/brainstore", "internal/historystore", "internal/semstore"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

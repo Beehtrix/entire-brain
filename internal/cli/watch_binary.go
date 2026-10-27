@@ -8,7 +8,7 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/spf13/cobra"
+	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
 )
 
 // errWatchBinaryReplaced ends the supervised loop when the executable this
@@ -89,17 +89,13 @@ func relaunchInstalledDaemon(out io.Writer, env EntireEnv) {
 	}
 }
 
-// newDaemonReregisterCommand is the internal command the exiting daemon spawns
-// (detached, on the replaced binary) to re-register the installed watcher.
-func newDaemonReregisterCommand(opts Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "daemon-reregister",
-		Short: "Re-register the installed background watcher with the service manager (internal)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runDaemonReregister(cmd.Context(), cmd.OutOrStdout(), opts)
-		},
-	}
+// daemonReregisterConfig binds the re-registration engine at the assembly
+// boundary: the command package never imports cli, and the unit plan, the
+// registration lock, and the installer verbs stay here with `setup`.
+func daemonReregisterConfig(opts Options) daemonreregister.Config {
+	return daemonreregister.Config{Options: opts, Deps: daemonreregister.Deps{
+		Reregister: runDaemonReregister,
+	}}
 }
 
 // runDaemonReregister reinstalls the machine's one watcher under the same lock

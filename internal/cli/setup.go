@@ -1471,7 +1471,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
-	if backgroundPaused(opts.Env) {
+	if base.BackgroundPaused(opts.Env) {
 		return setupBackfillSkippedBecause(phase, "background work paused",
 			"not distilled: background work is paused "+dash+" run `"+base.SetupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
 			setupui.ConsentReasonPaused)

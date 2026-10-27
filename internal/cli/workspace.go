@@ -358,7 +358,7 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 			// Checked per workspace so a `stop` mid-pass spares the rest. Pausing
 			// skips work but keeps the loop and its cadence: the unit is
 			// KeepAlive, so exiting would only be restarted straight back here.
-			if backgroundPaused(env) {
+			if base.BackgroundPaused(env) {
 				fmt.Fprintln(out, "[watch] paused — `entire-brain start` resumes")
 				break
 			}

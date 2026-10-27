@@ -1457,7 +1457,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// coordinator state. No relaunch is scheduled: the durable hints
 			// remain for the next launch after `start` (a hook or watch
 			// pass) to drain.
-			if backgroundPaused(opts.Env) {
+			if base.BackgroundPaused(opts.Env) {
 				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
@@ -1505,7 +1505,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				}
 			}
 			// Again after the leased tail: a `stop` during it must still win.
-			if backgroundPaused(opts.Env) {
+			if base.BackgroundPaused(opts.Env) {
 				outcome = "cancelled"
 				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}

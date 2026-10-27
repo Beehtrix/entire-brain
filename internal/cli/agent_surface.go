@@ -29,6 +29,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/spf13/cobra"
@@ -612,7 +613,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 			}
 		}
 	}
-	report.StrongestPatterns, err = strongestPatternsChecked(status.Brain.Path, 3)
+	report.StrongestPatterns, err = patterncore.StrongestPatternsChecked(status.Brain.Path, 3)
 	if err != nil {
 		return err
 	}
@@ -1891,7 +1892,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// state instead of presenting it as empty. A genuinely absent corpus
 	// is still optional and contributes nothing.
 	patternsStarted := profile.start()
-	views, _, perr := loadPatternViews(status.Brain.Path)
+	views, _, perr := patterncore.LoadPatternViews(status.Brain.Path)
 	if perr != nil {
 		return perr
 	}
@@ -1910,7 +1911,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	}
 	// Verified latent-practice themes relevant to the task (no noise; accepted only).
 	themesStarted := profile.start()
-	themes, themeErr := loadThemeViewsChecked(status.Brain.Path, true)
+	themes, themeErr := patterncore.LoadThemeViewsChecked(status.Brain.Path, true)
 	if themeErr != nil {
 		return themeErr
 	}

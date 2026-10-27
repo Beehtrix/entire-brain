@@ -347,13 +347,13 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsEpisodesPath)), []byte(episodesBuf.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{patternsTasksPath, patternsProceduresPath, patternsPracticesPath, patterncore.RunsRelPath, patterncore.CorpusPath} {
+	for _, rel := range []string{patternsTasksPath, patterncore.ProceduresPath, patterncore.PracticesPath, patterncore.RunsRelPath, patterncore.CorpusPath} {
 		if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(rel)), []byte("derived "+privacyCanary+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	skillMemoryBody := `{"pattern_id":"task:x","status":"active","skill_name":"deploy-check"}` + "\n"
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath)), []byte(skillMemoryBody), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath)), []byte(skillMemoryBody), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	cache := loadDistillCache(brainDir)
@@ -372,7 +372,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 	if plan.FactsDeleted != 1 || plan.FactAnchorsStripped != 1 || plan.Episodes != 1 {
 		t.Fatalf("plan = facts_deleted=%d stripped=%d episodes=%d, want 1/1/1", plan.FactsDeleted, plan.FactAnchorsStripped, plan.Episodes)
 	}
-	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patternsProceduresPath: false, patternsPracticesPath: false, patterncore.RunsRelPath: false}
+	wantStores := map[string]bool{patterncore.CorpusPath: false, patternsTasksPath: false, patterncore.ProceduresPath: false, patterncore.PracticesPath: false, patterncore.RunsRelPath: false}
 	for _, store := range plan.DerivedStores {
 		if _, ok := wantStores[store.Path]; ok {
 			wantStores[store.Path] = true
@@ -428,7 +428,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 
 	// Skill memory (user curation) survives; distill cache keeps only the
 	// clean session.
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); err != nil {
 		t.Fatalf("skill memory must survive purge: %v", err)
 	}
 	cacheAfter := loadDistillCache(brainDir)

@@ -27,6 +27,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/guide"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
@@ -139,7 +140,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", connect.New(connectConfig(opts)))
 	addGrouped("facts", disconnect.New(disconnectConfig(opts)))
 	addGrouped("facts", newVerifyCommand(opts))
-	addGrouped("facts", newPatternsCommand(opts))
+	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
 	addGrouped("operations", newPrivacyCommand(opts))

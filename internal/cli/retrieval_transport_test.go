@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/command/dash"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -569,7 +570,7 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 			t.Fatal(err)
 		}
 		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+			return runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 		})
 	})
 }
@@ -610,7 +611,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+		err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 }
@@ -637,7 +638,7 @@ func TestWorkspaceAggregateRejectsAlreadyDirtyMember(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
 	cmd.SetErr(&bytes.Buffer{})
-	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternsListOptions{asJSON: true})
+	err := runWorkspacePatternsList(context.Background(), cmd, fixture.Options, workspaceName, patternscmd.ListOptions{AsJSON: true})
 	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyDirtyCode) {
 		t.Fatalf("workspace dirty-member error=%v, want %s", err, brainstore.PrivacyDirtyCode)
 	}

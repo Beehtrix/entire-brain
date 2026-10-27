@@ -384,7 +384,7 @@ func writeBrainTasksFile(outputDir string, tasks []taskCandidate) error {
 }
 
 func loadBrainTasks(brainDir string) ([]taskCandidate, error) {
-	content, err := readBrainRelativeStateFile(brainDir, patternsTasksPath)
+	content, err := brainstore.ReadBrainRelativeStateFile(brainDir, patternsTasksPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -268,7 +269,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	})
 
 	// Missing before refresh.
-	if got := buildPatternsStatusReport(brainDir); got.Present || got.Freshness != "missing" {
+	if got := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps()); got.Present || got.Freshness != "missing" {
 		t.Errorf("pre-refresh status = %+v, want present=false freshness=missing", got)
 	}
 
@@ -286,7 +287,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 		t.Fatal("persisted episodes differ from freshly built")
 	}
 
-	status := buildPatternsStatusReport(brainDir)
+	status := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps())
 	if !status.Present || status.Freshness != "current" {
 		t.Errorf("status = %+v, want present=true freshness=current", status)
 	}
@@ -303,7 +304,7 @@ func TestWriteLoadAndStatus(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	if got := buildPatternsStatusReport(brainDir); got.Freshness != "stale" {
+	if got := patternscmd.BuildStatusReport(brainDir, patternsCmdDeps()); got.Freshness != "stale" {
 		t.Errorf("post-mutation freshness = %q, want stale", got.Freshness)
 	}
 }

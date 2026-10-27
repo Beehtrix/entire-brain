@@ -33,7 +33,7 @@ func TestQualityCorpusDeletablePreservesDecisions(t *testing.T) {
 		PatternID: "pattern:abc", Status: "declined", SkillName: "release-check",
 		Note: "not worth a skill", CreatedAt: now, UpdatedAt: now,
 	}
-	if err := writeBrainSkillMemory(brainDir, []skillMemoryRecord{decision}); err != nil {
+	if err := patterncore.WriteBrainSkillMemory(brainDir, []skillMemoryRecord{decision}); err != nil {
 		t.Fatal(err)
 	}
 	// Delete the rebuildable corpus entirely (and its WAL/SHM siblings).
@@ -45,7 +45,7 @@ func TestQualityCorpusDeletablePreservesDecisions(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatalf("corpus must regenerate after deletion: %v", err)
 	}
-	got, err := loadBrainSkillMemory(brainDir)
+	got, err := patterncore.LoadBrainSkillMemory(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,15 @@ on:
   pull_request:
   workflow_dispatch:
 
+# A force-push or restack queues a new run without this; the superseded run
+# kept waiting in the small depot-macos-26 pool and backed up every PR behind
+# it. Non-PR runs get a per-run group: a shared group would let GitHub replace
+# a *pending* run even with cancel-in-progress false, skipping tests for
+# intermediate commits on rapid pushes to main.
+concurrency:
+  group: test-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

@@ -135,9 +135,9 @@ func IsLoopbackHost(host string) bool {
 // clearly truthy value unlocks plaintext, and anything else — including an
 // unrecognized value — leaves the floor in place.
 //
-// This is deliberately the mirror image of securityToggleEnabled (internal/cli) and
-// toggleOn (internal/hostedbrain), which fail an unrecognized value ON: those toggles
-// switch a protection on, so a typo must not silently disable the protection. This one
+// This is deliberately the mirror image of securityToggleEnabled (internal/cli),
+// which fails an unrecognized value ON: that toggle
+// switches a protection on, so a typo must not silently disable the protection. This one
 // switches a protection OFF, so the same fail-closed principle requires the opposite
 // resolution — a typo'd "ture" must not silently unlock plaintext egress. The
 // operator is still told their value was not understood.

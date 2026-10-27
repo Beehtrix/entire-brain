@@ -132,6 +132,14 @@ type factStoreIntegrity struct {
 	// because it is unaddressable by `get`, invisible to recall, and dropped
 	// by every status/scope filter.
 	Readable int `json:"readable"`
+	// Pending is sources.facts.pending_reconcile — staged candidate records
+	// the manifest deliberately declares OUTSIDE Facts (summarizeFactSource
+	// books a factStatusCandidate under its own counter until the next
+	// distill reconciles it). The store yields those records, so every
+	// Readable-vs-Declared comparison must add Pending back or a brain with
+	// one staged candidate reports "the manifest is behind the store"
+	// forever, through the very refresh the warning recommends.
+	Pending int `json:"pending,omitempty"`
 	// Unusable counts records read from the store that carry no id. They are
 	// reported even when the counts happen to agree, because a manifest
 	// re-summarized from an already-damaged store would otherwise hide them.
@@ -163,11 +171,25 @@ type factStoreIntegrity struct {
 // OK reports a store that can produce what the manifest declares.
 func (r factStoreIntegrity) OK() bool { return r.Mode == factStoreDefectNone }
 
+// pendingClause names the staged-candidate share of the expected count, so a
+// mismatch message whose arithmetic includes Pending still adds up on the page.
+func (r factStoreIntegrity) pendingClause() string {
+	if r.Pending == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (+%d staged candidate(s))", r.Pending)
+}
+
+// expected is every record the manifest accounts for: published facts plus
+// staged candidates awaiting reconciliation. It is what the store must yield
+// for the cross-check to call it intact.
+func (r factStoreIntegrity) expected() int { return r.Declared + r.Pending }
+
 // Lost is how many declared facts the store cannot produce. Zero unless the
 // store is short.
 func (r factStoreIntegrity) Lost() int {
-	if r.Declared > r.Readable {
-		return r.Declared - r.Readable
+	if r.expected() > r.Readable {
+		return r.expected() - r.Readable
 	}
 	return 0
 }
@@ -227,8 +249,8 @@ func (r factStoreIntegrity) Warning() string {
 		)
 	case factStoreDefectLossy:
 		detail := fmt.Sprintf(
-			"memory count does not match the manifest: %d declared, %d readable",
-			r.Declared, r.Readable,
+			"memory count does not match the manifest: %d declared%s, %d readable",
+			r.Declared, r.pendingClause(), r.Readable,
 		)
 		if lost := r.Lost(); lost > 0 {
 			detail += fmt.Sprintf(" (%d lost)", lost)
@@ -250,8 +272,8 @@ func (r factStoreIntegrity) Warning() string {
 		)
 	case factStoreDefectStale:
 		return fmt.Sprintf(
-			"memory count does not match the manifest: %d declared, %d readable; the manifest is behind the store — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`",
-			r.Declared, r.Readable,
+			"memory count does not match the manifest: %d declared%s, %d readable; the manifest is behind the store — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`",
+			r.Declared, r.pendingClause(), r.Readable,
 		)
 	default:
 		return ""
@@ -266,7 +288,7 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 	if brainDir == "" || source == nil {
 		return factStoreIntegrity{}
 	}
-	report := factStoreIntegrity{Declared: source.Facts}
+	report := factStoreIntegrity{Declared: source.Facts, Pending: source.PendingReconcile}
 
 	// Mode 1 — not built. A declared branch with no facts.ndjson is the
 	// already-handled case; keep its more specific message rather than folding
@@ -334,7 +356,7 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 
 	// Mode 3 — readable but short (or long).
 	switch {
-	case report.Readable < report.Declared, report.Unusable > 0:
+	case report.Readable < report.expected(), report.Unusable > 0:
 		report.Mode = factStoreDefectLossy
 	// Mode 4 — readable, and the arithmetic is not short, but a branch holds
 	// one id twice. This runs BEFORE the stale test on purpose: a duplicate
@@ -345,7 +367,7 @@ func inspectFactStore(brainDir string, source *factSourceManifest) factStoreInte
 	// brain goes quiet about a fact it can no longer produce.
 	case len(report.DuplicateIDs) > 0:
 		report.Mode = factStoreDefectDuplicated
-	case report.Readable > report.Declared:
+	case report.Readable > report.expected():
 		report.Mode = factStoreDefectStale
 	}
 	return report

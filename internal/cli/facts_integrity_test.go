@@ -801,3 +801,87 @@ func TestFactStoreIntegrityHealthyStoreHasNoCollisions(t *testing.T) {
 		t.Fatalf("distinct/overwritten/duplicates = %d/%d/%v, want 5/0/[]", got.Distinct, got.Overwritten(), got.DuplicateIDs)
 	}
 }
+
+// TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest pins the pending
+// arm of the cross-check. summarizeFactSource deliberately declares a
+// factStatusCandidate under pending_reconcile instead of Facts, so a store
+// holding one is NOT ahead of its manifest. Before this, the check compared
+// Readable against Facts alone and a single staged candidate reported "the
+// manifest is behind the store" forever — including straight through the
+// `refresh` the warning itself recommends, which re-derives the same split.
+func TestFactStoreIntegrityStagedCandidateIsNotAStaleManifest(t *testing.T) {
+	_, _, brainDir, path := factLossFixture(t)
+
+	staged := factRecord{
+		ID:         factRecordID("a staged candidate awaiting reconciliation", []string{"project.tooling.stack"}),
+		Paths:      []string{"project.tooling.stack"},
+		Text:       "a staged candidate awaiting reconciliation",
+		Branch:     "feature",
+		Origin:     factOriginDistilled,
+		Status:     factStatusCandidate,
+		Provenance: []factAnchor{{SessionID: "session-1"}},
+	}
+	encoded, err := json.Marshal(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(append(encoded, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The candidate landed after the manifest: that really is a manifest
+	// behind the store, and must still say so.
+	before := inspectBrainFactStore(brainDir)
+	if before.Mode != factStoreDefectStale {
+		t.Fatalf("un-summarized candidate mode = %q, want stale", before.Mode)
+	}
+
+	// Re-summarize, exactly as `refresh` does. The manifest now declares the
+	// candidate under pending_reconcile, and the store must read as intact —
+	// this is the state the old comparison flagged forever.
+	if err := updateFactSourceManifest(brainDir, time.Date(2026, 8, 10, 3, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	got := inspectBrainFactStore(brainDir)
+	if !got.OK() {
+		t.Fatalf("a declared staged candidate reads as damage: mode=%q warning=%q", got.Mode, got.Warning())
+	}
+	if got.Declared != 5 || got.Pending != 1 || got.Readable != 6 {
+		t.Fatalf("declared/pending/readable = %d/%d/%d, want 5/1/6", got.Declared, got.Pending, got.Readable)
+	}
+
+	// A record the manifest never accounted for still trips the check, and
+	// the message arithmetic names the staged share so the counts add up.
+	extra := staged
+	extra.Text = "a seventh fact nobody told the manifest about"
+	extra.ID = factRecordID(extra.Text, extra.Paths)
+	extra.Status = factStatusActive
+	encoded, err = json.Marshal(extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(append(encoded, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stale := inspectBrainFactStore(brainDir)
+	if stale.Mode != factStoreDefectStale {
+		t.Fatalf("extra active record mode = %q, want stale", stale.Mode)
+	}
+	if !strings.Contains(stale.Warning(), "5 declared (+1 staged candidate(s)), 7 readable") {
+		t.Fatalf("stale warning does not account for the staged share: %q", stale.Warning())
+	}
+}

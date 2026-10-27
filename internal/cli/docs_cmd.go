@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -71,7 +72,7 @@ func newDocsExtractCommand() *cobra.Command {
 					payload["characters"] = len(text)
 					payload["text"] = text
 				}
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			if extractErr != nil {
 				return extractErr

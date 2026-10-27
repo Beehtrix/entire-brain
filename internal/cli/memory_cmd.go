@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"os/exec"
@@ -253,7 +254,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if memoryWorkerOrigin() {
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "ignored memory notification from worker origin")
 				return nil
@@ -286,7 +287,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (daemon tick will reconcile): %v\n", err)
 				}
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"dispatched": "push"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"dispatched": "push"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "dispatched push upload")
 				return nil
@@ -300,7 +301,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 				if warning != "" {
 					payload["warning"] = warning
 				}
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "recorded %s hint for session %s (generation %d)\n", hint.LastEvent, hint.SessionID, hint.Generation)
 			if warning != "" {
@@ -1457,12 +1458,12 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// remain for the next launch after `start` (a hook or watch
 			// pass) to drain.
 			if backgroundPaused(opts.Env) {
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
 			if err != nil {
 				if strings.Contains(err.Error(), "memory_worker_active") {
-					return writeJSON(cmd, memoryWorkerStats{AlreadyActive: true})
+					return cmdutil.WriteJSON(cmd, memoryWorkerStats{AlreadyActive: true})
 				}
 				return err
 			}
@@ -1506,7 +1507,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// Again after the leased tail: a `stop` during it must still win.
 			if backgroundPaused(opts.Env) {
 				outcome = "cancelled"
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			var stats memoryWorkerStats
 			var prepassRetry *time.Duration
@@ -1585,7 +1586,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			for _, issue := range coordinator.healthIssuesSnapshot() {
 				stats.addHealthIssue(issue)
 			}
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		},
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "Run one pass and exit")
@@ -1690,7 +1691,7 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 				}
 			}
 			if jsonOut {
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			return writeMemoryStatusText(cmd, payload)
 		},
@@ -1714,7 +1715,7 @@ func writeMemoryStatusText(cmd *cobra.Command, payload map[string]any) error {
 	if err := decoder.Decode(&normalized); err != nil {
 		return fmt.Errorf("normalize memory status for text rendering: %w", err)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		renderMemoryStatusMap(out, normalized, 0)
 	})
 }
@@ -1829,9 +1830,9 @@ func newMemoryJobsCommand(opts Options) *cobra.Command {
 				jobs = []memoryJob{}
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
+				return cmdutil.WriteJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
 			}
-			return writeText(cmd, func(out io.Writer) {
+			return cmdutil.WriteText(cmd, func(out io.Writer) {
 				for _, job := range jobs {
 					errorCode := ""
 					if job.Error != nil {

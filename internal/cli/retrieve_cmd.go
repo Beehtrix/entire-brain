@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"path/filepath"
 	"strings"
@@ -300,7 +301,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 			return nil
 		}
 		var rendered bytes.Buffer
-		if err := writeTextToWriter(&rendered, func(out io.Writer) {
+		if err := cmdutil.WriteTextToWriter(&rendered, func(out io.Writer) {
 			if len(results) == 0 {
 				fmt.Fprintf(out, "no results for %q\n", query)
 				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
@@ -783,7 +784,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		return missing, nil
 	}
 	var rendered bytes.Buffer
-	if err := writeTextToWriter(&rendered, func(out io.Writer) {
+	if err := cmdutil.WriteTextToWriter(&rendered, func(out io.Writer) {
 		for _, r := range found {
 			label := r.Source
 			if r.VerificationRequired {

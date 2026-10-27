@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"sort"
 	"strings"
@@ -224,7 +225,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	}
 	return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 		if jsonOut {
-			return writeJSON(cmd, packet)
+			return cmdutil.WriteJSON(cmd, packet)
 		}
 		renderHandoff(cmd, packet)
 		return nil

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"os/exec"
@@ -127,7 +128,7 @@ func finishMemoryOperationFailure(cmd *cobra.Command, receipt *memoryOperationRe
 		receipt.ErrorCode = brainstore.MemoryErrorCode(cause)
 	}
 	if jsonOut {
-		if emitErr := writeJSON(cmd, receipt); emitErr != nil {
+		if emitErr := cmdutil.WriteJSON(cmd, receipt); emitErr != nil {
 			return errors.Join(cause, fmt.Errorf("emit %s failure receipt: %w", receipt.Operation, emitErr))
 		}
 	}
@@ -154,9 +155,9 @@ func emitMemoryOperationSuccess(
 		if jsonValue != nil {
 			value = jsonValue(*receipt)
 		}
-		emitErr = writeJSON(cmd, value)
+		emitErr = cmdutil.WriteJSON(cmd, value)
 	} else {
-		emitErr = writeText(cmd, func(out io.Writer) {
+		emitErr = cmdutil.WriteText(cmd, func(out io.Writer) {
 			if renderText != nil {
 				renderText(out, *receipt)
 				return

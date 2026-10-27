@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"strings"
@@ -119,7 +120,7 @@ func runPatternsSkillsList(ctx context.Context, cmd *cobra.Command, opts Options
 			for i, t := range tasks {
 				redacted[i] = redactCandidate(t)
 			}
-			return writeJSON(cmd, redacted)
+			return cmdutil.WriteJSON(cmd, redacted)
 		}
 		out := cmd.OutOrStdout()
 		if len(tasks) == 0 {
@@ -290,7 +291,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	}
 	if !res.IsSkill {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": false, "reason": res.Reason})
+			return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": false, "reason": res.Reason})
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "not a skill: %s\n", res.Reason)
 		return nil
@@ -306,7 +307,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 
 	if s.draftOnly {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": skillText})
+			return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "is_skill": true, "name": name, "skill": skillText})
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), skillText)
 		return nil
@@ -321,7 +322,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 	// draft and the exact would-write destinations. Nothing is written.
 	if !s.yes {
 		if s.asJSON {
-			return writeJSON(cmd, map[string]any{
+			return cmdutil.WriteJSON(cmd, map[string]any{
 				"task_id": cand.ID, "is_skill": true, "name": name,
 				"evidence": redactCandidate(cand), "skill": skillText, "would_write": dests,
 			})
@@ -363,7 +364,7 @@ func synthesizeAndForm(ctx context.Context, cmd *cobra.Command, cand taskCandida
 		return err
 	}
 	if s.asJSON {
-		return writeJSON(cmd, map[string]any{"task_id": cand.ID, "name": name, "status": "active", "installs": installs})
+		return cmdutil.WriteJSON(cmd, map[string]any{"task_id": cand.ID, "name": name, "status": "active", "installs": installs})
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "formed skill %q from %s:\n", name, cand.ID)
 	for _, in := range installs {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -739,7 +740,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 		results = append(results, result)
 	}
 	if contextOpts.json {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspace string                   `json:"workspace"`
 			Results   []workspaceContextResult `json:"results"`
 		}{Workspace: manifest.Name, Results: results})
@@ -799,7 +800,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 		results = append(results, result)
 	}
 	if impactOpts.json {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspace string                  `json:"workspace"`
 			Results   []workspaceImpactResult `json:"results"`
 		}{Workspace: manifest.Name, Results: results})
@@ -856,7 +857,7 @@ func runWorkspaceGraphManifest(cmd *cobra.Command, opts Options, graphOpts works
 		return err
 	}
 	if graphOpts.json {
-		return writeJSON(cmd, payload)
+		return cmdutil.WriteJSON(cmd, payload)
 	}
 	for _, result := range payload.Results {
 		if result.Error != "" {
@@ -1674,51 +1675,6 @@ func workspaceSemanticSource(ctx context.Context, opts Options, repo workspace.R
 	return source, nil
 }
 
-func writeJSON(cmd *cobra.Command, value any) error {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	n, err := fmt.Fprintln(cmd.OutOrStdout(), string(data))
-	if err == nil && n != len(data)+1 {
-		return io.ErrShortWrite
-	}
-	return err
-}
-
-func writeText(cmd *cobra.Command, render func(io.Writer)) error {
-	// Stream directly to stdout instead of buffering the whole rendered body:
-	// large multi-get/fact output must not be held in memory in full. The
-	// sticky writer short-circuits after the first failure and preserves the
-	// error, so callers still skip receipt recording when output fails.
-	return writeTextToWriter(cmd.OutOrStdout(), render)
-}
-
-func writeTextToWriter(writer io.Writer, render func(io.Writer)) error {
-	out := &stickyErrorWriter{writer: writer}
-	render(out)
-	return out.err
-}
-
-type stickyErrorWriter struct {
-	writer io.Writer
-	err    error
-}
-
-func (w *stickyErrorWriter) Write(p []byte) (int, error) {
-	if w.err != nil {
-		return 0, w.err
-	}
-	n, err := w.writer.Write(p)
-	if err == nil && n != len(p) {
-		err = io.ErrShortWrite
-	}
-	if err != nil {
-		w.err = err
-	}
-	return n, err
-}
-
 // ---- workspace list / remove (ergonomics) ----
 
 func newWorkspaceListCommand(opts Options) *cobra.Command {
@@ -1772,7 +1728,7 @@ func runWorkspaceList(cmd *cobra.Command, opts Options, asJSON bool) error {
 	}
 	sort.Slice(summaries, func(i, j int) bool { return summaries[i].Name < summaries[j].Name })
 	if asJSON {
-		return writeJSON(cmd, struct {
+		return cmdutil.WriteJSON(cmd, struct {
 			Workspaces []workspace.Summary `json:"workspaces"`
 		}{Workspaces: summaries})
 	}
@@ -2031,7 +1987,7 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 	}
 	render := func() error {
 		if ro.json {
-			return writeJSON(cmd, struct {
+			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                      `json:"workspace"`
 				SchemaVersion int                         `json:"schema_version"`
 				Results       []workspaceRegressionResult `json:"results"`
@@ -2235,7 +2191,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 	}
 	render := func() error {
 		if ro.json {
-			return writeJSON(cmd, struct {
+			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                  `json:"workspace"`
 				SchemaVersion int                     `json:"schema_version"`
 				Mode          string                  `json:"mode"`

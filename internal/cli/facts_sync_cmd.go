@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"strings"
 
@@ -125,7 +126,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 			// A suppressed sync is the user's own kill switch working, so it
 			// exits 0 — but it must still answer in the caller's format.
 			if syncOpts.jsonOut {
-				return writeJSON(cmd, map[string]any{
+				return cmdutil.WriteJSON(cmd, map[string]any{
 					"branch":  branch,
 					"skipped": true,
 					"reason":  base.NoEgressToggleName() + " is set",
@@ -186,7 +187,7 @@ func runHostedFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOpti
 	}
 
 	if syncOpts.jsonOut {
-		return writeJSON(cmd, map[string]any{
+		return cmdutil.WriteJSON(cmd, map[string]any{
 			"branch":                branch,
 			"backend":               backendLabel,
 			"pushed_added":          counts.Added,

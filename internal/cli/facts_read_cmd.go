@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"strings"
 
@@ -256,7 +257,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 						out["blind_spot"] = note
 					}
 				}
-				if err := writeJSON(cmd, out); err != nil {
+				if err := cmdutil.WriteJSON(cmd, out); err != nil {
 					return err
 				}
 				if len(matches) > 0 {
@@ -265,7 +266,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				return nil
 			}
 			if len(matches) == 0 {
-				return writeText(cmd, func(out io.Writer) {
+				return cmdutil.WriteText(cmd, func(out io.Writer) {
 					fmt.Fprintf(out, "no memories for %q on %s\n", query, resolvedBranch)
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
@@ -275,7 +276,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					}
 				})
 			}
-			if err := writeText(cmd, func(out io.Writer) {
+			if err := cmdutil.WriteText(cmd, func(out io.Writer) {
 				if storeWarning != "" {
 					fmt.Fprintln(out, "warning: "+storeWarning)
 				}
@@ -370,7 +371,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 			}
 			fact := facts[i]
 			if jsonOut {
-				return writeJSON(cmd, fact)
+				return cmdutil.WriteJSON(cmd, fact)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s] %s\n", fact.ID, factKindOrInferred(fact), strings.Join(fact.Paths, ","), fact.Text)
 			fmt.Fprintf(cmd.OutOrStdout(), "  origin=%s status=%s\n", fact.Origin, fact.Status)

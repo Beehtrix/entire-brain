@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"sort"
 	"strings"
@@ -312,7 +313,7 @@ Arms:
 			summary := summarizeEval(results)
 			summary.Arm = arm
 			if jsonOut {
-				return writeJSON(cmd, summary)
+				return cmdutil.WriteJSON(cmd, summary)
 			}
 			printEvalSummary(cmd, summary)
 			return nil

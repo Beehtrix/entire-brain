@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,7 +247,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				return dirErr
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{
+				return cmdutil.WriteJSON(cmd, map[string]any{
 					"store": brainDir,
 					"count": len(active),
 					"facts": active,

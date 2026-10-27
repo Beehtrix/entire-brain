@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"sort"
 	"strings"
 
@@ -211,7 +212,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			// same lie `facts map` told. Qualify it, and exit nonzero.
 			integrityErr := reportFactStoreIntegrity(cmd, brainDir, jsonOut)
 			if jsonOut {
-				if err := writeJSON(cmd, tree); err != nil {
+				if err := cmdutil.WriteJSON(cmd, tree); err != nil {
 					return err
 				}
 				return integrityErr

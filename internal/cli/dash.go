@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -99,7 +100,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		}
 		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
 			if flags.json {
-				return writeJSON(cmd, snap)
+				return cmdutil.WriteJSON(cmd, snap)
 			}
 			printDashPlain(cmd, snap)
 			return nil

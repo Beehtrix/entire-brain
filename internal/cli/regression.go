@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1285,7 +1286,7 @@ func runRegressionDetect(ctx context.Context, cmd *cobra.Command, opts Options, 
 	}
 	render := func() error {
 		if ro.json {
-			return writeJSON(cmd, report)
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		out := cmd.OutOrStdout()
 		if len(anomalies) == 0 {
@@ -1553,7 +1554,7 @@ func runBrainReview(ctx context.Context, cmd *cobra.Command, opts Options, ro re
 	}
 	render := func() error {
 		if ro.json {
-			return writeJSON(cmd, report)
+			return cmdutil.WriteJSON(cmd, report)
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintln(out, report.Summary)

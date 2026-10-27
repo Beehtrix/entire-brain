@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"os/exec"
@@ -2590,7 +2591,7 @@ func newMemoryAbstractCommand(opts Options) *cobra.Command {
 				}
 				return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{responsePolicy}, func() error {
 					if jsonOut {
-						return writeJSON(cmd, payload)
+						return cmdutil.WriteJSON(cmd, payload)
 					}
 					_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s abstract for %s\n", status, ref)
 					return err

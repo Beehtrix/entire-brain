@@ -485,8 +485,8 @@ func verifyThemes(ctx context.Context, db *sql.DB, brainDir, repoDir, agent, mod
 		id := "theme:" + base.HexSHA("theme\x00"+repoKey+"\x00"+strings.Join(sortedCopy(members), "|"))
 		prepared = append(prepared, theme{
 			id: id, repoKey: repoKey, scope: "repo",
-			title:       base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Title, "theme")), 120)),
-			description: base.RedactText(base.TruncateString(strings.TrimSpace(firstNonEmpty(pt.Desc, pt.Rationale)), 280)),
+			title:       base.RedactText(base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pt.Title, "theme")), 120)),
+			description: base.RedactText(base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pt.Desc, pt.Rationale)), 280)),
 			shape:       shape, memberKeys: string(memberJSON), support: len(members),
 			fingerprint: themeFingerprint(members), strength: strength, verdict: verdict,
 		})

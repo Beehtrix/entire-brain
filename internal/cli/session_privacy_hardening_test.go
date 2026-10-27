@@ -146,12 +146,12 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 	}
 	tombstonePrivacyFixture(t, brainDir)
 	manifest, _ := bmanifest.Load(brainDir)
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guardBlocksFact(guard, singleBlank) || !guardBlocksFact(guard, singleMismatch) || guardBlocksFact(guard, multi) {
-		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", guardBlocksFact(guard, singleBlank), guardBlocksFact(guard, singleMismatch), guardBlocksFact(guard, multi))
+	if !factstore.GuardBlocksFact(guard, singleBlank) || !factstore.GuardBlocksFact(guard, singleMismatch) || factstore.GuardBlocksFact(guard, multi) {
+		t.Fatalf("path-aware serving guard mismatch: blank=%v mismatch=%v multi=%v", factstore.GuardBlocksFact(guard, singleBlank), factstore.GuardBlocksFact(guard, singleMismatch), factstore.GuardBlocksFact(guard, multi))
 	}
 	plan, err := buildSessionPurgePlan(brainDir, "secret-sess")
 	if err != nil {

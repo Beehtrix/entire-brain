@@ -291,7 +291,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 	if err != nil {
 		return nil, nil, nil, caps, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, nil, nil, caps, err
 	}

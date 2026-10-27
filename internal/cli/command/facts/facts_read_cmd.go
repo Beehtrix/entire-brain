@@ -1,26 +1,27 @@
-package cli
+package facts
 
 import (
-	"context"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"strings"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
-const recallEngineBM25Lexical = "bm25_lexical"
+// RecallEngineBM25Lexical names recall's only retrieval engine in its JSON
+// identity report.
+const RecallEngineBM25Lexical = "bm25_lexical"
 
-// recallRetrievalEngine is emitted with recall --json. Semantic retrieval was
+// RecallRetrievalEngine is emitted with recall --json. Semantic retrieval was
 // removed (trail #278: BM25 matched or beat the embedder stack end-to-end);
 // the semantic/vector fields are retained in the schema and report inert
 // values so existing consumers keep parsing.
-type recallRetrievalEngine struct {
+type RecallRetrievalEngine struct {
 	SchemaVersion         int    `json:"schema_version"`
 	EffectiveEngine       string `json:"effective_engine,omitempty"`
 	IdentityVerified      bool   `json:"identity_verified"`
@@ -33,47 +34,20 @@ type recallRetrievalEngine struct {
 	IdentityFailureReason string `json:"identity_failure_reason,omitempty"`
 }
 
-func recallRetrievalIdentity() recallRetrievalEngine {
-	return recallRetrievalEngine{
+func recallRetrievalIdentity() RecallRetrievalEngine {
+	return RecallRetrievalEngine{
 		SchemaVersion:    1,
-		EffectiveEngine:  recallEngineBM25Lexical,
+		EffectiveEngine:  RecallEngineBM25Lexical,
 		IdentityVerified: true,
 		BM25Enabled:      true,
 		BM25Applied:      true,
 	}
 }
 
-// resolveFactsTarget resolves the repo, brain directory, and the branch facts
-// are scoped to (the live git branch unless overridden). It is shared by the
-// fact read/write commands.
-func resolveFactsTarget(ctx context.Context, opts Options, target, branchOverride string) (repoDir, brainDir, branch string, err error) {
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil {
-		return "", "", "", err
-	}
-	if !local {
-		return "", "", "", fmt.Errorf("memories require a local repository path: %s", target)
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return "", "", "", err
-	}
-	branch = strings.TrimSpace(branchOverride)
-	if branch == "" {
-		if current, gitErr := base.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
-			branch = strings.TrimSpace(current)
-		}
-	}
-	if branch == "" {
-		branch = distillDefaultBranch
-	}
-	return repoDir, storage.BrainDir, branch, nil
-}
-
 // recallMaxK bounds recall's -k.
 const recallMaxK = 128
 
-func newRecallCommand(opts Options) *cobra.Command {
+func NewRecall(cfg Config) *cobra.Command {
 	var evidence bool
 	var evidenceBytes int
 	var (
@@ -113,18 +87,18 @@ func newRecallCommand(opts Options) *cobra.Command {
 			} else if cmd.Flags().Changed("evidence-bytes") {
 				return fmt.Errorf("--evidence-bytes requires --evidence")
 			}
-			if err := validateScopeFlag(scope); err != nil {
+			if err := factstore.ValidateScopeFlag(scope); err != nil {
 				return err
 			}
 			if err := factstore.ValidateKindFlag(kind); err != nil {
 				return err
 			}
-			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+			repoDir, brainDir, resolvedBranch, err := cfg.Deps.ResolveFactsTarget(cmd.Context(), cfg.Options, cfg.Deps.AgentSurfaceTarget(cfg.Options, nil), branch)
 			if err != nil {
 				return err
 			}
 			if evidence {
-				return runRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
+				return cfg.Deps.RunRecallEvidence(cmd, brainDir, resolvedBranch, query, limit, evidenceBytes, jsonOut)
 			}
 			allFacts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
@@ -137,8 +111,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// that they are labelled, because acting on a global convention as
 			// though this repo had declared it is a different thing.
 			globalIDs := map[string]bool{}
-			if globalFactsEnabled(noGlobal) {
-				globalFacts, globalErr := factstore.LoadGlobal(opts.Env)
+			if factstore.GlobalFactsEnabled(noGlobal) {
+				globalFacts, globalErr := factstore.LoadGlobal(cfg.Options.Env)
 				if globalErr != nil {
 					// A damaged global store must not take recall down with it;
 					// the repository's own facts are the answer to most queries.
@@ -155,7 +129,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				storeWarning = factstore.MissingStoreWarningForBranch(brainDir, manifest.Sources.Facts, resolvedBranch)
 			}
 			candidateFacts := allFacts
-			var eligibility *factEligibilityAudit
+			var eligibility *FactEligibilityAudit
 			if eligibleBefore != "" || sessionDatesPath != "" || len(excludeSessionIDs) > 0 {
 				if eligibleBefore == "" || sessionDatesPath == "" {
 					return fmt.Errorf("--eligible-before and --session-dates must be supplied together")
@@ -176,24 +150,19 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if expand && strings.TrimSpace(query) != "" {
 				resolved := agent
 				if resolved == "auto" {
-					resolved = defaultRefreshAgent(cmd.Context(), opts.Runner, repoDir)
+					resolved = cfg.Deps.DefaultRefreshAgent(cmd.Context(), cfg.Options.Runner, repoDir)
 				}
-				expandArgs, expErr := base.DistillAgentCommandArgs(resolved, agentCommand, queryExpansionPrompt())
+				expanded, expErr := cfg.Deps.ExpandQuery(cmd.Context(), resolved, agentCommand, model, repoDir, query)
 				if expErr != nil {
-					return fmt.Errorf("expand agent: %w", expErr)
+					return expErr
 				}
-				expandArgs = base.InjectAgentModel(expandArgs, resolved, model)
-				exp, expErr := expandQuery(cmd.Context(), defaultDistillAgentRunner(resolved), expandArgs, repoDir, query, loadExpansionCache(""))
-				if expErr != nil {
-					return fmt.Errorf("expand query: %w", expErr)
-				}
-				effectiveQuery = expandedQuery(query, exp)
+				effectiveQuery = expanded
 			}
 			// --no-semantic and --read-only-semantic-cache are vacuously
 			// satisfied since the semantic arm was removed (trail #278):
 			// ranking is always lexical and no vector cache exists to write.
 			_, _ = noSemantic, readOnlySemanticCache
-			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
+			matches := cfg.Deps.RankFacts(facts, effectiveQuery, limit, includeAll)
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
 			drift := retrieval.FactsLocusDrift(repoDir, retrieval.FactsEligibleForLocusDrift(matches, globalIDs))
@@ -204,19 +173,19 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// scope/kind/locus filters cannot hide a pending relationship.
 			// Nothing surfaced means no annotation and no queue warning, so skip
 			// the proposal read entirely on the empty-recall path.
-			var proposals []factProposal
+			var proposals []factmerge.Proposal
 			var proposalsErr error
-			var pendingReviews map[string]factReviewNotice
+			var pendingReviews map[string]retrieval.FactReviewNotice
 			if len(matches) > 0 {
-				proposals, proposalsErr = loadFactProposals(brainDir, resolvedBranch)
+				proposals, proposalsErr = cfg.Deps.LoadFactProposals(brainDir, resolvedBranch)
 				if proposalsErr == nil {
 					localFacts := retrieval.FactsEligibleForLocusDrift(allFacts, globalIDs)
 					pendingReviews = retrieval.FactsPendingReview(localFacts, proposals, matches)
 				}
 			}
 			recordReceipt := func() {
-				recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, "recall",
-					vitalityHead(cmd.Context(), opts.Runner, repoDir), query, factRecordIDs(matches))
+				cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), cmd.Context(), cfg.Options, brainDir, resolvedBranch, "recall",
+					repoDir, query, matches)
 			}
 			if jsonOut {
 				// Recall's JSON envelope is fact-centric (top-level `facts`), so
@@ -230,7 +199,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 				// facts came from outside this repository; the ids are the
 				// smallest way to say so without changing the fact shape that
 				// every existing reader binds to.
-				if ids := sortedGlobalFactIDs(matches, globalIDs); len(ids) > 0 {
+				if ids := SortedGlobalFactIDs(matches, globalIDs); len(ids) > 0 {
 					out["global_fact_ids"] = ids
 				}
 				engine := recallRetrievalIdentity()
@@ -256,7 +225,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					out["warnings"] = append(warnings, storeWarning)
 				}
 				if len(matches) == 0 {
-					if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" && storeWarning == "" {
+					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" && storeWarning == "" {
 						out["blind_spot"] = note
 					}
 				}
@@ -274,7 +243,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					if storeWarning != "" {
 						fmt.Fprintln(out, "warning: "+storeWarning)
 					}
-					if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" && storeWarning == "" {
+					if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" && storeWarning == "" {
 						fmt.Fprintln(out, note)
 					}
 				})
@@ -291,9 +260,9 @@ func newRecallCommand(opts Options) *cobra.Command {
 						// Without this a global convention is indistinguishable
 						// from something this repository declared, and an agent
 						// would cite it as a property of the codebase.
-						printGlobalFactLine(out, f)
+						PrintGlobalFactLine(out, f)
 					} else {
-						printFactLine(out, f)
+						PrintFactLine(out, f)
 					}
 					if gone := drift[f.ID]; len(gone) > 0 {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
@@ -331,77 +300,22 @@ func newRecallCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-// validateScopeFlag rejects an unrecognized --scope value.
-func validateScopeFlag(scope string) error {
-	switch scope {
-	case "", factstore.ScopeLocal, factstore.ScopeCrossCutting:
-		return nil
-	default:
-		return fmt.Errorf("--scope must be %q or %q", factstore.ScopeLocal, factstore.ScopeCrossCutting)
-	}
-}
-
-func newInspectBlameCommand(opts Options) *cobra.Command {
-	var (
-		branch  string
-		jsonOut bool
-	)
-	cmd := &cobra.Command{
-		Use:   "blame <memory-id>",
-		Short: "Show the source anchors a memory was derived from",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			factID := args[0]
-			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
-			if err != nil {
-				return err
-			}
-			facts, err := factstore.Load(brainDir, resolvedBranch)
-			if err != nil {
-				return err
-			}
-			i := indexOfFact(facts, factID)
-			if i < 0 {
-				return fmt.Errorf("no fact %s on %s", factID, resolvedBranch)
-			}
-			fact := facts[i]
-			if jsonOut {
-				return cmdutil.WriteJSON(cmd, fact)
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "%s %s [%s] %s\n", fact.ID, factstore.KindOrInferred(fact), strings.Join(fact.Paths, ","), fact.Text)
-			fmt.Fprintf(cmd.OutOrStdout(), "  origin=%s status=%s\n", fact.Origin, fact.Status)
-			for _, a := range fact.Provenance {
-				verified := "unsigned"
-				if a.Verified {
-					verified = "verified"
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "  - session=%s checkpoint=%s commit=%s %s:%d (%s)\n",
-					cmdutil.ValueOrUnset(a.SessionID), cmdutil.ValueOrUnset(a.CheckpointID), cmdutil.ValueOrUnset(a.Commit), cmdutil.ValueOrUnset(a.Transcript), a.Line, verified)
-			}
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
-	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
-	return cmd
-}
-
-// printGlobalFactLine renders a fact that came from the global store rather than
+// PrintGlobalFactLine renders a fact that came from the global store rather than
 // this repository.
-func printGlobalFactLine(out io.Writer, f factRecord) {
+func PrintGlobalFactLine(out io.Writer, f factmerge.Record) {
 	marker := ""
 	switch f.Status {
-	case factStatusSuperseded:
+	case factmerge.StatusSuperseded:
 		marker = " (superseded)"
-	case factStatusRetracted:
+	case factmerge.StatusRetracted:
 		marker = " (retracted)"
 	}
 	fmt.Fprintf(out, "%s %s [%s] (global)%s\n  %s\n", f.ID, factstore.KindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)
 }
 
-// sortedGlobalFactIDs returns the ids of the surfaced facts that are global, in
+// SortedGlobalFactIDs returns the ids of the surfaced facts that are global, in
 // the order they were surfaced, so JSON output is stable across runs.
-func sortedGlobalFactIDs(matches []factRecord, globalIDs map[string]bool) []string {
+func SortedGlobalFactIDs(matches []factmerge.Record, globalIDs map[string]bool) []string {
 	var ids []string
 	for _, f := range matches {
 		if globalIDs[f.ID] {
@@ -411,13 +325,13 @@ func sortedGlobalFactIDs(matches []factRecord, globalIDs map[string]bool) []stri
 	return ids
 }
 
-// printFactLine renders a fact for human-readable listings.
-func printFactLine(out io.Writer, f factRecord) {
+// PrintFactLine renders a fact for human-readable listings.
+func PrintFactLine(out io.Writer, f factmerge.Record) {
 	marker := ""
 	switch f.Status {
-	case factStatusSuperseded:
+	case factmerge.StatusSuperseded:
 		marker = " (superseded)"
-	case factStatusRetracted:
+	case factmerge.StatusRetracted:
 		marker = " (retracted)"
 	}
 	fmt.Fprintf(out, "%s %s [%s]%s\n  %s\n", f.ID, factstore.KindOrInferred(f), strings.Join(f.Paths, ","), marker, f.Text)

@@ -387,6 +387,16 @@ func ValidateKindFlag(kind string) error {
 	return fmt.Errorf("--kind must be one of decision|invariant|gotcha|preference|convention")
 }
 
+// ValidateScopeFlag rejects an unrecognized --scope value.
+func ValidateScopeFlag(scope string) error {
+	switch scope {
+	case "", ScopeLocal, ScopeCrossCutting:
+		return nil
+	default:
+		return fmt.Errorf("--scope must be %q or %q", ScopeLocal, ScopeCrossCutting)
+	}
+}
+
 // --- manifest summary -----------------------------------------------------
 
 // SummarizeSource folds a per-branch view of the fact store into the

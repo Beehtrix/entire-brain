@@ -158,19 +158,19 @@ func TestGlobalFactsCanBeTurnedOff(t *testing.T) {
 	// A machine where repository answers must not be influenced by anything
 	// outside the repository. Both the flag and the environment variable have
 	// to work, and the variable is fail-closed like every other guard here.
-	if globalFactsEnabled(true) {
+	if factstore.GlobalFactsEnabled(true) {
 		t.Fatal("--no-global did not disable global facts")
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_GLOBAL_FACTS", "1")
-	if globalFactsEnabled(false) {
+	if factstore.GlobalFactsEnabled(false) {
 		t.Fatal("ENTIRE_BRAIN_NO_GLOBAL_FACTS did not disable global facts")
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_GLOBAL_FACTS", "ture")
-	if globalFactsEnabled(false) {
+	if factstore.GlobalFactsEnabled(false) {
 		t.Fatal("an unrecognized toggle value left global facts on; the toggle must fail closed")
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_GLOBAL_FACTS", "")
-	if !globalFactsEnabled(false) {
+	if !factstore.GlobalFactsEnabled(false) {
 		t.Fatal("global facts are off by default; a fact recorded once is meant to apply")
 	}
 }
@@ -453,9 +453,9 @@ func TestGlobalFactsAreLabelledWhenSurfaced(t *testing.T) {
 	fact := factRecord{ID: "g1", Kind: "preference", Paths: []string{"preferences.coding.style"}, Text: "I prefer table-driven tests."}
 
 	plain := &bytes.Buffer{}
-	printFactLine(plain, fact)
+	facts.PrintFactLine(plain, fact)
 	labelled := &bytes.Buffer{}
-	printGlobalFactLine(labelled, fact)
+	facts.PrintGlobalFactLine(labelled, fact)
 
 	if !strings.Contains(labelled.String(), "(global)") {
 		t.Fatalf("a global fact rendered without a label: %q", labelled.String())
@@ -471,16 +471,16 @@ func TestGlobalFactsAreLabelledWhenSurfaced(t *testing.T) {
 
 func TestGlobalFactIDsAreReportedInJSON(t *testing.T) {
 	matches := []factRecord{{ID: "local"}, {ID: "g1"}, {ID: "g2"}}
-	ids := sortedGlobalFactIDs(matches, map[string]bool{"g1": true, "g2": true})
+	ids := facts.SortedGlobalFactIDs(matches, map[string]bool{"g1": true, "g2": true})
 	if len(ids) != 2 || ids[0] != "g1" || ids[1] != "g2" {
 		t.Fatalf("global ids = %v", ids)
 	}
 	// Surfacing order, not map order, so JSON output is stable across runs.
-	reversed := sortedGlobalFactIDs([]factRecord{{ID: "g2"}, {ID: "g1"}}, map[string]bool{"g1": true, "g2": true})
+	reversed := facts.SortedGlobalFactIDs([]factRecord{{ID: "g2"}, {ID: "g1"}}, map[string]bool{"g1": true, "g2": true})
 	if reversed[0] != "g2" {
 		t.Fatalf("ids do not follow surfacing order: %v", reversed)
 	}
-	if got := sortedGlobalFactIDs(matches, map[string]bool{}); len(got) != 0 {
+	if got := facts.SortedGlobalFactIDs(matches, map[string]bool{}); len(got) != 0 {
 		t.Fatalf("ids reported with no global facts: %v", got)
 	}
 }
@@ -983,7 +983,7 @@ func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
 			cmd := &cobra.Command{}
 			var out bytes.Buffer
 			if surface == "recall" {
-				cmd = newRecallCommand(opts)
+				cmd = facts.NewRecall(factsCommandConfig(opts))
 			}
 			cmd.SetOut(&out)
 			cmd.SetErr(&bytes.Buffer{})

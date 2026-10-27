@@ -615,7 +615,7 @@ func TestTheAnchorImportWritesIsDetectedAsForeign(t *testing.T) {
 
 // Foreign ids are untrusted text, exactly like the memory body. ForeignID is
 // embedded in the anchor and `facts show` prints anchor.SessionID straight
-// through cmdutil.ValueOrUnset with %s (facts_read_cmd.go:540), which neither quotes
+// through cmdutil.ValueOrUnset with %s (inspect_blame_cmd.go), which neither quotes
 // nor strips.
 func TestForeignIDsAreSanitisedLikeTheMemoryText(t *testing.T) {
 	t.Parallel()

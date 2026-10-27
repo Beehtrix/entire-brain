@@ -10,7 +10,7 @@
   {
     "name": "refresh must retain session exclusion",
     "file": "internal/cli/pattern_corpus.go",
-    "original": "\tsessions = guardExportSessions(guard, sessions)",
+    "original": "\tsessions = bmanifest.GuardSessions(guard, sessions)",
     "replacement": "\t// Deliberate regression: skip retained exclusion filter.",
     "test": "TestExcludedSessionSurvivesCancelledRefreshReopenAndRetry",
     "diagnostic": "cancelled refresh error = memory_state_unsafe: transcript sessions/main/20260802T000000Z_secret.jsonl is tombstoned"

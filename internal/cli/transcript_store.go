@@ -153,7 +153,7 @@ func (s *transcriptStore) storageMode() (bool, error) {
 // file read; only tombstoned brains pay the manifest read that maps sessions
 // to paths (the same two-step every guarded surface uses — see retrieve.go).
 func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
-	guard, err := loadSessionReadGuard(s.brainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(s.brainDir, nil)
 	if err != nil {
 		// Fail closed: an unreadable tombstone file must not open purged
 		// transcripts back up.
@@ -166,7 +166,7 @@ func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
 	}
-	guard, err = loadSessionReadGuard(s.brainDir, manifest)
+	guard, err = bmanifest.LoadSessionReadGuard(s.brainDir, manifest)
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
 	}

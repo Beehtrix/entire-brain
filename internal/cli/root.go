@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"reflect"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +31,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
@@ -130,7 +131,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("explore", newMultiGetCommand(opts))
 	addGrouped("explore", newDashCommand(opts))
 
-	addGrouped("facts", newRecallCommand(opts))
+	addGrouped("facts", facts.NewRecall(factsCommandConfig(opts)))
 	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
@@ -145,7 +146,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("code", newBrainInspectCommand(opts))
 	addGrouped("code", newBrainShowCommand(opts))
 	addGrouped("operations", entities.NewCommand(entityConfig(opts)))
-	addGrouped("code", newVizCommand(opts))
+	addGrouped("code", viz.New(vizConfig(opts)))
 	addGrouped("operations", newSemanticRepairCommand(opts))
 
 	addGrouped("maintain", newAgentStatusCommand(opts))
@@ -518,11 +519,9 @@ func commandRawArgs(cmd *cobra.Command) []string {
 	return out
 }
 
-var commandErrorCodePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-
 func writeCommandJSONError(w io.Writer, err error) error {
 	envelope := commandJSONError{
-		Code:    commandErrorCode(err),
+		Code:    cmdutil.CommandErrorCode(err),
 		Message: err.Error(),
 	}
 	data, marshalErr := json.MarshalIndent(envelope, "", "  ")
@@ -531,18 +530,6 @@ func writeCommandJSONError(w io.Writer, err error) error {
 	}
 	_, writeErr := fmt.Fprintln(w, string(data))
 	return writeErr
-}
-
-func commandErrorCode(err error) string {
-	message := err.Error()
-	code, _, ok := strings.Cut(message, ":")
-	if ok {
-		code = strings.TrimSpace(code)
-		if commandErrorCodePattern.MatchString(code) {
-			return code
-		}
-	}
-	return "command_failed"
 }
 
 // legacyFlagAlias keeps a renamed flag's old spelling parseable by normalizing

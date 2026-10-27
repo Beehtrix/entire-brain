@@ -85,7 +85,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		return sr
 	}
 	for _, r := range index.Records {
-		if guardBlocksRecord(guard, r) {
+		if historystore.GuardBlocksRecord(guard, r) {
 			continue
 		}
 		switch r.Kind {
@@ -108,7 +108,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 		}
 	}
 
-	sessions := guardExportSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
+	sessions := bmanifest.GuardSessions(guard, append([]exportSession(nil), manifest.Sources.Sessions.Sessions...))
 	sort.SliceStable(sessions, func(i, j int) bool { return sessions[i].CreatedAt.After(sessions[j].CreatedAt) })
 	branches := map[string]bool{}
 	// A session continued across branches is exported once per branch with the
@@ -142,7 +142,7 @@ func buildHandoffPacket(manifest *exportManifest, index historyIndex, facts []fa
 	}
 	sort.Strings(p.Branches)
 
-	facts = guardFactRecords(guard, facts)
+	facts = factstore.GuardRecords(guard, facts)
 	active := make([]factRecord, 0, len(facts))
 	for _, f := range facts {
 		if f.Status == factStatusActive {
@@ -204,7 +204,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if manifest.Sources == nil || manifest.Sources.Sessions == nil || len(manifest.Sources.Sessions.Sessions) == 0 {
 		return errors.New("no exported sessions; run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "` first")
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}

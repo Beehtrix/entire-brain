@@ -11,6 +11,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -34,7 +36,7 @@ func TestRecallEvidenceCommandReturnsOriginalSourceWithoutModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "1")
-	cmd := newRecallCommand(opts)
+	cmd := facts.NewRecall(factsCommandConfig(opts))
 	output, err := execute(t, cmd, "release approval", "--evidence", "--json")
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +56,7 @@ func TestRecallEvidenceBudgetAndStableOrdering(t *testing.T) {
 	opts, _ := evidenceFixture(t)
 	read := func(budget string) evidenceRecallResult {
 		t.Helper()
-		out, err := execute(t, newRecallCommand(opts), "target", "--evidence", "--evidence-bytes", budget, "--json")
+		out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--evidence", "--evidence-bytes", budget, "--json")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -97,14 +99,14 @@ func TestRecallEvidenceRejectsUnsupportedOptions(t *testing.T) {
 		{"--k", "0"}, {"--k", "129"}, {"--evidence-bytes", "1"}, {"--evidence-bytes", "1048577"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			out, err := execute(t, newRecallCommand(opts), append([]string{"target", "--evidence", "--json"}, args...)...)
+			out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), append([]string{"target", "--evidence", "--json"}, args...)...)
 			if err == nil || strings.Contains(out, "Target implementation") {
 				t.Fatalf("invalid options emitted evidence: %s %v", out, err)
 			}
 		})
 	}
 	for _, args := range [][]string{{"--evidence"}, {" ", "--evidence"}, {"target", "--evidence-bytes", "8192"}} {
-		if _, err := execute(t, newRecallCommand(opts), args...); err == nil {
+		if _, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), args...); err == nil {
 			t.Fatalf("accepted invalid options: %v", args)
 		}
 	}
@@ -116,17 +118,17 @@ func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, err := execute(t, newRecallCommand(opts), "target", "--json", "--no-semantic")
+	before, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--json", "--no-semantic")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(before, `"facts"`) || strings.Contains(before, `"evidence"`) {
 		t.Fatalf("ordinary recall envelope changed: %s", before)
 	}
-	if _, err := execute(t, newRecallCommand(opts), "target", "--evidence", "--json"); err != nil {
+	if _, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--evidence", "--json"); err != nil {
 		t.Fatal(err)
 	}
-	after, err := execute(t, newRecallCommand(opts), "target", "--json", "--no-semantic")
+	after, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--json", "--no-semantic")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +161,7 @@ func TestRecallEvidenceExclusionsAndUnsafePaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			out, err := execute(t, newRecallCommand(opts), "target", "--evidence", "--json")
+			out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--evidence", "--json")
 			if strings.Contains(out, "Target implementation") || strings.Contains(out, "target private outside") {
 				t.Fatalf("private source escaped: %s", out)
 			}

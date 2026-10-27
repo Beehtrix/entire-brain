@@ -200,3 +200,12 @@ func RepoStorageForKey(dirs PluginDirs, key string) RepoStorage {
 		HeadPath: filepath.Join(dirs.State, RepoStoreDirName, filepath.FromSlash(key), BrainHeadFileName),
 	}
 }
+
+var KnownRepoDomainSlugs = map[string]string{
+	"github.com":    "gh",
+	"gitlab.com":    "gl",
+	"bitbucket.org": "bb",
+	"entire.io":     "et",
+	"tangled.org":   "tg",
+	"code.storage":  "cs",
+}

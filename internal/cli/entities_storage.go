@@ -60,7 +60,7 @@ func gitmetaDirForKey(env EntireEnv, key string) (string, error) {
 // Unreadable tombstone state fails the join closed for the same reason every
 // other privacy gate does.
 func sessionIDsByCheckpoint(ctx context.Context, opts Options, repoDir, brainDir string) (map[string][]string, error) {
-	guard, err := loadSessionReadGuard(brainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -312,7 +312,7 @@ func sessionViewForTest(t *testing.T, brainDir string) conversationSessionView {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,4 +1,4 @@
-package cli
+package viz
 
 import (
 	"database/sql"
@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -21,13 +23,13 @@ import (
 // warnings, never a 500 — the UI relies on this to render its empty state.
 func TestVizHandleGraph_UnbuiltBrain(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph", nil))
+	srv.HandleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var resp vizGraphResp
+	var resp GraphResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -41,9 +43,9 @@ func TestVizHandleGraph_UnbuiltBrain(t *testing.T) {
 
 func TestVizHandleNode_MissingID(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleNode(rec, httptest.NewRequest(http.MethodGet, "/api/node", nil))
+	srv.HandleNode(rec, httptest.NewRequest(http.MethodGet, "/api/node", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 for missing id", rec.Code)
 	}
@@ -51,13 +53,13 @@ func TestVizHandleNode_MissingID(t *testing.T) {
 
 func TestVizHandleNode_UnbuiltBrain(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleNode(rec, httptest.NewRequest(http.MethodGet, "/api/node?id=whatever", nil))
+	srv.HandleNode(rec, httptest.NewRequest(http.MethodGet, "/api/node?id=whatever", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var resp vizNodeResp
+	var resp NodeResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -68,9 +70,9 @@ func TestVizHandleNode_UnbuiltBrain(t *testing.T) {
 
 func TestVizHandleSessionReplay_MissingID(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay", nil))
+	srv.HandleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400 for missing id", rec.Code)
 	}
@@ -78,13 +80,13 @@ func TestVizHandleSessionReplay_MissingID(t *testing.T) {
 
 func TestVizHandleSessionReplay_UnknownSession(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=does-not-exist", nil))
+	srv.HandleSessionReplay(rec, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=does-not-exist", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 for unknown session", rec.Code)
 	}
-	var resp vizReplayResp
+	var resp ReplayResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -97,7 +99,7 @@ func TestVizHandleSessionReplay_UnknownSession(t *testing.T) {
 // every response.
 func TestVizSecurityHeaders(t *testing.T) {
 	t.Parallel()
-	h := vizSecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	h := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 	csp := rec.Header().Get("Content-Security-Policy")
@@ -116,14 +118,14 @@ func TestVizSecurityHeaders(t *testing.T) {
 
 func TestVizNodeEdgeJSON(t *testing.T) {
 	t.Parallel()
-	n := nodeJSON(semanticRecord{ID: "id1", Name: "Foo", QualifiedName: "pkg.Foo", Kind: "function", FilePath: "a/b.go", StartLine: 12, Language: "Go", Signature: "func Foo()", ContainerID: "cont1"})
+	n := nodeJSON(semstore.Record{ID: "id1", Name: "Foo", QualifiedName: "pkg.Foo", Kind: "function", FilePath: "a/b.go", StartLine: 12, Language: "Go", Signature: "func Foo()", ContainerID: "cont1"})
 	if n.ID != "id1" || n.Name != "Foo" || n.Kind != "function" || n.File != "a/b.go" || n.Line != 12 {
 		t.Fatalf("nodeJSON mapping wrong: %+v", n)
 	}
 	if n.QualifiedName != "pkg.Foo" || n.Language != "Go" || n.Signature != "func Foo()" || n.ContainerID != "cont1" {
 		t.Fatalf("nodeJSON dropped a field: %+v", n)
 	}
-	e := edgeJSON(semanticRecord{FromID: "a", ToID: "b", Type: "CALLS", Confidence: 0.5, RelationScope: "file", Resolution: "exact"})
+	e := edgeJSON(semstore.Record{FromID: "a", ToID: "b", Type: "CALLS", Confidence: 0.5, RelationScope: "file", Resolution: "exact"})
 	if e.From != "a" || e.To != "b" || e.Type != "CALLS" || e.Scope != "file" || e.Resolution != "exact" {
 		t.Fatalf("edgeJSON mapping wrong: %+v", e)
 	}
@@ -152,9 +154,9 @@ func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	}
 	db.Close()
 
-	syms := make([]semanticRecord, 20000) // 40001 bound params unchunked -> would error
+	syms := make([]semstore.Record, 20000) // 40001 bound params unchunked -> would error
 	for i := range syms {
-		syms[i] = semanticRecord{ID: fmt.Sprintf("sym-%d", i+1)}
+		syms[i] = semstore.Record{ID: fmt.Sprintf("sym-%d", i+1)}
 	}
 	rels, err := semstore.FindRelationsForSymbolsInSQLite(dbPath, syms, 1000)
 	if err != nil {
@@ -225,7 +227,7 @@ func TestParseRepoFromKey(t *testing.T) {
 func TestVizHandleDocs_PrefixedIDsMatchSearch(t *testing.T) {
 	t.Parallel()
 	brainDir := t.TempDir()
-	idx := docIndex{Records: []docRecord{
+	idx := docstore.Index{Records: []docstore.Record{
 		{ID: "abc123", Path: "docs/a.md", Heading: "A", Line: 1, Text: "alpha"},
 		{ID: "def456", Path: "docs/a.md", Heading: "B", Line: 9, Text: "beta"},
 	}}
@@ -239,10 +241,10 @@ func TestVizHandleDocs_PrefixedIDsMatchSearch(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, "docs", "index.json"), data, 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	srv := &vizServer{brainDir: brainDir, branch: "main"}
+	srv := &Server{BrainDir: brainDir, Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleDocs(rec, httptest.NewRequest(http.MethodGet, "/api/docs", nil))
-	var resp vizFeatureGraph
+	srv.HandleDocs(rec, httptest.NewRequest(http.MethodGet, "/api/docs", nil))
+	var resp FeatureGraph
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -277,20 +279,20 @@ func TestVizListenAddrLoopback(t *testing.T) {
 
 func TestVizSessionEndpointsOmitExcludedSessionCanary(t *testing.T) {
 	const canary = "PRIVATE-VIZ-CANARY"
-	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
-		{SessionID: "private", Summary: &checkpointSummary{Intent: canary}, FilesTouched: []string{"private.go"}},
-		{SessionID: "public", Summary: &checkpointSummary{Intent: "safe"}, FilesTouched: []string{"public.go"}},
+	manifest := &bmanifest.Manifest{Sources: &bmanifest.Sources{Sessions: &bmanifest.SessionSource{Sessions: []bmanifest.Session{
+		{SessionID: "private", Summary: &bmanifest.CheckpointSummary{Intent: canary}, FilesTouched: []string{"private.go"}},
+		{SessionID: "public", Summary: &bmanifest.CheckpointSummary{Intent: "safe"}, FilesTouched: []string{"public.go"}},
 	}}}}
-	srv := &vizServer{
-		brainDir: t.TempDir(), branch: "main", manifest: manifest,
-		guard: sessionReadGuard{IDs: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}},
+	srv := &Server{
+		BrainDir: t.TempDir(), Branch: "main", Manifest: manifest,
+		Guard: brainstore.SessionReadGuard{IDs: map[string]brainstore.SessionTombstone{"private": {At: time.Now().UTC()}}},
 	}
 	rec := httptest.NewRecorder()
-	srv.handleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
+	srv.HandleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
 	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), canary) || strings.Contains(rec.Body.String(), "private.go") {
 		t.Fatalf("sessions endpoint exposed excluded session: status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var graph vizFeatureGraph
+	var graph FeatureGraph
 	if err := json.Unmarshal(rec.Body.Bytes(), &graph); err != nil {
 		t.Fatal(err)
 	}
@@ -299,133 +301,36 @@ func TestVizSessionEndpointsOmitExcludedSessionCanary(t *testing.T) {
 	}
 
 	replay := httptest.NewRecorder()
-	srv.handleSessionReplay(replay, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=private", nil))
+	srv.HandleSessionReplay(replay, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=private", nil))
 	if replay.Code != http.StatusNotFound || strings.Contains(replay.Body.String(), canary) {
 		t.Fatalf("excluded replay status=%d body=%s", replay.Code, replay.Body.String())
-	}
-}
-
-func TestVizReloadsPrivacyStateForEveryRequest(t *testing.T) {
-	const canary = "PRIVATE-LIVE-VIZ-CANARY"
-	brainDir := t.TempDir()
-	manifest := &exportManifest{Sources: &brainSources{Sessions: &sessionSourceManifest{Sessions: []exportSession{
-		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: canary}},
-		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
-	}}}}
-	srv := &vizServer{brainDir: brainDir, branch: "main", manifest: manifest}
-	request := func() *httptest.ResponseRecorder {
-		rec := httptest.NewRecorder()
-		srv.handleSessions(rec, httptest.NewRequest(http.MethodGet, "/api/sessions", nil))
-		return rec
-	}
-
-	before := request()
-	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), canary) {
-		t.Fatalf("pre-exclusion response = %d %s", before.Code, before.Body.String())
-	}
-	stones := brainstore.EmptySessionTombstones()
-	stones.Excluded["private"] = sessionTombstone{At: time.Now().UTC()}
-	if err := brainstore.SaveSessionTombstones(brainDir, stones); err != nil {
-		t.Fatal(err)
-	}
-	after := request()
-	if after.Code != http.StatusOK || strings.Contains(after.Body.String(), canary) || strings.Contains(after.Body.String(), "private") {
-		t.Fatalf("same server exposed a newly excluded session: %d %s", after.Code, after.Body.String())
-	}
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(brainstore.SessionTombstonesPath))); err != nil {
-		t.Fatal(err)
-	}
-	disappeared := request()
-	if disappeared.Code != http.StatusOK || strings.Contains(disappeared.Body.String(), canary) || strings.Contains(disappeared.Body.String(), "private") {
-		t.Fatalf("disappeared policy resurrected an excluded session: %d %s", disappeared.Code, disappeared.Body.String())
-	}
-
-	writeSessionTombstoneBytes(t, brainDir, []byte("{broken"))
-	corrupt := request()
-	if corrupt.Code != http.StatusServiceUnavailable || strings.Contains(corrupt.Body.String(), canary) || !strings.Contains(corrupt.Body.String(), brainstore.StateCorruptCode) {
-		t.Fatalf("corrupt live policy did not fail closed: %d %s", corrupt.Code, corrupt.Body.String())
-	}
-}
-
-// The CSP/no-egress headers must be present on REAL /api responses, not just when
-// the middleware is exercised in isolation.
-func TestVizSecurityHeaders_AppliedToMux(t *testing.T) {
-	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
-	m, err := srv.mux()
-	if err != nil {
-		t.Fatalf("mux: %v", err)
-	}
-	h := vizSecurityHeaders(m)
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", rec.Code)
-	}
-	if rec.Header().Get("Content-Security-Policy") == "" {
-		t.Fatal("CSP header not applied to /api/summary through the mux")
-	}
-	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Fatal("nosniff header not applied through the mux")
 	}
 }
 
 // A gigantic ?limit must be clamped by the safety ceiling, not panic or overflow.
 func TestVizHandleGraph_HugeLimitNoPanic(t *testing.T) {
 	t.Parallel()
-	srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
+	srv := &Server{BrainDir: t.TempDir(), Branch: "main"}
 	rec := httptest.NewRecorder()
-	srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph?limit=999999999", nil))
+	srv.HandleGraph(rec, httptest.NewRequest(http.MethodGet, "/api/graph?limit=999999999", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
-	var resp vizGraphResp
+	var resp GraphResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 }
 
-// Every feature endpoint must degrade to a valid 200 on an unbuilt brain, never 500.
-func TestVizFeatureHandlers_UnbuiltBrain(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name    string
-		path    string
-		handler func(*vizServer) http.HandlerFunc
-	}{
-		{"summary", "/api/summary", func(s *vizServer) http.HandlerFunc { return s.handleSummary }},
-		{"search", "/api/search?q=foo", func(s *vizServer) http.HandlerFunc { return s.handleSearch }},
-		{"facts", "/api/facts", func(s *vizServer) http.HandlerFunc { return s.handleFacts }},
-		{"sessions", "/api/sessions", func(s *vizServer) http.HandlerFunc { return s.handleSessions }},
-		{"history", "/api/history?limit=0", func(s *vizServer) http.HandlerFunc { return s.handleHistory }},
-		{"docs", "/api/docs", func(s *vizServer) http.HandlerFunc { return s.handleDocs }},
-	}
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			srv := &vizServer{brainDir: t.TempDir(), branch: "main"}
-			rec := httptest.NewRecorder()
-			tc.handler(srv)(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
-			if rec.Code != http.StatusOK {
-				t.Fatalf("%s: status = %d, want 200", tc.name, rec.Code)
-			}
-			if !json.Valid(rec.Body.Bytes()) {
-				t.Fatalf("%s: response is not valid JSON", tc.name)
-			}
-		})
-	}
-}
-
 func TestVizSessionFallbackText(t *testing.T) {
 	t.Parallel()
-	if got := vizSessionFallbackText(exportSession{}); got != "No summary recorded." {
+	if got := vizSessionFallbackText(bmanifest.Session{}); got != "No summary recorded." {
 		t.Fatalf("no files: got %q, want the fallback note", got)
 	}
-	if got := vizSessionFallbackText(exportSession{FilesTouched: []string{"  ", ""}}); got != "No summary recorded." {
+	if got := vizSessionFallbackText(bmanifest.Session{FilesTouched: []string{"  ", ""}}); got != "No summary recorded." {
 		t.Fatalf("blank files: got %q, want the fallback note", got)
 	}
-	got := vizSessionFallbackText(exportSession{FilesTouched: []string{"a/b/foo.go", "x/bar.go"}})
+	got := vizSessionFallbackText(bmanifest.Session{FilesTouched: []string{"a/b/foo.go", "x/bar.go"}})
 	for _, want := range []string{"**Files touched**", "- foo.go", "- bar.go"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("files: %q missing %q", got, want)
@@ -438,7 +343,7 @@ func TestVizSessionFallbackText(t *testing.T) {
 	for i := 0; i < 11; i++ {
 		many = append(many, fmt.Sprintf("dir/f%d.go", i))
 	}
-	over := vizSessionFallbackText(exportSession{FilesTouched: many})
+	over := vizSessionFallbackText(bmanifest.Session{FilesTouched: many})
 	if !strings.Contains(over, "_(+3 more)_") { // 11 touched, 8 shown -> 3 more
 		t.Fatalf("overflow: %q missing the +3 more note", over)
 	}

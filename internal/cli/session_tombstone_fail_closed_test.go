@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +35,7 @@ func requireSessionTombstoneError(t *testing.T, err error, code string, state se
 	if !errors.As(err, &loadErr) {
 		t.Fatalf("error = %v, want *sessionTombstoneLoadError", err)
 	}
-	if loadErr.Code != code || loadErr.State != state || commandErrorCode(err) != code {
+	if loadErr.Code != code || loadErr.State != state || cmdutil.CommandErrorCode(err) != code {
 		t.Fatalf("tombstone error = %+v (%v), want code=%s state=%s", loadErr, err, code, state)
 	}
 }
@@ -192,7 +194,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 			return err
 		},
 		"viz": func() error {
-			return runViz(context.Background(), cmd, opts, vizFlags{noOpen: true}, repoDir)
+			return viz.Run(context.Background(), cmd, vizConfig(opts), viz.Flags{NoOpen: true}, repoDir)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

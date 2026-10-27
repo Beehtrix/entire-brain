@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 
 	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -18,8 +20,8 @@ func publishConfig(opts Options) publish.Config {
 			target, err := resolveManualHostedTarget(ctx, opts, brainDir, repoDir, command, flagRepoID, flagAPIURL, flagToken)
 			return target.repoID, target.baseURL, target.token, err
 		},
-		LoadSessionReadGuard: loadSessionReadGuard,
-		GuardFactRecords:     guardFactRecords,
+		LoadSessionReadGuard: bmanifest.LoadSessionReadGuard,
+		GuardFactRecords:     factstore.GuardRecords,
 		ParseRepoRemote:      parseRepoRemote,
 		NormalizeRepoHost:    normalizeRepoHost,
 	}}

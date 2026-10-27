@@ -34,6 +34,20 @@ func GlobalBrainDir(env base.EntireEnv) (string, error) {
 	return filepath.Join(dirs.Data, globalStoreDirName), nil
 }
 
+// GlobalFactsEnabled reports whether global facts should be merged into a
+// repository read.
+//
+// Default on: a preference somebody recorded once is meant to apply, and a
+// memory layer that makes you ask for what you already told it is not one.
+// ENTIRE_BRAIN_NO_GLOBAL_FACTS and --no-global turn it off, for a machine where
+// repository answers must not be influenced by anything outside the repository.
+func GlobalFactsEnabled(noGlobalFlag bool) bool {
+	if noGlobalFlag {
+		return false
+	}
+	return !base.SecurityToggleEnabled("ENTIRE_BRAIN_NO_GLOBAL_FACTS")
+}
+
 // LoadGlobal reads the global store. A store that does not exist yet is
 // not an error: it is the state of every brain before the first global fact,
 // and recall must not fail because of it.

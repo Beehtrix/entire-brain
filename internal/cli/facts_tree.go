@@ -185,7 +185,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if leaves < 0 {
 				return fmt.Errorf("--leaves must be nonnegative")
 			}
-			if err := validateScopeFlag(scope); err != nil {
+			if err := factstore.ValidateScopeFlag(scope); err != nil {
 				return err
 			}
 			if err := factstore.ValidateKindFlag(kind); err != nil {

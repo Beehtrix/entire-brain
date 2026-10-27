@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
+
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -42,7 +44,7 @@ func TestRecallEvidenceLargeOutputBudgets(t *testing.T) {
 			if err := writeBrainManifestAndReadme(brain, *m); err != nil {
 				t.Fatal(err)
 			}
-			out, err := execute(t, newRecallCommand(opts), "target", "--evidence", "--json", "--evidence-bytes", strconv.Itoa(tc.budget))
+			out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--evidence", "--json", "--evidence-bytes", strconv.Itoa(tc.budget))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -95,7 +97,7 @@ func TestRecallEvidenceRejectsAmbiguityBeyondScanLimit(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brain, *m); err != nil {
 		t.Fatal(err)
 	}
-	out, err := execute(t, newRecallCommand(opts), "target", "--evidence", "--json")
+	out, err := execute(t, facts.NewRecall(factsCommandConfig(opts)), "target", "--evidence", "--json")
 	if err == nil || !strings.Contains(err.Error(), "ambiguous session identity") || strings.Contains(out, `"evidence":`) {
 		t.Fatalf("ambiguous manifest emitted source evidence: err=%v", err)
 	}

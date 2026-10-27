@@ -1,18 +1,47 @@
-package cli
+package connect
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
 	"golang.org/x/mod/semver"
 )
+
+// Config supplies the shared command options and the assembly package's
+// storage and hosted-sync operations. Dependencies are per invocation, never
+// global hooks.
+type Config struct {
+	base.Options
+	Deps Deps
+}
+
+// Deps keeps the connect command independent of command assembly, repo
+// identity resolution, and the hosted sync engine. The assembly package
+// supplies these operations so connect drives the same sync loop and push-hook
+// management as the background triggers.
+type Deps struct {
+	RepoStoragePaths   func(context.Context, base.CommandRunner, base.EntireEnv, string) (base.RepoStorage, error)
+	AgentSurfaceTarget func(base.Options, []string) string
+	// InstallPushHook installs the pre-push upload hook; sharedHooksDir
+	// reports a core.hooksPath shared across repos, where the hook is not
+	// managed.
+	InstallPushHook func(ctx context.Context, opts base.Options, repoDir string) (sharedHooksDir bool, hookPath string, err error)
+	// HostedFactsSyncAndPull runs one hosted sync for the branch; attempted
+	// reports whether the gates passed and the server was contacted,
+	// pullSucceeded whether the pull half completed.
+	HostedFactsSyncAndPull func(ctx context.Context, errW io.Writer, opts base.Options, repoDir string, storage base.RepoStorage, branch string) (attempted, pullSucceeded bool, err error)
+	HostedSyncBranch       func(context.Context, base.CommandRunner, string) string
+}
 
 // minHostCLIVersion is the first host CLI release that ships `entire repo view
 // --json` (entireio/cli#2758), which placement resolution depends on. Only
@@ -34,7 +63,7 @@ type connectOptions struct {
 	apiURL string
 }
 
-func newConnectCommand(opts Options) *cobra.Command {
+func New(cfg Config) *cobra.Command {
 	var connectOpts connectOptions
 	cmd := &cobra.Command{
 		Use:   "connect",
@@ -51,7 +80,7 @@ or a staging target. Re-running connect re-joins after 'entire brain
 disconnect'.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runConnect(cmd, opts, connectOpts)
+			return runConnect(cmd, cfg, connectOpts)
 		},
 	}
 	cmd.Flags().StringVar(&connectOpts.repoID, "repo-id", "", "Hosted repo id (region-local ULID)")
@@ -59,16 +88,17 @@ disconnect'.`,
 	return cmd
 }
 
-func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) error {
+func runConnect(cmd *cobra.Command, cfg Config, connectOpts connectOptions) error {
 	ctx := cmd.Context()
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, agentSurfaceTarget(opts, nil))
+	opts := cfg.Options
+	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, cfg.Deps.AgentSurfaceTarget(opts, nil))
 	if err != nil {
 		return err
 	}
 	if !local {
 		return fmt.Errorf("connect requires a local repository path")
 	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
+	storage, err := cfg.Deps.RepoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
 		return err
 	}
@@ -81,7 +111,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 			// An already-connected (or disconnected — the opt-out keeps its
 			// coordinates) repo stays re-connectable without flags: re-connect
 			// means re-sync, not re-resolve.
-			if existing, present, readErr := readHostedRepoBinding(storage.BrainDir); readErr == nil && present && existing.RepoID != "" {
+			if existing, present, readErr := brainstore.ReadHostedRepoBinding(storage.BrainDir); readErr == nil && present && existing.RepoID != "" {
 				resolved = hostedPlacement{RepoID: existing.RepoID, APIURL: existing.BaseURL}
 			} else {
 				// The hint sits on its own line: the host CLI's message ends
@@ -100,7 +130,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// Whether this run re-affirms an existing connection decides the success
 	// headline: "connected" must not read like a state change when nothing
 	// changed.
-	existing, existingPresent, existingErr := readHostedRepoBinding(storage.BrainDir)
+	existing, existingPresent, existingErr := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	binding, err := bindHostedRepo(storage.BrainDir, repoID, apiURL)
 	if err != nil {
 		return fmt.Errorf("connect: %w", err)
@@ -110,16 +140,16 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// A connected repo wants the push-beat upload: install our pre-push hook
 	// (chained beside whatever hook owns the slot). Best-effort — a hook
 	// problem must not fail the connect.
-	if hookState, hookPath, hookErr := installPushHook(ctx, opts, repoDir); hookErr != nil {
+	if sharedHooksDir, hookPath, hookErr := cfg.Deps.InstallPushHook(ctx, opts, repoDir); hookErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "connect: push hook not installed (uploads ride the daemon tick): %v\n", hookErr)
-	} else if hookState == pushHookSharedDir {
+	} else if sharedHooksDir {
 		fmt.Fprintf(cmd.ErrOrStderr(), "connect: core.hooksPath (%s) is shared across repos; push hook not managed — uploads ride the daemon tick\n", hookPath)
 	}
 	// The kill switch suppresses every sync this command is about to promise,
 	// so say that instead of "now syncing". The binding still gets recorded:
 	// the environment only subtracts, and unsetting it resumes syncing.
 	if base.BrainNoEgressMode() {
-		renderHostedBanner(cmd.OutOrStdout(),
+		cmdutil.RenderHostedBanner(cmd.OutOrStdout(),
 			"Connected: "+storage.Key+" — but nothing syncs while "+base.NoEgressToggleName()+" is set",
 			"The binding is recorded and memories stay local. Unset "+base.NoEgressToggleName()+" to start syncing.")
 		return nil
@@ -128,13 +158,13 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	// memories immediately. The sync runs BEFORE the banner so the headline
 	// reports what actually happened: a connect whose first pull failed has
 	// not started syncing, and claiming so hides a dead connection.
-	outcome, err := hostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, hostedSyncBranch(ctx, opts.Runner, repoDir))
+	attempted, pullSucceeded, err := cfg.Deps.HostedFactsSyncAndPull(ctx, cmd.ErrOrStderr(), opts, repoDir, storage, cfg.Deps.HostedSyncBranch(ctx, opts.Runner, repoDir))
 	if err != nil {
 		return err
 	}
-	if !outcome.PullSucceeded {
+	if !pullSucceeded {
 		verdict := "failed"
-		if !outcome.Attempted {
+		if !attempted {
 			verdict = "did not run"
 		}
 		return fmt.Errorf("connect: %s is bound, but the first sync %s (details above); memories stay local until a sync succeeds — fix the cause and re-run '%s'",
@@ -144,7 +174,7 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 	if already {
 		headline = "Already connected: " + storage.Key + " — memories are syncing"
 	}
-	renderHostedBanner(cmd.OutOrStdout(), headline,
+	cmdutil.RenderHostedBanner(cmd.OutOrStdout(), headline,
 		"Memories sync periodically, at session end, and on git push. Teammates' memories merge into this repo's local brain.")
 	return nil
 }
@@ -154,44 +184,44 @@ func runConnect(cmd *cobra.Command, opts Options, connectOpts connectOptions) er
 // docs examples), but the factsync client appends /api/v1/repos/... itself —
 // storing the suffix would 404 every sync. OptedOut is false: a fresh binding
 // is an opt-in.
-func normalizeHostedBinding(repoID, apiURL string) (hostedRepoBinding, error) {
+func normalizeHostedBinding(repoID, apiURL string) (brainstore.HostedRepoBinding, error) {
 	if strings.TrimSpace(repoID) == "" {
-		return hostedRepoBinding{}, fmt.Errorf("hosted repo id is empty")
+		return brainstore.HostedRepoBinding{}, fmt.Errorf("hosted repo id is empty")
 	}
 	validated, err := apiurl.Validate(apiURL)
 	if err != nil {
-		return hostedRepoBinding{}, err
+		return brainstore.HostedRepoBinding{}, err
 	}
-	return hostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}, nil
+	return brainstore.HostedRepoBinding{RepoID: strings.TrimSpace(repoID), BaseURL: strings.TrimSuffix(validated, "/api/v1")}, nil
 }
 
 // bindHostedRepo is the EXPLICIT connect write: it overwrites whatever is
 // there, including an opt-out — running connect is how the user opts back in.
-func bindHostedRepo(brainDir, repoID, apiURL string) (hostedRepoBinding, error) {
+func bindHostedRepo(brainDir, repoID, apiURL string) (brainstore.HostedRepoBinding, error) {
 	binding, err := normalizeHostedBinding(repoID, apiURL)
 	if err != nil {
-		return hostedRepoBinding{}, err
+		return brainstore.HostedRepoBinding{}, err
 	}
-	if err := writeHostedRepoBinding(brainDir, binding); err != nil {
-		return hostedRepoBinding{}, err
+	if err := brainstore.WriteHostedRepoBinding(brainDir, binding); err != nil {
+		return brainstore.HostedRepoBinding{}, err
 	}
 	return binding, nil
 }
 
 // resolveHostedPlacement shells out to the host CLI for this repo's hosted
 // placement.
-func resolveHostedPlacement(ctx context.Context, runner CommandRunner, repoDir string) (hostedPlacement, error) {
-	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
+func resolveHostedPlacement(ctx context.Context, runner base.CommandRunner, repoDir string) (hostedPlacement, error) {
+	ctx, cancel := context.WithTimeout(ctx, base.HostedShellOutTimeout)
 	defer cancel()
 	if err := checkHostCLIVersion(ctx, runner, repoDir, minHostCLIVersion); err != nil {
 		return hostedPlacement{}, err
 	}
-	stdout, stderr, err := runner.Run(ctx, repoDir, hostEntireBinary, "repo", "view", "--json")
+	stdout, stderr, err := runner.Run(ctx, repoDir, base.HostEntireBinary, "repo", "view", "--json")
 	if err != nil {
 		return hostedPlacement{}, placementFailureError(err, stderr)
 	}
 	var result hostedPlacement
-	if err := decodeHostCLIJSON(stdout, &result); err != nil {
+	if err := base.DecodeHostCLIJSON(stdout, &result); err != nil {
 		return hostedPlacement{}, fmt.Errorf("parse repo view json: %w", err)
 	}
 	return result, nil
@@ -227,11 +257,11 @@ func placementFailureError(runErr error, stderr []byte) error {
 // min, so the failure says "upgrade" instead of repo view's unknown-command
 // noise. A missing CLI or an unrecognized version line (dev builds) passes:
 // the repo view call itself is the authority on whether the command exists.
-func checkHostCLIVersion(ctx context.Context, runner CommandRunner, repoDir, min string) error {
+func checkHostCLIVersion(ctx context.Context, runner base.CommandRunner, repoDir, min string) error {
 	if min == "" {
 		return nil
 	}
-	stdout, _, err := runner.Run(ctx, repoDir, hostEntireBinary, "version")
+	stdout, _, err := runner.Run(ctx, repoDir, base.HostEntireBinary, "version")
 	if err != nil {
 		return nil
 	}

@@ -16,6 +16,8 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 const (
@@ -598,7 +600,7 @@ func TestPublishDefaultsToConnectedBinding(t *testing.T) {
 	repoDir := t.TempDir()
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
-	if err := writeHostedRepoBinding(publishBrainDir(dataDir), hostedRepoBinding{RepoID: testPublishRepoID, BaseURL: server.URL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(publishBrainDir(dataDir), brainstore.HostedRepoBinding{RepoID: testPublishRepoID, BaseURL: server.URL}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -633,7 +635,7 @@ func TestPublishExplicitTargetRequiresExplicitToken(t *testing.T) {
 	repoDir := t.TempDir()
 	dataDir := t.TempDir()
 	writePublishBrainFixture(t, publishBrainDir(dataDir))
-	if err := writeHostedRepoBinding(publishBrainDir(dataDir), hostedRepoBinding{RepoID: testPublishRepoID, BaseURL: "https://bound.example.com"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(publishBrainDir(dataDir), brainstore.HostedRepoBinding{RepoID: testPublishRepoID, BaseURL: "https://bound.example.com"}); err != nil {
 		t.Fatal(err)
 	}
 

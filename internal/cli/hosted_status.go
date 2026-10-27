@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // brainStatusHosted is the status report's hosted-brain connection section,
@@ -42,7 +43,7 @@ const (
 func buildHostedStatus(brainDir string, factBranches []string) (*brainStatusHosted, string) {
 	var warning string
 	hosted := &brainStatusHosted{RepoState: hostedStateDisconnected}
-	binding, present, err := readHostedRepoBinding(brainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 	switch {
 	case err != nil:
 		warning = "hosted binding unreadable (run '" + base.BrainInvocation(os.LookupEnv, "connect") + "' to rebind): " + err.Error()

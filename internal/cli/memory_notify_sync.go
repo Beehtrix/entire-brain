@@ -95,7 +95,7 @@ func hostedSyncOnPushHint(ctx context.Context, errW io.Writer, opts Options, rep
 	// the throttle or spawning sync work. An UNBOUND repo proceeds — the
 	// sync's auto-connect is the designed first-contact path, with its own
 	// gates.
-	if binding, present, err := readHostedRepoBinding(storage.BrainDir); err == nil && present && binding.OptedOut {
+	if binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir); err == nil && present && binding.OptedOut {
 		return false
 	}
 	claimed := false

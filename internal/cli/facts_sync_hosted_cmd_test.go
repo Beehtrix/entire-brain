@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // newHostedSyncCmdFixture wires a CLI fixture whose repo is CONNECTED to a fake
@@ -21,7 +23,7 @@ func newHostedSyncCmdFixture(t *testing.T, fake *hostedFake) (verifyFixture, str
 		fake.callerHandle = "caller"
 	}
 	srv := newHostedFakeServer(t, fake)
-	if err := writeHostedRepoBinding(f.brainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(f.brainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
 	f.opts.Env.PluginCacheDir = t.TempDir()

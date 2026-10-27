@@ -17,6 +17,8 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
+	"github.com/entireio/entire-brain/internal/cli/command/connect"
+	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
@@ -121,8 +123,8 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", newRememberCommand(opts))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
-	addGrouped("facts", newConnectCommand(opts))
-	addGrouped("facts", newDisconnectCommand(opts))
+	addGrouped("facts", connect.New(connectConfig(opts)))
+	addGrouped("facts", disconnect.New(disconnectConfig(opts)))
 	addGrouped("facts", newVerifyCommand(opts))
 	addGrouped("facts", newPatternsCommand(opts))
 

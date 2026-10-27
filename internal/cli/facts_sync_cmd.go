@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/factsync"
 	"github.com/spf13/cobra"
 )
@@ -115,7 +116,7 @@ func runFactsSync(cmd *cobra.Command, opts Options, syncOpts factsSyncOptions) e
 		// the remedy. The no-egress kill switch always wins — it suppresses the
 		// sync rather than failing it, because the suppression is the user's
 		// own configuration doing exactly what it promises.
-		binding, present, bindErr := readHostedRepoBinding(storage.BrainDir)
+		binding, present, bindErr := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 		if bindErr != nil {
 			return fmt.Errorf("memories sync: hosted binding unreadable: %w; run '%s' to rebind", bindErr, base.BrainInvocation(os.LookupEnv, "connect"))
 		}

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 )
 
 const fakeJWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1bHJpY2gifQ.c2lnbmF0dXJl"
@@ -12,7 +14,7 @@ const fakeJWT = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1bHJpY2gifQ.c2lnbmF0dXJl"
 func TestMintHostedTokenUsesTheCLIsOwnAuth(t *testing.T) {
 	var gotName string
 	var gotArgs []string
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		gotName = name
 		gotArgs = args
 		return []byte("some banner chatter\n" + fakeJWT + "\n"), nil, nil
@@ -37,7 +39,7 @@ func TestMintHostedTokenUsesTheCLIsOwnAuth(t *testing.T) {
 func TestMintHostedTokenFailures(t *testing.T) {
 	t.Run("runner error passes through", func(t *testing.T) {
 		boom := errors.New("not logged in")
-		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return nil, nil, boom
 		})
 		if _, err := mintHostedToken(context.Background(), runner, "/repo", "entire"); !errors.Is(err, boom) {
@@ -45,7 +47,7 @@ func TestMintHostedTokenFailures(t *testing.T) {
 		}
 	})
 	t.Run("empty stdout errors", func(t *testing.T) {
-		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return []byte("  \n"), nil, nil
 		})
 		if _, err := mintHostedToken(context.Background(), runner, "/repo", "entire"); err == nil {
@@ -54,7 +56,7 @@ func TestMintHostedTokenFailures(t *testing.T) {
 	})
 	t.Run("non-JWT output errors without echoing it", func(t *testing.T) {
 		secretish := "definitely-not-a-jwt-but-still-private"
-		runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+		runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 			return []byte(secretish + "\n"), nil, nil
 		})
 		_, err := mintHostedToken(context.Background(), runner, "/repo", "entire")
@@ -73,7 +75,7 @@ func TestMintHostedTokenFailures(t *testing.T) {
 func TestMintHostedTokenBoundsTheShellOut(t *testing.T) {
 	// A watch tick must stay a tick and a hook must return: the shell-out to
 	// the host CLI carries a hard deadline, not just signal cancellation.
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if _, ok := ctx.Deadline(); !ok {
 			t.Error("the auth token shell-out must carry a deadline")
 		}

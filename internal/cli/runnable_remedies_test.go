@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
 	"regexp"
@@ -41,11 +42,12 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	scanned, helperSites, allowed := 0, 0, 0
-	// "." plus internal/factstore and command/add: the fact-store remedies and
-	// the add command sank there (COR-2268) and must stay under this guard
-	// rather than escape it by moving.
+	// "." plus the packages remedies have sunk into (COR-2268): the fact-store
+	// remedies, the add command, the declared-index repair hint, and the
+	// history-store and semantic-store read-layer remedies must stay under
+	// this guard rather than escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "internal/brainstore", "internal/historystore", "internal/semstore"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)
@@ -104,9 +106,9 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 func TestConvertedRemediesFollowTheDispatchSpelling(t *testing.T) {
 	render := func() map[string]string {
 		return map[string]string{
-			"declaredIndexRepairHint": declaredIndexRepairHint(),
-			"factstore.RepairHint":    factstore.RepairHint(),
-			"declaredIndexDefect":     declaredIndexDefect{Source: declaredIndexSeed, Absent: true, Path: "seed.json"}.Warning(),
+			"brainstore.DeclaredIndexRepairHint": brainstore.DeclaredIndexRepairHint(),
+			"factstore.RepairHint":               factstore.RepairHint(),
+			"brainstore.DeclaredIndexDefect":     brainstore.DeclaredIndexDefect{Source: brainstore.DeclaredIndexSeed, Absent: true, Path: "seed.json"}.Warning(),
 		}
 	}
 	for _, mode := range []struct{ name, cliVersion, want, forbid string }{

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"net/http"
 	"os"
@@ -376,7 +377,7 @@ func projectedPublishBodyBytes(body publishRequestBody) int64 {
 // each by "base..head", and registers an OverlayRef on art. The all-branches.json
 // refresh report is not a (base,head) overlay and is skipped.
 func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]publishArtifact, error) {
-	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, filepath.Join(semanticDirName, "overlays"), "publish overlays")
+	entries, _, err := brainstore.ReadPrivacyDirectory(brainDir, filepath.Join(semstore.DirName, "overlays"), "publish overlays")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -404,7 +405,7 @@ func collectOverlayArtifacts(art *brainwire.BrainArtifact, brainDir string) ([]p
 	for _, name := range names {
 		ref := strings.TrimSuffix(name, ".json")
 		base, head, _ := strings.Cut(ref, "..")
-		rel := filepath.ToSlash(filepath.Join(semanticDirName, "overlays", name))
+		rel := filepath.ToSlash(filepath.Join(semstore.DirName, "overlays", name))
 		data, ok, err := readBrainBlob(brainDir, rel)
 		if err != nil {
 			return nil, fmt.Errorf("read overlay %s: %w", ref, err)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
@@ -65,7 +66,7 @@ func BenchmarkHistoryFTSQueryPaths(b *testing.B) {
 	b.Run("json_load_then_bm25", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			loaded, err := loadBrainHistoryIndex(brainDir, source)
+			loaded, err := historystore.LoadIndex(brainDir, source)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -107,7 +108,7 @@ func BenchmarkHistoryLegacyIdentityUpgrade(b *testing.B) {
 				b.Fatal(err)
 			}
 			b.StartTimer()
-			_, identity, err := loadBrainHistoryIndexWithLegacyIdentity(brainDir, &legacy)
+			_, identity, err := historystore.LoadIndexWithLegacyIdentity(brainDir, &legacy)
 			if err != nil || identity == nil {
 				b.Fatalf("legacy load: identity=%+v err=%v", identity, err)
 			}

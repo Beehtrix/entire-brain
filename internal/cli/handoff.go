@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"sort"
 	"strings"
@@ -212,7 +213,7 @@ func runBrainHandoff(ctx context.Context, cmd *cobra.Command, opts Options, sess
 	if err := requirePrivacyDerivedRead(brainDir); err != nil {
 		return err
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		index = historyIndex{} // a handoff without history detail beats no handoff
 	}

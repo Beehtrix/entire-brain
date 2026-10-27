@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +69,7 @@ func TestSemanticRuntimeTraceFactsRejectsInvalidDeclaredStore(t *testing.T) {
 	brainDir := t.TempDir()
 	for _, source := range []*semanticSourceManifest{
 		{StorePath: "../outside/semantic.sqlite"},
-		{StorePath: filepath.ToSlash(filepath.Join(semanticDirName, "missing", semanticSQLiteName))},
+		{StorePath: filepath.ToSlash(filepath.Join(semstore.DirName, "missing", semstore.SQLiteName))},
 	} {
 		records, err := semanticRuntimeTraceFacts(brainDir, source, "", 10)
 		if err == nil || records != nil {

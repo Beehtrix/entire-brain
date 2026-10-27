@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func writeSessionNavigationFixture(t *testing.T) (brainDir string, records []his
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, onDisk.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, onDisk.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,12 +245,12 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
 		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: generated, RepoKey: "test/collide",
-		Sources: &brainSources{History: &historySourceManifest{GeneratedAt: generated, IndexPath: historyIndexPath, Records: 2}},
+		Sources: &brainSources{History: &historySourceManifest{GeneratedAt: generated, IndexPath: historystore.IndexPath, Records: 2}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)

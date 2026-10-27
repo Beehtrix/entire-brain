@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -735,7 +736,7 @@ func TestIndexedDecisionsSearchesExportedText(t *testing.T) {
 	// The indexed decision is retrievable by the shared history ranker (the engine
 	// the unified search/query verbs use); the old `inspect decisions` command was
 	// just a thin wrapper over this and was removed.
-	index, err := loadBrainHistoryIndex(storage.BrainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(storage.BrainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load history index: %v", err)
 	}
@@ -884,7 +885,7 @@ func TestBrainInspectParsesStructuredSessionHistory(t *testing.T) {
 	// Kind-filtered retrieval over these parsed records is exercised against the
 	// shared BM25 ranker in history_fts_test.go; the per-kind `inspect` commands
 	// that used to drive it here were removed in favor of the unified verbs.
-	index, err := loadBrainHistoryIndex(storage.BrainDir, source)
+	index, err := historystore.LoadIndex(storage.BrainDir, source)
 	if err != nil {
 		t.Fatalf("load history index: %v", err)
 	}

@@ -5,14 +5,13 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"hash"
 	"io"
-	"math"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -24,7 +23,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	"unicode"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
@@ -35,35 +33,15 @@ import (
 )
 
 const (
-	semanticDirName        = "semantic"
-	semanticSnapshotsDir   = "snapshots"
-	semanticGenerationsDir = "generations"
-	semanticBundleDir      = "bundles"
-	semanticAuditLogName   = "audit.jsonl"
-	semanticLockDir        = "locks"
-	semanticIndexLockName  = "index.lock"
-	semanticSnapshotName   = "snapshot.ndjson"
-	semanticManifestName   = "manifest.json"
-	semanticSQLiteName     = "semantic.sqlite"
-	semanticMetricsName    = "metrics.json"
-	semanticSupportedMajor = "1"
-	// semanticSchemaVersion is the newest provider schema this build knows how
-	// to ingest in full. A newer minor is still accepted (ADR 0001: minors are
-	// additive) but warns, because facts added after this version are dropped.
-	//
-	// 1.2 added identity_revision (consumed: internal/entityindex keys every
-	// stored delta by it and re-migrates when it changes). 1.3 added
-	// completeness.health (consumed: carried verbatim as the Completeness raw
-	// message and persisted on the manifest) and the partial-failure language
-	// field above. 1.4 added the derived relation provenance label (modeled on
-	// semanticRecord so the streaming filter round-trips it; the provider
-	// computes it from type and resolution, both already modeled, so it carries
-	// no information this build was missing). Leaving this at 1.1 fired
-	// provider_schema_newer_minor on EVERY index against a current
-	// entire-graph, telling users facts were dropped when they were not;
-	// leaving it at 1.3 against the released graph v0.5.0 pair did the same.
-	semanticSchemaVersion               = "1.4"
-	semanticSupportedSchemaRange        = "semantic schema >=1.0 <2.0"
+	semanticSnapshotsDir                = "snapshots"
+	semanticGenerationsDir              = "generations"
+	semanticBundleDir                   = "bundles"
+	semanticAuditLogName                = "audit.jsonl"
+	semanticLockDir                     = "locks"
+	semanticIndexLockName               = "index.lock"
+	semanticSnapshotName                = "snapshot.ndjson"
+	semanticManifestName                = "manifest.json"
+	semanticMetricsName                 = "metrics.json"
 	semanticContextMaxLines             = 80
 	semanticContextMaxBytes             = 64 * 1024
 	semanticParseCacheMaxFile           = 16 * 1024 * 1024
@@ -107,85 +85,6 @@ func semanticRecordMaxBytes() int {
 		}
 	}
 	return semanticMaxRecordBytes
-}
-
-// completenessLevelFromStats extracts completeness_level from the provider's
-// trailing summary stats blob (json.RawMessage), or "" if absent.
-func completenessLevelFromStats(stats json.RawMessage) string {
-	if len(stats) == 0 {
-		return ""
-	}
-	var s struct {
-		CompletenessLevel string `json:"completeness_level"`
-	}
-	if err := json.Unmarshal(stats, &s); err != nil {
-		return ""
-	}
-	return s.CompletenessLevel
-}
-
-// trustForCompleteness maps a provider completeness level to a coarse
-// retrieval-trust label agents can branch on.
-func trustForCompleteness(level string) string {
-	switch level {
-	case "ok":
-		return "trusted"
-	case "degraded":
-		return "partial"
-	case "unsafe":
-		return "low"
-	default:
-		return "unknown"
-	}
-}
-
-type semanticRecord struct {
-	RecordType      string   `json:"record_type"`
-	ID              string   `json:"id"`
-	Kind            string   `json:"kind"`
-	Name            string   `json:"name"`
-	QualifiedName   string   `json:"qualified_name"`
-	FilePath        string   `json:"file_path"`
-	StartLine       int      `json:"start_line"`
-	EndLine         int      `json:"end_line"`
-	Path            string   `json:"path"`
-	Signature       string   `json:"signature"`
-	Language        string   `json:"language"`
-	FromID          string   `json:"from_id"`
-	ToID            string   `json:"to_id"`
-	Type            string   `json:"type"`
-	WarningCodes    []string `json:"warning_codes"`
-	Confidence      float64  `json:"confidence"`
-	Reason          string   `json:"reason"`
-	StableIDVersion string   `json:"stable_id_version"`
-	Blob            string   `json:"blob"`
-	Score           int      `json:"score,omitempty"`
-
-	// Schema 1.1 fields. These are omitempty so older (1.0) snapshots round-trip
-	// unchanged, but they must be modeled so the streaming filter does not
-	// silently drop them when re-marshaling file/symbol/relation records.
-	Bytes           int                `json:"bytes,omitempty"`            // file record: source size
-	ContainerID     string             `json:"container_id,omitempty"`     // symbol record: enclosing symbol
-	BodyHash        string             `json:"body_hash,omitempty"`        // symbol record: content hash
-	RelationScope   string             `json:"relation_scope,omitempty"`   // relation record: file|external|...
-	Resolution      string             `json:"resolution,omitempty"`       // relation record: exact|type_inferred|name_only
-	TargetKind      string             `json:"target_kind,omitempty"`      // relation record: symbol|external
-	Evidence        []semanticEvidence `json:"evidence,omitempty"`         // relation record: supporting spans
-	EvidenceDropped int                `json:"evidence_dropped,omitempty"` // relation record: supporting spans omitted by provider limit
-
-	// Schema 1.4 field. The provider derives it from Type and Resolution at
-	// marshal time, so it adds no information — but it must be modeled so the
-	// streaming filter round-trips the literal field.
-	Provenance string `json:"provenance,omitempty"` // relation record: EXTRACTED|INFERRED|AMBIGUOUS
-}
-
-// semanticEvidence is a single supporting span for a relation (schema 1.1).
-type semanticEvidence struct {
-	Kind      string `json:"kind,omitempty"`
-	FilePath  string `json:"file_path,omitempty"`
-	StartLine int    `json:"start_line,omitempty"`
-	EndLine   int    `json:"end_line,omitempty"`
-	Detail    string `json:"detail,omitempty"`
 }
 
 type semanticIndexOptions struct {
@@ -374,10 +273,10 @@ func runSemanticReset(ctx context.Context, cmd *cobra.Command, opts Options, res
 		}
 		manifest.Sources.Semantic = nil
 		applySessionSourceAliases(manifest)
-		if err := clibase.RejectExistingSymlinkPathComponents(storage.BrainDir, semanticDirName); err != nil {
+		if err := clibase.RejectExistingSymlinkPathComponents(storage.BrainDir, semstore.DirName); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semanticDirName)); err != nil {
+		if err := os.RemoveAll(filepath.Join(storage.BrainDir, semstore.DirName)); err != nil {
 			return fmt.Errorf("remove code-index artifacts: %w", err)
 		}
 		if err := writeBrainManifestAndReadme(storage.BrainDir, *manifest); err != nil {
@@ -546,10 +445,6 @@ func stringValue(data map[string]any, key string) string {
 // provider is strongly encouraged but never required, and every other brain
 // source builds without it. A provider that is PRESENT and fails stays fatal.
 var errSemanticProviderAbsent = errors.New("semantic provider is not installed")
-
-// errSemanticStoreRetired rejects a persisted pre-0.2.0 source: Brain no longer
-// reads its own snapshot/generation layout, only Graph's live store handle.
-var errSemanticStoreRetired = errors.New("code context store is Graph-owned")
 
 type semanticProviderAbsentError struct{ err error }
 
@@ -732,13 +627,6 @@ func newSemanticScanner(r io.Reader) *bufio.Scanner {
 	return scanner
 }
 
-func (r semanticRecord) semanticPath() string {
-	if r.FilePath != "" {
-		return r.FilePath
-	}
-	return r.Path
-}
-
 // semanticEndpointPath extracts the repository-relative file path encoded in a
 // semantic relation endpoint ID, or "" when the ID carries no path or the path
 // cannot be recovered from the ID alone.
@@ -831,29 +719,16 @@ func semanticSymbolIDPath(rest string) string {
 	return result
 }
 
-func (r *semanticRecord) setSemanticPath(path string) {
-	if r.RecordType == "symbol" {
-		r.FilePath = path
-		r.Path = ""
-		return
-	}
-	if r.FilePath != "" {
-		r.FilePath = path
-		return
-	}
-	r.Path = path
-}
-
 func validateSemanticRecordPath(record *semanticRecord) error {
 	switch record.RecordType {
 	case "file", "symbol":
-		path := record.semanticPath()
+		path := record.SemanticPath()
 		if path != "" {
 			clean, err := validateSemanticProviderPath(path)
 			if err != nil {
 				return err
 			}
-			record.setSemanticPath(clean)
+			record.SetSemanticPath(clean)
 		}
 	default:
 	}
@@ -892,96 +767,6 @@ func validateSemanticProviderPath(providerPath string) (string, error) {
 	return cleanSlash, nil
 }
 
-// parseSemanticSchemaVersion splits a provider schema_version into its major
-// and minor numbers. ADR 0001 fixes the shape as major.minor, so anything that
-// is not two non-negative integers is not a version this reader can reason
-// about: the old implementation only looked at the text before the first dot,
-// which silently accepted "1.abc" and "1." as if they were ordinary 1.x minors
-// and let a malformed header ride straight into the store.
-func parseSemanticSchemaVersion(version string) (int, int, error) {
-	majorText, rest, ok := strings.Cut(version, ".")
-	if !ok {
-		return 0, 0, fmt.Errorf("semantic schema version %q is not major.minor", version)
-	}
-	// A trailing patch component is tolerated and ignored: it is additive, and
-	// refusing it would violate the tolerant-reader rule.
-	minorText, _, _ := strings.Cut(rest, ".")
-	major, err := strconv.Atoi(majorText)
-	if err != nil || major < 0 {
-		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric major", version)
-	}
-	minor, err := strconv.Atoi(minorText)
-	if err != nil || minor < 0 {
-		return 0, 0, fmt.Errorf("semantic schema version %q has a non-numeric minor", version)
-	}
-	return major, minor, nil
-}
-
-// validateSemanticSchema applies ADR 0001's compatibility boundary: refuse an
-// unknown major, accept every minor within the supported major.
-func validateSemanticSchema(version string) error {
-	major, _, err := parseSemanticSchemaVersion(version)
-	if err != nil {
-		return fmt.Errorf("%w (this build reads %s); reinstall the provider with `entire plugin install graph`", err, semanticSupportedSchemaRange)
-	}
-	if strconv.Itoa(major) != semanticSupportedMajor {
-		// Name which side of the pin is behind, so the reader upgrades the
-		// right binary instead of reinstalling the one that already works.
-		action := "the provider is behind this build; upgrade it with `entire plugin install graph`"
-		if supportedMajor, convErr := strconv.Atoi(semanticSupportedMajor); convErr == nil && major > supportedMajor {
-			action = "the provider is ahead of this build; upgrade entire-brain"
-		}
-		return fmt.Errorf("unsupported semantic schema major version %q: this build reads %s — %s", strconv.Itoa(major), semanticSupportedSchemaRange, action)
-	}
-	return nil
-}
-
-// semanticSchemaMinorSkewWarning implements ADR 0001 rule 3: a newer minor
-// within the supported major is accepted, but the reader must WARN, because the
-// producer may have emitted additive facts this build does not know how to
-// ingest. Accepting silently is not compliance — the whole point of the warning
-// is that the resulting index is quietly less complete than the snapshot.
-//
-// This is the single implementation of that rule, applied at every place a
-// schema_version crosses into this build alongside validateSemanticSchema:
-//
-//  1. graphStoreSource — the live Graph-owned store header, recorded on the
-//     semantic source manifest it assembles for index, refresh, status and
-//     brief;
-//  2. semanticFreshnessReport — the "graph" freshness axis reported by brain
-//     doctor/status and every semantic read command, degraded rather than ok;
-//  3. semanticRefreshNeeded — refresh's non-fatal identity warning;
-//  4. validateImportedBundle — an imported bundle manifest, warning appended to
-//     the semantic source that is then persisted.
-//
-// It returns nil for an unparseable or non-supported-major version:
-// validateSemanticSchema is the sole authority on rejecting those outright.
-// validateImportedBundle runs it directly, first; the three live-path call
-// sites above never see a header validateSemanticSchema would reject, because
-// fetchGraphStore already ran it as a hard gate before producing the
-// descriptor they read schema_version from.
-func semanticSchemaMinorSkewWarning(version string) *semanticWarning {
-	major, minor, err := parseSemanticSchemaVersion(version)
-	if err != nil {
-		return nil
-	}
-	knownMajor, knownMinor, err := parseSemanticSchemaVersion(semanticSchemaVersion)
-	if err != nil || strconv.Itoa(major) != semanticSupportedMajor || minor <= knownMinor || major != knownMajor {
-		return nil
-	}
-	return &semanticWarning{
-		Code:     "provider_schema_newer_minor",
-		Severity: "warning",
-		Effect:   "additive semantic facts introduced after " + semanticSchemaVersion + " may not have been ingested",
-		// Kept under statusCauseWidth: this Detail is rendered inside the
-		// one-line status cause, and the longer wording was cut mid-word
-		// ("...so the snapshot is usabl") in the short report.
-		Detail: fmt.Sprintf(
-			"provider schema_version %q is newer than this build's %s; minors are additive, so the snapshot is usable -- upgrade to ingest everything",
-			version, semanticSchemaVersion),
-	}
-}
-
 // semanticBuildCancelCheckEvery / semanticBuildCancelCheckEveryFile are how
 // often the store build asks whether its deadline has passed. Both are small
 // enough that a cancelled index stops within a fraction of a second and
@@ -1000,7 +785,7 @@ const (
 
 func writeSemanticOverlayFile(brainDir, base, head, branch string, now time.Time) (string, error) {
 	name := base + ".." + head + ".json"
-	rel := filepath.ToSlash(filepath.Join(semanticDirName, "overlays", name))
+	rel := filepath.ToSlash(filepath.Join(semstore.DirName, "overlays", name))
 	payload := map[string]string{
 		"base":         base,
 		"head":         head,
@@ -2228,7 +2013,7 @@ func semanticFreshnessReport(ctx context.Context, opts Options, target string, a
 	// fetchGraphStore already refused a major mismatch; a newer supported-major
 	// minor reaches here and degrades the axis rather than failing the report,
 	// matching the warn-not-refuse half of ADR 0001 rule 3.
-	if skew := semanticSchemaMinorSkewWarning(d.Header.SchemaVersion); skew != nil {
+	if skew := semstore.SchemaMinorSkewWarning(d.Header.SchemaVersion); skew != nil {
 		warnings = append(warnings, *skew)
 		axes["graph"] = staleAxis{State: "degraded", Current: d.Commit, Indexed: d.Commit, Detail: skew.Detail}
 	}
@@ -2440,12 +2225,12 @@ func runSemanticQuery(ctx context.Context, cmd *cobra.Command, opts Options, que
 	}
 	// Kept for the empty-result inventory below: explaining WHICH empty this is
 	// needs the store that was actually searched.
-	storePath, err := validateSemanticDeclaredStore(storage.BrainDir, manifest.Sources.Semantic)
+	storePath, err := semstore.ValidateDeclaredStore(storage.BrainDir, manifest.Sources.Semantic)
 	if err != nil {
 		return err
 	}
 	storePathForInventory := storePath
-	results, err := findSemanticSymbolsInSQLite(storePath, query, queryOpts.limit, queryOpts.offset)
+	results, err := semstore.FindSymbolsInSQLite(storePath, query, queryOpts.limit, queryOpts.offset)
 	if err != nil {
 		return err
 	}
@@ -2537,7 +2322,7 @@ func semanticIndexKindInventory(storePath string) (total int, distinctKinds int,
 	if storePath == "" {
 		return 0, 0, nil
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return 0, 0, nil
 	}
@@ -2607,7 +2392,7 @@ func runSemanticContext(ctx context.Context, cmd *cobra.Command, opts Options, c
 	if contextOpts.includeContent && freshness.Severity != "ok" {
 		return fmt.Errorf("code context content requires fresh index data: %s", freshness.Severity)
 	}
-	symbols, relations, neighbors, err := semanticContextFacts(storage.BrainDir, manifest.Sources.Semantic, query, contextOpts.limit, contextOpts.offset)
+	symbols, relations, neighbors, err := semstore.ContextFacts(storage.BrainDir, manifest.Sources.Semantic, query, contextOpts.limit, contextOpts.offset)
 	if err != nil {
 		return err
 	}
@@ -2690,7 +2475,7 @@ func runSemanticImpact(ctx context.Context, cmd *cobra.Command, opts Options, im
 	if err != nil {
 		return err
 	}
-	roots, symbols, relations, err := semanticImpactFacts(storage.BrainDir, manifest.Sources.Semantic, query, impactOpts.depth, impactOpts.limit)
+	roots, symbols, relations, err := semstore.ImpactFacts(storage.BrainDir, manifest.Sources.Semantic, query, impactOpts.depth, impactOpts.limit)
 	if err != nil {
 		return err
 	}
@@ -2965,106 +2750,6 @@ func runSemanticTests(ctx context.Context, cmd *cobra.Command, opts Options, tes
 	return nil
 }
 
-// neighborCandidateIDs returns the relation endpoint ids that are not already in
-// symbols — the only ids neighbor materialization needs to load, so resolution
-// stays proportional to the fan-out rather than the whole symbol table. Ordered
-// (relations order) and deduped.
-func neighborCandidateIDs(symbols, relations []semanticRecord) []string {
-	inSymbols := make(map[string]struct{}, len(symbols))
-	for _, symbol := range symbols {
-		inSymbols[symbol.ID] = struct{}{}
-	}
-	seen := map[string]struct{}{}
-	var ids []string
-	add := func(id string) {
-		if id == "" {
-			return
-		}
-		if _, ok := inSymbols[id]; ok {
-			return
-		}
-		if _, ok := seen[id]; ok {
-			return
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	for _, relation := range relations {
-		add(relation.FromID)
-		add(relation.ToID)
-	}
-	return ids
-}
-
-// resolveContextNeighbors materializes the relation endpoints that are not
-// already in symbols into full records, so an agent gets "who calls this / what
-// this calls" without a follow-up query per bare from_id/to_id. symbolsByID need
-// only contain the candidate endpoints (see neighborCandidateIDs); ordering
-// follows the relations and the result is capped at limit to bound fan-out on a
-// hot symbol.
-func resolveContextNeighbors(symbols, relations []semanticRecord, symbolsByID map[string]semanticRecord, limit int) []semanticRecord {
-	if limit <= 0 || len(relations) == 0 || len(symbolsByID) == 0 {
-		return nil
-	}
-	inSymbols := make(map[string]struct{}, len(symbols))
-	for _, symbol := range symbols {
-		inSymbols[symbol.ID] = struct{}{}
-	}
-	seen := map[string]struct{}{}
-	var neighbors []semanticRecord
-	// add materializes one endpoint; it returns true once limit is reached so the
-	// caller can stop. Handling FromID/ToID directly avoids a per-relation slice
-	// allocation on this hot path.
-	add := func(id string) bool {
-		if id == "" {
-			return false
-		}
-		if _, ok := inSymbols[id]; ok {
-			return false
-		}
-		if _, ok := seen[id]; ok {
-			return false
-		}
-		record, ok := symbolsByID[id]
-		if !ok {
-			return false
-		}
-		seen[id] = struct{}{}
-		neighbors = append(neighbors, record)
-		return len(neighbors) >= limit
-	}
-	for _, relation := range relations {
-		if add(relation.FromID) || add(relation.ToID) {
-			return neighbors
-		}
-	}
-	return neighbors
-}
-
-func semanticContextFacts(brainDir string, source *semanticSourceManifest, query string, limit, offset int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	symbols, err := findSemanticSymbolsInSQLite(storePath, query, limit, offset)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	relations, err := findSemanticRelationsForSymbolsInSQLite(storePath, symbols, limit*4)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	var neighbors []semanticRecord
-	if ids := neighborCandidateIDs(symbols, relations); len(ids) > 0 {
-		symbolsByID, err := loadSemanticSymbolsByIDsSQLite(storePath, ids)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		neighbors = resolveContextNeighbors(symbols, relations, symbolsByID, limit)
-	}
-	return symbols, relations, neighbors, nil
-}
-
 func semanticRuntimeTraceFacts(brainDir string, source *semanticSourceManifest, query string, limit int) ([]semanticRecord, error) {
 	if limit <= 0 {
 		return []semanticRecord{}, nil
@@ -3072,11 +2757,11 @@ func semanticRuntimeTraceFacts(brainDir string, source *semanticSourceManifest, 
 	if source.StorePath == "" {
 		return []semanticRecord{}, nil
 	}
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 	if err != nil {
 		return nil, err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return nil, err
 	}
@@ -3180,27 +2865,6 @@ func semanticFirstNonEmpty(values ...string) string {
 	return ""
 }
 
-func semanticImpactFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	roots, err := findSemanticSymbolsInSQLite(storePath, query, limit, 0)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	symbols, relations, err := traverseSemanticImpactSQLite(storePath, roots, depth, limit)
-	return roots, symbols, relations, err
-}
-
-func semanticSymbolsForFiles(brainDir string, source *semanticSourceManifest, files []string, limit int) ([]semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, err
-	}
-	return findSemanticSymbolsForFilesSQLite(storePath, files, limit)
-}
-
 // semanticSymbolsForChangedRanges narrows a file-level candidate set to the
 // symbols whose indexed line spans overlap actual diff hunks. Files without a
 // parseable hunk deliberately retain whole-file behavior: pure renames,
@@ -3217,7 +2881,7 @@ func semanticSymbolsForChangedRanges(brainDir string, source *semanticSourceMani
 	if candidateLimit <= 0 {
 		candidateLimit = int(^uint(0) >> 1)
 	}
-	candidates, err := semanticSymbolsForFiles(brainDir, source, files, candidateLimit)
+	candidates, err := semstore.SymbolsForFiles(brainDir, source, files, candidateLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -3281,7 +2945,7 @@ func externalBoundaryRecord(id string, kindSet map[string]struct{}) (semanticRec
 }
 
 func semanticBoundaryFacts(brainDir string, source *semanticSourceManifest, spec semanticBoundarySpec, limit int) (semanticBoundaryResult, error) {
-	symbolsByID, relations, err := loadSemanticBoundaryRecords(brainDir, source, spec.RelationTypes)
+	symbolsByID, relations, err := semstore.LoadBoundaryRecords(brainDir, source, spec.RelationTypes)
 	if err != nil {
 		return semanticBoundaryResult{}, err
 	}
@@ -3383,7 +3047,7 @@ func semanticBoundaryFacts(brainDir string, source *semanticSourceManifest, spec
 }
 
 func semanticTestFacts(brainDir string, source *semanticSourceManifest, query string, limit int) (semanticTestsResult, error) {
-	roots, _, relations, symbolsByID, err := semanticGraphFacts(brainDir, source, query, 1, limit)
+	roots, _, relations, symbolsByID, err := semstore.GraphFacts(brainDir, source, query, 1, limit)
 	if err != nil {
 		return semanticTestsResult{}, err
 	}
@@ -3394,7 +3058,7 @@ func semanticTestFacts(brainDir string, source *semanticSourceManifest, query st
 }
 
 func semanticTestFactsReservoir(brainDir string, source *semanticSourceManifest, query string, limit int) (semanticTestsResult, error) {
-	roots, _, relations, symbolsByID, err := semanticGraphFacts(brainDir, source, query, 1, limit)
+	roots, _, relations, symbolsByID, err := semstore.GraphFacts(brainDir, source, query, 1, limit)
 	if err != nil {
 		return semanticTestsResult{}, err
 	}
@@ -3405,595 +3069,10 @@ func semanticTestFactsReservoir(brainDir string, source *semanticSourceManifest,
 	}, nil
 }
 
-func semanticGraphFacts(brainDir string, source *semanticSourceManifest, query string, depth, limit int) ([]semanticRecord, []semanticRecord, []semanticRecord, map[string]semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	roots, err := findSemanticSymbolsInSQLite(storePath, query, limit, 0)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	symbols, relations, err := traverseSemanticImpactSQLite(storePath, roots, depth, limit)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
-	return roots, symbols, relations, symbolsByID, err
-}
-
-func loadSemanticBoundaryRecords(brainDir string, source *semanticSourceManifest, relationTypes []string) (map[string]semanticRecord, []semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, nil, err
-	}
-	symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
-	if err != nil {
-		return nil, nil, err
-	}
-	relations, err := findSemanticRelationsByTypesSQLite(storePath, relationTypes)
-	return symbolsByID, relations, err
-}
-
-func validateSemanticDeclaredStore(brainDir string, source *semanticSourceManifest) (string, error) {
-	if source.GraphStore != nil {
-		return source.StorePath, nil
-	}
-	return "", fmt.Errorf("%w; run `%s`", errSemanticStoreRetired, clibase.BrainInvocation(os.LookupEnv, clibase.SemanticIndexVerb))
-}
-
 type semanticPage struct {
 	Limit  int `json:"limit"`
 	Offset int `json:"offset"`
 	Count  int `json:"count"`
-}
-
-// semanticQueryTokens reduces a free-text query to the distinct identifier-ish
-// tokens worth searching the symbol index for. It powers the tokenized fallback
-// so a natural-language task ("change how feeds are refreshed") matches symbols
-// on its content words instead of only as a verbatim substring.
-const (
-	semanticQueryTokenCandidateLimit = 32
-	semanticQueryTokenSearchLimit    = 8
-	semanticQueryLeadingTokenReserve = 4
-)
-
-func semanticQueryTokens(query string) []string {
-	seen := map[string]struct{}{}
-	var tokens []string
-	add := func(token string) bool {
-		if len(token) < 3 || historyQueryStopword(token) {
-			return true
-		}
-		if _, ok := seen[token]; ok {
-			return true
-		}
-		seen[token] = struct{}{}
-		tokens = append(tokens, token)
-		return len(tokens) < semanticQueryTokenCandidateLimit
-	}
-	for _, raw := range strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
-		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_')
-	}) {
-		raw = strings.Trim(raw, "_")
-		if !add(raw) {
-			break
-		}
-		for _, variant := range semanticQueryMorphologyVariants(raw) {
-			if !add(variant) {
-				return tokens
-			}
-		}
-	}
-	return tokens
-}
-
-// semanticQueryMorphologyVariants bridges common task nouns and past-tense
-// descriptions to identifier verbs without turning semantic lookup into an
-// unrestricted stemmer. Code commonly uses Normalize/Validate/Authenticate
-// while issue text says normalization/validation/authentication; these exact
-// derivations preserve meaning and give IDF ranking the identifier-shaped term.
-func semanticQueryMorphologyVariants(token string) []string {
-	switch token {
-	case "environment", "environments", "environmental":
-		// Environment is almost universally shortened to env in identifiers and
-		// filenames (pluginEnv, cmd.Env, plugin_env.go). Preserve the full noun
-		// and add its conventional code form so natural-language tasks can find
-		// those symbols without requiring callers to guess the abbreviation.
-		return []string{"env"}
-	}
-	for _, rule := range []struct {
-		suffix      string
-		replacement string
-	}{
-		{suffix: "ization", replacement: "ize"},
-		{suffix: "isation", replacement: "ise"},
-		{suffix: "ized", replacement: "ize"},
-		{suffix: "ised", replacement: "ise"},
-		{suffix: "ation", replacement: "ate"},
-	} {
-		if strings.HasSuffix(token, rule.suffix) && len(token) > len(rule.suffix)+2 {
-			return []string{strings.TrimSuffix(token, rule.suffix) + rule.replacement}
-		}
-	}
-	return nil
-}
-
-// tokenIDFWeight scores a token by inverse document frequency: a token matching
-// few symbols (e.g. "authentication") is far more discriminating than one
-// matching many (e.g. "handler", "work"), so it must contribute more to a
-// symbol's relevance. Returns a small positive integer for use as a SQL literal
-// weight. Smoothed so a token matching nothing still ranks above none.
-func tokenIDFWeight(total, df int) int {
-	if total < 0 {
-		total = 0
-	}
-	if df < 0 {
-		df = 0
-	}
-	idf := math.Log(float64(total+1)/float64(df+1)) + 1
-	weight := int(math.Round(idf * 10))
-	if weight < 1 {
-		weight = 1
-	}
-	return weight
-}
-
-// findSemanticSymbolsTokenizedSQLite ranks symbols by the inverse-document-
-// frequency-weighted sum of query tokens appearing in their full-text body. It
-// is the fallback for multi-word queries that never appear verbatim in any one
-// symbol; weighting by rarity keeps a specific term (matched by few symbols)
-// from being tied with a generic filler term (matched by many).
-func findSemanticSymbolsTokenizedSQLite(db *sql.DB, tokens []string, limit, offset int) ([]semanticRecord, error) {
-	if len(tokens) == 0 {
-		return nil, nil
-	}
-	var total int
-	if err := db.QueryRow(`SELECT count(*) FROM symbols`).Scan(&total); err != nil {
-		return nil, err
-	}
-	type weightedToken struct {
-		value  string
-		weight int
-		order  int
-	}
-	weighted := make([]weightedToken, 0, len(tokens))
-	for i, token := range tokens {
-		var df int
-		if err := db.QueryRow(`SELECT count(*) FROM symbol_fts WHERE instr(lower(text), ?) > 0`, token).Scan(&df); err != nil {
-			return nil, err
-		}
-		if df == 0 {
-			continue
-		}
-		weighted = append(weighted, weightedToken{value: token, weight: tokenIDFWeight(total, df), order: i})
-	}
-	// Keep the task's leading identifiers before filling the fixed search budget
-	// with rare terms. Pure IDF selection lets incidental rare words at the end
-	// of a long agent prompt displace its task ID and primary domain nouns.
-	selected := append([]weightedToken(nil), weighted[:min(semanticQueryLeadingTokenReserve, len(weighted))]...)
-	sort.SliceStable(weighted, func(i, j int) bool {
-		if weighted[i].weight != weighted[j].weight {
-			return weighted[i].weight > weighted[j].weight
-		}
-		return weighted[i].order < weighted[j].order
-	})
-	for _, candidate := range weighted {
-		if len(selected) >= semanticQueryTokenSearchLimit {
-			break
-		}
-		if slices.ContainsFunc(selected, func(existing weightedToken) bool { return existing.order == candidate.order }) {
-			continue
-		}
-		selected = append(selected, candidate)
-	}
-	if len(selected) == 0 {
-		return nil, nil
-	}
-	tokens = tokens[:0]
-	weights := make([]int, 0, len(selected))
-	for _, candidate := range selected {
-		tokens = append(tokens, candidate.value)
-		weights = append(weights, candidate.weight)
-	}
-	var conds, score strings.Builder
-	args := make([]any, 0, len(tokens)*2+2)
-	for i := range tokens {
-		if i > 0 {
-			conds.WriteString(" OR ")
-			score.WriteString(" + ")
-		}
-		conds.WriteString("instr(lower(f.text), ?) > 0")
-		// Weights are computed integers, safe to inline as SQL literals.
-		fmt.Fprintf(&score, "(CASE WHEN instr(lower(f.text), ?) > 0 THEN %d ELSE 0 END)", weights[i])
-	}
-	// Token args are consumed once for the score expression and once for the
-	// WHERE clause, in that order.
-	for _, token := range tokens {
-		args = append(args, token)
-	}
-	for _, token := range tokens {
-		args = append(args, token)
-	}
-	args = append(args, limit, offset)
-	q := `SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version, (` + score.String() + `) AS hits
-FROM symbols s
-JOIN symbol_fts f ON f.id = s.id
-WHERE ` + conds.String() + `
-ORDER BY hits DESC, s.qualified_name
-LIMIT ? OFFSET ?`
-	rows, err := db.Query(q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var results []semanticRecord
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "symbol"
-		var hits int
-		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion, &hits); err != nil {
-			return nil, err
-		}
-		record.Score = hits
-		results = append(results, record)
-	}
-	return results, rows.Err()
-}
-
-// semanticQueryLooksLikePath reports whether a query is a file path rather than
-// free text. Path queries must resolve exactly: tokenizing "missing/file.ts"
-// into ["missing","file"] would otherwise match half the index on the common
-// token "file" and report a bogus blast radius for a path that does not exist.
-func semanticQueryLooksLikePath(query string) bool {
-	query = strings.TrimSpace(query)
-	if query == "" {
-		return false
-	}
-	// A slash alone is not enough: natural-language concepts, URLs, and prose
-	// commonly contain one. Only explicit relative/absolute paths or values with
-	// a recognized source extension suppress semantic token fallback.
-	if strings.Contains(query, "://") || strings.ContainsAny(query, " \t\r\n") {
-		return false
-	}
-	if strings.HasPrefix(query, "./") || strings.HasPrefix(query, "../") ||
-		strings.HasPrefix(query, "/") || strings.HasPrefix(query, `\\`) {
-		return true
-	}
-	switch strings.ToLower(filepath.Ext(query)) {
-	case ".go", ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".sql", ".java", ".rb", ".mjs", ".cjs":
-		return true
-	}
-	return false
-}
-
-func findSemanticSymbolsInSQLite(storePath, query string, limit, offset int) ([]semanticRecord, error) {
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	literal := strings.ToLower(strings.TrimSpace(query))
-	// Match the full-text body OR an exact id/qualified-name. The id branch lets
-	// an agent paste a record id straight from `search`/`overview` results into
-	// `context`/`impact` and get that exact symbol, instead of an empty result
-	// because the colon-delimited id never appears as a substring of the body.
-	rows, err := db.Query(`SELECT s.id, s.kind, s.name, s.qualified_name, s.file_path, s.start_line, s.end_line, s.signature, s.language, s.stable_id_version
-FROM symbols s
-JOIN symbol_fts f ON f.id = s.id
-WHERE instr(lower(f.text), ?) > 0 OR lower(s.id) = ? OR lower(s.qualified_name) = ?
-ORDER BY CASE WHEN lower(s.id) = ? THEN 0 WHEN lower(s.name) = lower(?) THEN 1 WHEN lower(s.qualified_name) = lower(?) THEN 2 ELSE 3 END, s.qualified_name
-LIMIT ? OFFSET ?`, literal, literal, literal, literal, query, query, limit, offset)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var results []semanticRecord
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "symbol"
-		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
-			return nil, err
-		}
-		results = append(results, record)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	// Fall back to token-overlap ranking only when the verbatim query matched
-	// nothing and the query is multi-word. This leaves every single-symbol and
-	// substring lookup untouched while making natural-language queries (and the
-	// task strings `brief` passes here) match on their content words.
-	if len(results) == 0 && !semanticQueryLooksLikePath(query) {
-		tokens := semanticQueryTokens(query)
-		if len(tokens) > 1 {
-			return findSemanticSymbolsTokenizedSQLite(db, tokens, limit, offset)
-		}
-	}
-	return results, nil
-}
-
-func findSemanticRelationsForSymbolsInSQLite(storePath string, symbols []semanticRecord, limit int) ([]semanticRecord, error) {
-	if len(symbols) == 0 {
-		return nil, nil
-	}
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	// Chunk the IN-clause. Each id is bound twice (from_id and to_id), so a single
-	// query over the whole set blows past SQLITE_MAX_VARIABLE_NUMBER (~32766) once
-	// the symbol set exceeds ~16k — which the viz graph reaches at scale. Query in
-	// batches and merge by the relation rowid so the global "ORDER BY id LIMIT"
-	// still holds: each batch returns its own first `limit` rows by id, and any row
-	// a batch drops has a larger id than `limit` rows it kept, so it can never
-	// belong in the global top-N. A set that fits one batch behaves exactly like
-	// the old single query. (loadSemanticSymbolsByIDsSQLite chunks the same way.)
-	const chunk = 900
-	type keyedRel struct {
-		id  int64
-		rec semanticRecord
-	}
-	var merged []keyedRel
-	seen := make(map[int64]bool)
-	// trimMerged keeps peak memory O(limit) instead of O(chunks x limit): once
-	// merged holds well past `limit` rows, only the smallest `limit` rowids can
-	// still make the final cut, so the rest can be dropped early. A trimmed row
-	// re-arriving from a later batch is deduped away again by the final trim.
-	trimMerged := func() {
-		if limit <= 0 || len(merged) <= limit*2 {
-			return
-		}
-		sort.Slice(merged, func(i, j int) bool { return merged[i].id < merged[j].id })
-		merged = merged[:limit]
-		seen = make(map[int64]bool, limit)
-		for i := range merged {
-			seen[merged[i].id] = true
-		}
-	}
-	for start := 0; start < len(symbols); start += chunk {
-		end := start + chunk
-		if end > len(symbols) {
-			end = len(symbols)
-		}
-		batch := symbols[start:end]
-		placeholders := make([]string, len(batch))
-		for i := range batch {
-			placeholders[i] = "?"
-		}
-		args := make([]any, 0, len(batch)*2+1)
-		for _, symbol := range batch {
-			args = append(args, symbol.ID)
-		}
-		for _, symbol := range batch {
-			args = append(args, symbol.ID)
-		}
-		args = append(args, limit)
-		inClause := strings.Join(placeholders, ",")
-		if err := func() error {
-			rows, err := db.Query(`SELECT id, from_id, to_id, type, confidence, reason FROM relations
-WHERE from_id IN (`+inClause+`) OR to_id IN (`+inClause+`)
-ORDER BY id LIMIT ?`, args...)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var id int64
-				var record semanticRecord
-				record.RecordType = "relation"
-				if err := rows.Scan(&id, &record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
-					return err
-				}
-				if seen[id] {
-					continue
-				}
-				seen[id] = true
-				merged = append(merged, keyedRel{id: id, rec: record})
-			}
-			return rows.Err()
-		}(); err != nil {
-			return nil, err
-		}
-		trimMerged()
-	}
-	sort.Slice(merged, func(i, j int) bool { return merged[i].id < merged[j].id })
-	if limit > 0 && len(merged) > limit {
-		merged = merged[:limit]
-	}
-	relations := make([]semanticRecord, len(merged))
-	for i := range merged {
-		relations[i] = merged[i].rec
-	}
-	return relations, nil
-}
-
-func findSemanticRelationsByTypesSQLite(storePath string, relationTypes []string) ([]semanticRecord, error) {
-	if len(relationTypes) == 0 {
-		return nil, nil
-	}
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	args := make([]any, 0, len(relationTypes))
-	placeholders := make([]string, 0, len(relationTypes))
-	for _, relationType := range relationTypes {
-		args = append(args, relationType)
-		placeholders = append(placeholders, "?")
-	}
-	rows, err := db.Query(`SELECT from_id, to_id, type, confidence, reason FROM relations WHERE type IN (`+strings.Join(placeholders, ",")+`) ORDER BY id`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var relations []semanticRecord
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "relation"
-		if err := rows.Scan(&record.FromID, &record.ToID, &record.Type, &record.Confidence, &record.Reason); err != nil {
-			return nil, err
-		}
-		relations = append(relations, record)
-	}
-	return relations, rows.Err()
-}
-
-func traverseSemanticImpactSQLite(storePath string, roots []semanticRecord, depth, limit int) ([]semanticRecord, []semanticRecord, error) {
-	if len(roots) == 0 {
-		return nil, nil, nil
-	}
-	symbolsByID, err := loadSemanticSymbolsByIDSQLite(storePath)
-	if err != nil {
-		return nil, nil, err
-	}
-	frontier := map[string]struct{}{}
-	seen := map[string]struct{}{}
-	var symbols []semanticRecord
-	for _, root := range roots {
-		frontier[root.ID] = struct{}{}
-		if _, ok := seen[root.ID]; !ok {
-			seen[root.ID] = struct{}{}
-			symbols = append(symbols, root)
-		}
-	}
-	var relations []semanticRecord
-	for level := 0; level < depth && len(frontier) > 0; level++ {
-		current := make([]semanticRecord, 0, len(frontier))
-		for id := range frontier {
-			current = append(current, semanticRecord{ID: id})
-		}
-		edges, err := findSemanticRelationsForSymbolsInSQLite(storePath, current, limit*4)
-		if err != nil {
-			return nil, nil, err
-		}
-		next := map[string]struct{}{}
-		for _, edge := range edges {
-			relations = append(relations, edge)
-			for _, id := range []string{edge.FromID, edge.ToID} {
-				if _, ok := seen[id]; ok {
-					continue
-				}
-				if symbol, ok := symbolsByID[id]; ok && len(symbols) < limit {
-					seen[id] = struct{}{}
-					next[id] = struct{}{}
-					symbols = append(symbols, symbol)
-					if len(symbols) >= limit {
-						break
-					}
-				}
-			}
-		}
-		frontier = next
-	}
-	return symbols, relations, nil
-}
-
-func loadSemanticSymbolsByIDSQLite(storePath string) (map[string]semanticRecord, error) {
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	rows, err := db.Query(`SELECT id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version FROM symbols`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	symbols := map[string]semanticRecord{}
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "symbol"
-		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
-			return nil, err
-		}
-		symbols[record.ID] = record
-	}
-	return symbols, rows.Err()
-}
-
-// loadSemanticSymbolsByIDsSQLite loads only the requested symbol ids via an
-// indexed `id IN (...)` lookup (chunked to stay under SQLite's parameter cap),
-// so neighbor materialization is O(fan-out), not O(total symbols).
-func loadSemanticSymbolsByIDsSQLite(storePath string, ids []string) (map[string]semanticRecord, error) {
-	out := map[string]semanticRecord{}
-	if len(ids) == 0 {
-		return out, nil
-	}
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	const chunk = 900
-	for start := 0; start < len(ids); start += chunk {
-		end := start + chunk
-		if end > len(ids) {
-			end = len(ids)
-		}
-		batch := ids[start:end]
-		placeholders := make([]string, len(batch))
-		args := make([]any, len(batch))
-		for i, id := range batch {
-			placeholders[i] = "?"
-			args[i] = id
-		}
-		if err := func() error {
-			rows, err := db.Query(`SELECT id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version FROM symbols WHERE id IN (`+strings.Join(placeholders, ",")+`)`, args...)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var record semanticRecord
-				record.RecordType = "symbol"
-				if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
-					return err
-				}
-				out[record.ID] = record
-			}
-			return rows.Err()
-		}(); err != nil {
-			return nil, err
-		}
-	}
-	return out, nil
-}
-
-func findSemanticSymbolsForFilesSQLite(storePath string, files []string, limit int) ([]semanticRecord, error) {
-	if len(files) == 0 {
-		return nil, nil
-	}
-	db, err := openSemanticReadDB(storePath)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	args := make([]any, 0, len(files)+1)
-	placeholders := make([]string, 0, len(files))
-	for _, file := range files {
-		args = append(args, file)
-		placeholders = append(placeholders, "?")
-	}
-	args = append(args, limit)
-	rows, err := db.Query(`SELECT id, kind, name, qualified_name, file_path, start_line, end_line, signature, language, stable_id_version
-FROM symbols WHERE file_path IN (`+strings.Join(placeholders, ",")+`) ORDER BY file_path, start_line LIMIT ?`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var symbols []semanticRecord
-	for rows.Next() {
-		var record semanticRecord
-		record.RecordType = "symbol"
-		if err := rows.Scan(&record.ID, &record.Kind, &record.Name, &record.QualifiedName, &record.FilePath, &record.StartLine, &record.EndLine, &record.Signature, &record.Language, &record.StableIDVersion); err != nil {
-			return nil, err
-		}
-		symbols = append(symbols, record)
-	}
-	return symbols, rows.Err()
 }
 
 func changedSemanticFiles(ctx context.Context, runner CommandRunner, repoDir string) ([]string, error) {
@@ -4215,7 +3294,7 @@ func writeSemanticChangesReport(brainDir string, report semanticChangesReport) e
 		return err
 	}
 	data = append(data, '\n')
-	rel := filepath.Join(semanticDirName, "changes", "latest.json")
+	rel := filepath.Join(semstore.DirName, "changes", "latest.json")
 	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, rel); err != nil {
 		return err
 	}
@@ -4328,7 +3407,7 @@ func semanticContextContent(repoDir string, symbols []semanticRecord) []semantic
 		if err != nil {
 			continue
 		}
-		if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
 			continue
 		}
 		text, truncated, err := readSemanticContextSnippet(filepath.Join(repoDir, filepath.FromSlash(clean)), symbol.StartLine, symbol.EndLine)
@@ -4601,7 +3680,7 @@ func collectBrainBundleLayerPaths(root string, layer brainBundleLayer) ([]string
 		if d.IsDir() {
 			return nil
 		}
-		if err := rejectSymlinkPathComponents(root, rel); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(root, rel); err != nil {
 			return err
 		}
 		paths = append(paths, rel)
@@ -4823,7 +3902,7 @@ func addBundleManifest(tw *tar.Writer, manifest exportManifest) error {
 }
 
 func addBundlePath(tw *tar.Writer, root, rel string) error {
-	if err := rejectSymlinkPathComponents(root, rel); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(root, rel); err != nil {
 		return err
 	}
 	path := filepath.Join(root, rel)
@@ -4867,42 +3946,6 @@ func sanitizeSemanticRecordID(value, repoDir string, idMap map[string]string) st
 	sanitized = "redacted:" + hex.EncodeToString(sum[:8])
 	idMap[value] = sanitized
 	return sanitized
-}
-
-func rejectSymlinkPathComponents(root, rel string) error {
-	clean := filepath.Clean(rel)
-	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
-	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
-	// falls through this whole test. The per-component walk below then Lstats
-	// the PARENT of root — a real directory, not a symlink — and passes it, and
-	// the closing containment check returns nil early whenever root does not
-	// exist yet. One level up is exactly the escape the guard exists to stop.
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path is outside root: %s", rel)
-	}
-	current := root
-	for _, part := range strings.Split(clean, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path component must not be a symlink: %s", rel)
-		}
-	}
-	rootResolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	pathResolved, err := filepath.EvalSymlinks(filepath.Join(root, clean))
-	if err != nil {
-		return err
-	}
-	if !clibase.PathInside(rootResolved, pathResolved) {
-		return fmt.Errorf("path escapes root through symlinks: %s", rel)
-	}
-	return nil
 }
 
 func rejectBundleOutputInsideBrain(output, brainDir string) error {
@@ -5501,8 +4544,8 @@ func bundleEntryPathAllowed(clean, cleanSlash string) bool {
 	if clean == bmanifest.FileName {
 		return true
 	}
-	if strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticSnapshotsDir))+"/") ||
-		strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir))+"/") {
+	if strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semstore.DirName, semanticSnapshotsDir))+"/") ||
+		strings.HasPrefix(cleanSlash, filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir))+"/") {
 		return true
 	}
 	for _, layer := range brainBundleLayers {
@@ -5543,7 +4586,7 @@ func bundleImportConflictError(conflicts []string) error {
 // than failing the caller, because a missing explanation must never turn a
 // working recall into an error.
 func lastBundleImportAt(brainDir string) (time.Time, bool) {
-	data, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	data, err := os.ReadFile(filepath.Join(brainDir, semstore.DirName, semanticAuditLogName))
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -5603,7 +4646,7 @@ func appendSemanticAuditLayers(brainDir, action, path, checksum string, layers [
 	if err != nil {
 		return err
 	}
-	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
+	auditPath := filepath.Join(brainDir, semstore.DirName, semanticAuditLogName)
 	if err := ensureSemanticAuditPathSafe(brainDir); err != nil {
 		return err
 	}
@@ -5622,11 +4665,11 @@ func ensureSemanticAuditPathSafe(brainDir string) error {
 	if err := clibase.RejectSymlinkedBrainRoot(brainDir); err != nil {
 		return err
 	}
-	auditPath := filepath.Join(brainDir, semanticDirName, semanticAuditLogName)
+	auditPath := filepath.Join(brainDir, semstore.DirName, semanticAuditLogName)
 	if err := os.MkdirAll(filepath.Dir(auditPath), 0o700); err != nil {
 		return err
 	}
-	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semanticDirName, semanticAuditLogName)); err != nil {
+	if err := clibase.RejectExistingSymlinkPathComponents(brainDir, filepath.Join(semstore.DirName, semanticAuditLogName)); err != nil {
 		return err
 	}
 	return nil

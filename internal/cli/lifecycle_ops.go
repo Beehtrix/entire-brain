@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"sort"
@@ -462,7 +463,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 		return checks, payload
 	}
 	history := manifest.Sources.History
-	index, err := loadBrainHistoryIndex(brainDir, history)
+	index, err := historystore.LoadIndex(brainDir, history)
 	if err != nil {
 		add("history_index", "error", "declared but unreadable: "+err.Error())
 		return checks, payload
@@ -683,7 +684,7 @@ func buildBrainStatsReport(brainDir string, now time.Time) (brainStatsReport, er
 	}
 	history := manifest.Sources.History
 	report.History.GeneratedAt = history.GeneratedAt.UTC().Format(time.RFC3339)
-	index, err := loadBrainHistoryIndex(brainDir, history)
+	index, err := historystore.LoadIndex(brainDir, history)
 	if err != nil {
 		return report, fmt.Errorf("load history index: %w", err)
 	}

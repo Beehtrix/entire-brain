@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -30,7 +31,7 @@ func TestFinishMemoryOperationFailureEmitsReceiptOnlyInJSONMode(t *testing.T) {
 			cmd := &cobra.Command{}
 			cmd.SetOut(&output)
 			receipt := newMemoryOperationReceipt("repair", started)
-			receipt.Artifacts = []memoryReceiptArtifact{{Path: historyIndexPath, PriorState: "present", NewState: "present"}}
+			receipt.Artifacts = []memoryReceiptArtifact{{Path: historystore.IndexPath, PriorState: "present", NewState: "present"}}
 
 			err := finishMemoryOperationFailure(cmd, &receipt, jsonOut, finished, cause)
 			if !errors.Is(err, cause) {

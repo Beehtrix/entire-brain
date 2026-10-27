@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -46,7 +48,7 @@ func writeVizOptimizationStore(t *testing.T, brainDir string, records []semantic
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(providerDir, generation, semanticSQLiteName)
+	path := filepath.Join(providerDir, generation, semstore.SQLiteName)
 	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +66,7 @@ func writeVizOptimizationStore(t *testing.T, brainDir string, records []semantic
 		t.Fatal(err)
 	}
 	d := graphStoreDescriptor{ContractVersion: 1, Path: path, EntryDigest: "viz-fixture", Commit: header.Commit, Tree: header.Tree, Header: header, Files: counts.Files, Symbols: counts.Symbols, Relations: counts.Relations}
-	return graphStoreSource(d, brainDir)
+	return semstore.GraphStoreSource(d, brainDir)
 }
 
 func vizOptimizationSemanticRecords() []semanticRecord {
@@ -231,14 +233,14 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source := &historySourceManifest{IndexPath: historyIndexPath, Records: len(index.Records)}
+	source := &historySourceManifest{IndexPath: historystore.IndexPath, Records: len(index.Records)}
 	srv := &vizServer{
 		brainDir: brainDir,
 		manifest: &exportManifest{Sources: &brainSources{History: source}},

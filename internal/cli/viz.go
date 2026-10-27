@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"io/fs"
 	"net"
@@ -101,7 +103,7 @@ type vizServer struct {
 	repo     string
 	// symPool caches the largest symbol prefix loaded so far. The brain is
 	// captured once at startup and never changes for the server's lifetime, and
-	// loadSemanticSymbols returns a stable storage-order prefix, so any smaller
+	// semstore.LoadSymbols returns a stable storage-order prefix, so any smaller
 	// pool is a slice of a larger one — slider moves after the first load never
 	// re-parse the store. symPoolFull means the cache holds the entire store.
 	symMu       sync.Mutex
@@ -985,7 +987,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	// loading the whole symbol table to keep a handful of files' worth. The cap
 	// sits well above vizReplayMaxNodes so truncation happens at the node
 	// budget below, not mid-file here.
-	syms, err := semanticSymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
+	syms, err := semstore.SymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
@@ -1068,7 +1070,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"}})
 		return
 	}
-	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
+	idx, err := historystore.LoadIndex(s.brainDir, s.manifest.Sources.History)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
 		return
@@ -1190,7 +1192,7 @@ func vizShortID(id string) string {
 // Callers must not mutate the returned slice's records.
 func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([]semanticRecord, error) {
 	if pool <= 0 {
-		return loadSemanticSymbols(s.brainDir, sem, pool)
+		return semstore.LoadSymbols(s.brainDir, sem, pool)
 	}
 	s.symMu.Lock()
 	defer s.symMu.Unlock()
@@ -1200,7 +1202,7 @@ func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([
 		}
 		return s.symPool, nil
 	}
-	syms, err := loadSemanticSymbols(s.brainDir, sem, pool)
+	syms, err := semstore.LoadSymbols(s.brainDir, sem, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -1266,7 +1268,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	resp.Total = sem.Symbols
 
 	// Rank the pool by degree so any `view` size keeps the most-connected symbols
-	// (loadSemanticSymbols returns storage order, so an unranked cap keeps leaves).
+	// (semstore.LoadSymbols returns storage order, so an unranked cap keeps leaves).
 	poolSet := make(map[string]bool, len(syms))
 	for i := range syms {
 		poolSet[syms[i].ID] = true
@@ -1403,7 +1405,7 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	// Symbol matches first so ⌘K / rail search can jump straight to a graph node.
 	if sem := s.semanticSource(); sem != nil {
-		if syms, _, _, err := semanticContextFacts(s.brainDir, sem, q, limit, 0); err == nil {
+		if syms, _, _, err := semstore.ContextFacts(s.brainDir, sem, q, limit, 0); err == nil {
 			for _, sy := range syms {
 				resp.Hits = append(resp.Hits, vizHit{Source: "symbol", ID: sy.ID, Title: sy.Name, Text: sy.QualifiedName, Kind: sy.Kind, Path: sy.FilePath, Line: sy.StartLine})
 			}
@@ -1425,24 +1427,24 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // relationsForSymbols returns relations INCIDENT to the given symbols — either
 // endpoint may be outside the set (the queries match from_id OR to_id); callers
 // that need both endpoints inside filter the result themselves. Mirrors the
-// SQLite-vs-snapshot branch semanticContextFacts uses (semantic.go).
+// SQLite-vs-snapshot branch semstore.ContextFacts uses (semantic.go).
 func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []semanticRecord, limit int) ([]semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
+	storePath, err := semstore.ValidateDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, err
 	}
-	return findSemanticRelationsForSymbolsInSQLite(storePath, syms, limit)
+	return semstore.FindRelationsForSymbolsInSQLite(storePath, syms, limit)
 }
 
 // nodeDetail resolves one symbol by exact id plus its relations and neighbors,
-// mirroring semanticContextFacts but seeded by id rather than a search query.
+// mirroring semstore.ContextFacts but seeded by id rather than a search query.
 func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanticRecord, []semanticRecord, []semanticRecord, error) {
 	const limit = 80
-	storePath, err := validateSemanticDeclaredStore(s.brainDir, sem)
+	storePath, err := semstore.ValidateDeclaredStore(s.brainDir, sem)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	byID, err := loadSemanticSymbolsByIDsSQLite(storePath, []string{id})
+	byID, err := semstore.LoadSymbolsByIDsSQLite(storePath, []string{id})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1450,12 +1452,12 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 	if !ok {
 		return nil, nil, nil, nil
 	}
-	rels, err := findSemanticRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
+	rels, err := semstore.FindRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
-		return loadSemanticSymbolsByIDsSQLite(storePath, ids)
+		return semstore.LoadSymbolsByIDsSQLite(storePath, ids)
 	}, limit)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1464,7 +1466,7 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 }
 
 func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord, load func([]string) (map[string]semanticRecord, error), limit int) ([]semanticRecord, error) {
-	ids := neighborCandidateIDs([]semanticRecord{node}, rels)
+	ids := semstore.NeighborCandidateIDs([]semanticRecord{node}, rels)
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -1472,7 +1474,7 @@ func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord,
 	if err != nil {
 		return nil, err
 	}
-	return resolveContextNeighbors([]semanticRecord{node}, rels, byID, limit), nil
+	return semstore.ResolveContextNeighbors([]semanticRecord{node}, rels, byID, limit), nil
 }
 
 func writeJSONHTTP(w http.ResponseWriter, code int, v any) {

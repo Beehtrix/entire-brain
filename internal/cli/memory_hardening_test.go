@@ -13,6 +13,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -475,13 +476,13 @@ func TestMemoryRepairRefusesFalseSuccessWhenPrivacyRemainsDirty(t *testing.T) {
 func TestGenerationPruningPreservesUnknownNewerReceipts(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	futureGeneration := strings.Repeat("f", 40)
-	futureDir := filepath.Join(brainDir, filepath.FromSlash(historyGenerationsDir), futureGeneration)
+	futureDir := filepath.Join(brainDir, filepath.FromSlash(historystore.GenerationsDir), futureGeneration)
 	if err := os.MkdirAll(futureDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	futureReceipt := []byte(`{"schema_version":999}`)
 	for path, data := range map[string][]byte{
-		filepath.Join(futureDir, historyIndexFileName):                  []byte(`{"generated_at":"2026-08-09T00:00:00Z","records":[]}`),
+		filepath.Join(futureDir, historystore.IndexFileName):            []byte(`{"generated_at":"2026-08-09T00:00:00Z","records":[]}`),
 		filepath.Join(futureDir, projectionStateFileName):               futureReceipt,
 		filepath.Join(brainDir, filepath.FromSlash(projectionStateRel)): futureReceipt,
 	} {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -85,16 +86,16 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 	writePublishFile(t, filepath.Join(brainDir, bmanifest.FileName), append(manifestData, '\n'))
 
 	writePublishFile(t,
-		filepath.Join(brainDir, semanticDirName, semanticSnapshotsDir, testPublishCommit, semanticSnapshotName),
+		filepath.Join(brainDir, semstore.DirName, semanticSnapshotsDir, testPublishCommit, semanticSnapshotName),
 		[]byte("{\"symbol\":\"Foo\",\"kind\":\"func\"}\n"))
 
 	overlayName := testPublishCommit + ".." + testPublishHead + ".json"
 	writePublishFile(t,
-		filepath.Join(brainDir, semanticDirName, "overlays", overlayName),
+		filepath.Join(brainDir, semstore.DirName, "overlays", overlayName),
 		[]byte("{\"base\":\""+testPublishCommit+"\",\"head\":\""+testPublishHead+"\",\"branch\":\"feature/x\"}\n"))
 	// all-branches.json is a refresh report, not a (base..head) overlay: must be skipped.
 	writePublishFile(t,
-		filepath.Join(brainDir, semanticDirName, "overlays", "all-branches.json"),
+		filepath.Join(brainDir, semstore.DirName, "overlays", "all-branches.json"),
 		[]byte("{\"branches\":[]}\n"))
 
 	factsRel := factstore.FileRelPath("main")

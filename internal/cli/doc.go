@@ -111,7 +111,7 @@ func loadDocRecordsFromSeed(brainDir string) (records []docRecord, files int, wa
 		}
 		rel := relTo(path)
 		clean := filepath.Clean(filepath.FromSlash(rel))
-		if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+		if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 			warnings = append(warnings, fmt.Sprintf("skip %s: %v", rel, err))
 			return nil
 		}

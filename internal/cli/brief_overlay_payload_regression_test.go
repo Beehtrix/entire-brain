@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -22,7 +23,7 @@ func TestBriefOverlayPreservesPayloadWithCorruptJSONIndex(t *testing.T) {
 	}}
 	source := *manifest.Sources.History
 	source.Records = len(index.Records)
-	source.IndexPath = historyIndexPath
+	source.IndexPath = historystore.IndexPath
 	source.IndexDigest = ""
 	if err := publishHistoryComparisonIndex(fixture.brainDir, index, &source); err != nil {
 		t.Fatal(err)

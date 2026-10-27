@@ -264,7 +264,7 @@ func validAbstractEgressReceipt(receipt abstractEgressReceipt, version int, expe
 	if receipt.SchemaVersion != version || len(receipt.OperationID) != 20 || operationHexErr != nil ||
 		!strings.HasPrefix(receipt.SessionRef, brainstore.ConversationSessionIDPrefix) ||
 		(expectedRef != "" && receipt.SessionRef != expectedRef) ||
-		!validSHA256Identity(receipt.SessionDigest) ||
+		!brainstore.ValidSHA256Identity(receipt.SessionDigest) ||
 		(provider != "codex" && provider != "claude-code") || strings.TrimSpace(receipt.Model) == "" ||
 		receipt.StartedAt.IsZero() ||
 		(receipt.Status != "started" && receipt.Status != "completed" && receipt.Status != "failed") ||
@@ -569,15 +569,6 @@ func loadAbstractEgressReceiptsChecked(brainDir string) ([]abstractEgressReceipt
 		return inventory.Receipts, fmt.Errorf("memory_migration_required: legacy abstract egress receipts are read-only until migrated or purged")
 	}
 	return inventory.Receipts, nil
-}
-
-func validSHA256Identity(value string) bool {
-	const prefix = "sha256:"
-	if !strings.HasPrefix(value, prefix) || len(value) != len(prefix)+64 {
-		return false
-	}
-	_, err := hex.DecodeString(strings.TrimPrefix(value, prefix))
-	return err == nil
 }
 
 func writeAbstractEgressReceipt(brainDir string, receipt abstractEgressReceipt) error {
@@ -1037,7 +1028,7 @@ const (
 )
 
 func loadSessionAbstractChecked(brainDir, sessionDigest string) (sessionAbstract, sessionAbstractReadState, error) {
-	if !validSHA256Identity(sessionDigest) {
+	if !brainstore.ValidSHA256Identity(sessionDigest) {
 		return sessionAbstract{}, sessionAbstractCorrupt, fmt.Errorf("%s: invalid abstract digest identity", brainstore.StateCorruptCode)
 	}
 	rel := abstractRel(sessionDigest)
@@ -1158,7 +1149,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			if strings.HasSuffix(entry.Name(), ".json") {
 				digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-				if validSHA256Identity(digest) {
+				if brainstore.ValidSHA256Identity(digest) {
 					inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 				}
 			}
@@ -1170,7 +1161,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		if entry.IsDir() {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-			if validSHA256Identity(digest) {
+			if brainstore.ValidSHA256Identity(digest) {
 				inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 			}
 			continue
@@ -1179,7 +1170,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		if infoErr != nil || !info.Mode().IsRegular() {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-			if validSHA256Identity(digest) {
+			if brainstore.ValidSHA256Identity(digest) {
 				inventory.ByDigest[digest] = sessionAbstractInventoryEntry{State: sessionAbstractUnsafe}
 			}
 			continue
@@ -1187,7 +1178,7 @@ func loadSessionAbstractInventory(brainDir string) sessionAbstractInventory {
 		inventory.Scanned++
 		base := strings.TrimSuffix(entry.Name(), ".json")
 		digest := "sha256:" + base
-		if !validSHA256Identity(digest) {
+		if !brainstore.ValidSHA256Identity(digest) {
 			inventory.recordIssue(memoryStateIssue{Kind: "abstract", File: entry.Name(), Code: brainstore.StateCorruptCode})
 			continue
 		}
@@ -1475,7 +1466,7 @@ func abstractWindows(view conversationSessionView) ([][]conversationTurn, []abst
 }
 
 func validateSessionAbstractSchema(artifact sessionAbstract) error {
-	if !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix)) == "" || !validSHA256Identity(artifact.SessionDigest) {
+	if !strings.HasPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix) || strings.TrimSpace(strings.TrimPrefix(artifact.SessionRef, brainstore.ConversationSessionIDPrefix)) == "" || !brainstore.ValidSHA256Identity(artifact.SessionDigest) {
 		return errors.New("session_ref and session_digest identities are required")
 	}
 	if artifact.GeneratedAt.IsZero() {
@@ -2077,7 +2068,7 @@ func purgeSessionAbstractsForRefs(brainDir string, refs map[string]bool) error {
 			return fmt.Errorf("%s: abstract cleanup entry is not a regular file: %s", brainstore.StateUnsafeCode, entry.Name())
 		}
 		digest := "sha256:" + strings.TrimSuffix(entry.Name(), ".json")
-		if !validSHA256Identity(digest) {
+		if !brainstore.ValidSHA256Identity(digest) {
 			return fmt.Errorf("%s: abstract cleanup entry has an invalid identity: %s", brainstore.StateCorruptCode, entry.Name())
 		}
 		rel := filepath.ToSlash(filepath.Join(abstractsDirRel, entry.Name()))

@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -817,14 +818,14 @@ func TestTwoTierStableIDReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
 		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   generated,
 		Sources: &brainSources{History: &historySourceManifest{
-			GeneratedAt: generated, IndexPath: historyIndexPath, Records: len(index.Records),
+			GeneratedAt: generated, IndexPath: historystore.IndexPath, Records: len(index.Records),
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
-	overlay := filepath.Join(semanticDirName, "overlays", testPublishCommit+".."+testPublishHead+".json")
+	overlay := filepath.Join(semstore.DirName, "overlays", testPublishCommit+".."+testPublishHead+".json")
 	facts := filepath.FromSlash(factstore.FileRelPath("main"))
 	for _, tc := range []struct {
 		name, rel string
@@ -21,8 +22,8 @@ func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 	}{
 		{"facts-root", factstore.DirName, collectFactArtifacts},
 		{"facts-leaf", facts, collectFactArtifacts},
-		{"overlay-semantic-parent", semanticDirName, collectOverlayArtifacts},
-		{"overlay-root", filepath.Join(semanticDirName, "overlays"), collectOverlayArtifacts},
+		{"overlay-semantic-parent", semstore.DirName, collectOverlayArtifacts},
+		{"overlay-root", filepath.Join(semstore.DirName, "overlays"), collectOverlayArtifacts},
 		{"overlay-leaf", overlay, collectOverlayArtifacts},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

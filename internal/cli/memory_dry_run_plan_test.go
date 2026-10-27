@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -72,7 +73,7 @@ func TestMemoryMaintenanceDryRunsReportProspectiveArtifactTransitions(t *testing
 		if err != nil {
 			t.Fatal(err)
 		}
-		stagingPath := filepath.Join(brainDir, filepath.FromSlash(historyStagingDir))
+		stagingPath := filepath.Join(brainDir, filepath.FromSlash(historystore.StagingDir))
 		stagingBefore, err := os.ReadDir(stagingPath)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)

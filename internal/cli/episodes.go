@@ -73,13 +73,13 @@ func episodeID(sessionID string, turnIndex int, intent string) string {
 
 // intentSignature is a coarse, deterministic grouping key: the first two
 // significant tokens of the intent joined by ":". It reuses the shared
-// genericQueryStopwords base (and only that base, per the package's
+// brainstore.GenericQueryStopwords base (and only that base, per the package's
 // single-source-of-truth stopword rule) so generic fillers/verbs drop out while
 // the topic survives, e.g. "review release readiness" -> "review:release".
 func intentSignature(intent string) string {
 	var sig []string
 	for _, w := range brainBriefTaskWordPattern.FindAllString(strings.ToLower(intent), -1) {
-		if genericQueryStopwords[w] {
+		if brainstore.GenericQueryStopwords[w] {
 			continue
 		}
 		sig = append(sig, w)

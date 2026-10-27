@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -363,7 +365,7 @@ func regressionScanHistoryCapped(brainDir string, ids []string) ([]changeSignal,
 			return nil
 		}
 		if d.IsDir() {
-			if n := d.Name(); n == semanticDirName || n == ".git" {
+			if n := d.Name(); n == semstore.DirName || n == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -485,7 +487,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 	for _, rawID := range ids {
 		id := strings.ToLower(rawID)
 		if semSource != nil {
-			if syms, _, _, err := semanticContextFacts(brainDir, semSource, id, 8, 0); err == nil {
+			if syms, _, _, err := semstore.ContextFacts(brainDir, semSource, id, 8, 0); err == nil {
 				for rank, s := range syms {
 					if s.FilePath == "" {
 						continue
@@ -528,7 +530,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 		}
 		nativeClean := filepath.FromSlash(clean)
 		full := filepath.Join(repoRoot, nativeClean)
-		if err := rejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
+		if err := base.RejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
 			continue // per-component symlink guard, matching the brain's other repo reads
 		}
 		info, err := os.Stat(full)

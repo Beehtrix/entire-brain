@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -162,7 +163,7 @@ func semanticStorePath(env semanticEnv) (string, error) {
 	if env.Source.StorePath == "" {
 		return "", errors.New("code graph command requires the Graph-owned SQLite store; run `" + base.BrainInvocation(os.LookupEnv, "repair") + "`")
 	}
-	return validateSemanticDeclaredStore(env.BrainDir, env.Source)
+	return semstore.ValidateDeclaredStore(env.BrainDir, env.Source)
 }
 
 func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semanticGraphSchemaOptions) error {
@@ -174,7 +175,7 @@ func runSemanticGraphSchema(cmd *cobra.Command, opts Options, graphOpts semantic
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -424,7 +425,7 @@ func runSemanticQueryGraph(cmd *cobra.Command, opts Options, graphOpts semanticG
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -754,7 +755,7 @@ func runSemanticTracePath(cmd *cobra.Command, opts Options, traceOpts semanticTr
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -926,7 +927,7 @@ func runSemanticDeadCode(cmd *cobra.Command, opts Options, deadOpts semanticDead
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -985,7 +986,7 @@ func runSemanticGraphUI(cmd *cobra.Command, opts Options, uiOpts semanticGraphUI
 	if err != nil {
 		return err
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return err
 	}
@@ -1108,7 +1109,7 @@ func readRuntimeTraces(path string) ([]semanticRuntimeTrace, error) {
 	// The trace path is caller-supplied (including via the ingest-traces
 	// tool), so bound the whole-file read before decoding: a giant array would
 	// otherwise drive json.Decode to allocate an unbounded slice.
-	data, err := base.SafeReadFile(path, graphTraceMaxBytes)
+	data, err := base.SafeReadFile(path, semstore.TraceMaxBytes)
 	if err != nil {
 		return nil, err
 	}

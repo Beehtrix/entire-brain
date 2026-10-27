@@ -4,19 +4,17 @@
 //
 // # Why this is a package and not a helper in one client
 //
-// Three packages build "/api/v1/repos/{repoID}/…" targets and carry a bearer token
+// Two packages build "/api/v1/repos/{repoID}/…" targets and carry a bearer token
 // on them:
 //
-//	internal/hostedbrain  the brain MCP client        /brain/mcp
 //	internal/factsync     the per-fact sync transport
 //	                      /brain/facts (upsert + feed)
 //	internal/cli          brain publish               /brain/artifacts
 //
-// They cannot share the rule through each other: the clients are peers that must
-// not import one another, and internal/cli sits above both, so putting it there
-// is upside down.
+// They cannot share the rule through each other: internal/cli sits above the
+// transport, so putting it there is upside down.
 //
-// A rule about the wire format shared by clients at three different layers belongs
+// A rule about the wire format shared by clients at different layers belongs
 // in a leaf below all of them, which is what this package is: standard library only,
 // no dependency on any client. internal/httpx is the same shape for the outbound
 // HTTP policy those same three callers share.

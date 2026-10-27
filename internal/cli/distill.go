@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -84,40 +83,7 @@ func renderDistillPrompt(taxonomy factstore.Taxonomy) (string, error) {
 	if !strings.Contains(template, distillTaxonomyMarker) {
 		return "", fmt.Errorf("distill template missing %s marker", distillTaxonomyMarker)
 	}
-	return strings.ReplaceAll(template, distillTaxonomyMarker, factTaxonomyBlock(taxonomy)), nil
-}
-
-// factTaxonomyBlock renders the taxonomy as the prompt section the agent uses to
-// classify facts: the fixed top-level categories and the known three-level
-// paths with descriptions. Output is deterministic (sorted) so the rendered
-// prompt is stable across runs.
-func factTaxonomyBlock(taxonomy factstore.Taxonomy) string {
-	var b strings.Builder
-	b.WriteString("## Taxonomy\n\n")
-	b.WriteString("Top-level categories are fixed. You may invent a new three-level path only under one of these categories:\n\n")
-
-	categories := make([]string, 0, len(taxonomy.Categories))
-	for category := range taxonomy.Categories {
-		categories = append(categories, category)
-	}
-	sort.Strings(categories)
-	for _, category := range categories {
-		fmt.Fprintf(&b, "- `%s` — %s\n", category, taxonomy.Categories[category])
-	}
-
-	if len(taxonomy.Paths) > 0 {
-		b.WriteString("\nKnown paths (prefer these):\n\n")
-		paths := append([]factstore.PathDef(nil), taxonomy.Paths...)
-		sort.Slice(paths, func(i, j int) bool { return paths[i].Path < paths[j].Path })
-		for _, def := range paths {
-			if def.Description != "" {
-				fmt.Fprintf(&b, "- `%s` — %s\n", def.Path, def.Description)
-			} else {
-				fmt.Fprintf(&b, "- `%s`\n", def.Path)
-			}
-		}
-	}
-	return b.String()
+	return strings.ReplaceAll(template, distillTaxonomyMarker, factstore.TaxonomyBlock(taxonomy)), nil
 }
 
 // distilledFactsFromOutput parses the agent's line-based output for one
@@ -171,7 +137,7 @@ func distilledFactsFromOutput(output string, taxonomy factstore.Taxonomy, anchor
 			continue
 		}
 		paths := normalizeFactPaths(rawPaths)
-		paths = filterFactPathsByTaxonomy(paths, taxonomy, &warnings)
+		paths = factstore.FilterPathsByTaxonomy(paths, taxonomy, &warnings)
 		if len(paths) == 0 {
 			warnings = append(warnings, "dropped fact with no valid taxonomy path: "+distillUntrustedExcerpt(text))
 			continue
@@ -324,22 +290,6 @@ func fieldLooksLikePaths(field string) bool {
 		}
 	}
 	return true
-}
-
-// filterFactPathsByTaxonomy keeps only paths whose top-level category exists in
-// the taxonomy, recording a warning for each dropped path. Paths are already
-// syntactically valid (normalizeFactPaths ran first).
-func filterFactPathsByTaxonomy(paths []string, taxonomy factstore.Taxonomy, warnings *[]string) []string {
-	tops := factstore.TaxonomyTopLevels(taxonomy)
-	kept := paths[:0:0]
-	for _, path := range paths {
-		if _, ok := tops[factstore.TopLevel(path)]; ok {
-			kept = append(kept, path)
-			continue
-		}
-		*warnings = append(*warnings, fmt.Sprintf("dropped path under unknown category: %s", path))
-	}
-	return kept
 }
 
 // isDisplayControlRune reports whether a rune steers how following text is

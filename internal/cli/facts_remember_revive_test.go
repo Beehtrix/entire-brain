@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"path/filepath"
@@ -31,8 +32,8 @@ func runRememberForTest(t *testing.T, opts Options, text string) string {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	rememberOpts := rememberCommandOptions{path: "preferences.coding.style", agent: "none"}
-	if err := runRemember(context.Background(), cmd, opts, rememberOpts, text); err != nil {
+	rememberOpts := facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts), rememberOpts, text); err != nil {
 		t.Fatalf("runRemember: %v", err)
 	}
 	return out.String()

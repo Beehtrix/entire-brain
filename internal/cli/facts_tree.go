@@ -188,7 +188,7 @@ func newFactsTreeCommand(opts Options) *cobra.Command {
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
-			if err := validateKindFlag(kind); err != nil {
+			if err := factstore.ValidateKindFlag(kind); err != nil {
 				return err
 			}
 			_, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)

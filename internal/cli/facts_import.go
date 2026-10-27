@@ -402,7 +402,7 @@ func validateImportPrefixAgainstTaxonomy(brainDir, prefix string, now time.Time)
 	}
 	candidate := prefix + ".general"
 	var warnings []string
-	if kept := filterFactPathsByTaxonomy([]string{candidate}, taxonomy, &warnings); len(kept) == 1 {
+	if kept := factstore.FilterPathsByTaxonomy([]string{candidate}, taxonomy, &warnings); len(kept) == 1 {
 		return nil
 	}
 	return fmt.Errorf("--path-prefix %q is not under a known taxonomy category (%s); importing under it would mint memories the rest of the system treats as orphaned",

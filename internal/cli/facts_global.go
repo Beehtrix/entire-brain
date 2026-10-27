@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
@@ -33,48 +31,6 @@ import (
 // format means global facts get retraction, verification, taxonomy, dedupe and
 // the write lock for free, and `facts` reads them with the code that already
 // exists. Recall merges them in; everything else about them is ordinary.
-
-const (
-	// globalStoreDirName sits beside "repos" in the plugin data directory, so a
-	// global brain is visible next to the per-repo ones rather than buried
-	// inside one of them.
-	globalStoreDirName = "global"
-
-	// globalFactBranch is the branch component of the global store's filename.
-	// Global facts are not on a branch; this is the storage layer's requirement,
-	// not a claim about the fact. Display never takes a fact's scope from this
-	// value — see globalFactIDs — because a repository may legitimately have a
-	// branch called "global" and a fact on it is not a global fact.
-	globalFactBranch = "global"
-)
-
-// globalBrainDir returns the global store's directory, creating nothing. The
-// caller creates it on first write, so merely reading never materialises a
-// directory for somebody who has no global memories.
-func globalBrainDir(env EntireEnv) (string, error) {
-	dirs, err := base.ResolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dirs.Data, globalStoreDirName), nil
-}
-
-// loadGlobalFacts reads the global store. A store that does not exist yet is
-// not an error: it is the state of every brain before the first global fact,
-// and recall must not fail because of it.
-func loadGlobalFacts(env EntireEnv) ([]factRecord, error) {
-	brainDir, err := globalBrainDir(env)
-	if err != nil {
-		return nil, err
-	}
-	if _, statErr := os.Stat(brainDir); statErr != nil {
-		if os.IsNotExist(statErr) {
-			return nil, nil
-		}
-		return nil, statErr
-	}
-	return factstore.Load(brainDir, globalFactBranch)
-}
 
 // globalFactIDs is how the rest of the code knows which facts are global.
 //
@@ -146,20 +102,7 @@ func globalFactsForRead(env EntireEnv, noGlobal bool) ([]factRecord, error) {
 	if !globalFactsEnabled(noGlobal) {
 		return nil, nil
 	}
-	return loadGlobalFacts(env)
-}
-
-// resolveGlobalFactsTarget is the global counterpart of resolveFactsTarget, for
-// commands operating on the global store directly.
-func resolveGlobalFactsTarget(env EntireEnv) (brainDir, branch string, err error) {
-	brainDir, err = globalBrainDir(env)
-	if err != nil {
-		return "", "", err
-	}
-	if err := os.MkdirAll(brainDir, 0o700); err != nil {
-		return "", "", fmt.Errorf("create global brain: %w", err)
-	}
-	return brainDir, globalFactBranch, nil
+	return factstore.LoadGlobal(env)
 }
 
 // inARepository reports whether the current directory is actually inside a git
@@ -198,16 +141,6 @@ func inARepository(ctx context.Context, opts Options) (bool, error) {
 	return strings.TrimSpace(inside) == "true", nil
 }
 
-// globalFactNotice is what the user sees when a fact was filed globally without
-// them asking. Silence here would be the worst option: the fact is recorded
-// somewhere they did not choose, and they would only find out by missing it.
-func globalFactNotice(explicit bool) string {
-	if explicit {
-		return ""
-	}
-	return "not in a repository, so this was remembered globally; it will be recalled from every repo"
-}
-
 // describeFactScope labels a fact for display.
 func describeFactScope(fact factRecord, globalIDs map[string]bool) string {
 	if globalIDs[fact.ID] {
@@ -232,7 +165,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 		Short: "List memories recorded globally rather than for one repository",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			facts, err := loadGlobalFacts(opts.Env)
+			facts, err := factstore.LoadGlobal(opts.Env)
 			if err != nil {
 				return err
 			}
@@ -243,7 +176,7 @@ func newFactsGlobalCommand(opts Options) *cobra.Command {
 				}
 				active = append(active, fact)
 			}
-			brainDir, dirErr := globalBrainDir(opts.Env)
+			brainDir, dirErr := factstore.GlobalBrainDir(opts.Env)
 			if dirErr != nil {
 				return dirErr
 			}

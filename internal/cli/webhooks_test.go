@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -28,9 +29,10 @@ func TestEveryAdvertisedEventIsActuallyEmitted(t *testing.T) {
 		webhook.WebhookTest:           "WebhookTest",
 	}
 	var sources []string
-	// The emitters live in this package and in command/webhook (where the
-	// `webhook test` command moved), so both directories are scanned.
-	for _, dir := range []string{".", filepath.Join("command", "webhook")} {
+	// The emitters live in this package, in command/webhook (where the
+	// `webhook test` command moved), and in command/facts (where `remember`
+	// moved, COR-2268), so all three directories are scanned.
+	for _, dir := range []string{".", filepath.Join("command", "webhook"), filepath.Join("command", "facts")} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatalf("read package dir: %v", err)
@@ -206,8 +208,8 @@ func TestRememberStillRecordsWhenTheWebhookEndpointIsDown(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember failed because a webhook could not be delivered: %v", err)
 	}
 	facts, err := factstore.Load(brainDir, branch)
@@ -241,8 +243,8 @@ func TestRememberNotifiesTheEndpoint(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
 	if rec.Count() != 1 {
@@ -272,7 +274,7 @@ func TestGlobalFactWebhooksDoNotClaimRepositoryOwnership(t *testing.T) {
 	t.Setenv(webhook.WebhookIncludeTextEnv, "")
 	text := "I prefer table-driven tests."
 	rememberGlobal(t, opts, text)
-	globals, err := loadGlobalFacts(opts.Env)
+	globals, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(globals) != 1 {
 		t.Fatalf("global fixture: %v, %v", globals, err)
 	}
@@ -321,8 +323,8 @@ func TestRememberSendsNothingUnderNoEgress(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, text); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, text); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
 	if rec.Count() != 0 {

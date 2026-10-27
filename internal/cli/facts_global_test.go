@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -44,8 +45,8 @@ func rememberGlobal(t *testing.T, opts Options, text string) string {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none", global: true}, text)
+	err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none", Global: true}, text)
 	if err != nil {
 		t.Fatalf("remember --global: %v", err)
 	}
@@ -62,16 +63,16 @@ func TestGlobalFactIsWrittenOutsideEveryRepository(t *testing.T) {
 	// The store has to live beside the per-repo ones, not inside one of them,
 	// or a fact meant for every repository would be lost with whichever
 	// repository's brain happened to hold it.
-	dir, err := globalBrainDir(opts.Env)
+	dir, err := factstore.GlobalBrainDir(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(dir, base.RepoStoreDirName+string(filepath.Separator)) {
 		t.Fatalf("the global store is inside the per-repo tree: %s", dir)
 	}
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
-		t.Fatalf("loadGlobalFacts: %v", err)
+		t.Fatalf("factstore.LoadGlobal: %v", err)
 	}
 	if len(facts) != 1 || facts[0].Text != "I prefer table-driven tests." {
 		t.Fatalf("the global store holds %+v", facts)
@@ -83,12 +84,12 @@ func TestGlobalFactIsWrittenOutsideEveryRepository(t *testing.T) {
 // leaks into the store every repository reads.
 func TestGlobalFactCarriesNoSessionID(t *testing.T) {
 	opts, _ := globalTestOptions(t)
-	t.Setenv(rememberSessionEnv, "env-session-id")
+	t.Setenv(facts.RememberSessionEnv, "env-session-id")
 	rememberGlobal(t, opts, "Global facts stay free of session provenance.")
 
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
-		t.Fatalf("loadGlobalFacts: %v", err)
+		t.Fatalf("factstore.LoadGlobal: %v", err)
 	}
 	if len(facts) != 1 || len(facts[0].Provenance) != 1 {
 		t.Fatalf("the global store holds %+v", facts)
@@ -105,7 +106,7 @@ func TestGlobalFactIsRecalledFromARepository(t *testing.T) {
 	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
 
 	repoFacts := []factRecord{{ID: "local-1", Text: "Compaction runs above eight segments.", Status: factStatusActive}}
-	global, err := loadGlobalFacts(opts.Env)
+	global, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestRepositoryFactWinsOverAnIdenticalGlobalOne(t *testing.T) {
 	// places collides. The repository's copy is the more specific claim and
 	// carries that repo's provenance — the evidence somebody would check.
 	shared := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: "main"}
-	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: globalFactBranch}
+	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
 	merged, globalIDs := mergeGlobalFacts([]factRecord{shared}, []factRecord{global})
 	if len(merged) != 1 {
@@ -178,7 +179,7 @@ func TestGlobalFactCanBeRetracted(t *testing.T) {
 	// with, in every repository at once.
 	opts, _ := globalTestOptions(t)
 	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("setup: %v %+v", err, facts)
 	}
@@ -199,7 +200,7 @@ func TestGlobalFactCanBeRetracted(t *testing.T) {
 		t.Fatalf("retract did not say where: %q", out.String())
 	}
 
-	after, err := loadGlobalFacts(opts.Env)
+	after, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,8 +223,8 @@ func TestGlobalAndBranchCannotBeCombined(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none", global: true, branch: "main"}, "x")
+	err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none", Global: true, Branch: "main"}, "x")
 	if err == nil {
 		t.Fatal("--global --branch was accepted")
 	}
@@ -238,7 +239,7 @@ func TestGlobalFactHasNoCommitAnchor(t *testing.T) {
 	// a commit it has nothing to do with.
 	opts, _ := globalTestOptions(t)
 	rememberGlobal(t, opts, "I prefer table-driven tests.")
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("setup: %v", err)
 	}
@@ -263,8 +264,8 @@ func TestRememberWhereThereIsNoRepositoryFilesGloballyRatherThanFailing(t *testi
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, "Deploys go out on Thursdays.")
+	err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, "Deploys go out on Thursdays.")
 	if err != nil {
 		t.Fatalf("remember outside a repository failed: %v", err)
 	}
@@ -276,7 +277,7 @@ func TestRememberWhereThereIsNoRepositoryFilesGloballyRatherThanFailing(t *testi
 	if !strings.Contains(out.String(), "globally") {
 		t.Fatalf("the success line does not say where it went: %q", out.String())
 	}
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("the fact was not stored globally: %v %+v", err, facts)
 	}
@@ -307,8 +308,8 @@ func TestPlainDirectoryIsNotMistakenForARepository(t *testing.T) {
 	out, errOut := &bytes.Buffer{}, &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none"}, "Deploys go out on Thursdays."); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none"}, "Deploys go out on Thursdays."); err != nil {
 		t.Fatalf("remember in a plain directory: %v", err)
 	}
 	// "on main" here is the bug: it means the fact went to a per-repo store for
@@ -319,7 +320,7 @@ func TestPlainDirectoryIsNotMistakenForARepository(t *testing.T) {
 	if !strings.Contains(out.String(), "globally") {
 		t.Fatalf("the fact was not filed globally: %q", out.String())
 	}
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("the global store holds %+v (%v)", facts, err)
 	}
@@ -355,14 +356,14 @@ func TestRealRepositoryStillFilesFactsLocally(t *testing.T) {
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
-	if err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "architecture.storage.invariant", agent: "none"}, "Compaction runs above eight segments."); err != nil {
+	if err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "architecture.storage.invariant", Agent: "none"}, "Compaction runs above eight segments."); err != nil {
 		t.Fatalf("remember: %v", err)
 	}
 	if strings.Contains(out.String(), "globally") {
 		t.Fatalf("a repository fact was filed globally: %q", out.String())
 	}
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,8 +382,8 @@ func TestExplicitBranchOutsideARepositoryStillFails(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	err := runRemember(context.Background(), cmd, opts,
-		rememberCommandOptions{path: "preferences.coding.style", agent: "none", branch: "main"}, "x")
+	err := facts.RunRemember(context.Background(), cmd, factsCommandConfig(opts),
+		facts.RememberCommandOptions{Path: "preferences.coding.style", Agent: "none", Branch: "main"}, "x")
 	if err == nil {
 		t.Fatal("--branch outside a repository was silently filed globally")
 	}
@@ -401,14 +402,14 @@ func TestGlobalStoreIsNotCreatedJustByReading(t *testing.T) {
 	// Somebody with no global facts should not find a directory they never
 	// asked for, and a read must not fail because there is nothing there.
 	opts, _ := globalTestOptions(t)
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatalf("reading an empty global store failed: %v", err)
 	}
 	if len(facts) != 0 {
 		t.Fatalf("got %d fact(s) from a store that does not exist", len(facts))
 	}
-	dir, err := globalBrainDir(opts.Env)
+	dir, err := factstore.GlobalBrainDir(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +549,7 @@ func TestGlobalFactsCanBeGarbageCollected(t *testing.T) {
 	opts, _ := globalTestOptions(t)
 	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
 
-	facts, err := loadGlobalFacts(opts.Env)
+	facts, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("setup: %v %+v", err, facts)
 	}
@@ -580,7 +581,7 @@ func TestGlobalFactsCanBeGarbageCollected(t *testing.T) {
 		t.Fatalf("gc --global: %v", err)
 	}
 
-	after, err := loadGlobalFacts(opts.Env)
+	after, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -616,7 +617,7 @@ func TestARetractedRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	// content-derived, retracting a local duplicate is exactly how a user would
 	// expect to fall back to the global statement, not to lose it silently.
 	retracted := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusRetracted, Branch: "main"}
-	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: globalFactBranch}
+	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
 	merged, globalIDs := mergeGlobalFacts([]factRecord{retracted}, []factRecord{global})
 	if len(merged) != 2 {
@@ -627,7 +628,7 @@ func TestARetractedRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	}
 	var sawGlobal bool
 	for _, fact := range merged {
-		if fact.Branch == globalFactBranch && fact.Status == factStatusActive {
+		if fact.Branch == factstore.GlobalBranch && fact.Status == factStatusActive {
 			sawGlobal = true
 		}
 	}
@@ -638,7 +639,7 @@ func TestARetractedRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 
 func TestASupersededRepositoryFactDoesNotHideAnActiveGlobalOne(t *testing.T) {
 	superseded := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusSuperseded, Branch: "main"}
-	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: globalFactBranch}
+	global := factRecord{ID: "same-id", Text: "We deploy on Thursdays.", Status: factStatusActive, Branch: factstore.GlobalBranch}
 
 	merged, globalIDs := mergeGlobalFacts([]factRecord{superseded}, []factRecord{global})
 	if len(merged) != 2 || !globalIDs["same-id"] {
@@ -803,7 +804,7 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
 	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
 	globalID := factRecordID("orion convention uses db/migrations/global.sql", normalizeFactPaths([]string{"preferences.coding.style"}))
-	globals, err := loadGlobalFacts(opts.Env)
+	globals, err := factstore.LoadGlobal(opts.Env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -880,7 +881,7 @@ func TestRetrievalCommandsCanExcludeGlobalFactsPerRequest(t *testing.T) {
 func TestGetResolvesAGlobalFactID(t *testing.T) {
 	opts, _ := globalTestOptions(t)
 	rememberGlobal(t, opts, "The staging cluster is in eu-west-1.")
-	global, err := loadGlobalFacts(opts.Env)
+	global, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(global) == 0 {
 		t.Fatalf("fixture: %v (%d facts)", err, len(global))
 	}
@@ -913,7 +914,7 @@ func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
 			opts, brainDir := retrievalSurfaceFixture(t)
 			text := "orion convention uses db/migrations/shared.sql"
 			rememberGlobal(t, opts, text)
-			globals, err := loadGlobalFacts(opts.Env)
+			globals, err := factstore.LoadGlobal(opts.Env)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -947,7 +948,7 @@ func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
 
 func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
-	globals, err := loadGlobalFacts(opts.Env)
+	globals, err := factstore.LoadGlobal(opts.Env)
 	if err != nil || len(globals) != 1 {
 		t.Fatalf("global fixture: %v, %v", globals, err)
 	}

@@ -1,4 +1,4 @@
-package cli
+package config
 
 import (
 	"encoding/json"
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/config"
+	cfg "github.com/entireio/entire-brain/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +57,7 @@ type configDirectoriesReport struct {
 	Cache  string `json:"cache"`
 }
 
-func newConfigCommand(env EntireEnv) *cobra.Command {
+func New(env base.EntireEnv) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
 		Short: "Inspect or initialize plugin configuration",
@@ -108,10 +108,10 @@ are read where they are used and are not reported here.`,
 			if err != nil {
 				return err
 			}
-			if err := config.Save(configDir, config.Default()); err != nil {
+			if err := cfg.Save(configDir, cfg.Default()); err != nil {
 				return err
 			}
-			path, err := config.Path(configDir)
+			path, err := cfg.Path(configDir)
 			if err != nil {
 				return err
 			}
@@ -123,12 +123,12 @@ are read where they are used and are not reported here.`,
 	return cmd
 }
 
-func buildConfigReport(env EntireEnv) (configReport, error) {
+func buildConfigReport(env base.EntireEnv) (configReport, error) {
 	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return configReport{}, err
 	}
-	path, err := config.Path(dirs.Config)
+	path, err := cfg.Path(dirs.Config)
 	if err != nil {
 		return configReport{}, err
 	}
@@ -138,7 +138,7 @@ func buildConfigReport(env EntireEnv) (configReport, error) {
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 		return configReport{}, fmt.Errorf("inspect config file %s: %w", path, statErr)
 	}
-	cfg, err := config.Load(dirs.Config)
+	cfg, err := cfg.Load(dirs.Config)
 	if err != nil {
 		return configReport{}, err
 	}
@@ -162,15 +162,15 @@ func buildConfigReport(env EntireEnv) (configReport, error) {
 	}, nil
 }
 
-func configPath(env EntireEnv) (string, error) {
+func configPath(env base.EntireEnv) (string, error) {
 	configDir, err := requireConfigDir(env)
 	if err != nil {
 		return "", err
 	}
-	return config.Path(configDir)
+	return cfg.Path(configDir)
 }
 
-func requireConfigDir(env EntireEnv) (string, error) {
+func requireConfigDir(env base.EntireEnv) (string, error) {
 	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", err

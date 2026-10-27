@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
@@ -234,9 +235,9 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	// already on disk and the author's write must not be undone by an
 	// unreachable endpoint.
 	if global {
-		notifyGlobalFactWebhook(ctx, cmd.ErrOrStderr(), WebhookFactRecorded, record, now)
+		webhook.NotifyGlobalFactWebhook(ctx, cmd.ErrOrStderr(), webhook.WebhookFactRecorded, record, now)
 	} else {
-		notifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookFactRecorded, branch, record, now)
+		webhook.NotifyFactWebhook(ctx, cmd.ErrOrStderr(), opts, webhook.WebhookFactRecorded, branch, record, now)
 	}
 	if rememberOpts.json {
 		return cmdutil.WriteJSON(cmd, record)

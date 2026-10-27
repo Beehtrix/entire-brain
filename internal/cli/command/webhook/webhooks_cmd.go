@@ -1,4 +1,4 @@
-package cli
+package webhook
 
 import (
 	"fmt"
@@ -20,7 +20,7 @@ import (
 // sending one on demand — which is also how you check a signature verifier
 // before trusting it with real events.
 
-func newWebhookCommand(opts Options) *cobra.Command {
+func New(opts base.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "webhook",
 		Short: "Notify another service when this brain changes",
@@ -28,22 +28,22 @@ func newWebhookCommand(opts Options) *cobra.Command {
 Post a small JSON event to an HTTP endpoint when a fact is recorded or retracted
 or the brain is refreshed, so a CI job, a chat channel or an index can react.
 
-Set ` + webhookURLEnv + ` to switch it on; unset, nothing is sent and no network
+Set ` + WebhookURLEnv + ` to switch it on; unset, nothing is sent and no network
 call is made. ` + webhookSecretEnv + ` adds an HMAC-SHA256 signature in the
 X-Entire-Signature-256 header so a receiver can verify the POST came from this
 brain.
 
 Fact text is not sent. Events carry the fact id, kind and taxonomy paths; set
-` + webhookIncludeTextEnv + `=1 to include the text as well.
+` + WebhookIncludeTextEnv + `=1 to include the text as well.
 
 ENTIRE_BRAIN_NO_EGRESS disables webhooks outright,
 whatever else is configured.`),
 	}
-	cmd.AddCommand(newWebhookStatusCommand(opts), newWebhookTestCommand(opts), newWebhookEventsCommand())
+	cmd.AddCommand(NewStatusCommand(opts), NewTestCommand(opts), newWebhookEventsCommand())
 	return cmd
 }
 
-func newWebhookStatusCommand(opts Options) *cobra.Command {
+func NewStatusCommand(opts base.Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "status",
@@ -52,7 +52,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			endpoint, enabled, reason := webhookEndpoint()
 			signed := strings.TrimSpace(os.Getenv(webhookSecretEnv)) != ""
-			includeText := base.EnvBool(webhookIncludeTextEnv)
+			includeText := base.EnvBool(WebhookIncludeTextEnv)
 			if jsonOut {
 				return cmdutil.WriteJSON(cmd, map[string]any{
 					"enabled":      enabled,
@@ -60,7 +60,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 					"reason":       reason,
 					"signed":       signed,
 					"include_text": includeText,
-					"events":       webhookEventNames(),
+					"events":       WebhookEventNames(),
 				})
 			}
 			out := cmd.OutOrStdout()
@@ -72,11 +72,11 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 				switch {
 				case base.BrainNoEgressMode():
 					fmt.Fprintf(out, "  unset %s to allow them\n", base.NoEgressToggleName())
-				case strings.TrimSpace(os.Getenv(webhookURLEnv)) != "":
+				case strings.TrimSpace(os.Getenv(WebhookURLEnv)) != "":
 					fmt.Fprintf(out, "  %s is set to %q; correct it and try again\n",
-						webhookURLEnv, strings.TrimSpace(os.Getenv(webhookURLEnv)))
+						WebhookURLEnv, strings.TrimSpace(os.Getenv(WebhookURLEnv)))
 				default:
-					fmt.Fprintf(out, "  set %s=https://... to switch them on\n", webhookURLEnv)
+					fmt.Fprintf(out, "  set %s=https://... to switch them on\n", WebhookURLEnv)
 				}
 				return nil
 			}
@@ -87,11 +87,11 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 				fmt.Fprintf(out, "  unsigned: set %s so the receiver can verify the sender\n", webhookSecretEnv)
 			}
 			if includeText {
-				fmt.Fprintf(out, "  fact text IS included (%s is set)\n", webhookIncludeTextEnv)
+				fmt.Fprintf(out, "  fact text IS included (%s is set)\n", WebhookIncludeTextEnv)
 			} else {
 				fmt.Fprintf(out, "  fact text is not sent; ids, kinds and paths only\n")
 			}
-			fmt.Fprintf(out, "  events: %s\n", strings.Join(webhookEventNames(), ", "))
+			fmt.Fprintf(out, "  events: %s\n", strings.Join(WebhookEventNames(), ", "))
 			return nil
 		},
 	}
@@ -99,7 +99,7 @@ func newWebhookStatusCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newWebhookTestCommand(opts Options) *cobra.Command {
+func NewTestCommand(opts base.Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "test",
 		Short: "Send a webhook.test event to the configured endpoint",
@@ -112,10 +112,10 @@ func newWebhookTestCommand(opts Options) *cobra.Command {
 				// happened is the worst possible answer.
 				return fmt.Errorf("webhooks are off: %s", reason)
 			}
-			event := webhookEvent{
+			event := WebhookEvent{
 				Event:     WebhookTest,
 				Timestamp: opts.Now().UTC().Format(time.RFC3339),
-				Repo:      webhookRepoIdentity(cmd.Context(), opts),
+				Repo:      WebhookRepoIdentity(cmd.Context(), opts),
 			}
 			if err := deliverWebhook(cmd.Context(), endpoint, event); err != nil {
 				return err

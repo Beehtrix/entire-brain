@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/spf13/cobra"
@@ -112,9 +113,9 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 			// news that is not news.
 			if changed {
 				if global {
-					notifyGlobalFactWebhook(cmd.Context(), cmd.ErrOrStderr(), WebhookFactRetracted, retracted, now)
+					webhook.NotifyGlobalFactWebhook(cmd.Context(), cmd.ErrOrStderr(), webhook.WebhookFactRetracted, retracted, now)
 				} else {
-					notifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, WebhookFactRetracted, resolvedBranch, retracted, now)
+					webhook.NotifyFactWebhook(cmd.Context(), cmd.ErrOrStderr(), opts, webhook.WebhookFactRetracted, resolvedBranch, retracted, now)
 				}
 			}
 			if jsonOut {

@@ -192,18 +192,27 @@ func rebindStaleHostedRepo(ctx context.Context, errW io.Writer, opts Options, re
 
 // pauseHostedSyncNoAccess records the no-access pause next to the binding and
 // says so once. The write re-checks the binding under the lock so a
-// concurrent connect or disconnect is never stamped with a stale denial.
+// concurrent connect or disconnect is never stamped with a stale denial. The
+// "paused" line prints only when the pause was actually recorded: a declined
+// write means another writer owns the binding now (its state speaks for
+// itself), and a failed write means the next trigger will try again.
 func pauseHostedSyncNoAccess(errW io.Writer, opts Options, brainDir string, stale brainstore.HostedRepoBinding) {
 	until := opts.Now().UTC().Add(hostedNoAccessBackoff)
+	written := false
 	err := brainstore.MutateHostedRepoBinding(brainDir, func(current brainstore.HostedRepoBinding) (brainstore.HostedRepoBinding, bool) {
 		if current.OptedOut || current.RepoID != stale.RepoID || current.BaseURL != stale.BaseURL {
 			return current, false
 		}
 		current.NoAccessUntil = until
+		written = true
 		return current, true
 	})
 	if err != nil {
-		fmt.Fprintf(errW, "hosted sync: record no-access pause: %v\n", err)
+		fmt.Fprintf(errW, "hosted sync: no access to repo %s on Entire, but recording the pause failed: %v\n", stale.RepoID, err)
+		return
+	}
+	if !written {
+		return
 	}
 	fmt.Fprintf(errW, "hosted sync: no access to repo %s on Entire (deleted, or this account lost access); sync paused until %s — run '%s' once access is granted\n",
 		stale.RepoID, until.Format(time.RFC3339), base.BrainInvocation(os.LookupEnv, "connect"))

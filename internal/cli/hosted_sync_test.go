@@ -1285,3 +1285,20 @@ func TestHostedSyncReboundRepoStillDeniedPauses(t *testing.T) {
 		t.Fatal("a denied rebound repo must pause rather than resolve placement again")
 	}
 }
+
+// A pause whose guarded write declines — the binding changed hands between
+// the denial and the write (concurrent connect/disconnect) — must not claim
+// "sync paused": no pause was recorded and the new binding owns the state.
+func TestPauseNoAccessSilentWhenBindingChanged(t *testing.T) {
+	opts, storage, _, baseURL := hostedSyncHarness(t, &hostedFake{}, true)
+
+	var errOut bytes.Buffer
+	pauseHostedSyncNoAccess(&errOut, opts, storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "stale-repo", BaseURL: baseURL})
+	if errOut.Len() != 0 {
+		t.Fatalf("a declined pause write must print nothing, got %q", errOut.String())
+	}
+	binding := readBindingOrFatal(t, storage.BrainDir)
+	if !binding.NoAccessUntil.IsZero() {
+		t.Fatalf("the current binding must not be paused, got %v", binding.NoAccessUntil)
+	}
+}

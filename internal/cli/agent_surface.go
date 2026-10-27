@@ -4750,7 +4750,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		factBranches = manifest.Sources.Facts.Branches
 	}
-	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches)
+	hosted, hostedWarning := buildHostedStatus(storage.BrainDir, factBranches, opts.Now().UTC())
 	report.Hosted = hosted
 	if hostedWarning != "" {
 		report.Warnings = append(report.Warnings, hostedWarning)

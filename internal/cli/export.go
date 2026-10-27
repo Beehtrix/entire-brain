@@ -3663,9 +3663,9 @@ func isTranscriptFile(path string) bool {
 
 func sessionFileName(createdAt time.Time, agent, sessionID, checkpointID, extension string) string {
 	timestamp := createdAt.UTC().Format("20060102T150405Z")
-	agentPart := safePathComponent(agent, "agent", 32)
-	sessionPart := safePathComponent(sessionID, "session", 80)
-	checkpointPart := safePathComponent(checkpointID, "checkpoint", 32)
+	agentPart := clibase.SafePathComponent(agent, "agent", 32)
+	sessionPart := clibase.SafePathComponent(sessionID, "session", 80)
+	checkpointPart := clibase.SafePathComponent(checkpointID, "checkpoint", 32)
 	return strings.Join([]string{timestamp, agentPart, sessionPart, checkpointPart}, "_") + extension
 }
 
@@ -3687,7 +3687,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 		sort.Strings(branches)
 		branches = compactSortedStrings(branches)
 	}
-	defaultDir := filepath.Join(brainstore.SessionsDirName, safePathComponent(defaultBranch, "main", 80))
+	defaultDir := filepath.Join(brainstore.SessionsDirName, clibase.SafePathComponent(defaultBranch, "main", 80))
 
 	dirs := make(map[string]string, len(branches))
 	for _, branch := range branches {
@@ -3704,7 +3704,7 @@ func buildBranchDirectories(sessions []exportSession, defaultBranch string) map[
 }
 
 func stableBranchDirComponent(branch string) string {
-	slug := safePathComponent(branch, "branch", 80)
+	slug := clibase.SafePathComponent(branch, "branch", 80)
 	sum := sha256.Sum256([]byte(branch))
 	return slug + "-" + hex.EncodeToString(sum[:])[:8]
 }
@@ -3766,35 +3766,6 @@ func sortedBranches[T any](values map[string]T) []string {
 		return branches[i] < branches[j]
 	})
 	return branches
-}
-
-func safePathComponent(value, fallback string, max int) string {
-	value = strings.TrimSpace(strings.ToLower(value))
-	var b strings.Builder
-	lastDash := false
-	for _, r := range value {
-		ok := (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-'
-		if ok {
-			b.WriteRune(r)
-			lastDash = false
-			continue
-		}
-		if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-	}
-	out := strings.Trim(b.String(), "-._")
-	if out == "" {
-		out = fallback
-	}
-	if max > 0 && len(out) > max {
-		out = strings.Trim(out[:max], "-._")
-		if out == "" {
-			out = fallback
-		}
-	}
-	return out
 }
 
 func transcriptMode(raw bool) string {

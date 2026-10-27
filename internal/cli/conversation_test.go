@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -794,7 +795,7 @@ func TestConversationSourceScopedRetrievalDoesNotReturnOtherLayers(t *testing.T)
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
 	facts := []factRecord{{ID: factRecordID("alpha contract", nil), Text: "alpha contract", Branch: "main", Status: factStatusActive, UpdatedAt: now}}
-	if err := writeFacts(brainDir, "main", facts); err != nil {
+	if err := factstore.Write(brainDir, "main", facts); err != nil {
 		t.Fatal(err)
 	}
 	results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha contract", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation})

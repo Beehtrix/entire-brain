@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ func TestRecencyPublicRetrievalSurfaces(t *testing.T) {
 		{ID: "fact:old", Text: "alpha beta retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-3 * 365 * 24 * time.Hour)},
 		{ID: "fact:fresh", Text: "alpha retrieval", Branch: "feature", Status: factStatusActive, CreatedAt: now.Add(-4 * 365 * 24 * time.Hour), UpdatedAt: now.Add(-24 * time.Hour)},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {

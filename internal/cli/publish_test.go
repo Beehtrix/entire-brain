@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 
@@ -96,7 +97,7 @@ func writePublishBrainFixture(t *testing.T, brainDir string) {
 		filepath.Join(brainDir, semanticDirName, "overlays", "all-branches.json"),
 		[]byte("{\"branches\":[]}\n"))
 
-	factsRel := factsFileRelPath("main")
+	factsRel := factstore.FileRelPath("main")
 	writePublishFile(t,
 		filepath.Join(brainDir, filepath.FromSlash(factsRel)),
 		[]byte("{\"branch\":\"main\",\"text\":\"the repo uses go\"}\n"))

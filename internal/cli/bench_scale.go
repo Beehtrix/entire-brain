@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -620,7 +621,7 @@ func measureKnowledgeLatency(repoDir, brainDir, branch string, queries []string,
 // Count stored records before query-specific ranking and filtering. History
 // includes the reconciled short-term overlay, just as retrieval does.
 func countScaleKnowledgeRecords(brainDir, branch string) (int, error) {
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return 0, err
 	}

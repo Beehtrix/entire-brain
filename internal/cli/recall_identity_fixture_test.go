@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // setupRecallIdentityTest builds a one-fact brain and the Options to run
@@ -44,7 +46,7 @@ func setupRecallIdentityTest(t *testing.T) (Options, string) {
 		Status:    factStatusActive,
 		UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	return opts, storage.BrainDir

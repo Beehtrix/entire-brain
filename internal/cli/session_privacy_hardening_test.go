@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"io"
@@ -63,12 +64,12 @@ func TestPrivacyPlanAndVerifyPropagateInjectedStatReadDirAndReadFailures(t *test
 
 	t.Run("facts readdir", func(t *testing.T) {
 		brainDir := writePrivacyFixture(t)
-		if err := os.MkdirAll(filepath.Join(brainDir, factsDirName), 0o700); err != nil {
+		if err := os.MkdirAll(filepath.Join(brainDir, factstore.DirName), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		original := brainstore.PrivacyReadDir
 		brainstore.PrivacyReadDir = func(dir *os.File, n int) ([]os.DirEntry, error) {
-			if dir.Name() == filepath.Join(brainDir, factsDirName) {
+			if dir.Name() == filepath.Join(brainDir, factstore.DirName) {
 				return nil, fs.ErrPermission
 			}
 			return original(dir, n)
@@ -140,7 +141,7 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 		ID: factRecordID("corroborated", nil), Text: "corroborated", Branch: "main", Origin: "distilled", Status: factStatusActive,
 		CreatedAt: now, UpdatedAt: now, Provenance: []factAnchor{{Transcript: secretPath}, {SessionID: "clean-sess", Transcript: cleanPath}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{singleBlank, singleMismatch, multi}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{singleBlank, singleMismatch, multi}); err != nil {
 		t.Fatal(err)
 	}
 	tombstonePrivacyFixture(t, brainDir)
@@ -175,7 +176,7 @@ func TestPrivacyFactAnchorsMatchExcludedTranscriptPath(t *testing.T) {
 	if err := executeSessionPurge(brainDir, "secret-sess", plan, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +366,7 @@ func TestPrivacyVerifyInspectsCommittedPatternRowsStillInWAL(t *testing.T) {
 
 func TestPrivacyFactVectorInventoryHandlesGlobMetacharacters(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	rel := filepath.ToSlash(filepath.Join(factsDirName, "feature-[literal]", embedStoreDirName, embedStoreFileName))
+	rel := filepath.ToSlash(filepath.Join(factstore.DirName, "feature-[literal]", embedStoreDirName, embedStoreFileName))
 	path := filepath.Join(brainDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)

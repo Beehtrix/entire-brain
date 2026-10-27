@@ -12,6 +12,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func connectTestEnv(t *testing.T, repoDir string) EntireEnv {
@@ -220,7 +221,7 @@ func TestConnectRunsInitialPull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +266,7 @@ func TestConnectReusesTheExistingBindingWhenPlacementUnavailable(t *testing.T) {
 	if _, _, err := runConnectCommand(t, opts); err != nil {
 		t.Fatalf("connect on an already-connected repo must not require placement resolution, got %v", err)
 	}
-	local, err := loadFacts(storage.BrainDir, "main")
+	local, err := factstore.Load(storage.BrainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

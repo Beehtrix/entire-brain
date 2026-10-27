@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -70,7 +71,7 @@ func assertNoDistillDerivedState(t *testing.T, brainDir string) {
 	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(distillCachePath))); !os.IsNotExist(err) {
 		t.Fatalf("refused distill cache stat error = %v, want not exist", err)
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		t.Fatalf("load facts after refused distill: %v", err)
 	}

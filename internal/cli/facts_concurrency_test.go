@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -35,7 +36,7 @@ func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 			Paths:     p,
 			Text:      text,
 			Branch:    branch,
-			Origin:    factOriginDistilled,
+			Origin:    factstore.OriginDistilled,
 			Status:    factStatusActive,
 			CreatedAt: at,
 			UpdatedAt: at,
@@ -56,13 +57,13 @@ func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 			shared := makeFact("shared fact", []string{"preferences.coding.style"}, now)
 			shared.Provenance = []factAnchor{{SessionID: fmt.Sprintf("shared-%02d", i), Line: i + 1}}
 			errs <- withBrainWriteLockForLosslessConcurrencyTest(brainDir, func() error {
-				facts, err := loadFacts(brainDir, branch)
+				facts, err := factstore.Load(brainDir, branch)
 				if err != nil {
 					return err
 				}
 				facts = upsertFact(facts, unique)
 				facts = upsertFact(facts, shared)
-				if err := writeFacts(brainDir, branch, facts); err != nil {
+				if err := factstore.Write(brainDir, branch, facts); err != nil {
 					return err
 				}
 				return updateFactSourceManifestLocked(brainDir, now)
@@ -78,7 +79,7 @@ func TestConcurrentFactCommitsAreLossless(t *testing.T) {
 		}
 	}
 
-	facts, err := loadFacts(brainDir, branch)
+	facts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		t.Fatalf("load facts: %v", err)
 	}

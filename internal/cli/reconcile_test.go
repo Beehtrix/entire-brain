@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -225,7 +226,7 @@ func TestRunDistillForBrainQueuesConfidentMerge(t *testing.T) {
 	}
 	// Both statements and their provenance remain durable. Only the elected
 	// original publishes; the proposed merge waits for review.
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +272,7 @@ func TestRunDistillForBrainReconcileQueuesProposal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runDistillForBrain: %v", err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

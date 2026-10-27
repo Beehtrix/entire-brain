@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -46,7 +47,7 @@ func vitalityTestFact(text, branch string, now time.Time) factRecord {
 		Paths:     paths,
 		Text:      text,
 		Branch:    branch,
-		Origin:    factOriginAuthored,
+		Origin:    factstore.OriginAuthored,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -78,7 +79,7 @@ func vitalitySidecarBytes(t *testing.T, brainDir, branch string) []byte {
 func TestVitalityRecallRecordsServeReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The retrieval cache invalidates on manifest change.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -160,7 +161,7 @@ func TestVitalityRecallNoHitSkipsHeadLookupAndReceipt(t *testing.T) {
 func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Unified retrieval merges facts history docs with RRF.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -215,7 +216,7 @@ func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 func TestVitalityBriefRecordsServeReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Verification requires the media playback capstone suite.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	// brief consults facts only when the manifest declares the source.
@@ -248,7 +249,7 @@ func TestVitalityBriefRecordsServeReceipts(t *testing.T) {
 func TestVitalityHookSurfacesRecordReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("internal/cli/distill_cmd.go owns the distill flag surface.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -290,7 +291,7 @@ func TestVitalityFailedEmissionDoesNotRecordReceipt(t *testing.T) {
 			t.Run(surface+"/"+mode, func(t *testing.T) {
 				f := newVerifyFixture(t)
 				fact := vitalityTestFact("internal/cli/distill_cmd.go owns retrieval cache invalidation.", "main", f.now)
-				if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+				if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 					t.Fatalf("write facts: %v", err)
 				}
 				var args []string
@@ -640,7 +641,7 @@ func TestVitalityAppendPreservesAbsorbedMarkerAcrossTornTail(t *testing.T) {
 func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The corrupt sidecar must not break recall.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -782,7 +783,7 @@ func TestVitalityViewDoesNotBypassSymlinkedLockDirectory(t *testing.T) {
 func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Reads survive an unwritable vitality sidecar.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	// A directory where the log should be makes every append fail.
@@ -812,7 +813,7 @@ func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 func TestVitalityMissingFactReceiptsAreFlagged(t *testing.T) {
 	f := newVerifyFixture(t)
 	kept := vitalityTestFact("This fact still exists.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{kept}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{kept}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	events := []vitalityEvent{

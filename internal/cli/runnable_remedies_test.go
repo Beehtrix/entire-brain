@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
 	"regexp"
 	"strings"
@@ -39,16 +40,28 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 }
 
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
-	}
 	scanned, helperSites, allowed := 0, 0, 0
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "setup_invocation.go" {
-			continue
+	// "." plus internal/factstore: the fact-store remedies sank there
+	// (COR-2268) and must stay under this guard rather than escape it by
+	// moving.
+	var names []string
+	for _, dir := range []string{".", "internal/factstore"} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
 		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "setup_invocation.go" {
+				continue
+			}
+			if dir != "." {
+				name = dir + "/" + name
+			}
+			names = append(names, name)
+		}
+	}
+	for _, name := range names {
 		data, err := os.ReadFile(name)
 		if err != nil {
 			t.Fatal(err)
@@ -92,7 +105,7 @@ func TestConvertedRemediesFollowTheDispatchSpelling(t *testing.T) {
 	render := func() map[string]string {
 		return map[string]string{
 			"declaredIndexRepairHint": declaredIndexRepairHint(),
-			"factsRepairHint":         factsRepairHint(),
+			"factstore.RepairHint":    factstore.RepairHint(),
 			"declaredIndexDefect":     declaredIndexDefect{Source: declaredIndexSeed, Absent: true, Path: "seed.json"}.Warning(),
 		}
 	}

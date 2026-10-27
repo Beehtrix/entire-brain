@@ -10,6 +10,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -141,7 +142,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		}
 	}
 	now := opts.Now().UTC()
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
 		return err
 	}
@@ -157,7 +158,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 	explicitKind := strings.ToLower(strings.TrimSpace(rememberOpts.kind))
 	kind := explicitKind
 	if kind == "" {
-		kind = inferFactKind(paths, text)
+		kind = factstore.InferKind(paths, text)
 	}
 
 	anchor := factAnchor{}
@@ -179,7 +180,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 		Locus:      base.FactLocus(text),
 		Text:       text,
 		Branch:     branch,
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{anchor},
 		CreatedAt:  now,
@@ -188,7 +189,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 
 	storedKind := kind
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		facts, err := loadFacts(brainDir, branch)
+		facts, err := factstore.Load(brainDir, branch)
 		if err != nil {
 			return err
 		}
@@ -215,13 +216,13 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 			if explicitKind != "" {
 				facts[i].Kind = explicitKind
 			}
-			storedKind = factKindOrInferred(facts[i])
+			storedKind = factstore.KindOrInferred(facts[i])
 			record = facts[i]
 		}
-		if err := writeFacts(brainDir, branch, facts); err != nil {
+		if err := factstore.Write(brainDir, branch, facts); err != nil {
 			return err
 		}
-		if err := writeFactTaxonomy(brainDir, taxonomy); err != nil {
+		if err := factstore.WriteTaxonomy(brainDir, taxonomy); err != nil {
 			return err
 		}
 		return updateFactSourceManifestLocked(brainDir, now)
@@ -253,7 +254,7 @@ func runRemember(ctx context.Context, cmd *cobra.Command, opts Options, remember
 // resolveRememberPaths returns the taxonomy paths for an authored fact: the
 // explicit --path when given, otherwise the agent's classification. Without an
 // agent and without --path it errors, mirroring the plan's contract.
-func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememberCommandOptions, repoDir, text string, taxonomy factTaxonomy) ([]string, error) {
+func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememberCommandOptions, repoDir, text string, taxonomy factstore.Taxonomy) ([]string, error) {
 	if strings.TrimSpace(rememberOpts.path) != "" {
 		paths := normalizeFactPaths(strings.Split(rememberOpts.path, ","))
 		if len(paths) == 0 {
@@ -269,7 +270,7 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 		var warnings []string
 		filtered := filterFactPathsByTaxonomy(paths, taxonomy, &warnings)
 		if len(filtered) != len(paths) {
-			return nil, fmt.Errorf("--path %q is not under a known taxonomy category (%s)", rememberOpts.path, strings.Join(sortedTaxonomyTopLevels(taxonomy), ", "))
+			return nil, fmt.Errorf("--path %q is not under a known taxonomy category (%s)", rememberOpts.path, strings.Join(factstore.SortedTaxonomyTopLevels(taxonomy), ", "))
 		}
 		return filtered, nil
 	}
@@ -303,7 +304,7 @@ func resolveRememberPaths(ctx context.Context, opts Options, rememberOpts rememb
 
 // classifyPrompt instructs the agent to assign a taxonomy path to a single fact
 // supplied on stdin. Like the other agent prompts it must not begin with a dash.
-func classifyPrompt(taxonomy factTaxonomy) string {
+func classifyPrompt(taxonomy factstore.Taxonomy) string {
 	return "Classify the durable repository fact on stdin into the taxonomy below. " +
 		"Output exactly one line: one taxonomy path, or two comma-separated paths only if the fact genuinely spans two top-level categories. " +
 		"Each path is three lowercase segments: category.subcategory.type. Invent a new three-level path only under an existing top-level category. " +
@@ -313,7 +314,7 @@ func classifyPrompt(taxonomy factTaxonomy) string {
 // parseClassifyOutput extracts taxonomy paths from the classifier's response:
 // the first line containing a valid path, comma- or whitespace-separated,
 // filtered to known top-level categories and capped at two.
-func parseClassifyOutput(output string, taxonomy factTaxonomy) []string {
+func parseClassifyOutput(output string, taxonomy factstore.Taxonomy) []string {
 	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {

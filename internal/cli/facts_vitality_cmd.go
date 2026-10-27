@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -133,7 +134,7 @@ func buildFactsVitalityReport(brainDir, branch string, compact bool, now time.Ti
 	// store degrades the join, never the receipts.
 	factsByID := map[string]factRecord{}
 	storeLoaded := false
-	if facts, factsErr := loadFacts(brainDir, branch); factsErr != nil {
+	if facts, factsErr := factstore.Load(brainDir, branch); factsErr != nil {
 		report.Warnings = append(report.Warnings, "memory store unavailable for join: "+factsErr.Error())
 	} else {
 		storeLoaded = true

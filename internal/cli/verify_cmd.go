@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -68,7 +69,7 @@ type verifyReport struct {
 	// store that had lost a fact — it verified the facts it could still read
 	// and never asked whether that was all of them. Present only when the
 	// cross-check fails.
-	StoreIntegrity *factStoreIntegrity `json:"store_integrity,omitempty"`
+	StoreIntegrity *factstore.Integrity `json:"store_integrity,omitempty"`
 }
 
 type verifySummary struct {
@@ -207,7 +208,7 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	if err != nil {
 		return verifyReport{}, err
 	}
-	allFacts, err := loadFacts(brainDir, branch)
+	allFacts, err := factstore.Load(brainDir, branch)
 	if err != nil {
 		return verifyReport{}, err
 	}
@@ -216,9 +217,9 @@ func buildVerifyReport(ctx context.Context, opts Options, repoDir, brainDir, rep
 	// manifest's claim against the store before verifying what survived, so
 	// the verdict below can never be read as a clean bill of health for a
 	// corpus that is short.
-	var storeIntegrity *factStoreIntegrity
+	var storeIntegrity *factstore.Integrity
 	if manifest != nil && manifest.Sources != nil {
-		if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+		if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
 			storeIntegrity = &integrity
 		}
 	}

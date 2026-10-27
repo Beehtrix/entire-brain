@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -111,7 +112,7 @@ func TestRecallEvidenceRejectsUnsupportedOptions(t *testing.T) {
 
 func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 	opts, brain := evidenceFixture(t)
-	factsBefore, err := loadFacts(brain, "main")
+	factsBefore, err := factstore.Load(brain, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +130,7 @@ func TestRecallEvidenceLeavesOrdinaryRecallAndFactsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	factsAfter, err := loadFacts(brain, "main")
+	factsAfter, err := factstore.Load(brain, "main")
 	if err != nil || !reflect.DeepEqual(factsBefore, factsAfter) || before != after {
 		t.Fatalf("evidence recall changed facts: %v", err)
 	}

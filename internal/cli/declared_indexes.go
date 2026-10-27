@@ -31,7 +31,7 @@ import (
 // `vsearch` exited 0 with "no results" and a note blaming missing FACTS — over
 // a brain that had answered the same query with six doc hits minutes earlier.
 //
-// Shape, deliberately copied from inspectFactStore rather than invented again:
+// Shape, deliberately copied from factstore.Inspect rather than invented again:
 //
 //   - The check lives beside the artifact's own reader, not inside it, so the
 //     REBUILD path can still run against the damaged brain.

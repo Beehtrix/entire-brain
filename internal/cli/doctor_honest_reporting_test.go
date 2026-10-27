@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
@@ -253,7 +254,7 @@ func TestDoctorReportsAnUnparseableFactStore(t *testing.T) {
 	// after an em-dash, so comparing the decorated errors whole would pin
 	// punctuation rather than the diagnosis.
 	for name, readerErr := range readerErrs {
-		reason := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(readerErr.Error()), factsRepairHint()))
+		reason := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(readerErr.Error()), factstore.RepairHint()))
 		reason = strings.TrimSuffix(reason, ";")
 		if reason == "" {
 			t.Fatalf("%s gave no reason beyond the repair hint: %v", name, readerErr)
@@ -286,25 +287,25 @@ func TestUnreadableFactBranchStoresIsDisjointFromMissing(t *testing.T) {
 	_, _, brainDir := factsAvailabilityFixture(t)
 	source := &factSourceManifest{Facts: 1, Branches: []string{"feature"}}
 
-	if got := unreadableFactBranchStores(brainDir, source); len(got) != 0 {
+	if got := factstore.UnreadableBranchStores(brainDir, source); len(got) != 0 {
 		t.Fatalf("healthy store reported unreadable: %+v", got)
 	}
 
 	truncateFactStore(t, brainDir, "feature")
-	unreadable := unreadableFactBranchStores(brainDir, source)
+	unreadable := factstore.UnreadableBranchStores(brainDir, source)
 	if len(unreadable) != 1 || unreadable[0].Branch != "feature" || unreadable[0].Err == nil {
-		t.Fatalf("unreadableFactBranchStores = %+v, want one failing branch", unreadable)
+		t.Fatalf("factstore.UnreadableBranchStores = %+v, want one failing branch", unreadable)
 	}
-	if got := missingFactBranchStores(brainDir, source); len(got) != 0 {
+	if got := factstore.MissingBranchStores(brainDir, source); len(got) != 0 {
 		t.Fatalf("a present-but-corrupt store must not be reported as missing: %v", got)
 	}
 
 	removeFactStore(t, brainDir, "feature")
-	if got := unreadableFactBranchStores(brainDir, source); len(got) != 0 {
+	if got := factstore.UnreadableBranchStores(brainDir, source); len(got) != 0 {
 		t.Fatalf("an absent store must not be reported as unreadable: %+v", got)
 	}
-	if got := missingFactBranchStores(brainDir, source); len(got) != 1 {
-		t.Fatalf("missingFactBranchStores = %v, want [feature]", got)
+	if got := factstore.MissingBranchStores(brainDir, source); len(got) != 1 {
+		t.Fatalf("factstore.MissingBranchStores = %v, want [feature]", got)
 	}
 }
 
@@ -522,7 +523,7 @@ const sha256HexPairsForTest = 32
 // half-written or partially restored store really has.
 func truncateFactStore(t *testing.T, brainDir, branch string) {
 	t.Helper()
-	path := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))
+	path := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(branch)))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

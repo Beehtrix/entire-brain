@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -117,11 +118,11 @@ func newVitalityRollup() vitalityRollup {
 }
 
 func factsVitalityLogRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsVitalityLogFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityLogFileName))
 }
 
 func factsVitalityRollupRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsVitalityRollupFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityRollupFileName))
 }
 
 // vitalityTaskHash hashes the task/query text that drove a serve. Only this

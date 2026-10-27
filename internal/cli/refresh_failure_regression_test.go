@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -123,11 +124,11 @@ func TestRefreshBestEffortReportsFactsFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: opts.Now(), TaxonomyPath: factsTaxonomyPath, Branches: []string{"main"}, Facts: 1}
+	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: opts.Now(), TaxonomyPath: factstore.TaxonomyPath, Branches: []string{"main"}, Facts: 1}
 	if err := writeBrainManifestAndReadme(brainDir, *manifest); err != nil {
 		t.Fatal(err)
 	}
-	factPath := filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath("main")))
+	factPath := filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main")))
 	if err := os.MkdirAll(filepath.Dir(factPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

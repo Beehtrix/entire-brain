@@ -16,6 +16,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -1065,7 +1066,7 @@ func runFactsEvalWithOptions(ctx context.Context, opts Options, brainDir, repoDi
 			var ok bool
 			facts, ok = factsByBranch[branch]
 			if !ok {
-				loaded, err := loadFacts(brainDir, branch)
+				loaded, err := factstore.Load(brainDir, branch)
 				if err != nil {
 					return nil, err
 				}

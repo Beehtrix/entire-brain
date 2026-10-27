@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // newHostedSyncCmdFixture wires a CLI fixture whose repo is CONNECTED to a fake
@@ -53,7 +54,7 @@ func TestMemoriesSyncConnectedDefaultsToHostedWire(t *testing.T) {
 	if !fake.has(localFact.ID) {
 		t.Fatal("plain sync on a connected repo must upsert local facts to the hosted store")
 	}
-	local, err := loadFacts(f.brainDir, "main")
+	local, err := factstore.Load(f.brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestMemoriesSyncConnectedPushFailureStillPullsAndFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "push failed") {
 		t.Fatalf("error must name the failed half, got %v", err)
 	}
-	local, loadErr := loadFacts(f.brainDir, "main")
+	local, loadErr := factstore.Load(f.brainDir, "main")
 	if loadErr != nil {
 		t.Fatal(loadErr)
 	}

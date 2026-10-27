@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
@@ -39,8 +40,8 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
 	writeBundleTestFile(t, filepath.Join(brainDir, seedDirName, "repo-overview.md"), "# overview\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, docDirName, docIndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "taxonomy.json"), `{"version":1}`)
-	writeBundleTestFile(t, filepath.Join(brainDir, factsDirName, "main-0000", factsFileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
+	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "taxonomy.json"), `{"version":1}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "main-0000", factstore.FileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.SessionsDirName, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historyIndexFileName), `{"records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainPatternsDirName, "episodes.ndjson"), `{"id":"episode:1"}`+"\n")
@@ -60,7 +61,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	}
 	manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: now, SummaryPath: seedDirName + "/repo-overview.md", WorktreeMode: "head"}
 	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docDirName + "/" + docIndexFileName, Records: 0, Files: 1}
-	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factsDirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
+	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factstore.DirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
 	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName}
 	manifest.Sources.Patterns = &patternSourceManifest{GeneratedAt: now, EpisodesPath: brainPatternsDirName + "/episodes.ndjson", Episodes: 1}
 	manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, TranscriptMode: "full", Scope: "repo"}
@@ -160,7 +161,7 @@ func TestBundleExportCarriesEveryDefaultLayer(t *testing.T) {
 		"seed/repo-overview.md",
 		"docs/" + docIndexFileName,
 		"facts/taxonomy.json",
-		"facts/main-0000/" + factsFileName,
+		"facts/main-0000/" + factstore.FileName,
 	} {
 		if !slicesContainsString(entries, want) {
 			t.Fatalf("default bundle is missing %s; entries:\n%s", want, joined)
@@ -269,7 +270,7 @@ func TestBundleRoundTripPreservesAuthoredFacts(t *testing.T) {
 		t.Fatalf("import: %v", err)
 	}
 	importedBrain := bundleTestBrainDir(importEnv)
-	data, err := os.ReadFile(filepath.Join(importedBrain, factsDirName, "main-0000", factsFileName))
+	data, err := os.ReadFile(filepath.Join(importedBrain, factstore.DirName, "main-0000", factstore.FileName))
 	if err != nil {
 		t.Fatalf("imported brain lost the fact store: %v", err)
 	}
@@ -332,7 +333,7 @@ func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 	for _, name := range []string{
 		bmanifest.FileName,
 		seedDirName + "/repo-overview.md",
-		factsDirName + "/main-0000/" + factsFileName,
+		factstore.DirName + "/main-0000/" + factstore.FileName,
 		brainstore.HistoryDirName + "/generations/gen1/index.json",
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err != nil {

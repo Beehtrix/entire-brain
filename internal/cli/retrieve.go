@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"sort"
@@ -240,7 +241,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		}
 		guardPred = func(r historyRecord) bool { return !guardBlocksRecord(guard, r) }
 	}
-	// loadFacts surfaces corrupt NDJSON as a hard error; propagate it rather than
+	// factstore.Load surfaces corrupt NDJSON as a hard error; propagate it rather than
 	// presenting a broken store as "no results".
 	var all []factRecord
 	var globalFactIDs map[string]bool
@@ -249,7 +250,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 	var proposalsErr error
 	if includeFacts {
 		var err error
-		all, err = loadFacts(brainDir, branch)
+		all, err = factstore.Load(brainDir, branch)
 		if err != nil {
 			return nil, err
 		}
@@ -474,7 +475,7 @@ func factsToUnified(facts []factRecord) []unifiedResult {
 	// fact ids are already prefixed "fact:" (factRecordID); history likewise.
 	out := make([]unifiedResult, len(facts))
 	for i, f := range facts {
-		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factKindOrInferred(f), Text: f.Text}
+		out[i] = unifiedResult{Source: "fact", ID: f.ID, Path: strings.Join(f.Paths, ","), Heading: factstore.KindOrInferred(f), Text: f.Text}
 		if !f.CreatedAt.IsZero() {
 			out[i].CreatedAt = f.CreatedAt.UTC().Format(time.RFC3339)
 		}
@@ -888,7 +889,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	var proposalStateUnavailable bool
 	if wantFact || wantReview {
 		// Surface a corrupt facts store as an error, not a misleading "not found".
-		facts, ferr := loadFacts(brainDir, branch)
+		facts, ferr := factstore.Load(brainDir, branch)
 		if ferr != nil {
 			return nil, nil, ferr
 		}

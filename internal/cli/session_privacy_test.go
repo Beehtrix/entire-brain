@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -322,7 +323,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single, multi}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -403,7 +404,7 @@ func TestSessionPurgeCoversFactsEpisodesAndPatternArtifacts(t *testing.T) {
 
 	// Facts: single-source deleted, corroborated fact kept with the purged
 	// anchor stripped.
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +523,7 @@ func TestPrivacyVerifyDetectsViolationsAndCleanState(t *testing.T) {
 	}
 	fact := factRecord{ID: factRecordID("leftover", nil), Text: "leftover", Branch: "main", Origin: "distilled",
 		Status: factStatusActive, CreatedAt: now, UpdatedAt: now, Provenance: []factAnchor{{SessionID: "secret-sess"}}}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	cache := loadDistillCache(brainDir)
@@ -653,7 +654,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -745,7 +746,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{SessionID: "secret-sess"}, {SessionID: "clean-sess"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{single, multi}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{single, multi}); err != nil {
 		t.Fatal(err)
 	}
 	secretEpisode := episodeRecord{ID: "ep-secret", SessionID: "secret-sess", Intent: "rotate " + privacyCanary,
@@ -822,7 +823,7 @@ func TestExcludeCleansDerivedArtifactsAndKeepsTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

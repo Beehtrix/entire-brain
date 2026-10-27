@@ -9,6 +9,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -335,7 +336,7 @@ func TestNewestFirstDoesNotAutomaticallySupersedeNewerFacts(t *testing.T) {
 	if _, err := runDistillForBrain(context.Background(), t.TempDir(), brainDir, opts, now); err != nil {
 		t.Fatal(err)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil {
 		t.Fatal(err)
 	}

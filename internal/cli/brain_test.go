@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -515,12 +516,12 @@ func TestBrainBriefIncludesMatchingFacts(t *testing.T) {
 		Paths:     paths,
 		Text:      "ValidateToken review default scope is mainline by design.",
 		Branch:    "feature",
-		Origin:    factOriginDistilled,
+		Origin:    factstore.OriginDistilled,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
@@ -564,10 +565,10 @@ func TestBrainBriefAnnotatesPendingFactReview(t *testing.T) {
 	// proposal: the brief must carry the same verify-before-trust signal the
 	// unified query/search/get path applies.
 	facts := []factRecord{
-		{ID: "fact:new", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
-		{ID: "fact:old", Text: "ValidateToken review default scope is all branches.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour)},
+		{ID: "fact:new", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now},
+		{ID: "fact:old", Text: "ValidateToken review default scope is all branches.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: now.Add(-time.Hour), UpdatedAt: now.Add(-time.Hour)},
 	}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	if err := writeFactProposals(storage.BrainDir, "feature", []factProposal{{Action: factActionSupersede, CandidateID: "fact:new", TargetID: "fact:old", Confidence: 0.62, Branch: "feature"}}); err != nil {
@@ -628,8 +629,8 @@ func TestBrainBriefWarnsWhenProposalQueueUnreadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage: %v", err)
 	}
-	fact := factRecord{ID: "fact:a", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factOriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
+	fact := factRecord{ID: "fact:a", Text: "ValidateToken review default scope is mainline by design.", Paths: normalizeFactPaths([]string{"architecture.boundaries.rationale"}), Branch: "feature", Origin: factstore.OriginDistilled, Status: factStatusActive, CreatedAt: now, UpdatedAt: now}
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	// A malformed proposal queue must degrade the brief with a verify warning,

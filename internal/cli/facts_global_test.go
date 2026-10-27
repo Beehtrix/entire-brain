@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -207,7 +208,7 @@ func TestGlobalFactCanBeRetracted(t *testing.T) {
 	}
 	// A retracted global fact must stop being merged into repository reads.
 	merged, _ := mergeGlobalFacts(nil, after)
-	for _, fact := range filterFactsByScope(merged, "") {
+	for _, fact := range factstore.FilterByScope(merged, "") {
 		if fact.Status == factStatusActive {
 			t.Fatalf("a retracted global fact is still active: %+v", fact)
 		}
@@ -665,7 +666,7 @@ func retrievalSurfaceFixture(t *testing.T) (Options, string) {
 		ID: factRecordID("orion local retrieval fact", paths), Text: "orion local retrieval fact",
 		Paths: paths, Branch: "feature", Status: factStatusActive, UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(storage.BrainDir, "feature", []factRecord{local}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", []factRecord{local}); err != nil {
 		t.Fatal(err)
 	}
 	rememberGlobal(t, opts, "orion global convention applies everywhere")
@@ -740,12 +741,12 @@ func TestBriefLabelsGlobalFactsAndChecksOnlyLocalLoci(t *testing.T) {
 	opts, brainDir := retrievalSurfaceFixture(t)
 	rememberGlobal(t, opts, "orion convention uses db/migrations/global.sql")
 	globalID := factRecordID("orion convention uses db/migrations/global.sql", normalizeFactPaths([]string{"preferences.coding.style"}))
-	local, err := loadFacts(brainDir, "feature")
+	local, err := factstore.Load(brainDir, "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
 	local[0].Text = "orion local fact uses db/migrations/local.sql"
-	if err := writeFacts(brainDir, "feature", local); err != nil {
+	if err := factstore.Write(brainDir, "feature", local); err != nil {
 		t.Fatal(err)
 	}
 	for _, jsonOutput := range []bool{true, false} {
@@ -806,12 +807,12 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local, err := loadFacts(brainDir, "feature")
+	local, err := factstore.Load(brainDir, "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
 	local[0].Text = "orion local fact uses db/migrations/local.sql"
-	if err := writeFacts(brainDir, "feature", local); err != nil {
+	if err := factstore.Write(brainDir, "feature", local); err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []retrievalMode{modeLexical, modeHybrid, modeVector} {
@@ -926,7 +927,7 @@ func TestGetPreservesScopeOfDuplicateGlobalFacts(t *testing.T) {
 				t.Fatal("missing fixture fact")
 			}
 			local.Branch, local.Status = "feature", status
-			if err := writeFacts(brainDir, "feature", []factRecord{local}); err != nil {
+			if err := factstore.Write(brainDir, "feature", []factRecord{local}); err != nil {
 				t.Fatal(err)
 			}
 			found, missing, err := getUnifiedBatchOptions(opts.Env.RepoRoot, brainDir, "feature", []string{local.ID}, getOptions{GlobalFacts: globals})
@@ -950,14 +951,14 @@ func TestGlobalFactsDoNotReviveRepositoryProposals(t *testing.T) {
 	if err != nil || len(globals) != 1 {
 		t.Fatalf("global fixture: %v, %v", globals, err)
 	}
-	local, err := loadFacts(brainDir, "feature")
+	local, err := factstore.Load(brainDir, "feature")
 	if err != nil {
 		t.Fatal(err)
 	}
 	retired := globals[0]
 	retired.Branch, retired.Status = "feature", factStatusRetracted
 	local = append(local, retired)
-	if err := writeFacts(brainDir, "feature", local); err != nil {
+	if err := factstore.Write(brainDir, "feature", local); err != nil {
 		t.Fatal(err)
 	}
 	proposal := factProposal{Action: factActionMerge, CandidateID: local[0].ID, TargetID: retired.ID, Confidence: 0.6, Branch: "feature"}

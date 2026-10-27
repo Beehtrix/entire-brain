@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -73,7 +74,7 @@ func TestRefreshCommandUpdatesFactEvidenceWithoutTranscriptChanges(t *testing.T)
 		return ids
 	}
 	fact := factRecord{ID: "fact:original", Text: "review release readiness requires staging", Paths: []string{"release.validation"}, Branch: "main", Status: "active", Origin: "distilled"}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	refresh()
@@ -82,7 +83,7 @@ func TestRefreshCommandUpdatesFactEvidenceWithoutTranscriptChanges(t *testing.T)
 		t.Fatalf("initial public refresh did not link active fact: %v", got)
 	}
 	fact.Status = "retracted"
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	if got := links(); !reflect.DeepEqual(got, []string{fact.ID}) {
@@ -95,7 +96,7 @@ func TestRefreshCommandUpdatesFactEvidenceWithoutTranscriptChanges(t *testing.T)
 	}
 	fact.ID = "fact:replacement"
 	fact.Status = "active"
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	if got := links(); len(got) != 0 {

@@ -13,6 +13,7 @@ import (
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -38,7 +39,6 @@ import (
 //     memory object. Where their model has no counterpart in ours — TTL via
 //     expiration_date is the clear one — the importer says so rather than
 //     silently dropping it.
-const factOriginImported = "imported"
 
 // importedMemory is the normalised shape every adapter produces. Keeping the
 // adapters thin and the fact construction single means a new source is a field
@@ -393,7 +393,7 @@ func validateImportPrefixAgainstTaxonomy(brainDir, prefix string, now time.Time)
 	if prefix == "" {
 		return nil // the default prefix is taxonomy-valid by construction
 	}
-	taxonomy, err := loadFactTaxonomy(brainDir, now)
+	taxonomy, err := factstore.LoadTaxonomy(brainDir, now)
 	if err != nil {
 		// A taxonomy that cannot be read is not evidence the prefix is wrong.
 		// Refusing the import here would turn a brain-state problem into a
@@ -406,7 +406,7 @@ func validateImportPrefixAgainstTaxonomy(brainDir, prefix string, now time.Time)
 		return nil
 	}
 	return fmt.Errorf("--path-prefix %q is not under a known taxonomy category (%s); importing under it would mint memories the rest of the system treats as orphaned",
-		prefix, strings.Join(sortedTaxonomyTopLevels(taxonomy), ", "))
+		prefix, strings.Join(factstore.SortedTaxonomyTopLevels(taxonomy), ", "))
 }
 
 // sanitizeImportSegment keeps a foreign category to characters usable in a
@@ -493,7 +493,7 @@ func memoriesToFacts(memories []importedMemory, skipped int, source, prefix, bra
 			Paths:  paths,
 			Text:   mem.Text,
 			Branch: branch,
-			Origin: factOriginImported,
+			Origin: factstore.OriginImported,
 			Status: status,
 			// The anchor names where this came from. It is not evidence from
 			// this repository and must not read like it: verify will report
@@ -810,7 +810,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 				// A dry run that cannot report this says less than the real run
 				// it is supposed to preview, which is the one thing a preview
 				// must not do. Reading the current facts needs no write lock.
-				existing, loadErr := loadFacts(brainDir, resolvedBranch)
+				existing, loadErr := factstore.Load(brainDir, resolvedBranch)
 				if loadErr != nil {
 					return loadErr
 				}
@@ -843,7 +843,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 			var manifestErr error
 			if !dryRun {
 				if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-					existing, loadErr := loadFacts(brainDir, resolvedBranch)
+					existing, loadErr := factstore.Load(brainDir, resolvedBranch)
 					if loadErr != nil {
 						return loadErr
 					}
@@ -862,7 +862,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					for _, fact := range facts {
 						existing = upsertFact(existing, fact)
 					}
-					if err := writeFacts(brainDir, resolvedBranch, existing); err != nil {
+					if err := factstore.Write(brainDir, resolvedBranch, existing); err != nil {
 						return err
 					}
 					// Every other fact mutator refreshes the source manifest
@@ -874,7 +874,7 @@ func newFactsImportCommand(opts Options) *cobra.Command {
 					// A manifest refresh that fails AFTER the facts are on disk
 					// must not present as a failed import.
 					//
-					// writeFacts above already succeeded, so the facts are in
+					// factstore.Write above already succeeded, so the facts are in
 					// the store. Returning this error aborted before any report
 					// was printed, so the user was told the import failed while
 					// their brain held every imported fact -- and would then

@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -143,7 +144,7 @@ func refineEvalTaskLabels(ctx context.Context, opts Options, brainDir, repoDir s
 		return nil, fmt.Errorf("refine agent: %w", err)
 	}
 	judgeArgs = base.InjectAgentModel(judgeArgs, resolved, model)
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +205,7 @@ func generateEvalTasks(brainDir string, manifest *exportManifest, branch string,
 }
 
 func generateEvalTasksContext(ctx context.Context, brainDir string, manifest *exportManifest, branch string, minFacts, maxFacts, limit int) ([]evalTask, error) {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -504,7 +505,7 @@ func classifyQueryType(task string, relevant []factRecord) string {
 	}
 	cross := 0
 	for _, f := range relevant {
-		if factScope(f.Paths) == factScopeCrossCutting {
+		if factstore.ScopeOf(f.Paths) == factstore.ScopeCrossCutting {
 			cross++
 		}
 	}

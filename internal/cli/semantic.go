@@ -28,6 +28,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
@@ -2779,7 +2780,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 	// means there is nothing to match a fact's locus against.
 	if !report.Clean {
 		if branch, branchErr := clibase.GitScalar(ctx, opts.Runner, repoDir, "branch", "--show-current"); branchErr == nil && strings.TrimSpace(branch) != "" {
-			if facts, factsErr := loadFacts(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
+			if facts, factsErr := factstore.Load(storage.BrainDir, strings.TrimSpace(branch)); factsErr == nil {
 				report.Facts = factsRelevantToChange(files, symbols, facts, changesOpts.limit)
 			}
 		}
@@ -2820,7 +2821,7 @@ func runSemanticChanges(ctx context.Context, cmd *cobra.Command, opts Options, c
 		fmt.Fprintf(cmd.OutOrStdout(), "symbol %s %s:%d-%d\n", displaySymbolName(symbol), symbol.FilePath, symbol.StartLine, symbol.EndLine)
 	}
 	for _, fact := range report.Facts {
-		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factKindOrInferred(fact), fact.Text)
+		fmt.Fprintf(cmd.OutOrStdout(), "fact %s %s %s\n", fact.ID, factstore.KindOrInferred(fact), fact.Text)
 	}
 	return nil
 }
@@ -4519,7 +4520,7 @@ var brainBundleLayers = []brainBundleLayer{
 	{name: "runtime_traces", dir: "semantic/traces"},
 	{name: bundleLayerSeed, dir: seedDirName},
 	{name: bundleLayerDocs, dir: docDirName},
-	{name: bundleLayerFacts, dir: factsDirName},
+	{name: bundleLayerFacts, dir: factstore.DirName},
 	{name: bundleLayerSessions, dir: brainstore.SessionsDirName, withSessions: true},
 	{name: bundleLayerHistory, dir: brainstore.HistoryDirName, skip: []string{brainstore.SessionTombstonesFileName, "privacy", "work"}, withSessions: true},
 	{name: bundleLayerPatterns, dir: brainPatternsDirName, withSessions: true},

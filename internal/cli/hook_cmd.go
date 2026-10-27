@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -367,7 +368,7 @@ func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) (
 	lines := make([]string, 0, len(kept)+1)
 	lines = append(lines, "Memories this project recorded about this file:")
 	for _, f := range kept {
-		lines = append(lines, fmt.Sprintf("- [%s] %s", factKindOrInferred(f), f.Text))
+		lines = append(lines, fmt.Sprintf("- [%s] %s", factstore.KindOrInferred(f), f.Text))
 	}
 	type specific struct {
 		HookEventName     string `json:"hookEventName"`
@@ -436,7 +437,7 @@ func hookLoadFacts(cmd *cobra.Command, opts Options, branch string) ([]factRecor
 	if err != nil {
 		return nil, hookTarget{}, false
 	}
-	facts, err := loadFacts(brainDir, resolvedBranch)
+	facts, err := factstore.Load(brainDir, resolvedBranch)
 	if err != nil || len(facts) == 0 {
 		return nil, hookTarget{}, false
 	}
@@ -492,7 +493,7 @@ func hookMatchFailure(facts []factRecord, query string) []factRecord {
 		if f.Status != factStatusActive {
 			continue
 		}
-		switch factKindOrInferred(f) {
+		switch factstore.KindOrInferred(f) {
 		case factKindGotcha, factKindClosedNegative:
 		default:
 			continue
@@ -560,13 +561,13 @@ func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) (
 			Facts []hookFact `json:"facts"`
 		}{Facts: make([]hookFact, 0, len(kept))}
 		for _, f := range kept {
-			out.Facts = append(out.Facts, hookFact{ID: f.ID, Kind: factKindOrInferred(f), Text: f.Text, Paths: f.Paths})
+			out.Facts = append(out.Facts, hookFact{ID: f.ID, Kind: factstore.KindOrInferred(f), Text: f.Text, Paths: f.Paths})
 		}
 		return kept, cmdutil.WriteJSON(cmd, out)
 	}
 	return kept, cmdutil.WriteText(cmd, func(out io.Writer) {
 		for _, f := range kept {
-			fmt.Fprintf(out, "[%s] %s\n", factKindOrInferred(f), f.Text)
+			fmt.Fprintf(out, "[%s] %s\n", factstore.KindOrInferred(f), f.Text)
 		}
 	})
 }

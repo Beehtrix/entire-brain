@@ -9,6 +9,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -65,7 +66,7 @@ func emptyResultBlindSpotOnBranch(brainDir, branch string) string {
 	//
 	// This single choke point is why recall, search, query and retrieve all
 	// inherit the correction without each having to remember to ask.
-	if integrity := inspectFactStore(brainDir, manifest.Sources.Facts); !integrity.OK() {
+	if integrity := factstore.Inspect(brainDir, manifest.Sources.Facts); !integrity.OK() {
 		return "note: this empty result is NOT evidence of absence — " + integrity.Warning()
 	}
 	// A connected repo whose branch never synced may be missing the whole
@@ -142,7 +143,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if branch == "" {
 		return ""
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return ""
 	}
@@ -167,7 +168,7 @@ func otherBranchBlindSpot(brainDir, branch string) string {
 	if total == 0 {
 		return ""
 	}
-	// Deterministic: loadAllFactBranches returns a map, and Go randomises map
+	// Deterministic: factstore.LoadAllBranches returns a map, and Go randomises map
 	// iteration, so an unsorted list would reorder between identical runs.
 	sort.Strings(names)
 	shown, suffix := names, ""
@@ -225,7 +226,7 @@ func briefBranchBlindSpot(brainDir, branch string) string {
 	if brainDir == "" {
 		return ""
 	}
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil || len(byBranch) == 0 {
 		return ""
 	}

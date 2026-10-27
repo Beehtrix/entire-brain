@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -95,7 +96,7 @@ func TestPrivacyRetentionReportsRetainedSharedFactCopies(t *testing.T) {
 				{ID: "fact:selected", Branch: "main", Text: "selected fact", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "clean-sess"}}},
 				{ID: "fact:retained", Branch: "main", Text: "retained fact", Status: factStatusActive, Provenance: []factAnchor{{SessionID: "secret-sess"}}},
 			}
-			if err := writeFacts(dir, "main", facts); err != nil {
+			if err := factstore.Write(dir, "main", facts); err != nil {
 				t.Fatal(err)
 			}
 			shared, err := gitmetaDirForKey(opts.Env, "gh/acme/privacy-regression")
@@ -132,7 +133,7 @@ func TestPrivacyRetentionReportsRetainedSharedFactCopies(t *testing.T) {
 			} else if !strings.Contains(out, "NOT purged:") || !strings.Contains(out, shared) || !strings.Contains(out, "no deletion semantics") {
 				t.Fatalf("missing retention caveat: %s", out)
 			}
-			remaining, err := loadFacts(dir, "main")
+			remaining, err := factstore.Load(dir, "main")
 			if err != nil || len(remaining) != 1 || remaining[0].ID != "fact:retained" {
 				t.Fatalf("retention fact selection: %+v %v", remaining, err)
 			}

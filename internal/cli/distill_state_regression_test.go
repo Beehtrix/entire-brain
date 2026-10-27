@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -26,7 +27,7 @@ func TestDistillRejectsNonfiniteConfidenceBeforeAgent(t *testing.T) {
 		if err == nil || calls != 0 {
 			t.Errorf("confidence %v: error=%v, agent calls=%d", confidence, err, calls)
 		}
-		facts, err := loadFacts(d, "main")
+		facts, err := factstore.Load(d, "main")
 		if err != nil || len(facts) != 0 {
 			t.Fatalf("invalid confidence wrote facts: %v, %v", facts, err)
 		}

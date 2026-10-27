@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 func TestParseClassifyOutput(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	tax := defaultFactTaxonomy(now)
+	tax := factstore.DefaultTaxonomy(now)
 
 	// Clean single path.
 	if got := parseClassifyOutput("preferences.coding.style\n", tax); len(got) != 1 || got[0] != "preferences.coding.style" {
@@ -35,7 +37,7 @@ func TestParseClassifyOutput(t *testing.T) {
 
 func TestResolveRememberPathsExplicit(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	tax := defaultFactTaxonomy(now)
+	tax := factstore.DefaultTaxonomy(now)
 	// Explicit valid --path is used as-is (no agent call).
 	paths, err := resolveRememberPaths(context.Background(), Options{}, rememberCommandOptions{path: "preferences.coding.style"}, "/repo", "some fact", tax)
 	if err != nil || len(paths) != 1 || paths[0] != "preferences.coding.style" {
@@ -66,7 +68,7 @@ func TestResolveRememberPathsExplicit(t *testing.T) {
 
 func TestResolveRememberPathsAgentClassification(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	tax := defaultFactTaxonomy(now)
+	tax := factstore.DefaultTaxonomy(now)
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
 		if !strings.Contains(string(input), "prefers tabs") {
 			t.Errorf("classifier should receive the fact text on stdin, got %q", input)
@@ -106,7 +108,7 @@ func TestResolveRememberPathsOllamaUsesLoopbackRunner(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ENTIRE_BRAIN_OLLAMA_URL", server.URL+"/api/generate")
 
-	tax := defaultFactTaxonomy(time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC))
+	tax := factstore.DefaultTaxonomy(time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC))
 	paths, err := resolveRememberPaths(context.Background(), Options{}, rememberCommandOptions{agent: "ollama", model: wantModel}, t.TempDir(), "The user prefers tabs.", tax)
 	if err != nil {
 		t.Fatalf("ollama classification: %v", err)
@@ -132,7 +134,7 @@ func TestResolveRememberPathsOllamaUsesLoopbackRunner(t *testing.T) {
 
 func TestResolveRememberPathsNoAgentRequiresPath(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
-	tax := defaultFactTaxonomy(now)
+	tax := factstore.DefaultTaxonomy(now)
 	opts := rememberCommandOptions{agent: "none"}
 	if _, err := resolveRememberPaths(context.Background(), Options{}, opts, "/repo", "f", tax); err == nil {
 		t.Fatalf("expected error: no agent and no --path")

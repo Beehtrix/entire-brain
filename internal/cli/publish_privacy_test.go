@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -28,7 +29,7 @@ func writePublishPrivacyFacts(t *testing.T, brainDir string) {
 	if err := factmerge.WriteNDJSON(&buf, records); err != nil {
 		t.Fatal(err)
 	}
-	writePublishFile(t, filepath.Join(brainDir, factsFileRelPath("main")), buf.Bytes())
+	writePublishFile(t, filepath.Join(brainDir, factstore.FileRelPath("main")), buf.Bytes())
 }
 
 func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {

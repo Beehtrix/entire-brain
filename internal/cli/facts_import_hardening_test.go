@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -187,7 +188,7 @@ func TestAnImportedRecordWithALocalAnchorStillChecksThatAnchor(t *testing.T) {
 		ID:     "fact:mixed",
 		Text:   "We deploy on Thursdays.",
 		Branch: "main",
-		Origin: factOriginImported,
+		Origin: factstore.OriginImported,
 		Status: factStatusActive,
 		Provenance: []factAnchor{
 			{SessionID: "mem0:abc123"},                            // foreign
@@ -237,7 +238,7 @@ func TestAFabricatedRepositoryAnchorOnAnImportedRecordIsChecked(t *testing.T) {
 		ID:         "fact:fab",
 		Text:       "We deploy on Thursdays.",
 		Branch:     "main",
-		Origin:     factOriginImported,
+		Origin:     factstore.OriginImported,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "sess-nope", Commit: "0123456789abcdef"}},
 	}
@@ -289,7 +290,7 @@ func TestImportOntoARetractedFactIsCountedAndReported(t *testing.T) {
 	}
 }
 
-// A manifest refresh that fails AFTER writeFacts succeeded must not present as
+// A manifest refresh that fails AFTER factstore.Write succeeded must not present as
 // a failed import: the facts are on disk, and telling the user it failed
 // invites a re-run of something that already happened.
 //
@@ -672,7 +673,7 @@ func TestVerifyDoesNotCallAForeignAnchorOrphaned(t *testing.T) {
 		ID:         "fact:collided",
 		Text:       "We deploy on Thursdays.",
 		Branch:     "main",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "mem0:abc123"}},
 	}

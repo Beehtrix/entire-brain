@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // `get fact:<id>` is usually the exact moment someone meets branch scoping, and
@@ -188,13 +190,13 @@ func TestGetJSONMissNoteFollowsTheSameGates(t *testing.T) {
 	}
 }
 
-// loadAllFactBranches walked every branch directory and parsed its facts file
+// factstore.LoadAllBranches walked every branch directory and parsed its facts file
 // with NO containment guards, while the single-branch read applies two
 // (facts.go:146,150). So a symlinked facts.ndjson inside a real branch
 // directory was read from wherever it pointed.
 //
-// Measured before the fix: loadFacts refused it with "path component must not
-// be a symlink" while loadAllFactBranches returned the outside content. The
+// Measured before the fix: factstore.Load refused it with "path component must not
+// be a symlink" while factstore.LoadAllBranches returned the outside content. The
 // two surfaces disagreed about the same file.
 //
 // A symlinked branch DIRECTORY was never the vector -- os.ReadDir reports
@@ -210,12 +212,12 @@ func TestFactInventoryRefusesASymlinkedFactsFile(t *testing.T) {
 		[]byte(`{"id":"fact:leak","branch":"evil","status":"active","text":"CONTENT FROM OUTSIDE"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rel := factsBranchRelDir("main")
+	rel := factstore.BranchRelDir("main")
 	dir := filepath.Join(brainDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(dir, factsFileName)
+	target := filepath.Join(dir, factstore.FileName)
 	if err := os.Symlink(secret, target); err != nil {
 		t.Skipf("this filesystem cannot create symlinks: %v", err)
 	}
@@ -225,7 +227,7 @@ func TestFactInventoryRefusesASymlinkedFactsFile(t *testing.T) {
 		t.Fatalf("fixture is not a symlink at %s (err=%v)", rel, err)
 	}
 
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err == nil {
 		t.Fatalf("a symlinked fact store must be refused, got %d branch(es) back", len(byBranch))
 	}
@@ -235,8 +237,8 @@ func TestFactInventoryRefusesASymlinkedFactsFile(t *testing.T) {
 		}
 	}
 	// And it must agree with the single-branch read, which already refused it.
-	if _, single := loadFacts(brainDir, "main"); single == nil {
-		t.Error("loadFacts should refuse this too; if it stopped, the guards have diverged again")
+	if _, single := factstore.Load(brainDir, "main"); single == nil {
+		t.Error("factstore.Load should refuse this too; if it stopped, the guards have diverged again")
 	}
 }
 
@@ -248,18 +250,18 @@ func TestFactInventorySkipsASymlinkedBranchDirectory(t *testing.T) {
 
 	brainDir := t.TempDir()
 	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, factsFileName),
+	if err := os.WriteFile(filepath.Join(outside, factstore.FileName),
 		[]byte(`{"id":"fact:leak","branch":"evil","status":"active","text":"CONTENT FROM OUTSIDE"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(brainDir, factsDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(brainDir, factstore.DirName), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(outside, filepath.Join(brainDir, factsDirName, "escape-00000000")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(brainDir, factstore.DirName, "escape-00000000")); err != nil {
 		t.Skipf("this filesystem cannot create symlinks: %v", err)
 	}
 
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		t.Fatalf("a skipped symlink is not an error: %v", err)
 	}
@@ -286,21 +288,21 @@ func TestFactInventoryRefusesASymlinkedFactsDirectory(t *testing.T) {
 	if err := os.MkdirAll(branchDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(branchDir, factsFileName),
+	if err := os.WriteFile(filepath.Join(branchDir, factstore.FileName),
 		[]byte(`{"id":"fact:leak","branch":"evil","status":"active","text":"CONTENT FROM OUTSIDE"}`+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	// The facts directory itself is the symlink.
-	if err := os.Symlink(outside, filepath.Join(brainDir, factsDirName)); err != nil {
+	if err := os.Symlink(outside, filepath.Join(brainDir, factstore.DirName)); err != nil {
 		t.Skipf("this filesystem cannot create symlinks: %v", err)
 	}
 	// Non-vacuity: prove ReadDir really does reach through it, or this test is
 	// asserting against a vector that does not exist.
-	if entries, err := os.ReadDir(filepath.Join(brainDir, factsDirName)); err != nil || len(entries) == 0 {
+	if entries, err := os.ReadDir(filepath.Join(brainDir, factstore.DirName)); err != nil || len(entries) == 0 {
 		t.Fatalf("fixture does not reproduce the vector: ReadDir through the symlink gave %d entries (err=%v)", len(entries), err)
 	}
 
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err == nil {
 		t.Fatalf("a symlinked facts directory must be refused, got %d branch(es)", len(byBranch))
 	}
@@ -318,13 +320,13 @@ func TestFactInventoryRefusesANonRegularFactStore(t *testing.T) {
 	t.Parallel()
 
 	brainDir := t.TempDir()
-	rel := factsBranchRelDir("main")
+	rel := factstore.BranchRelDir("main")
 	dir := filepath.Join(brainDir, filepath.FromSlash(rel))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	// The fact store path is a directory, not a file.
-	store := filepath.Join(dir, factsFileName)
+	store := filepath.Join(dir, factstore.FileName)
 	if err := os.Mkdir(store, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +340,7 @@ func TestFactInventoryRefusesANonRegularFactStore(t *testing.T) {
 		t.Fatal("fixture is a symlink, which the other guard already covers")
 	}
 
-	_, err := loadAllFactBranches(brainDir)
+	_, err := factstore.LoadAllBranches(brainDir)
 	if err == nil {
 		t.Fatal("a non-regular fact store must be refused")
 	}

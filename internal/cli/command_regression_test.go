@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"os/exec"
@@ -165,7 +166,7 @@ func TestFactsImportRemainsRunnableFromRoot(t *testing.T) {
 	if report.Source != "mem0" || report.Branch != "main" || report.Read != 1 || report.Imported != 1 || report.DryRun {
 		t.Fatalf("unexpected import report: %+v", report)
 	}
-	facts, err := loadFacts(brainDir, "main")
+	facts, err := factstore.Load(brainDir, "main")
 	if err != nil || len(facts) != 1 {
 		t.Fatalf("imported facts: %v %+v", err, facts)
 	}
@@ -188,10 +189,10 @@ func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	paths := []string{"constraints.invariants.general"}
 	fact := factRecord{
 		ID: factRecordID(text, paths), Text: text, Paths: paths, Locus: []string{"internal/cli"},
-		Branch: "main", Origin: factOriginAuthored, Status: factStatusActive,
+		Branch: "main", Origin: factstore.OriginAuthored, Status: factStatusActive,
 		CreatedAt: opts.Now(), UpdatedAt: opts.Now(),
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 	out, err := execute(t, NewRootCommand(opts), "facts", "reclassify", "--json")
@@ -210,7 +211,7 @@ func TestHiddenDeveloperCommandsRemainRunnable(t *testing.T) {
 	if reclassified.Branch != "main" || reclassified.Changed != 1 || reclassified.Facts != 1 || len(reclassified.ByKind) != 1 || reclassified.ByKind[factKindInvariant] != 1 {
 		t.Fatalf("reclassify result = %+v, want main/1 changed/1 invariant fact", reclassified)
 	}
-	stored, err := loadFacts(brainDir, "main")
+	stored, err := factstore.Load(brainDir, "main")
 	if err != nil || len(stored) != 1 || stored[0].ID != fact.ID || stored[0].Kind != factKindInvariant {
 		t.Fatalf("reclassify did not persist the inferred kind: facts=%+v err=%v", stored, err)
 	}

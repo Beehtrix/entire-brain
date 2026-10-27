@@ -21,6 +21,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -832,7 +833,7 @@ func runSessionsPurge(ctx context.Context, cmd *cobra.Command, opts Options, ses
 // trusted manifest and the current index. Purging an unknown or already-purged
 // session yields an empty plan (idempotent), not an error.
 func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, error) {
-	entries, present, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	entries, present, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "facts directory")
 	if err != nil || !present {
 		if err != nil {
 			return nil, err
@@ -854,7 +855,7 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 			}
 			continue // taxonomy and other root-level metadata are not fact stores.
 		}
-		rel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsFileName))
+		rel := filepath.ToSlash(filepath.Join(factstore.DirName, entry.Name(), factstore.FileName))
 		data, exists, err := brainstore.ReadPrivacyArtifact(brainDir, rel, "fact store", 256<<20)
 		if err != nil {
 			return nil, err
@@ -872,7 +873,7 @@ func loadAllFactBranchesForPrivacy(brainDir string) (map[string][]factRecord, er
 				byBranch[record.Branch] = append(byBranch[record.Branch], record)
 			}
 		}
-		proposalRel := filepath.ToSlash(filepath.Join(factsDirName, entry.Name(), factsProposalsFileName))
+		proposalRel := filepath.ToSlash(filepath.Join(factstore.DirName, entry.Name(), factsProposalsFileName))
 		proposalData, proposalExists, err := brainstore.ReadPrivacyArtifact(brainDir, proposalRel, "fact proposal store", 64<<20)
 		if err != nil {
 			return nil, err
@@ -1223,7 +1224,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// names may contain glob metacharacters, and Glob cannot report unreadable
 	// directories or unsafe entry types. Only the two exact store basenames and
 	// their SQLite sidecars are allowed in an embeddings directory.
-	factEntries, factsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, factsDirName, "facts directory")
+	factEntries, factsPresent, err := brainstore.ReadPrivacyDirectory(brainDir, factstore.DirName, "facts directory")
 	if err != nil {
 		return nil, err
 	}
@@ -1242,7 +1243,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 				}
 				continue
 			}
-			embedRel := filepath.ToSlash(filepath.Join(factsDirName, branchEntry.Name(), embedStoreDirName))
+			embedRel := filepath.ToSlash(filepath.Join(factstore.DirName, branchEntry.Name(), embedStoreDirName))
 			embedEntries, embedPresent, readErr := brainstore.ReadPrivacyDirectory(brainDir, embedRel, "fact embedding directory")
 			if readErr != nil {
 				return nil, readErr
@@ -1461,7 +1462,7 @@ func purgeSessionFacts(brainDir, sessionID string, transcriptRels map[string]boo
 		if !changed {
 			continue
 		}
-		if err := writeFacts(brainDir, branch, kept); err != nil {
+		if err := factstore.Write(brainDir, branch, kept); err != nil {
 			return deletedTotal, strippedTotal, err
 		}
 		proposals, perr := loadFactProposals(brainDir, branch)

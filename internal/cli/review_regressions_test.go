@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
@@ -436,7 +437,7 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{Transcript: "sessions/main/20260802T000000Z_secret.jsonl"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{orphan}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{orphan}); err != nil {
 		t.Fatal(err)
 	}
 	pre, _, err := getUnifiedBatch("", brainDir, "main", []string{orphan.ID})

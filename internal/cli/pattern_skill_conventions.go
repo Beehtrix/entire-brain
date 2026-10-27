@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -235,7 +236,7 @@ func parseProposedConventions(out string) ([]proposedConvention, error) {
 // more episodes rank first. Branch-scoped facts never cross branches because each
 // fact carries its own branch and is sampled as-is.
 func sampleCapabilityFacts(db *sql.DB, brainDir string) ([]map[string]string, map[string]string, []string) {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil, nil, nil
 	}

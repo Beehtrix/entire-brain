@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 				t.Fatal(err)
 			}
 			fact := factRecord{ID: "path-only", Text: "secret", Branch: "main", Status: factStatusActive, CreatedAt: now, UpdatedAt: now, Provenance: []factAnchor{{Transcript: old}}}
-			if err := writeFacts(b, "main", []factRecord{fact}); err != nil {
+			if err := factstore.Write(b, "main", []factRecord{fact}); err != nil {
 				t.Fatal(err)
 			}
 			guard, err := loadSessionReadGuard(b, m)

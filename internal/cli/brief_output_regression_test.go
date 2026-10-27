@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/spf13/cobra"
@@ -240,7 +241,7 @@ func TestBriefOutputRootMissingAndMalformedInputs(t *testing.T) {
 	})
 	t.Run("malformed fact store degrades with public warning", func(t *testing.T) {
 		fixture := newBrainBriefProfileFixture(t)
-		path := filepath.Join(fixture.brainDir, filepath.FromSlash(factsFileRelPath("feature")))
+		path := filepath.Join(fixture.brainDir, filepath.FromSlash(factstore.FileRelPath("feature")))
 		if err := os.WriteFile(path, []byte("{not-json}\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}

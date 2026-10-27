@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -81,7 +82,7 @@ func TestRunFactsEvalLabeledAndJudge(t *testing.T) {
 	}
 	f1 := mk("Checkpoints v1.1 read from a custom local ref", "architecture.data.flow")
 	f2 := mk("The project uses Go modules", "project.tooling.stack")
-	if err := writeFacts(brainDir, "main", []factRecord{f1, f2}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{f1, f2}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +178,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 	}
 	p := normalizeFactPaths([]string{"architecture.data.flow"})
 	fact := factRecord{ID: factRecordID("alpha fact checkpoint guidance", p), Paths: p, Text: "alpha fact checkpoint guidance", Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := writeFacts(brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -353,7 +354,7 @@ func TestJudgeCacheReuse(t *testing.T) {
 	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
 	p := normalizeFactPaths([]string{"architecture.data.flow"})
 	f := factRecord{ID: factRecordID("checkpoint v1.1 read ref", p), Paths: p, Text: "checkpoint v1.1 read ref", Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := writeFacts(brainDir, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	tasks := []evalTask{{ID: "t1", Task: "checkpoint read", Branch: "main"}}

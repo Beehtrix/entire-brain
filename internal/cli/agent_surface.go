@@ -22,6 +22,7 @@ import (
 	"github.com/entireio/entire-brain/internal/agentsetup"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/entireio/entire-brain/internal/tui"
@@ -126,7 +127,7 @@ type brainStatusFacts struct {
 	// manifest DECLARES; this says whether the store can produce it. Present
 	// only when the store fails the check, so it stays additive for readers
 	// and its presence alone means "do not trust the counts above".
-	Integrity *factStoreIntegrity `json:"integrity,omitempty"`
+	Integrity *factstore.Integrity `json:"integrity,omitempty"`
 }
 
 // Readable is the fact count a reader may actually rely on: the observed
@@ -1771,19 +1772,19 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		if branch == "" {
 			branch = distillDefaultBranch
 		}
-		// loadFacts cannot tell "this branch has no facts" from "this branch's
+		// factstore.Load cannot tell "this branch has no facts" from "this branch's
 		// store is gone", and it cannot tell a complete store from one that
 		// yields fewer facts than the manifest declares. The manifest can:
 		// warn before the packet reports a healthy facts source that
 		// contributed less than it claims.
 		if status.Sources.Facts && status.Manifest != nil && status.Manifest.Sources != nil {
-			if warning := missingFactStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
+			if warning := factstore.MissingStoreWarningForBranch(status.Brain.Path, status.Manifest.Sources.Facts, branch); warning != "" {
 				report.Warnings = append(report.Warnings, warning)
 
 			}
 		}
 		factsLoadStarted := profile.start()
-		facts, factsErr := loadFacts(status.Brain.Path, branch)
+		facts, factsErr := factstore.Load(status.Brain.Path, branch)
 		if profile != nil {
 			factsLoadErrors := 0
 			if factsErr != nil {
@@ -4708,20 +4709,20 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 				Proposals:  f.Proposals,
 			}
 			if lightweight {
-				report.Facts.MissingBranches = missingFactBranchStores(storage.BrainDir, f)
+				report.Facts.MissingBranches = factstore.MissingBranchStores(storage.BrainDir, f)
 				if len(report.Facts.MissingBranches) > 0 {
-					report.Warnings = append(report.Warnings, missingFactStoreWarning(report.Facts.MissingBranches))
+					report.Warnings = append(report.Warnings, factstore.MissingStoreWarning(report.Facts.MissingBranches))
 				}
 				for _, branch := range f.Branches {
 					if branch == "" {
 						continue
 					}
-					if err := verifyDeclaredBrainFile(storage.BrainDir, factsFileRelPath(branch)); err != nil && !os.IsNotExist(err) {
+					if err := verifyDeclaredBrainFile(storage.BrainDir, factstore.FileRelPath(branch)); err != nil && !os.IsNotExist(err) {
 						report.Warnings = append(report.Warnings, fmt.Sprintf("memory store for %s unavailable: %v; its memories cannot be recalled — run `%s` and re-distill", branch, err, clibase.BrainInvocation(os.LookupEnv, "refresh")))
 					}
 				}
 			} else {
-				integrity := inspectFactStore(storage.BrainDir, f)
+				integrity := factstore.Inspect(storage.BrainDir, f)
 				report.Facts.MissingBranches = integrity.Missing
 				if !integrity.OK() {
 					report.Facts.Integrity = &integrity
@@ -5102,7 +5103,7 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 	}
 	for _, dir := range []string{
 		brainstore.HistoryDirName,   // index, generations, staging, overlay, work records
-		factsDirName,                // distilled facts and the distill cache
+		factstore.DirName,           // distilled facts and the distill cache
 		"patterns",                  // corpus, runs, derived pattern outputs
 		seedDirName,                 // synthesized seed
 		semanticDirName,             // symbol graph snapshots and stores

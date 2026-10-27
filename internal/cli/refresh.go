@@ -946,9 +946,9 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""
 	if defaultBranch != "" {
-		defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+defaultBranch)))
+		defaultHead = strings.TrimSpace(string(base.GitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+defaultBranch)))
 		if defaultHead == "" {
-			defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
+			defaultHead = strings.TrimSpace(string(base.GitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
 		}
 	}
 	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)%00%(objectname)", "refs/heads")

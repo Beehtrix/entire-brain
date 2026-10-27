@@ -109,7 +109,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if err := checkPathTargetIsAddressable(ctx, opts, storage, repoDir); err != nil {
 			return err
 		}
-		if pathOpts.ensure && !brainExportExists(storage.BrainDir) {
+		if pathOpts.ensure && !bmanifest.Exists(storage.BrainDir) {
 			if err := pathOpts.validateForEnsure(); err != nil {
 				return err
 			}
@@ -331,11 +331,6 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	return fmt.Errorf("this repository has no commits yet: %s\n"+
 		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
 		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
-}
-
-func brainExportExists(brainDir string) bool {
-	info, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName))
-	return err == nil && !info.IsDir()
 }
 
 func runPathRefresh(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {

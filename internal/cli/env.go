@@ -29,8 +29,6 @@ var knownRepoDomainSlugs = map[string]string{
 	"code.storage":  "cs",
 }
 
-const localRepoIdentityConflictCode = "repo_identity_conflict"
-
 // localRepoIdentityConflictError refuses to guess when an upgrade finds state
 // under both the canonical root identity and the exact pre-upgrade lexical
 // alias identity. Choosing either would hide the other repository history.
@@ -52,7 +50,7 @@ func (e *localRepoIdentityConflictError) Error() string {
 		"%s: state exists for canonical local repo key %q and pre-upgrade alias key %q; "+
 			"run `%s repo-identity` to see both stores, then `%s repo-identity --keep <repo-key>` "+
 			"to keep one and move the other aside (canonical brain: %s; legacy brain: %s)",
-		localRepoIdentityConflictCode,
+		clibase.RepoIdentityConflictCode,
 		e.Canonical.Key,
 		e.Legacy.Key,
 		clibase.SetupCommandPrefix(os.LookupEnv),

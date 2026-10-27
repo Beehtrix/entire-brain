@@ -820,7 +820,7 @@ func sameCleanPath(a, b string) bool {
 }
 
 func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir string) (string, []string) {
-	if branch, ok := parseOriginHeadBranch(runGitOutput(ctx, runner, repoDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")); ok {
+	if branch, ok := parseOriginHeadBranch(clibase.GitOutput(ctx, runner, repoDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")); ok {
 		return branch, nil
 	}
 
@@ -830,20 +830,12 @@ func detectDefaultBranch(ctx context.Context, runner CommandRunner, repoDir stri
 		}
 	}
 
-	current := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "branch", "--show-current")))
+	current := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "branch", "--show-current")))
 	if current != "" {
 		return current, []string{"default branch not found; using current branch " + current}
 	}
 
 	return "main", []string{"default branch not found; using main"}
-}
-
-func runGitOutput(ctx context.Context, runner CommandRunner, repoDir string, args ...string) []byte {
-	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)
-	if err != nil {
-		return nil
-	}
-	return stdout
 }
 
 // runCheckpointGitLocal reads local Git state with lazy promisor-object fetches

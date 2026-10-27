@@ -16,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 	"github.com/entireio/entire-brain/internal/cli/command/add"
+	"github.com/entireio/entire-brain/internal/cli/command/bench"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
@@ -25,6 +26,8 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/guide"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
+	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
@@ -155,13 +158,13 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
-	addGrouped("share", newPublishCommand(opts))
+	addGrouped("share", publish.New(publishConfig(opts)))
 
 	addGrouped("misc", newPathCommand(opts))
-	addGrouped("operations", newRepoIdentityCommand(opts))
+	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
 	addGrouped("misc", capabilities.New(opts))
 	addGrouped("misc", newDoctorCommand(opts))
-	addHidden(newBenchmarkCommand(opts))
+	addHidden(bench.New(benchConfig(opts)))
 	addGrouped("misc", version.New(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells

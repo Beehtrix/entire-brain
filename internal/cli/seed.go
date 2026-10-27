@@ -360,7 +360,7 @@ func scanSeedRepository(ctx context.Context, runner CommandRunner, repoDir, repo
 		warnings = append(warnings, fmt.Sprintf("file scan capped at %d of %d files; %d files were not read (raise with --max-files)", opts.maxFiles, len(paths), len(paths)-opts.maxFiles))
 		paths = paths[:opts.maxFiles]
 	}
-	commit := strings.TrimSpace(string(runGitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
+	commit := strings.TrimSpace(string(clibase.GitOutput(ctx, runner, repoDir, "rev-parse", "HEAD")))
 	result := seedScanResult{MaxFileBytes: opts.maxFileBytes, RepoDir: repoDir, RepoKey: repoKey, Commit: commit, Warnings: warnings}
 	// Reserve source paths and their directories before allocating derived
 	// names: spec.pdf.md may itself be an authored document (or a directory).
@@ -1111,8 +1111,8 @@ func sortedMapKeys[T any](m map[string]T) []string {
 func buildSeedHistoryBaseline(ctx context.Context, runner CommandRunner, repoDir, outputDir string) *seedHistoryBaseline {
 	var baseline seedHistoryBaseline
 	baseline.Confidence = "heuristic"
-	for _, root := range splitNonEmptyLines(runGitOutput(ctx, runner, repoDir, "rev-list", "--max-parents=0", "HEAD")) {
-		stdout := runGitOutput(ctx, runner, repoDir, "show", "-s", "--format=%aI", root)
+	for _, root := range splitNonEmptyLines(clibase.GitOutput(ctx, runner, repoDir, "rev-list", "--max-parents=0", "HEAD")) {
+		stdout := clibase.GitOutput(ctx, runner, repoDir, "show", "-s", "--format=%aI", root)
 		if text := strings.TrimSpace(string(stdout)); text != "" {
 			if parsed, err := time.Parse(time.RFC3339, text); err == nil {
 				parsed = parsed.UTC()
@@ -1168,7 +1168,7 @@ func buildSeedHistoryCoverage(ctx context.Context, runner CommandRunner, repoDir
 		ExportedCheckpoints: len(exportedCheckpoints),
 		GeneratedFrom:       "git log",
 	}
-	commits := parseSeedGitLog(runGitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
+	commits := parseSeedGitLog(clibase.GitOutput(ctx, runner, repoDir, "log", "--reverse", "--format=%H%x00%P%x00%aI%x00%an%x00%ae%x00%B%x1e"))
 	for _, commit := range commits {
 		classifySeedCommitCoverage(&commit, oldestSession)
 		coverage.TotalCommits++

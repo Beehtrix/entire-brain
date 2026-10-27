@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/brainwire"
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
@@ -22,7 +23,7 @@ func TestPublishRefusesMalformedOrAmbiguousFactStreams(t *testing.T) {
 			writePublishBrainFixture(t, brainDir)
 			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main"))), []byte(data))
 			art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
-			got, err := collectFactArtifacts(art, brainDir)
+			got, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 			if err == nil || len(got) != 0 {
 				t.Fatalf("bad stream accepted: %q; %d artifacts, %v", data, len(got), err)
 			}
@@ -31,7 +32,7 @@ func TestPublishRefusesMalformedOrAmbiguousFactStreams(t *testing.T) {
 }
 
 func TestPublishRequiresExactAcknowledgements(t *testing.T) {
-	body := publishRequestBody{Artifacts: []publishArtifact{{Kind: "manifest", Ref: "head"}, {Kind: "facts", Ref: "main"}}}
+	body := publish.RequestBody{Artifacts: []publish.Artifact{{Kind: "manifest", Ref: "head"}, {Kind: "facts", Ref: "main"}}}
 	for _, tc := range []struct {
 		name, stored string
 		success      bool
@@ -48,7 +49,7 @@ func TestPublishRequiresExactAcknowledgements(t *testing.T) {
 				_, _ = w.Write([]byte(`{"stored":` + tc.stored + `}`))
 			}))
 			defer server.Close()
-			_, err := postBrainArtifacts(context.Background(), server.URL, "repo", "audit-token", body)
+			_, err := publish.PostBrainArtifacts(context.Background(), server.URL, "repo", "audit-token", body)
 			if (err == nil) != tc.success {
 				t.Fatalf("success=%v, error=%v", tc.success, err)
 			}
@@ -61,7 +62,7 @@ func TestPublishAcknowledgementErrorRedactsToken(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"status": "audit-token\x1b[31m", "stored": []any{}})
 	}))
 	defer server.Close()
-	_, err := postBrainArtifacts(context.Background(), server.URL, "repo", "audit-token", publishRequestBody{Artifacts: []publishArtifact{{Kind: "facts", Ref: "main"}}})
+	_, err := publish.PostBrainArtifacts(context.Background(), server.URL, "repo", "audit-token", publish.RequestBody{Artifacts: []publish.Artifact{{Kind: "facts", Ref: "main"}}})
 	if err == nil {
 		t.Fatal("missing acknowledgement succeeded")
 	}
@@ -87,7 +88,7 @@ func TestPublishAcceptsPulledCrossBranchFactStreams(t *testing.T) {
 			writePublishBrainFixture(t, brainDir)
 			writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(tc.branch))), []byte(tc.data))
 			art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
-			got, err := collectFactArtifacts(art, brainDir)
+			got, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 			if err != nil || len(got) != 2 {
 				t.Fatalf("cross-branch stream plus fixture main: %d artifacts, %v", len(got), err)
 			}
@@ -112,7 +113,7 @@ func TestPublishRefusesUnresolvableFactStream(t *testing.T) {
 	writePublishBrainFixture(t, brainDir)
 	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("evis/feature"))), []byte("{\"branch\":\"main\",\"text\":\"pulled\"}\n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
-	got, err := collectFactArtifacts(art, brainDir)
+	got, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err == nil || len(got) != 0 {
 		t.Fatalf("unresolvable stream accepted: %d artifacts, %v", len(got), err)
 	}
@@ -126,7 +127,7 @@ func TestPublishRefusesDuplicateBranchStreams(t *testing.T) {
 	writePublishBrainFixture(t, brainDir)
 	writePublishFile(t, filepath.Join(brainDir, factstore.DirName, "duplicate", factstore.FileName), []byte("{\"branch\":\"main\",\"text\":\"second stream\"}\n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
-	got, err := collectFactArtifacts(art, brainDir)
+	got, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err == nil || len(got) != 0 {
 		t.Fatalf("ambiguous branch accepted: %d artifacts, %v", len(got), err)
 	}
@@ -137,7 +138,7 @@ func TestPublishEmptyFactStreamRemainsOptional(t *testing.T) {
 	writePublishBrainFixture(t, brainDir)
 	writePublishFile(t, filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath("main"))), []byte("\n \n"))
 	art := brainwire.NewBrainArtifact("gh/example/repo", "main", time.Now())
-	got, err := collectFactArtifacts(art, brainDir)
+	got, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err != nil || len(got) != 0 {
 		t.Fatalf("empty stream: %d artifacts, %v", len(got), err)
 	}

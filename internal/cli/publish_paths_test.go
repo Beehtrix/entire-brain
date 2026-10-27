@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
@@ -18,13 +19,13 @@ func TestPublishArtifactPathsRejectSymlinks(t *testing.T) {
 	facts := filepath.FromSlash(factstore.FileRelPath("main"))
 	for _, tc := range []struct {
 		name, rel string
-		collect   func(*brainwire.BrainArtifact, string) ([]publishArtifact, error)
+		collect   func(*brainwire.BrainArtifact, string) ([]publish.Artifact, error)
 	}{
-		{"facts-root", factstore.DirName, collectFactArtifacts},
-		{"facts-leaf", facts, collectFactArtifacts},
-		{"overlay-semantic-parent", semstore.DirName, collectOverlayArtifacts},
-		{"overlay-root", filepath.Join(semstore.DirName, "overlays"), collectOverlayArtifacts},
-		{"overlay-leaf", overlay, collectOverlayArtifacts},
+		{"facts-root", factstore.DirName, publishConfig(Options{}).Deps.CollectFactArtifacts},
+		{"facts-leaf", facts, publishConfig(Options{}).Deps.CollectFactArtifacts},
+		{"overlay-semantic-parent", semstore.DirName, publishConfig(Options{}).Deps.CollectOverlayArtifacts},
+		{"overlay-root", filepath.Join(semstore.DirName, "overlays"), publishConfig(Options{}).Deps.CollectOverlayArtifacts},
+		{"overlay-leaf", overlay, publishConfig(Options{}).Deps.CollectOverlayArtifacts},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, outside := t.TempDir(), t.TempDir()
@@ -71,7 +72,7 @@ func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 		return original(path, flag, perm)
 	}
 	t.Cleanup(func() { brainstore.MemoryStateOpenFile = original })
-	data, ok, err := readBrainBlob(brainDir, rel)
+	data, ok, err := publish.ReadBrainBlob(brainDir, rel)
 	if !swapped || err == nil || ok || len(data) != 0 {
 		t.Fatalf("leaf swap returned data=%q, ok=%v, err=%v, swapped=%v", data, ok, err, swapped)
 	}
@@ -80,18 +81,18 @@ func TestPublishBlobRejectsLeafSwapBeforeRead(t *testing.T) {
 func TestPublishBlobBoundsAndOptionalFiles(t *testing.T) {
 	brainDir := t.TempDir()
 	rel := filepath.FromSlash(factstore.FileRelPath("main"))
-	if data, ok, err := readBrainBlob(brainDir, rel); err != nil || ok || len(data) != 0 {
+	if data, ok, err := publish.ReadBrainBlob(brainDir, rel); err != nil || ok || len(data) != 0 {
 		t.Fatalf("missing optional blob: data=%q ok=%v err=%v", data, ok, err)
 	}
 	writePublishFile(t, filepath.Join(brainDir, rel), []byte("content"))
-	if data, ok, err := readBrainBlob(brainDir, rel); err != nil || !ok || string(data) != "content" {
+	if data, ok, err := publish.ReadBrainBlob(brainDir, rel); err != nil || !ok || string(data) != "content" {
 		t.Fatalf("ordinary blob: data=%q ok=%v err=%v", data, ok, err)
 	}
 	t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", "3")
-	if data, ok, err := readBrainBlob(brainDir, rel); err == nil || ok || len(data) != 0 || !strings.Contains(err.Error(), "maximum size") {
+	if data, ok, err := publish.ReadBrainBlob(brainDir, rel); err == nil || ok || len(data) != 0 || !strings.Contains(err.Error(), "maximum size") {
 		t.Fatalf("oversized blob: data=%q ok=%v err=%v", data, ok, err)
 	}
-	if data, ok, err := readBrainBlob(brainDir, "../external"); err == nil || ok || len(data) != 0 {
+	if data, ok, err := publish.ReadBrainBlob(brainDir, "../external"); err == nil || ok || len(data) != 0 {
 		t.Fatalf("escaping blob: data=%q ok=%v err=%v", data, ok, err)
 	}
 }
@@ -101,7 +102,7 @@ func TestPublishBlobSizeErrorUsesOpenedPath(t *testing.T) {
 	path := filepath.Join(brainDir, "facts", "sample.ndjson")
 	writePublishFile(t, path, []byte("content"))
 	t.Setenv("ENTIRE_BRAIN_MAX_SNAPSHOT_BYTES", "3")
-	_, _, err := readBrainBlob(brainDir, "  facts//sample.ndjson  ")
+	_, _, err := publish.ReadBrainBlob(brainDir, "  facts//sample.ndjson  ")
 	bound, ok := err.(*readBoundExceededError)
 	if !ok || bound.Source != path {
 		t.Fatalf("size error should name opened path %q: %v", path, err)

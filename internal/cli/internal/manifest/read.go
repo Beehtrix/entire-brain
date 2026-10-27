@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -114,6 +115,12 @@ func DecodeFile(f *os.File, tolerateUnknown bool) (*Manifest, int, bool, error) 
 func Load(outputDir string) (*Manifest, error) {
 	manifest, _, err := Read(outputDir, true)
 	return manifest, err
+}
+
+// Exists reports whether a brain export (its manifest file) is present.
+func Exists(brainDir string) bool {
+	info, err := os.Stat(filepath.Join(brainDir, FileName))
+	return err == nil && !info.IsDir()
 }
 
 // LoadForReplace reads the manifest on behalf of a writer about to

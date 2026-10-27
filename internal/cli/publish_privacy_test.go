@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -48,7 +49,7 @@ func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {
 	writePublishFile(t, filepath.Join(brainDir, bmanifest.FileName), manifestData)
 	tombstonePrivacyFixture(t, brainDir) // Failed cleanup leaves the facts on disk.
 	art := newTestBrainArtifact()
-	artifacts, err := collectFactArtifacts(art, brainDir)
+	artifacts, err := publishConfig(Options{}).Deps.CollectFactArtifacts(art, brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestPublishPrivacyFiltersBeforeRedaction(t *testing.T) {
 			t.Fatalf("lost permitted fact %s", keep)
 		}
 	}
-	if art.Facts[0].Content.Digest != contentDigest(data) || art.Facts[0].Content.Size != int64(len(data)) {
+	if art.Facts[0].Content.Digest != publish.ContentDigest(data) || art.Facts[0].Content.Size != int64(len(data)) {
 		t.Fatal("manifest does not describe filtered bytes")
 	}
 }

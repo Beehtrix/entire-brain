@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,14 +39,14 @@ func regressionPrivacyFixture(t *testing.T) retrievalEmissionPrivacyFixture {
 }
 
 func runRegressionPrivacySurface(cmd *cobra.Command, f retrievalEmissionPrivacyFixture, surface string, json bool) error {
-	ro := regressionDetectorOptions{limit: 10, json: json}
+	ro := regressionDetectorOptions{Limit: 10, JSON: json}
 	query := "fix scopeBaseRef"
 	manifest := workspace.Manifest{Name: "privacy", Repos: []workspace.Repo{{RepoKey: f.RepoKey, LocalPathHint: f.Options.Env.RepoRoot}}}
 	switch surface {
 	case "regressions":
 		return runRegressionDetect(context.Background(), cmd, f.Options, ro, query)
 	case "review":
-		return runBrainReview(context.Background(), cmd, f.Options, ro, query)
+		return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(f.Options), ro, query)
 	case "workspace regressions":
 		return runWorkspaceRegressionsManifest(cmd, f.Options, ro, manifest, query, nil)
 	default:

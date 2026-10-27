@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"net/http"
@@ -668,7 +669,7 @@ func TestPatternBearingSurfacesRejectAlreadyDirtyDerivedStateWithoutOutput(t *te
 			return runBrainHandoff(context.Background(), cmd, fixture.Options, 1, true)
 		}},
 		{name: "review patterns", run: func(cmd *cobra.Command) error {
-			return runBrainReview(context.Background(), cmd, fixture.Options, regressionDetectorOptions{limit: 3, json: true, patterns: true}, "privacy state")
+			return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(fixture.Options), regressionDetectorOptions{Limit: 3, JSON: true, Patterns: true}, "privacy state")
 		}},
 	}
 	for _, tc := range tests {
@@ -702,7 +703,7 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 			return err
 		}},
 		{name: "review patterns", run: func(cmd *cobra.Command) error {
-			return runBrainReview(context.Background(), cmd, fixture.Options, regressionDetectorOptions{limit: 3, json: true, patterns: true}, "privacy state")
+			return brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(fixture.Options), regressionDetectorOptions{Limit: 3, JSON: true, Patterns: true}, "privacy state")
 		}},
 	}
 	for _, tc := range tests {

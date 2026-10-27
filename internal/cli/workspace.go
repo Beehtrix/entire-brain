@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -1819,7 +1820,7 @@ func runWorkspaceRemove(cmd *cobra.Command, opts Options, workspaceName, repoKey
 // repo_key, mirroring runWorkspaceContext.
 
 func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
+	ro := regressionDetectorOptions{Limit: 20}
 	cmd := &cobra.Command{
 		Use:   "regressions <workspace> <query>",
 		Short: "Flag suspected regressions across workspace repos (brain memory vs each current tree)",
@@ -1828,15 +1829,15 @@ func newWorkspaceRegressionsCommand(opts Options) *cobra.Command {
 			return runWorkspaceRegressions(cmd, opts, ro, args[0], args[1])
 		},
 	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum suspected regressions per repo")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().IntVar(&ro.Limit, "limit", 20, "Maximum suspected regressions per repo")
+	cmd.Flags().BoolVar(&ro.JSON, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (higher recall, noisier)")
+	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
 
 func newWorkspaceReviewCommand(opts Options) *cobra.Command {
-	ro := regressionDetectorOptions{limit: 20}
+	ro := regressionDetectorOptions{Limit: 20}
 	cmd := &cobra.Command{
 		Use:   "review <workspace> <query>",
 		Short: "Diff-less review across workspace repos: suspected regressions as severity-ranked findings",
@@ -1845,10 +1846,10 @@ func newWorkspaceReviewCommand(opts Options) *cobra.Command {
 			return runWorkspaceReview(cmd, opts, ro, args[0], args[1])
 		},
 	}
-	cmd.Flags().IntVar(&ro.limit, "limit", 20, "Maximum findings per repo")
-	cmd.Flags().BoolVar(&ro.json, "json", false, "Emit machine-readable JSON")
-	cmd.Flags().BoolVar(&ro.includeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
-	cmd.Flags().BoolVar(&ro.locationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
+	cmd.Flags().IntVar(&ro.Limit, "limit", 20, "Maximum findings per repo")
+	cmd.Flags().BoolVar(&ro.JSON, "json", false, "Emit machine-readable JSON")
+	cmd.Flags().BoolVar(&ro.IncludeDeletions, "include-deletions", false, "Also flag deleted assignments (lower confidence, noisier)")
+	cmd.Flags().BoolVar(&ro.LocationOnly, "location-only", false, "Emit only the suspected file:line, not the expected/current values")
 	return cmd
 }
 
@@ -1931,8 +1932,8 @@ func scanWorkspaceRepoRegressions(ctx context.Context, opts Options, repo worksp
 	// uncapped wrapper discarded this flag, which let the workspace surfaces
 	// print an unqualified clean bill of health over a scan that stopped at a
 	// cap -- the exact bug class the caps were added to eliminate.
-	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.limit, ro.includeDeletions)
-	if ro.locationOnly {
+	anomalies, scanned, warnings, caps := detectRegressionAnomaliesCapped(brainDir, repoDir, semSource, query, ro.Limit, ro.IncludeDeletions)
+	if ro.LocationOnly {
 		for i := range anomalies {
 			anomalies[i].Expected = ""
 			anomalies[i].Current = ""
@@ -1954,7 +1955,7 @@ func runWorkspaceRegressions(cmd *cobra.Command, opts Options, ro regressionDete
 }
 
 func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
-	if ro.limit <= 0 {
+	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
@@ -1988,12 +1989,12 @@ func runWorkspaceRegressionsManifest(cmd *cobra.Command, opts Options, ro regres
 		results = append(results, result)
 	}
 	render := func() error {
-		if ro.json {
+		if ro.JSON {
 			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                      `json:"workspace"`
 				SchemaVersion int                         `json:"schema_version"`
 				Results       []workspaceRegressionResult `json:"results"`
-			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Results: results})
+			}{Workspace: manifest.Name, SchemaVersion: brainreview.ReportSchemaVersion, Results: results})
 		}
 		out := cmd.OutOrStdout()
 		total := 0
@@ -2102,7 +2103,7 @@ func runWorkspaceReview(cmd *cobra.Command, opts Options, ro regressionDetectorO
 }
 
 func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionDetectorOptions, manifest workspace.Manifest, query string, skipped []workspace.RepoFreshness) error {
-	if ro.limit <= 0 {
+	if ro.Limit <= 0 {
 		return errors.New("--limit must be greater than zero")
 	}
 	privacyPolicies, _, err := patterncore.CaptureWorkspaceRetrievalPrivacyPolicies(opts.Env, manifest)
@@ -2141,7 +2142,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		}
 		result.Findings = []reviewFinding{} // [] not null in JSON, even when empty
 		for _, a := range anomalies {
-			result.Findings = append(result.Findings, anomalyToReviewFinding(a))
+			result.Findings = append(result.Findings, brainreview.AnomalyToReviewFinding(a))
 		}
 		switch {
 		case scanErr != "":
@@ -2155,7 +2156,7 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 			result.Summary = workspaceReviewSummary(result.Checked, result.FilesScanned, result.HistoryTruncated)
 		}
 		if result.HistoryTruncated && len(result.Findings) > 0 {
-			result.Summary = reviewSummary(len(result.Findings), scanned, true)
+			result.Summary = brainreview.ReviewSummary(len(result.Findings), scanned, true)
 		}
 		results = append(results, result)
 	}
@@ -2192,14 +2193,14 @@ func runWorkspaceReviewManifest(cmd *cobra.Command, opts Options, ro regressionD
 		summary = fmt.Sprintf("PARTIAL: %s History scans stopped at a cap in %d member(s); this is not a clean result.", summary, partialMembers)
 	}
 	render := func() error {
-		if ro.json {
+		if ro.JSON {
 			return cmdutil.WriteJSON(cmd, struct {
 				Workspace     string                  `json:"workspace"`
 				SchemaVersion int                     `json:"schema_version"`
 				Mode          string                  `json:"mode"`
 				Summary       string                  `json:"summary"`
 				Results       []workspaceReviewResult `json:"results"`
-			}{Workspace: manifest.Name, SchemaVersion: reviewReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
+			}{Workspace: manifest.Name, SchemaVersion: brainreview.ReportSchemaVersion, Mode: "diff-less (brain memory vs current tree)", Summary: summary, Results: results})
 		}
 		out := cmd.OutOrStdout()
 		fmt.Fprintln(out, summary)

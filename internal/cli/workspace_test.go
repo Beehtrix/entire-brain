@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"io"
 	"os"
 	"path/filepath"
@@ -1007,7 +1008,7 @@ func TestWorkspaceReviewFlagsRegressedRepoOnly(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &payload); err != nil {
 		t.Fatalf("parse review json: %v\n%s", err, out)
 	}
-	if payload.SchemaVersion != reviewReportSchemaVersion || payload.Mode != "diff-less (brain memory vs current tree)" {
+	if payload.SchemaVersion != brainreview.ReportSchemaVersion || payload.Mode != "diff-less (brain memory vs current tree)" {
 		t.Fatalf("review envelope schema_version/mode wrong: v=%d mode=%q", payload.SchemaVersion, payload.Mode)
 	}
 	if !strings.Contains(payload.Summary, "1 suspected regression(s) across 1/2 repo(s)") {

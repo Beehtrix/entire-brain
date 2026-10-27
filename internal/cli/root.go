@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/term"
 	"github.com/entireio/entire-brain/internal/cli/command/add"
 	"github.com/entireio/entire-brain/internal/cli/command/bench"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
@@ -170,7 +171,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
 	// (`entire-brain review --json`), NOT a human-facing verb — the human
 	// review surface is `entire review` in the cli, not a standalone brain command.
-	addHidden(newBrainReviewCommand(opts))
+	addHidden(brainreview.New(brainReviewConfig(opts)))
 
 	// Hidden measurement harness for the history retrieval layer (the facts
 	// analog lives under `facts eval`/`eval-gen`; summaries are compatible with

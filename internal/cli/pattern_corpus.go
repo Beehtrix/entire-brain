@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -93,7 +94,7 @@ func (g patternCorpusGraphContext) source(brainDir string, manifest *exportManif
 	if err := validateSemanticProviderRepoKey(g.Context, g.Options.Runner, g.RepoDir, storage.Key, d.Header.RepoKey, "", g.Binary); err != nil {
 		return nil
 	}
-	return graphStoreSource(d, brainDir)
+	return semstore.GraphStoreSource(d, brainDir)
 }
 
 // buildPatternCorpus (re)indexes the brain's sessions into patterns/corpus.sqlite.

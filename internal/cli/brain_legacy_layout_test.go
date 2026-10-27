@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,11 +97,11 @@ func seedLegacyBrainLayout(t *testing.T, brain string) map[string][]byte {
 	if err := writeBrainSemanticSource(brain, "gh/example/repo", &semanticSourceManifest{StorePath: rel, GenerationPath: "semantic/generations/legacy"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeGraphTraces(brain, []graphTraceObservation{{FromID: "preserved"}}); err != nil {
+	if err := writeGraphTraces(brain, []semstore.TraceObservation{{FromID: "preserved"}}); err != nil {
 		t.Fatal(err)
 	}
 	before := map[string][]byte{}
-	for _, path := range []string{bmanifest.FileName, rel, graphTraceFile} {
+	for _, path := range []string{bmanifest.FileName, rel, semstore.TraceFile} {
 		data, err := os.ReadFile(filepath.Join(brain, path))
 		if err != nil {
 			t.Fatal(err)
@@ -227,7 +228,7 @@ func TestLegacyBrainBundleImportProtectsOldDestination(t *testing.T) {
 	archive := filepath.Join(t.TempDir(), "current.tar")
 	writeTestBundle(t, archive, map[string]string{
 		bmanifest.FileName: `{"schema_version":4,"repo_key":"gh/example/repo","sources":{}}`,
-		graphTraceFile:     `[{"from_id":"replacement"}]`,
+		semstore.TraceFile: `[{"from_id":"replacement"}]`,
 	})
 	err := runSemanticBundleImport(context.Background(), &cobra.Command{}, opts, archive, bundleSHA256(t, archive), true)
 	if !errors.Is(err, errLegacyBrainLayout) {
@@ -240,7 +241,7 @@ func TestLegacyBundleImportRefusesBeforeChangingDestination(t *testing.T) {
 	for _, withManifest := range []bool{true, false} {
 		t.Run(map[bool]string{true: "old manifest", false: "orphan store"}[withManifest], func(t *testing.T) {
 			opts, _, brain, _ := newGraphStoreFixture(t)
-			observations := []graphTraceObservation{{FromID: "keep me"}}
+			observations := []semstore.TraceObservation{{FromID: "keep me"}}
 			if err := writeGraphTraces(brain, observations); err != nil {
 				t.Fatal(err)
 			}
@@ -254,7 +255,7 @@ func TestLegacyBundleImportRefusesBeforeChangingDestination(t *testing.T) {
 			if !errors.Is(err, errLegacyBrainLayout) || !strings.Contains(err.Error(), "export it again") {
 				t.Fatalf("missing bundle recovery error: %v", err)
 			}
-			rows, err := readGraphTraces(brain)
+			rows, err := semstore.ReadTraces(brain)
 			if err != nil || len(rows) != 1 || rows[0] != observations[0] {
 				t.Fatalf("changed destination traces: %+v, %v", rows, err)
 			}

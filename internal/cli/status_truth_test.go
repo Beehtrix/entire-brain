@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,7 +235,7 @@ func TestStatusSurfacesGraphError(t *testing.T) {
 		{
 			name:       "schema_major",
 			mutate:     func(d *graphStoreDescriptor) { d.Header.SchemaVersion = "2.0" },
-			wantSubstr: []string{"graph store unavailable", semanticSupportedSchemaRange},
+			wantSubstr: []string{"graph store unavailable", semstore.SupportedSchemaRange},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

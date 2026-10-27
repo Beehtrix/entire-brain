@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -39,7 +40,7 @@ func TestRuntimeTracePublicationFailurePreservesStoreAndRetry(t *testing.T) {
 	if err := runSemanticIngestTraces(cmd, opts, semanticTraceIngestOptions{json: true}, input); err != nil {
 		t.Fatal(err)
 	}
-	rows, err := readGraphTraces(brain)
+	rows, err := semstore.ReadTraces(brain)
 	if err != nil || len(rows) != 1 || rows[0].Matched != 1 {
 		t.Fatalf("retry lost observation: %+v %v", rows, err)
 	}

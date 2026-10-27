@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,7 +156,7 @@ func TestFindSemanticRelationsForSymbols_ChunksLargeInClause(t *testing.T) {
 	for i := range syms {
 		syms[i] = semanticRecord{ID: fmt.Sprintf("sym-%d", i+1)}
 	}
-	rels, err := findSemanticRelationsForSymbolsInSQLite(dbPath, syms, 1000)
+	rels, err := semstore.FindRelationsForSymbolsInSQLite(dbPath, syms, 1000)
 	if err != nil {
 		t.Fatalf("large symbol set errored (chunking regression): %v", err)
 	}

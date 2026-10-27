@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"io/fs"
 	"os"
@@ -1572,14 +1573,14 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 		}
 		if !semanticDelegated {
 			contextStarted := profile.start()
-			contextSymbols, contextRelations, contextNeighbors, contextErr := semanticContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
+			contextSymbols, contextRelations, contextNeighbors, contextErr := semstore.ContextFacts(status.Brain.Path, semanticSource, task, semanticLimit, 0)
 			if contextErr != nil {
 				report.Warnings = append(report.Warnings, "code context unavailable: "+contextErr.Error())
 			} else {
 				report.Semantic.Context = brainBriefSelectSemanticContext(contextSymbols, contextRelations, contextNeighbors, task, semanticLimit)
 				if len(report.Semantic.Context.Symbols) > 0 {
 					impactLimit := max(40, brainBriefExpandedCandidateLimit(briefOpts.limit, 8))
-					_, impactSymbols, impactRelations, impactErr := semanticImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
+					_, impactSymbols, impactRelations, impactErr := semstore.ImpactFacts(status.Brain.Path, status.Manifest.Sources.Semantic, report.Semantic.Context.Symbols[0].ID, 2, impactLimit)
 					if impactErr != nil {
 						report.Warnings = append(report.Warnings, "code context impact unavailable: "+impactErr.Error())
 					} else {
@@ -2373,7 +2374,7 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 			}
 		}
 		if df > 0 {
-			weights[term] = tokenIDFWeight(len(symbols), df)
+			weights[term] = semstore.TokenIDFWeight(len(symbols), df)
 		}
 	}
 	relationScores := make(map[string]int)
@@ -2431,7 +2432,7 @@ func brainBriefRankSemanticSymbols(symbols, relations []semanticRecord, task str
 func brainBriefIdentifierConceptCoverage(task, identifier string) int {
 	canonical := func(term string) string {
 		term = strings.ToLower(strings.TrimSpace(term))
-		if variants := semanticQueryMorphologyVariants(term); len(variants) > 0 {
+		if variants := semstore.QueryMorphologyVariants(term); len(variants) > 0 {
 			term = variants[0]
 		}
 		if strings.HasSuffix(term, "ies") && len(term) > 5 {
@@ -4020,10 +4021,10 @@ func rankedBrainBriefLikelyFiles(counts map[string]int, limit int) []string {
 }
 
 // brainBriefFileMatchStop holds the filename-matching-specific stopwords layered
-// on top of the shared genericQueryStopwords (see history.go) — mostly extra
+// on top of the shared brainstore.GenericQueryStopwords (see history.go) — mostly extra
 // task verbs ("add"/"update"/"change"/"ensure") and short fillers. Domain nouns
 // like "regression"/"preserve" are deliberately ABSENT (unlike
-// historyQueryStopword) because they are strong filename-match terms here, e.g.
+// brainstore.QueryStopword) because they are strong filename-match terms here, e.g.
 // a "fix the regression detector" task should still match regression.go.
 var brainBriefFileMatchStop = map[string]bool{
 	"these": true, "those": true, "after": true, "before": true, "their": true, "your": true,
@@ -4041,7 +4042,7 @@ var brainBriefFileMatchStop = map[string]bool{
 // filename matching: a generic English/task stopword (shared, single source of
 // truth) or a filename-matching-specific filler.
 func brainBriefFileMatchTermStop(word string) bool {
-	return genericQueryStopwords[word] || brainBriefFileMatchStop[word]
+	return brainstore.GenericQueryStopwords[word] || brainBriefFileMatchStop[word]
 }
 
 // Floor is 3 (not 4) so high-signal short identifiers like "api"/"cli" are not
@@ -4064,7 +4065,7 @@ func brainBriefFileMatchTerms(task string) []string {
 		}
 		seen[word] = true
 		out = append(out, word)
-		for _, variant := range semanticQueryMorphologyVariants(word) {
+		for _, variant := range semstore.QueryMorphologyVariants(word) {
 			if !brainBriefFileMatchTermStop(variant) && !seen[variant] {
 				seen[variant] = true
 				out = append(out, variant)
@@ -4668,7 +4669,7 @@ func buildBrainStatusReportWithAvailability(ctx context.Context, opts Options, t
 					graphStatusWarning = "graph store unavailable: " + graphErr.Error()
 				}
 			} else {
-				manifest.Sources.Semantic = graphStoreSource(d, storage.BrainDir)
+				manifest.Sources.Semantic = semstore.GraphStoreSource(d, storage.BrainDir)
 			}
 		}
 	}
@@ -5045,7 +5046,7 @@ func parseBrainLiveStatus(status []byte) (staged, unstaged, untracked []string) 
 }
 
 func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifest, idOrName string) (semanticRecord, error) {
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 	if err != nil {
 		return semanticRecord{}, err
 	}
@@ -5053,7 +5054,7 @@ func findSemanticRecordByIDOrName(brainDir string, source *semanticSourceManifes
 }
 
 func findSemanticRecordByIDOrNameSQLite(storePath, idOrName string) (semanticRecord, error) {
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return semanticRecord{}, err
 	}
@@ -5107,7 +5108,7 @@ func brainRawScanSkipsDerived(relSlash string) bool {
 		factstore.DirName,           // distilled facts and the distill cache
 		"patterns",                  // corpus, runs, derived pattern outputs
 		seedDirName,                 // synthesized seed
-		semanticDirName,             // symbol graph snapshots and stores
+		semstore.DirName,            // symbol graph snapshots and stores
 		"export",                    // export cursor state
 		brainstore.BrainLockDirName, // lock leaves
 	} {
@@ -5154,7 +5155,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == semanticDirName || name == ".git" {
+			if name == semstore.DirName || name == ".git" {
 				return filepath.SkipDir
 			}
 			return nil
@@ -5417,7 +5418,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 		}
 		if d.IsDir() {
 			name := d.Name()
-			if name == semanticDirName || name == ".git" {
+			if name == semstore.DirName || name == ".git" {
 				return filepath.SkipDir
 			}
 			return nil

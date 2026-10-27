@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"sort"
 	"strings"
 )
@@ -105,13 +106,13 @@ func semanticAuditStoreCoverage(brainDir string, source *semanticSourceManifest,
 	if axis, ok := freshness.Axes["store"]; ok && axis.State != "ok" {
 		return semanticAuditCoverage{}, nil
 	}
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
+	storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 	if err != nil {
 		// The store axis was already confirmed "ok" above, so a validation
 		// error here is a real inconsistency, not expected staleness.
 		return semanticAuditCoverage{}, fmt.Errorf("validate semantic store for audit: %w", err)
 	}
-	db, err := openSemanticReadDB(storePath)
+	db, err := semstore.OpenReadDB(storePath)
 	if err != nil {
 		return semanticAuditCoverage{}, fmt.Errorf("open semantic store: %w", err)
 	}

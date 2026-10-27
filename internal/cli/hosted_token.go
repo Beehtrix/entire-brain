@@ -4,15 +4,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
-)
 
-// hostedShellOutTimeout bounds every shell-out to the host CLI on the hosted
-// sync path (auth token, repo view). The callers are the watch tick and the
-// session-end hook — a tick must stay a tick, so a stalled host CLI fails
-// fast instead of hanging the caller; the ambient ctx carries only signal
-// cancellation, no deadline.
-const hostedShellOutTimeout = 30 * time.Second
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+)
 
 // mintHostedToken mints a fresh data-plane bearer by shelling out to the host
 // CLI, which owns auth entirely: `entire auth token` prints ENTIRE_TOKEN
@@ -22,7 +16,7 @@ const hostedShellOutTimeout = 30 * time.Second
 // per sync and held only in memory. The token is never logged and never echoed
 // in errors.
 func mintHostedToken(ctx context.Context, runner CommandRunner, repoDir, entireBinary string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, hostedShellOutTimeout)
+	ctx, cancel := context.WithTimeout(ctx, base.HostedShellOutTimeout)
 	defer cancel()
 	stdout, _, err := runner.Run(ctx, repoDir, entireBinary, "auth", "token")
 	if err != nil {

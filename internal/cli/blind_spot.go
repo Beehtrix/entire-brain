@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // distillCoverage reports the last recorded distillation and sessions created
@@ -341,7 +342,7 @@ func unsyncedHostedFactsBlindSpot(brainDir, branch string) string {
 	if strings.TrimSpace(branch) == "" {
 		return ""
 	}
-	binding, connected, err := readHostedRepoBinding(brainDir)
+	binding, connected, err := brainstore.ReadHostedRepoBinding(brainDir)
 	if err != nil || !connected || binding.OptedOut {
 		return ""
 	}

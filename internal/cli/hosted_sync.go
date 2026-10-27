@@ -16,10 +16,6 @@ import (
 	"github.com/entireio/entire-brain/internal/factsync"
 )
 
-// hostEntireBinary is the host CLI the plugin shells out to; PATH comes from
-// the caller's environment (the daemon plist bakes PATH at install time).
-const hostEntireBinary = "entire"
-
 const (
 	// hostedUpsertChunk stays well under brainstore's 5000-record batch cap
 	// and its 32 MiB body cap.
@@ -70,7 +66,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 	if base.BrainNoEgressMode() {
 		return hostedSyncOutcome{}, nil
 	}
-	binding, present, err := readHostedRepoBinding(storage.BrainDir)
+	binding, present, err := brainstore.ReadHostedRepoBinding(storage.BrainDir)
 	if err != nil {
 		// NO unreadable binding may fall through to auto-connect: the file may
 		// hide a recorded opt-out (privacy) or a custom target, and neither
@@ -87,7 +83,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return hostedSyncOutcome{}, nil
 	}
-	token, err := mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
+	token, err := mintHostedToken(ctx, opts.Runner, repoDir, base.HostEntireBinary)
 	if err != nil {
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return hostedSyncOutcome{}, nil

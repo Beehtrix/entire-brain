@@ -7,6 +7,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 func runSessionEndHook(t *testing.T, opts Options) (string, string) {
@@ -32,7 +36,7 @@ func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	t.Cleanup(func() { memoryWorkerLaunch = oldLaunch })
 	repoDir := t.TempDir()
 	env := connectTestEnv(t, repoDir)
-	runner := commandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
+	runner := clitest.CommandRunnerFunc(func(ctx context.Context, dir, name string, args ...string) ([]byte, []byte, error) {
 		if name == "entire" && len(args) >= 2 && args[0] == "auth" && args[1] == "token" {
 			return []byte(fakeJWT + "\n"), nil, nil
 		}
@@ -46,7 +50,7 @@ func sessionEndHarness(t *testing.T, fake *hostedFake, bind bool) (Options, repo
 	}
 	if bind {
 		srv := newHostedFakeServer(t, fake)
-		if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
+		if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: srv.URL}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -83,7 +87,7 @@ func TestSessionEndHookHostedFailureIsSilentSuccess(t *testing.T) {
 	fake := &hostedFake{}
 	opts, storage := sessionEndHarness(t, fake, true)
 	// Corrupt the binding's URL so the sync step fails its gate.
-	if err := writeHostedRepoBinding(storage.BrainDir, hostedRepoBinding{RepoID: "repo1", BaseURL: "ftp://nope"}); err != nil {
+	if err := brainstore.WriteHostedRepoBinding(storage.BrainDir, brainstore.HostedRepoBinding{RepoID: "repo1", BaseURL: "ftp://nope"}); err != nil {
 		t.Fatal(err)
 	}
 	stdout, errOut := runSessionEndHook(t, opts)

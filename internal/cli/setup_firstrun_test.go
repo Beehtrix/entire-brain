@@ -83,10 +83,10 @@ func TestCheckpointDetailSurvivesTheHostUpdateBanner(t *testing.T) {
 func TestHostCLIJSONStillRejectsALeadingNonJSONPrefix(t *testing.T) {
 	t.Parallel()
 	var target []checkpointListEntry
-	if err := decodeHostCLIJSON([]byte("Update available!\n[]\n"), &target); err == nil {
+	if err := base.DecodeHostCLIJSON([]byte("Update available!\n[]\n"), &target); err == nil {
 		t.Fatal("leading non-JSON output must still be an error, not an empty inventory")
 	}
-	if err := decodeHostCLIJSON(nil, &target); err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+	if err := base.DecodeHostCLIJSON(nil, &target); err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
 		t.Fatalf("empty stdout must keep its old message, got %v", err)
 	}
 }

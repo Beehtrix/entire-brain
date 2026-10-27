@@ -8,6 +8,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/apiurl"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/repoid"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -38,10 +39,10 @@ type manualHostedTarget struct {
 // host the user pointed at explicitly, only to the one they connected to.
 func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repoDir, command string, flagRepoID, flagAPIURL, flagToken string) (manualHostedTarget, error) {
 	var t manualHostedTarget
-	var binding hostedRepoBinding
+	var binding brainstore.HostedRepoBinding
 	connected := false
 	if brainDir != "" {
-		b, present, err := readHostedRepoBinding(brainDir)
+		b, present, err := brainstore.ReadHostedRepoBinding(brainDir)
 		if err == nil && present && !b.OptedOut {
 			binding, connected = b, true
 		}
@@ -96,7 +97,7 @@ func resolveManualHostedTarget(ctx context.Context, opts Options, brainDir, repo
 		if repoDir == "" {
 			repoDir = "."
 		}
-		t.token, err = mintHostedToken(ctx, opts.Runner, repoDir, hostEntireBinary)
+		t.token, err = mintHostedToken(ctx, opts.Runner, repoDir, base.HostEntireBinary)
 		if err != nil {
 			return t, fmt.Errorf("%s: %w", command, err)
 		}

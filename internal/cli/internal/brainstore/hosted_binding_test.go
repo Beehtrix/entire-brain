@@ -1,4 +1,4 @@
-package cli
+package brainstore
 
 import (
 	"os"
@@ -8,11 +8,11 @@ import (
 
 func TestHostedRepoBindingRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
-	in := hostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com/api/v1/"}
-	if err := writeHostedRepoBinding(brainDir, in); err != nil {
+	in := HostedRepoBinding{RepoID: "01M2Q9WATHXVM46CD8Y4D3AX8W", BaseURL: "https://cell.api.example.com/api/v1/"}
+	if err := WriteHostedRepoBinding(brainDir, in); err != nil {
 		t.Fatal(err)
 	}
-	got, present, err := readHostedRepoBinding(brainDir)
+	got, present, err := ReadHostedRepoBinding(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,11 +29,11 @@ func TestHostedRepoBindingRoundTrip(t *testing.T) {
 
 func TestHostedRepoBindingOptOutRoundTrip(t *testing.T) {
 	brainDir := t.TempDir()
-	in := hostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com", OptedOut: true}
-	if err := writeHostedRepoBinding(brainDir, in); err != nil {
+	in := HostedRepoBinding{RepoID: "repo1", BaseURL: "https://cell.api.example.com", OptedOut: true}
+	if err := WriteHostedRepoBinding(brainDir, in); err != nil {
 		t.Fatal(err)
 	}
-	got, present, err := readHostedRepoBinding(brainDir)
+	got, present, err := ReadHostedRepoBinding(brainDir)
 	if err != nil || !present {
 		t.Fatalf("opted-out binding must still be present: present=%v err=%v", present, err)
 	}
@@ -46,7 +46,7 @@ func TestHostedRepoBindingOptOutRoundTrip(t *testing.T) {
 }
 
 func TestHostedRepoBindingAbsent(t *testing.T) {
-	_, present, err := readHostedRepoBinding(t.TempDir())
+	_, present, err := ReadHostedRepoBinding(t.TempDir())
 	if err != nil {
 		t.Fatalf("absent binding must not be an error, got %v", err)
 	}
@@ -60,7 +60,7 @@ func TestHostedRepoBindingCorrupt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(brainDir, "hosted.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := readHostedRepoBinding(brainDir); err == nil {
+	if _, _, err := ReadHostedRepoBinding(brainDir); err == nil {
 		t.Fatal("corrupt binding must return an error")
 	}
 }

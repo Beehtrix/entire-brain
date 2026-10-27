@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -237,7 +238,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		}
 		// Semantic symbols (snapshot.ndjson).
 		if sem := manifest.Sources.Semantic; sem != nil {
-			if syms, err := loadSemanticSymbols(brainDir, sem, limit); err != nil {
+			if syms, err := semstore.LoadSymbols(brainDir, sem, limit); err != nil {
 				markSourceUnreadable(&snap.Home, "Code", "code index unavailable: "+err.Error())
 			} else {
 				snap.Semantic = dashSemanticViews(syms, repoDir)
@@ -508,25 +509,6 @@ func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView
 		out = append(out, view)
 	}
 	return out
-}
-
-// loadSemanticSymbols reads the symbol records from Graph's live store. No
-// source at all is the ordinary unbuilt case and stays silently empty; a
-// DECLARED source that is not the live graph handle is unreadable and must
-// error, so the Sources row flips to "unreadable" instead of rendering a
-// healthy empty Code tab.
-func loadSemanticSymbols(brainDir string, source *semanticSourceManifest, limit int) ([]semanticRecord, error) {
-	if source == nil {
-		return nil, nil
-	}
-	storePath, err := validateSemanticDeclaredStore(brainDir, source)
-	if err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = -1
-	}
-	return findSemanticSymbolsInSQLite(storePath, "", limit, 0)
 }
 
 // printDashPlain renders the snapshot as plain text for non-TTY / --plain use,

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"path/filepath"
 	"strings"
@@ -522,7 +523,7 @@ func retrievalResultExcerpt(value, query string, maxBytes int) string {
 		return text
 	}
 	lower, originalOffsets := foldedTextOffsets(text)
-	terms := semanticQueryTokens(query)
+	terms := semstore.QueryTokens(query)
 	bestStart, bestScore := 0, -1
 	for _, anchor := range terms {
 		for searchAt := 0; searchAt < len(lower); {

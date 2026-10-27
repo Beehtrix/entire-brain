@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ import (
 
 func writeAuditLine(t *testing.T, brainDir, line string) {
 	t.Helper()
-	dir := filepath.Join(brainDir, semanticDirName)
+	dir := filepath.Join(brainDir, semstore.DirName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -389,7 +390,7 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 
 	// A bundle that CARRIES facts, into a brain that has none.
 	archive := filepath.Join(t.TempDir(), "with-facts.tar")
@@ -405,7 +406,7 @@ func TestARealImportRecordsOnlyTheLayersItReplaced(t *testing.T) {
 	}
 
 	brainDir := bundleTestBrainDir(env)
-	raw, err := os.ReadFile(filepath.Join(brainDir, semanticDirName, semanticAuditLogName))
+	raw, err := os.ReadFile(filepath.Join(brainDir, semstore.DirName, semanticAuditLogName))
 	if err != nil {
 		t.Fatalf("no audit was written at all, so this guard proves nothing: %v", err)
 	}

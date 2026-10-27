@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -524,8 +525,8 @@ func TestStatusSkipsUnsafeStoreCoverage(t *testing.T) {
 			SchemaVersion:    "1.0",
 			Commit:           "headsha",
 			Branch:           "main",
-			GenerationPath:   filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "safe")),
-			StorePath:        filepath.ToSlash(filepath.Join(semanticDirName, semanticGenerationsDir, "other", semanticSQLiteName)),
+			GenerationPath:   filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir, "safe")),
+			StorePath:        filepath.ToSlash(filepath.Join(semstore.DirName, semanticGenerationsDir, "other", semstore.SQLiteName)),
 			Files:            2,
 			Symbols:          3,
 			Relations:        4,

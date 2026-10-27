@@ -44,10 +44,10 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	scanned, helperSites, allowed := 0, 0, 0
 	// "." plus the packages remedies have sunk into (COR-2268): the fact-store
 	// remedies, the add command, the declared-index repair hint, and the
-	// history-store read-layer remedies must stay under this guard rather than
-	// escape it by moving.
+	// history-store and semantic-store read-layer remedies must stay under
+	// this guard rather than escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add", "internal/brainstore", "internal/historystore"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "internal/brainstore", "internal/historystore", "internal/semstore"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

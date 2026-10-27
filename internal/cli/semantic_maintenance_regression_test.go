@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,7 +43,7 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	if err := runSemanticReset(context.Background(), resetCmd, opts, semanticResetOptions{force: true, semanticOnly: true}, repo); err != nil {
 		t.Fatalf("semantic-only reset: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, semanticDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, semstore.DirName)); !os.IsNotExist(err) {
 		t.Fatalf("semantic artifacts remain: %v", err)
 	}
 	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep me" {

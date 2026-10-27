@@ -9,6 +9,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -131,7 +132,7 @@ func bundleTestIndexedBrain(t *testing.T) (EntireEnv, Options, *cobra.Command, s
 	t.Helper()
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semanticSchemaVersion))
+	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot(semstore.SchemaVersion))
 	opts := Options{Version: "9.9.9", Env: env, Runner: runner, Now: func() time.Time {
 		return time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
 	}}
@@ -246,7 +247,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 			brainstore.SessionTombstonesPath,
 			brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 			brainstore.HistoryDirName + "/work/v1/worker.log",
-			semanticDirName + "/" + semanticAuditLogName,
+			semstore.DirName + "/" + semanticAuditLogName,
 		} {
 			if slicesContainsString(entries, forbidden) {
 				t.Fatalf("bundle carried never-bundled entry %s", forbidden)
@@ -325,7 +326,7 @@ func TestBundleImportRejectsPrivacyPolicyEntries(t *testing.T) {
 		brainstore.SessionTombstonesPath,
 		brainstore.HistoryDirName + "/privacy/session%3Asecret.json",
 		brainstore.HistoryDirName + "/work/v1/worker.log",
-		semanticDirName + "/" + semanticAuditLogName,
+		semstore.DirName + "/" + semanticAuditLogName,
 	} {
 		if err := validateBundleEntry(&tar.Header{Name: name, Typeflag: tar.TypeReg}); err == nil {
 			t.Fatalf("bundle entry %q must be refused", name)

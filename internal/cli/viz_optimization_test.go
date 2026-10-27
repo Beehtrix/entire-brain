@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -47,7 +48,7 @@ func writeVizOptimizationStore(t *testing.T, brainDir string, records []semantic
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(providerDir, generation, semanticSQLiteName)
+	path := filepath.Join(providerDir, generation, semstore.SQLiteName)
 	db, err := sql.Open(sqlitedriver.Name, path)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +66,7 @@ func writeVizOptimizationStore(t *testing.T, brainDir string, records []semantic
 		t.Fatal(err)
 	}
 	d := graphStoreDescriptor{ContractVersion: 1, Path: path, EntryDigest: "viz-fixture", Commit: header.Commit, Tree: header.Tree, Header: header, Files: counts.Files, Symbols: counts.Symbols, Relations: counts.Relations}
-	return graphStoreSource(d, brainDir)
+	return semstore.GraphStoreSource(d, brainDir)
 }
 
 func vizOptimizationSemanticRecords() []semanticRecord {

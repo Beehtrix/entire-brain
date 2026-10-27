@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"strings"
 	"time"
@@ -114,7 +115,7 @@ func factQueryTerms(query string) []string {
 	seen := map[string]struct{}{}
 	var terms []string
 	add := func(t string) {
-		if len(t) < 2 || historyQueryStopword(t) {
+		if len(t) < 2 || brainstore.QueryStopword(t) {
 			return
 		}
 		if _, ok := seen[t]; ok {

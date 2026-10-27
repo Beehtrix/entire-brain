@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -731,7 +732,7 @@ func runWorkspaceContext(cmd *cobra.Command, opts Options, contextOpts workspace
 			results = append(results, result)
 			continue
 		}
-		symbols, _, _, err := semanticContextFacts(brainDir, source, query, contextOpts.limit, 0)
+		symbols, _, _, err := semstore.ContextFacts(brainDir, source, query, contextOpts.limit, 0)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
@@ -789,7 +790,7 @@ func runWorkspaceImpact(cmd *cobra.Command, opts Options, impactOpts workspaceIm
 			results = append(results, result)
 			continue
 		}
-		roots, symbols, relations, err := semanticImpactFacts(brainDir, source, query, impactOpts.depth, impactOpts.limit)
+		roots, symbols, relations, err := semstore.ImpactFacts(brainDir, source, query, impactOpts.depth, impactOpts.limit)
 		unlock()
 		if err != nil {
 			result.Error = err.Error()
@@ -913,14 +914,14 @@ func buildWorkspaceGraphPayload(ctx context.Context, opts Options, manifest work
 		result.CompletenessLevel = source.CompletenessLevel
 		result.Trust = source.Trust
 		result.LanguageTiers = source.LanguageTiers
-		storePath, err := validateSemanticDeclaredStore(brainDir, source)
+		storePath, err := semstore.ValidateDeclaredStore(brainDir, source)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()
 			results = append(results, result)
 			continue
 		}
-		db, err := openSemanticReadDB(storePath)
+		db, err := semstore.OpenReadDB(storePath)
 		if err != nil {
 			unlock()
 			result.Error = err.Error()

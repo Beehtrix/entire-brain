@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"sort"
@@ -91,7 +92,7 @@ type conversationSessionView struct {
 func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest *exportManifest, guard sessionReadGuard) map[string]conversationSessionView {
 	views := map[string]conversationSessionView{}
 	for _, record := range fresh.mergedRecords() {
-		if record.Kind != conversationKind || guardBlocksRecord(guard, record) {
+		if record.Kind != conversationKind || historystore.GuardBlocksRecord(guard, record) {
 			continue
 		}
 		ref, degraded := recordSessionRef(record, repoKey, manifest)

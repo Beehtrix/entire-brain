@@ -350,7 +350,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}

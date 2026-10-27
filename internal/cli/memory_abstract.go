@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"os/exec"
@@ -651,7 +652,7 @@ func abstractPreviewsForResults(brainDir string, results []unifiedResult) ([]ses
 	if err != nil {
 		return nil, false, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, false, err
 	}
@@ -1596,12 +1597,12 @@ func ensureSessionAbstractPrivacyAllowed(brainDir string, view conversationSessi
 	if err != nil {
 		return err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
 	for _, record := range view.Records {
-		if guardBlocksRecord(guard, record) {
+		if historystore.GuardBlocksRecord(guard, record) {
 			return fmt.Errorf("%s: session %s is excluded", brainstore.PrivacyExcludedCode, view.Ref)
 		}
 	}
@@ -1877,7 +1878,7 @@ func loadConversationSessionViewByRef(brainDir, ref string) (conversationSession
 	if err != nil {
 		return conversationSessionView{}, err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return conversationSessionView{}, err
 	}

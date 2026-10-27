@@ -170,7 +170,7 @@ func conventionRecord(pc proposedConvention, members []string, factText map[stri
 		PatternID:        id,
 		Archetype:        "capability",
 		Fingerprint:      "sha256:" + base.HexSHA("convention\x00"+strings.Join(sortedCopy(members), "|")),
-		Title:            base.TruncateString(strings.TrimSpace(firstNonEmpty(pc.Title, "convention")), 120),
+		Title:            base.TruncateString(strings.TrimSpace(base.FirstNonEmpty(pc.Title, "convention")), 120),
 		Trigger:          base.TruncateString(strings.TrimSpace(pc.Trigger), 280),
 		NotWhen:          base.TruncateString(strings.TrimSpace(pc.NotWhen), 280),
 		Knowledge:        knowledge,

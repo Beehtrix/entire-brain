@@ -3739,7 +3739,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 				sessionFamily = append(sessionFamily, layer.name)
 				continue
 			}
-			guard, err := loadSessionReadGuard(storage.BrainDir, manifest)
+			guard, err := bmanifest.LoadSessionReadGuard(storage.BrainDir, manifest)
 			if err != nil {
 				return err
 			}
@@ -3748,7 +3748,7 @@ func runSemanticBundleExport(ctx context.Context, cmd *cobra.Command, opts Optio
 			// Excluded sessions remain in the local catalog for later inclusion,
 			// but neither their catalog entries nor their bytes belong in a bundle.
 			// The transcript store rechecks privacy when reading each kept entry.
-			source.Sessions = guardExportSessions(guard, source.Sessions)
+			source.Sessions = bmanifest.GuardSessions(guard, source.Sessions)
 			source.OldestSessionAt = bmanifest.OldestSessionAt(source.Sessions)
 			source.LatestCheckpointID = bmanifest.LatestCheckpointID(source.Sessions)
 			branchDirs := make(map[string]string)

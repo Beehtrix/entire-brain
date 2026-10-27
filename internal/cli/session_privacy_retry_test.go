@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -52,11 +53,11 @@ func TestPrivacyRetryPreservesTranscriptScope(t *testing.T) {
 			if err := factstore.Write(b, "main", []factRecord{fact}); err != nil {
 				t.Fatal(err)
 			}
-			guard, err := loadSessionReadGuard(b, m)
+			guard, err := bmanifest.LoadSessionReadGuard(b, m)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !guardBlocksRecord(guard, historyRecord{Path: old}) || !guardBlocksFactAnchor(guard, fact.Provenance[0]) {
+			if !historystore.GuardBlocksRecord(guard, historyRecord{Path: old}) || !factstore.GuardBlocksFactAnchor(guard, fact.Provenance[0]) {
 				t.Error("durable path lost from serving guard")
 			}
 			retry, err := buildSessionPurgePlan(b, "secret-sess")
@@ -141,7 +142,7 @@ func TestPrivacyRetryRejectsUnsafeDurableScope(t *testing.T) {
 			if _, err := buildSessionPurgePlan(b, "secret-sess"); err == nil {
 				t.Error("plan accepted unsafe durable path")
 			}
-			if _, err := loadSessionReadGuard(b, m); err == nil {
+			if _, err := bmanifest.LoadSessionReadGuard(b, m); err == nil {
 				t.Error("guard accepted unsafe durable path")
 			}
 			if _, err := verifySessionPrivacy(b); err == nil {

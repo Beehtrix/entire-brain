@@ -1492,7 +1492,7 @@ func memoryAbstractHealth(brainDir string) map[string]any {
 	manifest, manifestErr := bmanifest.Load(brainDir)
 	if manifestErr == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		fresh, freshErr := loadFreshHistory(brainDir, manifest.Sources.History)
-		guard, guardErr := loadSessionReadGuard(brainDir, manifest)
+		guard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 		prerequisiteIssue = memoryStateIssue{Kind: "history", File: manifest.Sources.History.IndexPath, Code: "unverifiable"}
 		var tombstoneErr *sessionTombstoneLoadError
 		if errors.As(guardErr, &tombstoneErr) {

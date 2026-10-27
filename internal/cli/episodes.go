@@ -110,7 +110,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	)
 	// Session tombstones (Phase 4): excluded sessions and any duplicate
 	// manifest aliases of their transcript contribute no episodes.
-	guard, err := loadSessionReadGuard(outputDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(outputDir, manifest)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -124,7 +124,7 @@ func buildBrainEpisodes(outputDir string, now time.Time) ([]episodeRecord, *patt
 	}
 	defer beforeInventory.Close()
 	for _, session := range manifest.Sources.Sessions.Sessions {
-		if guardBlocksExportSession(guard, session) {
+		if bmanifest.GuardBlocksSession(guard, session) {
 			continue
 		}
 		rel := strings.TrimSpace(session.TranscriptPath)

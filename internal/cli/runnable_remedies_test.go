@@ -35,7 +35,7 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
 	{"internal/retrieval/retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
 	{"internal/retrieval/retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
-	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
+	{"command/viz/viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},
 	{"command/publish/publish.go", "(see 'entire brain connect')", "cobra Long help text built at command-construction time, before any lookup exists"},
 	{"doctor.go", "cd '<your repository>' && entire brain doctor", "a shell TEMPLATE with a cd and a placeholder, not a verb the lookup can render"},
 }
@@ -48,7 +48,7 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	// retrieval-engine read layers must stay under this guard rather than
 	// escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "command/stats", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "command/stats", "command/viz", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

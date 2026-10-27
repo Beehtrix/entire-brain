@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"strings"
 	"time"
@@ -25,9 +26,9 @@ import (
 // inspection, and the conversation arms.
 func retrievalEngineDeps() retrieval.Deps {
 	return retrieval.Deps{
-		LoadSessionReadGuard:             loadSessionReadGuard,
-		GuardFactRecords:                 guardFactRecords,
-		GuardBlocksRecord:                guardBlocksRecord,
+		LoadSessionReadGuard:             bmanifest.LoadSessionReadGuard,
+		GuardFactRecords:                 factstore.GuardRecords,
+		GuardBlocksRecord:                historystore.GuardBlocksRecord,
 		LoadFactProposals:                loadFactProposals,
 		RankFacts:                        rankFacts,
 		RankHistoryLexical:               rankHistoryLexicalForRetrieval,
@@ -140,7 +141,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// tombstoned session is unreadable here even while its derived cleanup is
 	// still running. Superseded duplicate copies join it too: a stale
 	// copy must not even consume a candidate slot.
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	var pred func(historyRecord) bool
 	if filtered || !guard.Empty() || len(winners) > 0 {
 		pred = func(r historyRecord) bool {
-			if guardBlocksRecord(guard, r) {
+			if historystore.GuardBlocksRecord(guard, r) {
 				return false
 			}
 			if w, ok := winners[recordReplacementKey(r)]; ok && !sameRecordCopy(w, r) {
@@ -198,7 +199,7 @@ func retrieveConversation(brainDir, query string, limit int, mode retrievalMode,
 	// re-check keeps the contract obvious and cheap.
 	kept := make([]scoredHistoryRecord, 0, len(scored))
 	for _, s := range scored {
-		if guardBlocksRecord(guard, s.Record) {
+		if historystore.GuardBlocksRecord(guard, s.Record) {
 			continue
 		}
 		if conversationRecordMatchesFilters(s.Record, opts) {
@@ -411,7 +412,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	}
 	// Exclusion guard: a tombstoned session's records resolve as "not
 	// found" on every get surface immediately, even before cleanup finishes.
-	guard, err := loadSessionReadGuard(brainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -419,12 +420,12 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 		// Resolve the manifest-derived transcript paths BEFORE the facts arm
 		// filters below, so a fact whose only anchor lost its session id blocks
 		// by path here too. The history arm's later re-resolution ran after
-		// guardFactRecords and therefore never protected `get fact:`.
+		// factstore.GuardRecords and therefore never protected `get fact:`.
 		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return nil, nil, err
 		}
-		guard, err = loadSessionReadGuard(brainDir, manifest)
+		guard, err = bmanifest.LoadSessionReadGuard(brainDir, manifest)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -445,7 +446,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// resolve here too. The repository's copy still wins on a collision.
 			facts, globalGetIDs = retrieval.MergeGlobalFacts(facts, gopts.GlobalFacts)
 		}
-		facts = guardFactRecords(guard, facts)
+		facts = factstore.GuardRecords(guard, facts)
 		for _, f := range facts {
 			factByID[f.ID] = f
 		}
@@ -506,7 +507,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 			// newest-copy winner ranking uses, so get expands exactly the
 			// record search returned.
 			for _, r := range fresh.reconciledRecords() {
-				if guardBlocksRecord(guard, r) {
+				if historystore.GuardBlocksRecord(guard, r) {
 					continue
 				}
 				if r.Kind == conversationKind {

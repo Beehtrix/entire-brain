@@ -50,7 +50,7 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 		return nil, err
 	}
 	sessions := historySessionByTranscriptPath(manifest)
-	if _, err := loadSessionReadGuard(brainDir, manifest); err != nil {
+	if _, err := bmanifest.LoadSessionReadGuard(brainDir, manifest); err != nil {
 		return nil, err
 	}
 	store := newTranscriptStore(runner, brainDir)

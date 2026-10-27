@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"strings"
 
@@ -108,6 +109,17 @@ func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(),
 	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
 }
 
+// commitVizRetrievalResponse is the viz HTTP transport's final privacy
+// boundary: it binds the cli race seams and the locked-policy write around the
+// buffered response commit (injected as viz.Deps.CommitRetrievalResponse).
+func commitVizRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
+	beforeRetrievalResponsePrivacyEmissionCheck()
+	return withLockedRetrievalPrivacyPolicies(policies, func() error {
+		beforeRetrievalResponseWrite()
+		return write()
+	})
+}
+
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
 // tombstone that appears after ranking either makes the authoritative derived
 // state dirty (and fails the response closed) or is fully cleaned and reaches
@@ -125,7 +137,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	if err != nil {
 		return nil, "", err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, "", err
 	}
@@ -156,7 +168,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	}
 	kept := make([]unifiedResult, 0, len(results))
 	for _, result := range results {
-		if guard.BlocksSession(result.SessionID) || guardBlocksRecord(guard, historyRecord{Path: result.Path}) {
+		if guard.BlocksSession(result.SessionID) || historystore.GuardBlocksRecord(guard, historyRecord{Path: result.Path}) {
 			continue
 		}
 		if result.SessionRef != "" && !allowedRefs[result.SessionRef] {

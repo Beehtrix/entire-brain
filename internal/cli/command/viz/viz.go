@@ -1,4 +1,4 @@
-package cli
+package viz
 
 import (
 	"bytes"
@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
@@ -27,6 +29,7 @@ import (
 	"time"
 
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
@@ -39,7 +42,7 @@ import (
 const vizGraphMaxView = 300000
 
 // vizGraphMaxEdges is the absolute ceiling on rendered edges. The per-request cap
-// (see handleGraph) scales with the node count so a full graph shows its real
+// (see HandleGraph) scales with the node count so a full graph shows its real
 // structure instead of an artificially sparse thread; this just bounds the worst
 // case for payload + per-frame draw cost.
 const vizGraphMaxEdges = 90000
@@ -49,24 +52,24 @@ const vizGraphMaxEdges = 90000
 const vizSearchMaxHits = 500
 
 // vizGraphViewCap bounds how many symbols actually render in the semantic view.
-// We load a wider pool (see handleGraph), compute degree, then keep the most-
+// We load a wider pool (see HandleGraph), compute degree, then keep the most-
 // connected symbols so the default graph is a legible, connected constellation
 // instead of a hairball of arbitrary, mostly-isolated nodes. Drilling in via the
 // inspector's "Expand neighbors" pulls in the rest on demand. 0 = render
 // everything up to the vizGraphMaxView safety ceiling.
 const vizGraphViewCap = 1400
 
-type vizFlags struct {
-	port   int
-	branch string
-	noOpen bool
+type Flags struct {
+	Port   int
+	Branch string
+	NoOpen bool
 }
 
-// newVizCommand builds `entire brain viz` — a local, no-egress web interface
+// New builds `entire brain viz` — a local, no-egress web interface
 // that renders the brain's semantic graph. It mirrors newDashCommand's shape
 // (dash.go) but serves a browser UI instead of a terminal TUI.
-func newVizCommand(opts Options) *cobra.Command {
-	var flags vizFlags
+func New(cfg Config) *cobra.Command {
+	var flags Flags
 	cmd := &cobra.Command{
 		Use:   "viz [path]",
 		Short: "Explore the brain as a graph in your browser",
@@ -78,38 +81,39 @@ It binds to 127.0.0.1 only, serves a self-contained embedded UI (no CDN), and
 reads the brain from disk read-only: no agent calls, no outbound network.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runViz(cmd.Context(), cmd, opts, flags, agentSurfaceTarget(opts, args))
+			return Run(cmd.Context(), cmd, cfg, flags, cfg.Deps.AgentSurfaceTarget(cfg.Options, args))
 		},
 	}
-	cmd.Flags().IntVar(&flags.port, "port", 0, "Port to bind on 127.0.0.1 (0 = auto-pick a free port)")
-	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose brain to load (default: current branch)")
-	cmd.Flags().BoolVar(&flags.noOpen, "no-open", false, "Do not open a browser automatically")
+	cmd.Flags().IntVar(&flags.Port, "port", 0, "Port to bind on 127.0.0.1 (0 = auto-pick a free port)")
+	cmd.Flags().StringVar(&flags.Branch, "branch", "", "Branch whose brain to load (default: current branch)")
+	cmd.Flags().BoolVar(&flags.NoOpen, "no-open", false, "Do not open a browser automatically")
 	return cmd
 }
 
-// vizServer holds the resolved brain location for the lifetime of one server.
+// Server holds the resolved brain location for the lifetime of one server.
 // Like the dashboard, it captures a single brain (brainDir/branch/manifest) at
 // startup; re-run `viz` to pick up a fresh `refresh`.
-type vizServer struct {
-	repoDir       string
-	brainDir      string
-	branch        string
-	manifest      *exportManifest
+type Server struct {
+	RepoDir       string
+	BrainDir      string
+	Branch        string
+	Manifest      *bmanifest.Manifest
+	Deps          Deps
 	guardMu       sync.Mutex
-	guard         sessionReadGuard
-	guardObserved bool
+	Guard         brainstore.SessionReadGuard
+	GuardObserved bool
 	// repo coordinates parsed from the brain key (provider/owner/repo), used to
 	// build real entire.io + source links. Empty provider = local repo (no links).
-	provider string
-	owner    string
-	repo     string
+	Provider string
+	Owner    string
+	Repo     string
 	// symPool caches the largest symbol prefix loaded so far. The brain is
 	// captured once at startup and never changes for the server's lifetime, and
 	// semstore.LoadSymbols returns a stable storage-order prefix, so any smaller
 	// pool is a slice of a larger one — slider moves after the first load never
 	// re-parse the store. symPoolFull means the cache holds the entire store.
 	symMu       sync.Mutex
-	symPool     []semanticRecord
+	symPool     []semstore.Record
 	symPoolFull bool
 }
 
@@ -117,52 +121,52 @@ type vizServer struct {
 // out so the no-egress invariant (unreachable off-host) is unit-testable.
 func vizListenAddr(port int) string { return "127.0.0.1:" + strconv.Itoa(port) }
 
-func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlags, target string) error {
-	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, target, flags.branch)
+func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, target string) error {
+	repoDir, brainDir, branch, err := cfg.Deps.ResolveFactsTarget(ctx, cfg.Options, target, flags.Branch)
 	if err != nil {
 		return err
 	}
 
 	// Best-effort: an unbuilt brain still serves — the UI shows an empty state
 	// ("run `entire brain refresh`") rather than failing the command.
-	var manifest *exportManifest
-	if status, serr := buildBrainStatusReport(ctx, opts, target); serr == nil {
-		manifest = status.Manifest
+	var manifest *bmanifest.Manifest
+	if m, serr := cfg.Deps.BrainManifest(ctx, cfg.Options, target); serr == nil {
+		manifest = m
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
 
-	srv := &vizServer{
-		repoDir: repoDir, brainDir: brainDir, branch: branch, manifest: manifest,
-		guard: guard, guardObserved: !guard.Empty(),
+	srv := &Server{
+		RepoDir: repoDir, BrainDir: brainDir, Branch: branch, Manifest: manifest, Deps: cfg.Deps,
+		Guard: guard, GuardObserved: !guard.Empty(),
 	}
 	// The manifest's RepoKey is the canonical key (it survives nested owner
 	// groups and any store-layout change); the brainDir tail is the fallback.
 	if manifest != nil && manifest.RepoKey != "" {
-		srv.provider, srv.owner, srv.repo = parseRepoFromKey(manifest.RepoKey)
+		srv.Provider, srv.Owner, srv.Repo = parseRepoFromKey(manifest.RepoKey)
 	} else {
-		srv.provider, srv.owner, srv.repo = parseRepoFromBrainDir(brainDir)
+		srv.Provider, srv.Owner, srv.Repo = parseRepoFromBrainDir(brainDir)
 	}
 
 	// Build the handler before binding so a broken embed fails the command
 	// outright instead of printing a URL that serves a blank UI.
-	handler, err := srv.mux()
+	handler, err := srv.Mux()
 	if err != nil {
 		return err
 	}
 
 	// Loopback only — never 0.0.0.0. The interface is a personal, read-only view
 	// of local data and must not be reachable off-host.
-	ln, err := net.Listen("tcp", vizListenAddr(flags.port))
+	ln, err := net.Listen("tcp", vizListenAddr(flags.Port))
 	if err != nil {
 		return fmt.Errorf("bind viz server: %w", err)
 	}
 	url := "http://" + ln.Addr().String()
 	fmt.Fprintf(cmd.OutOrStdout(), "entire brain viz — %s\n", url)
 	fmt.Fprintln(cmd.OutOrStdout(), "Read-only, loopback-only, no network. Press Ctrl-C to stop.")
-	if !flags.noOpen {
+	if !flags.NoOpen {
 		openBrowser(url)
 	}
 
@@ -171,7 +175,7 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 	// generous because it spans handler time too, and a maxed node-count slider
 	// legitimately produces a large response.
 	httpSrv := &http.Server{
-		Handler:           vizSecurityHeaders(handler),
+		Handler:           SecurityHeaders(handler),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      5 * time.Minute,
@@ -190,17 +194,17 @@ func runViz(ctx context.Context, cmd *cobra.Command, opts Options, flags vizFlag
 	return nil
 }
 
-func (s *vizServer) mux() (http.Handler, error) {
+func (s *Server) Mux() (http.Handler, error) {
 	m := http.NewServeMux()
-	m.HandleFunc("/api/summary", s.handleSummary)
-	m.HandleFunc("/api/graph", s.handleGraph)
-	m.HandleFunc("/api/node", s.handleNode)
-	m.HandleFunc("/api/search", s.handleSearch)
-	m.HandleFunc("/api/facts", s.handleFacts)
-	m.HandleFunc("/api/sessions", s.handleSessions)
-	m.HandleFunc("/api/session/replay", s.handleSessionReplay)
-	m.HandleFunc("/api/history", s.handleHistory)
-	m.HandleFunc("/api/docs", s.handleDocs)
+	m.HandleFunc("/api/summary", s.HandleSummary)
+	m.HandleFunc("/api/graph", s.HandleGraph)
+	m.HandleFunc("/api/node", s.HandleNode)
+	m.HandleFunc("/api/search", s.HandleSearch)
+	m.HandleFunc("/api/facts", s.HandleFacts)
+	m.HandleFunc("/api/sessions", s.HandleSessions)
+	m.HandleFunc("/api/session/replay", s.HandleSessionReplay)
+	m.HandleFunc("/api/history", s.HandleHistory)
+	m.HandleFunc("/api/docs", s.HandleDocs)
 	// A missing embed is a build error — fail the command loudly rather than
 	// serving an API with a blank, unexplained 404 UI at /.
 	sub, err := fs.Sub(entirebrain.WebUI, "webui/dist")
@@ -245,13 +249,13 @@ func copyHTTPHeaders(dst, src http.Header) {
 // privacyResponseMiddleware is the HTTP equivalent of the CLI's buffered final
 // writer. A tombstone cannot linearize between the last policy check and the
 // first response byte because both use the same per-Brain write lock.
-func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
+func (s *Server) privacyResponseMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(s.brainDir)
+		policy, err := brainstore.CaptureRetrievalPrivacyPolicy(s.BrainDir)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusServiceUnavailable)
 			return
@@ -262,9 +266,7 @@ func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
-		beforeRetrievalResponsePrivacyEmissionCheck()
-		err = withLockedRetrievalPrivacyPolicies([]retrievalPrivacyPolicy{policy}, func() error {
-			beforeRetrievalResponseWrite()
+		err = s.Deps.CommitRetrievalResponse([]brainstore.RetrievalPrivacyPolicy{policy}, func() error {
 			copyHTTPHeaders(w.Header(), buffered.header)
 			w.WriteHeader(status)
 			if buffered.body.Len() == 0 {
@@ -284,10 +286,10 @@ func (s *vizServer) privacyResponseMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// vizSecurityHeaders makes the no-egress guarantee machine-checkable: the CSP
+// SecurityHeaders makes the no-egress guarantee machine-checkable: the CSP
 // forbids any off-origin fetch (script/style/img/font/connect all 'self'), so
 // even a compromised asset can't call home. Structural, not just a comment.
-func vizSecurityHeaders(next http.Handler) http.Handler {
+func SecurityHeaders(next http.Handler) http.Handler {
 	const csp = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; object-src 'none'"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", csp)
@@ -297,9 +299,9 @@ func vizSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// ---- JSON view models (clean shapes; never leak raw semanticRecord) ----
+// ---- JSON view models (clean shapes; never leak raw semstore.Record) ----
 
-type vizNode struct {
+type Node struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	QualifiedName string `json:"qualified_name,omitempty"`
@@ -311,7 +313,7 @@ type vizNode struct {
 	ContainerID   string `json:"container_id,omitempty"`
 }
 
-type vizEdge struct {
+type Edge struct {
 	From       string  `json:"from"`
 	To         string  `json:"to"`
 	Type       string  `json:"type"`
@@ -320,25 +322,25 @@ type vizEdge struct {
 	Resolution string  `json:"resolution,omitempty"`
 }
 
-type vizGraphResp struct {
-	Nodes     []vizNode `json:"nodes"`
-	Edges     []vizEdge `json:"edges"`
-	Total     int       `json:"total,omitempty"`
-	Truncated bool      `json:"truncated,omitempty"`
-	Warnings  []string  `json:"warnings,omitempty"`
+type GraphResp struct {
+	Nodes     []Node   `json:"nodes"`
+	Edges     []Edge   `json:"edges"`
+	Total     int      `json:"total,omitempty"`
+	Truncated bool     `json:"truncated,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
-type vizNodeResp struct {
-	Symbol    vizNode   `json:"symbol"`
-	Neighbors []vizNode `json:"neighbors"`
-	Relations []vizEdge `json:"relations"`
-	Snippet   string    `json:"snippet,omitempty"`
-	Link      string    `json:"link,omitempty"`
-	LinkLabel string    `json:"link_label,omitempty"`
-	Warnings  []string  `json:"warnings,omitempty"`
+type NodeResp struct {
+	Symbol    Node     `json:"symbol"`
+	Neighbors []Node   `json:"neighbors"`
+	Relations []Edge   `json:"relations"`
+	Snippet   string   `json:"snippet,omitempty"`
+	Link      string   `json:"link,omitempty"`
+	LinkLabel string   `json:"link_label,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
-type vizCounts struct {
+type Counts struct {
 	Symbols   int `json:"symbols"`
 	Relations int `json:"relations"`
 	Files     int `json:"files"`
@@ -348,15 +350,15 @@ type vizCounts struct {
 	Docs      int `json:"docs"`
 }
 
-type vizSummaryResp struct {
-	Repo        string    `json:"repo"`
-	Branch      string    `json:"branch"`
-	GeneratedAt string    `json:"generated_at,omitempty"`
-	Counts      vizCounts `json:"counts"`
-	Warnings    []string  `json:"warnings,omitempty"`
+type SummaryResp struct {
+	Repo        string   `json:"repo"`
+	Branch      string   `json:"branch"`
+	GeneratedAt string   `json:"generated_at,omitempty"`
+	Counts      Counts   `json:"counts"`
+	Warnings    []string `json:"warnings,omitempty"`
 }
 
-type vizHit struct {
+type Hit struct {
 	Source string  `json:"source"`
 	ID     string  `json:"id"`
 	Title  string  `json:"title,omitempty"`
@@ -367,20 +369,20 @@ type vizHit struct {
 	Score  float64 `json:"score,omitempty"`
 }
 
-type vizSearchResp struct {
-	Hits []vizHit `json:"hits"`
+type SearchResp struct {
+	Hits []Hit `json:"hits"`
 }
 
-func nodeJSON(r semanticRecord) vizNode {
-	return vizNode{
+func nodeJSON(r semstore.Record) Node {
+	return Node{
 		ID: r.ID, Name: r.Name, QualifiedName: r.QualifiedName, Kind: r.Kind,
 		File: r.FilePath, Line: r.StartLine, Language: r.Language,
 		Signature: r.Signature, ContainerID: r.ContainerID,
 	}
 }
 
-func edgeJSON(r semanticRecord) vizEdge {
-	return vizEdge{From: r.FromID, To: r.ToID, Type: r.Type, Confidence: r.Confidence, Scope: r.RelationScope, Resolution: r.Resolution}
+func edgeJSON(r semstore.Record) Edge {
+	return Edge{From: r.FromID, To: r.ToID, Type: r.Type, Confidence: r.Confidence, Scope: r.RelationScope, Resolution: r.Resolution}
 }
 
 // ---- handlers ----
@@ -389,26 +391,26 @@ func edgeJSON(r semanticRecord) vizEdge {
 // coordinates when known, else the repo directory's basename. Never the
 // absolute local path — the frontend splits on '/' (wrong on Windows) and the
 // filesystem layout is nobody's business.
-func (s *vizServer) repoDisplayName() string {
-	if s.provider != "" {
-		return s.provider + "/" + s.owner + "/" + s.repo
+func (s *Server) repoDisplayName() string {
+	if s.Provider != "" {
+		return s.Provider + "/" + s.Owner + "/" + s.Repo
 	}
-	if s.repoDir == "" {
+	if s.RepoDir == "" {
 		return ""
 	}
-	return filepath.Base(strings.TrimRight(s.repoDir, `/\`))
+	return filepath.Base(strings.TrimRight(s.RepoDir, `/\`))
 }
 
-func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleSummary(w http.ResponseWriter, r *http.Request) {
 	guard, ok := s.requestSessionGuard(w)
 	if !ok {
 		return
 	}
-	resp := vizSummaryResp{Repo: s.repoDisplayName(), Branch: s.branch}
+	resp := SummaryResp{Repo: s.repoDisplayName(), Branch: s.Branch}
 	// Counts come straight from the manifest captured at startup. Rebuilding the
 	// full status report here costs several seconds on large brains and would
 	// block the very first paint of the hub — so we don't. docstore.Load is cheap.
-	if m := s.manifest; m != nil && m.Sources != nil {
+	if m := s.Manifest; m != nil && m.Sources != nil {
 		if sem := m.Sources.Semantic; sem != nil {
 			resp.Counts.Symbols = sem.Symbols
 			resp.Counts.Relations = sem.Relations
@@ -427,18 +429,18 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 			resp.Counts.Sessions = len(s.sessionsFromManifest(guard))
 		}
 	}
-	if docs, err := docstore.Load(s.brainDir); err == nil {
+	if docs, err := docstore.Load(s.BrainDir); err == nil {
 		resp.Counts.Docs = len(docs.Records)
 	}
 	writeJSONHTTP(w, http.StatusOK, resp)
 }
 
 // sessionsFromManifest returns the export sessions captured in the manifest.
-func (s *vizServer) sessionsFromManifest(guard sessionReadGuard) []exportSession {
-	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.Sessions == nil {
+func (s *Server) sessionsFromManifest(guard brainstore.SessionReadGuard) []bmanifest.Session {
+	if s.Manifest == nil || s.Manifest.Sources == nil || s.Manifest.Sources.Sessions == nil {
 		return nil
 	}
-	return guardExportSessions(guard, s.manifest.Sources.Sessions.Sessions)
+	return bmanifest.GuardSessions(guard, s.Manifest.Sources.Sessions.Sessions)
 }
 
 // requestSessionGuard reloads privacy state at every HTTP request boundary.
@@ -448,32 +450,32 @@ func (s *vizServer) sessionsFromManifest(guard sessionReadGuard) []exportSession
 // If the policy file unexpectedly disappears, retain the startup guard as a
 // conservative denial until an explicit current (possibly empty) policy is
 // written or the server restarts.
-func (s *vizServer) requestSessionGuard(w http.ResponseWriter) (sessionReadGuard, bool) {
+func (s *Server) requestSessionGuard(w http.ResponseWriter) (brainstore.SessionReadGuard, bool) {
 	// Serialize refreshes so one request cannot replace a newer valid policy
 	// snapshot with an older one while another request is reading it.
 	s.guardMu.Lock()
 	defer s.guardMu.Unlock()
 
-	stones, state, err := brainstore.LoadSessionTombstonesChecked(s.brainDir)
+	stones, state, err := brainstore.LoadSessionTombstonesChecked(s.BrainDir)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusServiceUnavailable, map[string]any{
-			"error": commandErrorCode(err), "message": "session privacy state is unavailable",
+			"error": cmdutil.CommandErrorCode(err), "message": "session privacy state is unavailable",
 		})
-		return sessionReadGuard{}, false
+		return brainstore.SessionReadGuard{}, false
 	}
-	if state.State == brainstore.SessionTombstoneAbsent && s.guardObserved {
-		return s.guard, true
+	if state.State == brainstore.SessionTombstoneAbsent && s.GuardObserved {
+		return s.Guard, true
 	}
 	if state.State == brainstore.SessionTombstoneCurrent {
-		s.guardObserved = true
+		s.GuardObserved = true
 		if len(stones.Excluded) == 0 {
-			s.guard = sessionReadGuard{}
+			s.Guard = brainstore.SessionReadGuard{}
 		} else {
-			s.guard = sessionReadGuard{IDs: stones.Excluded, Paths: excludedTranscriptPaths(s.manifest, stones)}
+			s.Guard = brainstore.SessionReadGuard{IDs: stones.Excluded, Paths: bmanifest.ExcludedTranscriptPaths(s.Manifest, stones)}
 		}
-		return s.guard, true
+		return s.Guard, true
 	}
-	return s.guard, true
+	return s.Guard, true
 }
 
 // vizQueryLimit parses ?limit with the shared safety policy: invalid input
@@ -494,9 +496,9 @@ func vizQueryLimit(r *http.Request, def int) int {
 
 // ---- feature graph endpoints (each brain feature rendered as a graph) ----
 
-// vizGNode is a node in a feature graph. Group drives its color/shape in the UI;
+// GNode is a node in a feature graph. Group drives its color/shape in the UI;
 // Link is a real, clickable URL (an entire.io session page, a source file, ...).
-type vizGNode struct {
+type GNode struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Kind      string `json:"kind,omitempty"`
@@ -510,34 +512,34 @@ type vizGNode struct {
 	Line      int    `json:"line,omitempty"`
 }
 
-type vizGEdge struct {
+type GEdge struct {
 	From string `json:"from"`
 	To   string `json:"to"`
 	Type string `json:"type,omitempty"`
 }
 
-type vizFeatureGraph struct {
-	Nodes     []vizGNode `json:"nodes"`
-	Edges     []vizGEdge `json:"edges"`
-	Total     int        `json:"total"`
-	Truncated bool       `json:"truncated,omitempty"`
-	Warnings  []string   `json:"warnings,omitempty"`
+type FeatureGraph struct {
+	Nodes     []GNode  `json:"nodes"`
+	Edges     []GEdge  `json:"edges"`
+	Total     int      `json:"total"`
+	Truncated bool     `json:"truncated,omitempty"`
+	Warnings  []string `json:"warnings,omitempty"`
 }
 
 const (
 	colorFact    = "#fbbf24"
-	colorSession = "#818cf8"
-	colorHistory = "#f25333"
+	ColorSession = "#818cf8"
+	ColorHistory = "#f25333"
 	colorDoc     = "#34d399"
 )
 
 // vizLinkSlugs are the forge slugs whose brain keys map to real web URLs —
-// derived once at init from the canonical slug table (knownRepoDomainSlugs,
+// derived once at init from the canonical slug table (base.KnownRepoDomainSlugs,
 // env.go) so a newly supported forge gets links here automatically instead of
 // silently losing them to a stale hardcoded subset.
 var vizLinkSlugs = func() map[string]bool {
-	out := make(map[string]bool, len(knownRepoDomainSlugs))
-	for _, slug := range knownRepoDomainSlugs {
+	out := make(map[string]bool, len(base.KnownRepoDomainSlugs))
+	for _, slug := range base.KnownRepoDomainSlugs {
 		out[slug] = true
 	}
 	return out
@@ -585,12 +587,12 @@ func vizWebBase() string {
 }
 
 // sessionLink is the real entire.io page for a session.
-func (s *vizServer) sessionLink(id string) string {
+func (s *Server) sessionLink(id string) string {
 	id = strings.TrimSpace(id)
-	if id == "" || s.provider == "" {
+	if id == "" || s.Provider == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s/%s/%s/%s/session/%s", vizWebBase(), s.provider, s.owner, s.repo, url.PathEscape(id))
+	return fmt.Sprintf("%s/%s/%s/%s/session/%s", vizWebBase(), s.Provider, s.Owner, s.Repo, url.PathEscape(id))
 }
 
 // vizEscapePath percent-encodes each segment of a slash-separated path so
@@ -605,18 +607,18 @@ func vizEscapePath(p string) string {
 }
 
 // sourceLink is the forge page for a source file (GitHub blob for gh repos).
-func (s *vizServer) sourceLink(file string, line int) string {
+func (s *Server) sourceLink(file string, line int) string {
 	// Store paths are not normalized on write, so on Windows they can carry
 	// backslashes — which vizEscapePath would percent-encode into a broken URL.
 	file = strings.TrimSpace(filepath.ToSlash(file))
-	if file == "" || s.provider != "gh" {
+	if file == "" || s.Provider != "gh" {
 		return ""
 	}
-	branch := s.branch
+	branch := s.Branch
 	if branch == "" {
 		branch = "HEAD"
 	}
-	u := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", s.owner, s.repo, vizEscapePath(branch), vizEscapePath(file))
+	u := fmt.Sprintf("https://github.com/%s/%s/blob/%s/%s", s.Owner, s.Repo, vizEscapePath(branch), vizEscapePath(file))
 	if line > 0 {
 		u += fmt.Sprintf("#L%d", line)
 	}
@@ -653,7 +655,7 @@ func vizEdgeKey(a, b string) string {
 // edge count.
 // dedupEdges drops duplicate undirected edges (keeping the first), so combining
 // several link passes (e.g. shared-topic + same-file) never double-counts a pair.
-func dedupEdges(edges []vizGEdge) []vizGEdge {
+func dedupEdges(edges []GEdge) []GEdge {
 	seen := make(map[string]bool, len(edges))
 	out := edges[:0]
 	for _, e := range edges {
@@ -667,8 +669,8 @@ func dedupEdges(edges []vizGEdge) []vizGEdge {
 	return out
 }
 
-func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []vizGEdge {
-	var edges []vizGEdge
+func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []GEdge {
+	var edges []GEdge
 	seen := map[string]bool{}
 	for _, ids := range keyToIDs {
 		if len(ids) < 2 {
@@ -684,7 +686,7 @@ func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []
 					continue
 				}
 				seen[k] = true
-				edges = append(edges, vizGEdge{From: ids[i], To: ids[j], Type: typ})
+				edges = append(edges, GEdge{From: ids[i], To: ids[j], Type: typ})
 			}
 		}
 	}
@@ -694,7 +696,7 @@ func linkBySharedKey(keyToIDs map[string][]string, typ string, capPerKey int) []
 // factBranches lists the branches whose facts to show — the current branch first,
 // then every branch the manifest records. Facts are branch-scoped on disk, but
 // the Facts view is a whole-brain view, so it aggregates across branches.
-func (s *vizServer) factBranches() []string {
+func (s *Server) factBranches() []string {
 	out := []string{}
 	seen := map[string]bool{}
 	add := func(b string) {
@@ -704,34 +706,34 @@ func (s *vizServer) factBranches() []string {
 			out = append(out, b)
 		}
 	}
-	add(s.branch)
-	if s.manifest != nil && s.manifest.Sources != nil && s.manifest.Sources.Facts != nil {
-		for _, b := range s.manifest.Sources.Facts.Branches {
+	add(s.Branch)
+	if s.Manifest != nil && s.Manifest.Sources != nil && s.Manifest.Sources.Facts != nil {
+		for _, b := range s.Manifest.Sources.Facts.Branches {
 			add(b)
 		}
 	}
 	if len(out) == 0 {
-		out = append(out, s.branch)
+		out = append(out, s.Branch)
 	}
 	return out
 }
 
-func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleFacts(w http.ResponseWriter, r *http.Request) {
 	guard, ok := s.requestSessionGuard(w)
 	if !ok {
 		return
 	}
 	limit := vizQueryLimit(r, 3000)
 	seen := map[string]bool{}
-	all := []factRecord{}
+	all := []factmerge.Record{}
 	var warnings []string
 	for _, br := range s.factBranches() {
-		fs, err := factstore.Load(s.brainDir, br)
+		fs, err := factstore.Load(s.BrainDir, br)
 		if err != nil {
 			warnings = append(warnings, "facts["+br+"]: "+err.Error())
 			continue
 		}
-		fs = guardFactRecords(guard, fs)
+		fs = factstore.GuardRecords(guard, fs)
 		for _, f := range fs {
 			// Graph node IDs must be unique and non-empty; a record without one
 			// (corrupt or hand-edited store) would collide with its siblings in
@@ -749,7 +751,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 		all = all[:limit]
 	}
 	idset := map[string]bool{}
-	nodes := make([]vizGNode, 0, len(all))
+	nodes := make([]GNode, 0, len(all))
 	locusMap := map[string][]string{}
 	for _, f := range all {
 		idset[f.ID] = true
@@ -766,7 +768,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 		if f.Confidence != "" {
 			conf = "conf " + f.Confidence
 		}
-		nodes = append(nodes, vizGNode{ID: f.ID, Name: vizShortLabel(f.Text, 6), Kind: f.Kind, Group: "fact", Color: colorFact, Text: f.Text, Meta: vizJoinMeta(f.Kind, f.Status, f.Origin, conf), Link: link, LinkLabel: label})
+		nodes = append(nodes, GNode{ID: f.ID, Name: vizShortLabel(f.Text, 6), Kind: f.Kind, Group: "fact", Color: colorFact, Text: f.Text, Meta: vizJoinMeta(f.Kind, f.Status, f.Origin, conf), Link: link, LinkLabel: label})
 		for _, l := range f.Locus {
 			key := strings.ToLower(strings.TrimSpace(l))
 			if key != "" {
@@ -774,7 +776,7 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	edges := []vizGEdge{}
+	edges := []GEdge{}
 	relSeen := map[string]bool{}
 	for _, f := range all {
 		for _, rid := range f.RelatedIDs {
@@ -786,18 +788,18 @@ func (s *vizServer) handleFacts(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			relSeen[k] = true
-			edges = append(edges, vizGEdge{From: f.ID, To: rid, Type: "related"})
+			edges = append(edges, GEdge{From: f.ID, To: rid, Type: "related"})
 		}
 	}
 	edges = append(edges, linkBySharedKey(locusMap, "shared locus", 6)...)
-	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc, Warnings: warnings})
+	writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc, Warnings: warnings})
 }
 
 // vizSessionFallbackText builds a compact, factual markdown body for a session
 // with no recorded summary, so its sidebar is never blank. It leans on data we
 // already have — the basenames of the files it touched (capped) — and falls back
 // to a short note only when truly nothing is known.
-func vizSessionFallbackText(se exportSession) string {
+func vizSessionFallbackText(se bmanifest.Session) string {
 	fps := make([]string, 0, len(se.FilesTouched))
 	for _, fp := range se.FilesTouched {
 		if fp = strings.TrimSpace(fp); fp != "" {
@@ -823,7 +825,7 @@ func vizSessionFallbackText(se exportSession) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleSessions(w http.ResponseWriter, r *http.Request) {
 	guard, ok := s.requestSessionGuard(w)
 	if !ok {
 		return
@@ -833,7 +835,7 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	// Filter before counting so Total and the slider's "N of total" stay
 	// consistent with the nodes actually served.
 	all := s.sessionsFromManifest(guard)
-	sessions := make([]exportSession, 0, len(all))
+	sessions := make([]bmanifest.Session, 0, len(all))
 	for _, se := range all {
 		if se.SessionID != "" {
 			sessions = append(sessions, se)
@@ -844,7 +846,7 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		sessions = sessions[:limit]
 	}
-	nodes := make([]vizGNode, 0, len(sessions))
+	nodes := make([]GNode, 0, len(sessions))
 	fileMap := map[string][]string{}
 	for _, se := range sessions {
 		created := ""
@@ -865,7 +867,7 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		text := ""
 		if se.Summary != nil {
-			text = strings.TrimSpace(firstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
+			text = strings.TrimSpace(base.FirstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
 		}
 		if text == "" {
 			// No recorded summary → synthesize a factual body from the files it
@@ -878,7 +880,7 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if link != "" {
 			label = "Open in Entire"
 		}
-		nodes = append(nodes, vizGNode{ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: colorSession, Text: text, Meta: vizJoinMeta(created, files, cps), Link: link, LinkLabel: label})
+		nodes = append(nodes, GNode{ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: ColorSession, Text: text, Meta: vizJoinMeta(created, files, cps), Link: link, LinkLabel: label})
 		for _, fp := range se.FilesTouched {
 			if fp = strings.TrimSpace(fp); fp != "" {
 				fileMap[fp] = append(fileMap[fp], se.SessionID)
@@ -886,45 +888,45 @@ func (s *vizServer) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	edges := linkBySharedKey(fileMap, "shared file", 8)
-	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
+	writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
-type vizReplayStep struct {
+type ReplayStep struct {
 	File string   `json:"file"`
 	IDs  []string `json:"ids"`
 }
 
-type vizReplayResp struct {
-	Session  *vizGNode       `json:"session,omitempty"`
-	Files    []string        `json:"files"`
-	Steps    []vizReplayStep `json:"steps"`
-	Nodes    []vizGNode      `json:"nodes"`
-	Edges    []vizGEdge      `json:"edges"`
-	Total    int             `json:"total"`
-	Warnings []string        `json:"warnings,omitempty"`
+type ReplayResp struct {
+	Session  *GNode       `json:"session,omitempty"`
+	Files    []string     `json:"files"`
+	Steps    []ReplayStep `json:"steps"`
+	Nodes    []GNode      `json:"nodes"`
+	Edges    []GEdge      `json:"edges"`
+	Total    int          `json:"total"`
+	Warnings []string     `json:"warnings,omitempty"`
 }
 
 // vizReplayMaxNodes bounds a replay subgraph so a session that touched hundreds
 // of files can't drag the force sim to its knees.
 const vizReplayMaxNodes = 1500
 
-// handleSessionReplay returns a session's touched-file symbols as a focused
+// HandleSessionReplay returns a session's touched-file symbols as a focused
 // semantic subgraph plus an ordered, per-file step list. The UI "replays" the
 // session across the code graph: light up each file's symbols in turn, tracing
 // the path the agent took through the codebase.
-func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleSessionReplay(w http.ResponseWriter, r *http.Request) {
 	guard, ok := s.requestSessionGuard(w)
 	if !ok {
 		return
 	}
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	resp := vizReplayResp{Files: []string{}, Steps: []vizReplayStep{}, Nodes: []vizGNode{}, Edges: []vizGEdge{}}
+	resp := ReplayResp{Files: []string{}, Steps: []ReplayStep{}, Nodes: []GNode{}, Edges: []GEdge{}}
 	if id == "" {
-		writeJSONHTTP(w, http.StatusBadRequest, vizReplayResp{Warnings: []string{"missing id"}})
+		writeJSONHTTP(w, http.StatusBadRequest, ReplayResp{Warnings: []string{"missing id"}})
 		return
 	}
 	sessions := s.sessionsFromManifest(guard)
-	var se *exportSession
+	var se *bmanifest.Session
 	for i := range sessions {
 		if sessions[i].SessionID == id {
 			se = &sessions[i]
@@ -932,7 +934,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if se == nil {
-		writeJSONHTTP(w, http.StatusNotFound, vizReplayResp{Warnings: []string{"session not found: " + id}})
+		writeJSONHTTP(w, http.StatusNotFound, ReplayResp{Warnings: []string{"session not found: " + id}})
 		return
 	}
 
@@ -946,7 +948,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	}
 	text := ""
 	if se.Summary != nil {
-		text = strings.TrimSpace(firstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
+		text = strings.TrimSpace(base.FirstNonEmpty(se.Summary.Intent, se.Summary.Outcome))
 	}
 	if text == "" {
 		// No recorded summary → synthesize a factual body from the files it
@@ -959,8 +961,8 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	if link != "" {
 		sessLabel = "Open in Entire"
 	}
-	resp.Session = &vizGNode{
-		ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: colorSession, Text: text,
+	resp.Session = &GNode{
+		ID: se.SessionID, Name: name, Kind: se.Kind, Group: "session", Color: ColorSession, Text: text,
 		Meta: vizJoinMeta(created, fmt.Sprintf("%d files", len(se.FilesTouched)), fmt.Sprintf("%d checkpoints", se.CheckpointsCount)),
 		Link: link, LinkLabel: sessLabel,
 	}
@@ -989,13 +991,13 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	// loading the whole symbol table to keep a handful of files' worth. The cap
 	// sits well above vizReplayMaxNodes so truncation happens at the node
 	// budget below, not mid-file here.
-	syms, err := semstore.SymbolsForFiles(s.brainDir, sem, resp.Files, vizReplayMaxNodes*4)
+	syms, err := semstore.SymbolsForFiles(s.BrainDir, sem, resp.Files, vizReplayMaxNodes*4)
 	if err != nil {
 		resp.Warnings = append(resp.Warnings, "code graph symbols: "+err.Error())
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
-	byFile := map[string][]semanticRecord{}
+	byFile := map[string][]semstore.Record{}
 	for i := range syms {
 		f := filepath.ToSlash(syms[i].FilePath)
 		if touched[f] {
@@ -1004,9 +1006,9 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 	}
 
 	idset := map[string]bool{}
-	kept := []semanticRecord{}
+	kept := []semstore.Record{}
 	for _, fp := range resp.Files {
-		step := vizReplayStep{File: fp, IDs: []string{}}
+		step := ReplayStep{File: fp, IDs: []string{}}
 		for i := range byFile[fp] {
 			sy := byFile[fp][i]
 			if !idset[sy.ID] {
@@ -1015,10 +1017,10 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 				}
 				idset[sy.ID] = true
 				kept = append(kept, sy)
-				resp.Nodes = append(resp.Nodes, vizGNode{
+				resp.Nodes = append(resp.Nodes, GNode{
 					ID: sy.ID, Name: sy.Name, Kind: sy.Kind, Group: sy.Kind,
 					File: filepath.ToSlash(sy.FilePath), Line: sy.StartLine,
-					Link: s.sourceLink(sy.FilePath, sy.StartLine), LinkLabel: vizSourceLabel(s.provider),
+					Link: s.sourceLink(sy.FilePath, sy.StartLine), LinkLabel: vizSourceLabel(s.Provider),
 				})
 			}
 			step.IDs = append(step.IDs, sy.ID)
@@ -1032,7 +1034,7 @@ func (s *vizServer) handleSessionReplay(w http.ResponseWriter, r *http.Request) 
 			for i := range rels {
 				e := rels[i]
 				if idset[e.FromID] && idset[e.ToID] {
-					resp.Edges = append(resp.Edges, vizGEdge{From: e.FromID, To: e.ToID, Type: e.Type})
+					resp.Edges = append(resp.Edges, GEdge{From: e.FromID, To: e.ToID, Type: e.Type})
 				}
 			}
 		}
@@ -1050,15 +1052,15 @@ func vizSourceLabel(provider string) string {
 func vizHistoryColor(kind string) string {
 	switch k := strings.ToLower(kind); {
 	case strings.Contains(k, "decision"):
-		return colorSession
+		return ColorSession
 	case strings.Contains(k, "learning"):
 		return "#22d3ee"
 	default:
-		return colorHistory
+		return ColorHistory
 	}
 }
 
-func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleHistory(w http.ResponseWriter, r *http.Request) {
 	guard, ok := s.requestSessionGuard(w)
 	if !ok {
 		return
@@ -1068,21 +1070,21 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// node-count slider lets you dial it up. The 0 sentinel and the vizGraphMaxView
 	// safety ceiling are enforced inside vizQueryLimit for every endpoint.
 	limit := vizQueryLimit(r, 1200)
-	if s.manifest == nil || s.manifest.Sources == nil || s.manifest.Sources.History == nil {
-		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"}})
+	if s.Manifest == nil || s.Manifest.Sources == nil || s.Manifest.Sources.History == nil {
+		writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: []GNode{}, Edges: []GEdge{}, Warnings: []string{"no history yet — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"}})
 		return
 	}
-	idx, err := historystore.LoadIndex(s.brainDir, s.manifest.Sources.History)
+	idx, err := historystore.LoadIndex(s.BrainDir, s.Manifest.Sources.History)
 	if err != nil {
-		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
+		writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: []GNode{}, Edges: []GEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
 		return
 	}
 	// Same defense as facts/docs: node IDs must be unique and non-empty, and
 	// the timeline spine below chains recs by ID — filter before counting.
-	recs := make([]historyRecord, 0, len(idx.Records))
+	recs := make([]historystore.Record, 0, len(idx.Records))
 	seen := make(map[string]bool, len(idx.Records))
 	for _, h := range idx.Records {
-		if h.ID == "" || seen[h.ID] || guardBlocksRecord(guard, h) {
+		if h.ID == "" || seen[h.ID] || historystore.GuardBlocksRecord(guard, h) {
 			continue
 		}
 		seen[h.ID] = true
@@ -1093,11 +1095,11 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		recs = recs[:limit]
 	}
-	nodes := make([]vizGNode, 0, len(recs))
+	nodes := make([]GNode, 0, len(recs))
 	termMap := map[string][]string{}
 	pathMap := map[string][]string{}
 	for _, h := range recs {
-		nodes = append(nodes, vizGNode{ID: h.ID, Name: vizShortLabel(h.Summary, 7), Kind: h.Kind, Group: "history", Color: vizHistoryColor(h.Kind), Text: h.Summary, Meta: vizJoinMeta(h.Kind, h.Branch, h.Path)})
+		nodes = append(nodes, GNode{ID: h.ID, Name: vizShortLabel(h.Summary, 7), Kind: h.Kind, Group: "history", Color: vizHistoryColor(h.Kind), Text: h.Summary, Meta: vizJoinMeta(h.Kind, h.Branch, h.Path)})
 		for _, t := range h.Terms {
 			key := strings.ToLower(strings.TrimSpace(t))
 			if len(key) > 2 {
@@ -1112,16 +1114,16 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	// connected stream over time rather than a scatter of isolated points.
 	// Spine before shared-key edges so the edge budget below truncates the
 	// fill-in edges, never the connectivity.
-	edges := make([]vizGEdge, 0, len(recs))
+	edges := make([]GEdge, 0, len(recs))
 	for i := 1; i < len(recs); i++ {
-		edges = append(edges, vizGEdge{From: recs[i-1].ID, To: recs[i].ID, Type: "then"})
+		edges = append(edges, GEdge{From: recs[i-1].ID, To: recs[i].ID, Type: "then"})
 	}
 	// Link by shared topic AND co-located history (same file); records touching
 	// the same file are related, which fills in the otherwise-sparse graph.
 	edges = append(edges, linkBySharedKey(termMap, "shared topic", 8)...)
 	edges = append(edges, linkBySharedKey(pathMap, "same file", 8)...)
 	edges = dedupEdges(edges)
-	// Same scaled edge budget as handleGraph — the renderer is tuned for at
+	// Same scaled edge budget as HandleGraph — the renderer is tuned for at
 	// most vizGraphMaxEdges regardless of which feature produced the graph.
 	edgeCap := len(recs) * 4
 	if edgeCap < 12000 {
@@ -1133,20 +1135,20 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 	if len(edges) > edgeCap {
 		edges = edges[:edgeCap]
 	}
-	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
+	writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
-func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleDocs(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 2000)
-	idx, err := docstore.Load(s.brainDir)
+	idx, err := docstore.Load(s.BrainDir)
 	if err != nil {
-		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})
+		writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: []GNode{}, Edges: []GEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})
 		return
 	}
 	// Same defense as facts/history: an empty ID (corrupt/hand-edited index)
 	// would make every such record collide on the node ID "doc:". Filter
 	// before counting so Total and the slider's "N of total" stay consistent.
-	recs := make([]docRecord, 0, len(idx.Records))
+	recs := make([]docstore.Record, 0, len(idx.Records))
 	for _, d := range idx.Records {
 		if d.ID != "" {
 			recs = append(recs, d)
@@ -1157,10 +1159,10 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	if trunc {
 		recs = recs[:limit]
 	}
-	nodes := make([]vizGNode, 0, len(recs))
+	nodes := make([]GNode, 0, len(recs))
 	pathMap := map[string][]string{}
 	for _, d := range recs {
-		name := firstNonEmpty(d.Heading, filepath.Base(d.Path))
+		name := base.FirstNonEmpty(d.Heading, filepath.Base(d.Path))
 		text := d.Text
 		if len(text) > 500 {
 			text = text[:500]
@@ -1173,13 +1175,13 @@ func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 		// "doc:" prefix matches the unified retrieval convention (retrieve.go),
 		// so /api/search doc hits resolve to these nodes in the UI.
 		id := "doc:" + d.ID
-		nodes = append(nodes, vizGNode{ID: id, Name: name, Group: "doc", Color: colorDoc, Text: text, Meta: d.Path, File: d.Path, Line: d.Line, Link: link, LinkLabel: label})
+		nodes = append(nodes, GNode{ID: id, Name: name, Group: "doc", Color: colorDoc, Text: text, Meta: d.Path, File: d.Path, Line: d.Line, Link: link, LinkLabel: label})
 		if d.Path != "" {
 			pathMap[d.Path] = append(pathMap[d.Path], id)
 		}
 	}
 	edges := linkBySharedKey(pathMap, "same file", 8)
-	writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
+	writeJSONHTTP(w, http.StatusOK, FeatureGraph{Nodes: nodes, Edges: edges, Total: total, Truncated: trunc})
 }
 
 func vizShortID(id string) string {
@@ -1192,9 +1194,9 @@ func vizShortID(id string) string {
 // semanticSymbolPool returns the first `pool` symbols, serving them from the
 // largest prefix already loaded when possible (see the symPool field docs).
 // Callers must not mutate the returned slice's records.
-func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([]semanticRecord, error) {
+func (s *Server) semanticSymbolPool(sem *bmanifest.SemanticSource, pool int) ([]semstore.Record, error) {
 	if pool <= 0 {
-		return semstore.LoadSymbols(s.brainDir, sem, pool)
+		return semstore.LoadSymbols(s.BrainDir, sem, pool)
 	}
 	s.symMu.Lock()
 	defer s.symMu.Unlock()
@@ -1204,7 +1206,7 @@ func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([
 		}
 		return s.symPool, nil
 	}
-	syms, err := semstore.LoadSymbols(s.brainDir, sem, pool)
+	syms, err := semstore.LoadSymbols(s.BrainDir, sem, pool)
 	if err != nil {
 		return nil, err
 	}
@@ -1213,14 +1215,14 @@ func (s *vizServer) semanticSymbolPool(sem *semanticSourceManifest, pool int) ([
 	return syms, nil
 }
 
-func (s *vizServer) semanticSource() *semanticSourceManifest {
-	if s.manifest == nil || s.manifest.Sources == nil {
+func (s *Server) semanticSource() *bmanifest.SemanticSource {
+	if s.Manifest == nil || s.Manifest.Sources == nil {
 		return nil
 	}
-	return s.manifest.Sources.Semantic
+	return s.Manifest.Sources.Semantic
 }
 
-func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleGraph(w http.ResponseWriter, r *http.Request) {
 	// `limit` is the number of symbols to RENDER (the node-count slider drives it).
 	// We load a wider pool, rank it by degree, and keep the top `limit` so the view
 	// is always the most-connected slice at any size the user picks. vizQueryLimit
@@ -1237,7 +1239,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if edgeCap > vizGraphMaxEdges {
 		edgeCap = vizGraphMaxEdges
 	}
-	resp := vizGraphResp{Nodes: []vizNode{}, Edges: []vizEdge{}}
+	resp := GraphResp{Nodes: []Node{}, Edges: []Edge{}}
 	sem := s.semanticSource()
 	if sem == nil {
 		resp.Warnings = append(resp.Warnings, "no code graph yet — run `"+base.BrainInvocation(os.LookupEnv, base.SemanticIndexVerb)+"`")
@@ -1284,7 +1286,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	if relLimit > 4*vizGraphMaxEdges {
 		relLimit = 4 * vizGraphMaxEdges
 	}
-	var rels []semanticRecord
+	var rels []semstore.Record
 	if r, rerr := s.relationsForSymbols(sem, syms, relLimit); rerr != nil {
 		resp.Warnings = append(resp.Warnings, "relations: "+rerr.Error())
 	} else {
@@ -1300,7 +1302,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	}
 	kept := syms
 	if view > 0 && len(syms) > view {
-		ranked := make([]semanticRecord, len(syms))
+		ranked := make([]semstore.Record, len(syms))
 		copy(ranked, syms)
 		sort.SliceStable(ranked, func(i, j int) bool { return deg[ranked[i].ID] > deg[ranked[j].ID] })
 		kept = ranked[:view]
@@ -1316,7 +1318,7 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	// edges that connect a still-unconnected node; pass 2 fills the remaining budget.
 	seen := make(map[string]bool)
 	covered := make(map[string]int)
-	addEdge := func(e semanticRecord) {
+	addEdge := func(e semstore.Record) {
 		k := vizEdgeKey(e.FromID, e.ToID)
 		if seen[k] {
 			return
@@ -1348,11 +1350,11 @@ func (s *vizServer) handleGraph(w http.ResponseWriter, r *http.Request) {
 	writeJSONHTTP(w, http.StatusOK, resp)
 }
 
-func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleNode(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(r.URL.Query().Get("id"))
-	resp := vizNodeResp{Neighbors: []vizNode{}, Relations: []vizEdge{}}
+	resp := NodeResp{Neighbors: []Node{}, Relations: []Edge{}}
 	if id == "" {
-		writeJSONHTTP(w, http.StatusBadRequest, vizNodeResp{Warnings: []string{"missing id"}})
+		writeJSONHTTP(w, http.StatusBadRequest, NodeResp{Warnings: []string{"missing id"}})
 		return
 	}
 	sem := s.semanticSource()
@@ -1368,7 +1370,7 @@ func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if node == nil {
-		writeJSONHTTP(w, http.StatusNotFound, vizNodeResp{Neighbors: []vizNode{}, Relations: []vizEdge{}, Warnings: []string{"symbol not found: " + id}})
+		writeJSONHTTP(w, http.StatusNotFound, NodeResp{Neighbors: []Node{}, Relations: []Edge{}, Warnings: []string{"symbol not found: " + id}})
 		return
 	}
 	resp.Symbol = nodeJSON(*node)
@@ -1386,7 +1388,7 @@ func (s *vizServer) handleNode(w http.ResponseWriter, r *http.Request) {
 	writeJSONHTTP(w, http.StatusOK, resp)
 }
 
-func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
+func (s *Server) HandleSearch(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := 25
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -1400,27 +1402,27 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if limit > vizSearchMaxHits {
 		limit = vizSearchMaxHits
 	}
-	resp := vizSearchResp{Hits: []vizHit{}}
+	resp := SearchResp{Hits: []Hit{}}
 	if q == "" {
 		writeJSONHTTP(w, http.StatusOK, resp)
 		return
 	}
 	// Symbol matches first so ⌘K / rail search can jump straight to a graph node.
 	if sem := s.semanticSource(); sem != nil {
-		if syms, _, _, err := semstore.ContextFacts(s.brainDir, sem, q, limit, 0); err == nil {
+		if syms, _, _, err := semstore.ContextFacts(s.BrainDir, sem, q, limit, 0); err == nil {
 			for _, sy := range syms {
-				resp.Hits = append(resp.Hits, vizHit{Source: "symbol", ID: sy.ID, Title: sy.Name, Text: sy.QualifiedName, Kind: sy.Kind, Path: sy.FilePath, Line: sy.StartLine})
+				resp.Hits = append(resp.Hits, Hit{Source: "symbol", ID: sy.ID, Title: sy.Name, Text: sy.QualifiedName, Kind: sy.Kind, Path: sy.FilePath, Line: sy.StartLine})
 			}
 		}
 	}
 	// Memory hits (facts / history / docs), same code path as `entire brain search`.
-	if u, err := retrieveUnified(s.repoDir, s.brainDir, s.branch, q, limit, retrieval.ModeLexical); err == nil {
+	if u, err := s.Deps.RetrieveUnified(s.RepoDir, s.BrainDir, s.Branch, q, limit, retrieval.ModeLexical); err == nil {
 		for _, h := range u {
 			text := h.Text
 			if h.VerificationRequired {
 				text = "VERIFY AGAINST CURRENT EVIDENCE: " + text
 			}
-			resp.Hits = append(resp.Hits, vizHit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: text, Path: h.Path, Line: h.Line, Score: h.Score})
+			resp.Hits = append(resp.Hits, Hit{Source: h.Source, ID: h.ID, Title: h.Heading, Text: text, Path: h.Path, Line: h.Line, Score: h.Score})
 		}
 	}
 	writeJSONHTTP(w, http.StatusOK, resp)
@@ -1430,8 +1432,8 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 // endpoint may be outside the set (the queries match from_id OR to_id); callers
 // that need both endpoints inside filter the result themselves. Mirrors the
 // SQLite-vs-snapshot branch semstore.ContextFacts uses (semantic.go).
-func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []semanticRecord, limit int) ([]semanticRecord, error) {
-	storePath, err := semstore.ValidateDeclaredStore(s.brainDir, sem)
+func (s *Server) relationsForSymbols(sem *bmanifest.SemanticSource, syms []semstore.Record, limit int) ([]semstore.Record, error) {
+	storePath, err := semstore.ValidateDeclaredStore(s.BrainDir, sem)
 	if err != nil {
 		return nil, err
 	}
@@ -1440,9 +1442,9 @@ func (s *vizServer) relationsForSymbols(sem *semanticSourceManifest, syms []sema
 
 // nodeDetail resolves one symbol by exact id plus its relations and neighbors,
 // mirroring semstore.ContextFacts but seeded by id rather than a search query.
-func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanticRecord, []semanticRecord, []semanticRecord, error) {
+func (s *Server) nodeDetail(sem *bmanifest.SemanticSource, id string) (*semstore.Record, []semstore.Record, []semstore.Record, error) {
 	const limit = 80
-	storePath, err := semstore.ValidateDeclaredStore(s.brainDir, sem)
+	storePath, err := semstore.ValidateDeclaredStore(s.BrainDir, sem)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -1454,11 +1456,11 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 	if !ok {
 		return nil, nil, nil, nil
 	}
-	rels, err := semstore.FindRelationsForSymbolsInSQLite(storePath, []semanticRecord{node}, limit*4)
+	rels, err := semstore.FindRelationsForSymbolsInSQLite(storePath, []semstore.Record{node}, limit*4)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semanticRecord, error) {
+	neighbors, err := s.resolveNeighbors(node, rels, func(ids []string) (map[string]semstore.Record, error) {
 		return semstore.LoadSymbolsByIDsSQLite(storePath, ids)
 	}, limit)
 	if err != nil {
@@ -1467,8 +1469,8 @@ func (s *vizServer) nodeDetail(sem *semanticSourceManifest, id string) (*semanti
 	return &node, neighbors, rels, nil
 }
 
-func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord, load func([]string) (map[string]semanticRecord, error), limit int) ([]semanticRecord, error) {
-	ids := semstore.NeighborCandidateIDs([]semanticRecord{node}, rels)
+func (s *Server) resolveNeighbors(node semstore.Record, rels []semstore.Record, load func([]string) (map[string]semstore.Record, error), limit int) ([]semstore.Record, error) {
+	ids := semstore.NeighborCandidateIDs([]semstore.Record{node}, rels)
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -1476,7 +1478,7 @@ func (s *vizServer) resolveNeighbors(node semanticRecord, rels []semanticRecord,
 	if err != nil {
 		return nil, err
 	}
-	return semstore.ResolveContextNeighbors([]semanticRecord{node}, rels, byID, limit), nil
+	return semstore.ResolveContextNeighbors([]semstore.Record{node}, rels, byID, limit), nil
 }
 
 func writeJSONHTTP(w http.ResponseWriter, code int, v any) {

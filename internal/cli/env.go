@@ -20,14 +20,6 @@ import (
 )
 
 var repoKeyUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-var knownRepoDomainSlugs = map[string]string{
-	"github.com":    "gh",
-	"gitlab.com":    "gl",
-	"bitbucket.org": "bb",
-	"entire.io":     "et",
-	"tangled.org":   "tg",
-	"code.storage":  "cs",
-}
 
 // localRepoIdentityConflictError refuses to guess when an upgrade finds state
 // under both the canonical root identity and the exact pre-upgrade lexical
@@ -479,7 +471,7 @@ func normalizeRepoPath(path string) []string {
 }
 
 func repoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 
@@ -549,7 +541,7 @@ func localRepoKey(repoDir string) string {
 // lookupRepoDomainSlug reads an established binding without allocating one or
 // quarantining malformed configuration. A getter must not redefine identity.
 func lookupRepoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 	path, err := config.Path(configDir)

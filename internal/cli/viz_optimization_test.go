@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
@@ -86,13 +87,13 @@ func vizOptimizationSemanticRecords() []semanticRecord {
 func TestVizGraphSelectsConnectedSymbolsAndStableEdges(t *testing.T) {
 	brainDir := t.TempDir()
 	sem := writeVizOptimizationStore(t, brainDir, vizOptimizationSemanticRecords())
-	srv := &vizServer{brainDir: brainDir, branch: "main", manifest: &exportManifest{Sources: &brainSources{Semantic: sem}}}
+	srv := &viz.Server{BrainDir: brainDir, Branch: "main", Manifest: &exportManifest{Sources: &brainSources{Semantic: sem}}}
 
-	request := func(target string) (*httptest.ResponseRecorder, vizGraphResp) {
+	request := func(target string) (*httptest.ResponseRecorder, viz.GraphResp) {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, target, nil))
-		var response vizGraphResp
+		srv.HandleGraph(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		var response viz.GraphResp
 		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 			t.Fatalf("decode graph: %v", err)
 		}
@@ -139,11 +140,11 @@ func TestVizNodeAndReplayReturnContainedSemanticSubgraphs(t *testing.T) {
 			Summary: &checkpointSummary{Intent: "Connect Hub to Peer"}, CheckpointsCount: 2,
 		}}},
 	}}
-	srv := &vizServer{brainDir: brainDir, branch: "feature/a b#c", provider: "gh", owner: "acme", repo: "widget", manifest: manifest}
+	srv := &viz.Server{BrainDir: brainDir, Branch: "feature/a b#c", Provider: "gh", Owner: "acme", Repo: "widget", Manifest: manifest}
 
 	nodeRec := httptest.NewRecorder()
-	srv.handleNode(nodeRec, httptest.NewRequest(http.MethodGet, "/api/node?id=hub", nil))
-	var node vizNodeResp
+	srv.HandleNode(nodeRec, httptest.NewRequest(http.MethodGet, "/api/node?id=hub", nil))
+	var node viz.NodeResp
 	if err := json.Unmarshal(nodeRec.Body.Bytes(), &node); err != nil {
 		t.Fatal(err)
 	}
@@ -169,8 +170,8 @@ func TestVizNodeAndReplayReturnContainedSemanticSubgraphs(t *testing.T) {
 	}
 
 	replayRec := httptest.NewRecorder()
-	srv.handleSessionReplay(replayRec, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=session-1", nil))
-	var replay vizReplayResp
+	srv.HandleSessionReplay(replayRec, httptest.NewRequest(http.MethodGet, "/api/session/replay?id=session-1", nil))
+	var replay viz.ReplayResp
 	if err := json.Unmarshal(replayRec.Body.Bytes(), &replay); err != nil {
 		t.Fatal(err)
 	}
@@ -201,14 +202,14 @@ func TestVizSemanticPathEscapeFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	sem := &semanticSourceManifest{SnapshotPath: "../outside-viz.ndjson", Symbols: 1}
-	srv := &vizServer{brainDir: brainDir, manifest: &exportManifest{Sources: &brainSources{Semantic: sem}}}
+	srv := &viz.Server{BrainDir: brainDir, Manifest: &exportManifest{Sources: &brainSources{Semantic: sem}}}
 
 	for _, target := range []string{"/api/graph", "/api/node?id=private"} {
 		rec := httptest.NewRecorder()
 		if strings.HasPrefix(target, "/api/node") {
-			srv.handleNode(rec, httptest.NewRequest(http.MethodGet, target, nil))
+			srv.HandleNode(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		} else {
-			srv.handleGraph(rec, httptest.NewRequest(http.MethodGet, target, nil))
+			srv.HandleGraph(rec, httptest.NewRequest(http.MethodGet, target, nil))
 		}
 		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "warnings") {
 			t.Fatalf("%s did not return a contained warning response: %d %s", target, rec.Code, rec.Body.String())
@@ -241,17 +242,17 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 		t.Fatal(err)
 	}
 	source := &historySourceManifest{IndexPath: historystore.IndexPath, Records: len(index.Records)}
-	srv := &vizServer{
-		brainDir: brainDir,
-		manifest: &exportManifest{Sources: &brainSources{History: source}},
-		guard: sessionReadGuard{IDs: map[string]sessionTombstone{"secret-session": {
+	srv := &viz.Server{
+		BrainDir: brainDir,
+		Manifest: &exportManifest{Sources: &brainSources{History: source}},
+		Guard: sessionReadGuard{IDs: map[string]sessionTombstone{"secret-session": {
 			At: time.Date(2026, time.September, 17, 10, 0, 0, 0, time.UTC),
 		}}},
 	}
 
 	rec := httptest.NewRecorder()
-	srv.handleHistory(rec, httptest.NewRequest(http.MethodGet, "/api/history?limit=bad", nil))
-	var graph vizFeatureGraph
+	srv.HandleHistory(rec, httptest.NewRequest(http.MethodGet, "/api/history?limit=bad", nil))
+	var graph viz.FeatureGraph
 	if err := json.Unmarshal(rec.Body.Bytes(), &graph); err != nil {
 		t.Fatal(err)
 	}
@@ -270,17 +271,17 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	if len(graph.Edges) != 2 || graph.Edges[0].From != "h1" || graph.Edges[0].To != "h2" || graph.Edges[1].From != "h2" || graph.Edges[1].To != "h3" {
 		t.Fatalf("history timeline/dedup edges = %+v", graph.Edges)
 	}
-	if graph.Nodes[0].Color != colorSession || graph.Nodes[1].Color != "#22d3ee" || graph.Nodes[2].Color != colorHistory {
+	if graph.Nodes[0].Color != viz.ColorSession || graph.Nodes[1].Color != "#22d3ee" || graph.Nodes[2].Color != viz.ColorHistory {
 		t.Fatalf("history colors = %q %q %q", graph.Nodes[0].Color, graph.Nodes[1].Color, graph.Nodes[2].Color)
 	}
 }
 
 func TestVizSummaryUsesManifestCountsWithoutLocalPathDisclosure(t *testing.T) {
 	generated := time.Date(2026, time.September, 17, 10, 30, 0, 0, time.UTC)
-	srv := &vizServer{
-		repoDir:  "/Users/alice/private/customer-widget",
-		brainDir: t.TempDir(), branch: "main", provider: "gh", owner: "acme", repo: "widget",
-		manifest: &exportManifest{Sources: &brainSources{
+	srv := &viz.Server{
+		RepoDir:  "/Users/alice/private/customer-widget",
+		BrainDir: t.TempDir(), Branch: "main", Provider: "gh", Owner: "acme", Repo: "widget",
+		Manifest: &exportManifest{Sources: &brainSources{
 			Semantic: &semanticSourceManifest{GeneratedAt: generated, Symbols: 4, Relations: 3, Files: 4},
 			History:  &historySourceManifest{Records: 6},
 			Facts:    &factSourceManifest{Facts: 5},
@@ -288,8 +289,8 @@ func TestVizSummaryUsesManifestCountsWithoutLocalPathDisclosure(t *testing.T) {
 		}},
 	}
 	rec := httptest.NewRecorder()
-	srv.handleSummary(rec, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
-	var summary vizSummaryResp
+	srv.HandleSummary(rec, httptest.NewRequest(http.MethodGet, "/api/summary", nil))
+	var summary viz.SummaryResp
 	if err := json.Unmarshal(rec.Body.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}

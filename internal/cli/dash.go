@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
@@ -205,7 +206,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	}
 	snap.GeneratedAt = status.Brain.GeneratedAt
 	manifest := status.Manifest
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return snap, err
 	}
@@ -215,7 +216,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	if facts, err := factstore.Load(brainDir, branch); err != nil {
 		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
-		facts = guardFactRecords(guard, facts)
+		facts = factstore.GuardRecords(guard, facts)
 		snap.Facts = dashFactViews(facts, brainDir, limit)
 		snap.Notes = appendCapNote(snap.Notes, "facts", len(facts), len(snap.Facts))
 	}
@@ -223,7 +224,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 	if manifest != nil && manifest.Sources != nil {
 		// Sessions (from the manifest).
 		if s := manifest.Sources.Sessions; s != nil {
-			visibleSessions := guardExportSessions(guard, s.Sessions)
+			visibleSessions := bmanifest.GuardSessions(guard, s.Sessions)
 			snap.Sessions = dashSessionViews(visibleSessions, brainDir, limit, guard)
 			snap.Notes = appendCapNote(snap.Notes, "sessions", len(visibleSessions), len(snap.Sessions))
 		}
@@ -232,7 +233,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 			if idx, err := historystore.LoadIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
-				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guardBlocksRecord(guard, record) })
+				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !historystore.GuardBlocksRecord(guard, record) })
 				snap.History = dashHistoryViews(records, brainDir, limit)
 				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
@@ -304,7 +305,7 @@ func dashHomeView(status brainStatusReport, manifest *exportManifest, branch str
 	}
 
 	home.Live = tui.LiveState{
-		Branch:  firstNonEmpty(status.Live.Branch, branch),
+		Branch:  clibase.FirstNonEmpty(status.Live.Branch, branch),
 		Head:    status.Live.Head,
 		Dirty:   status.Live.Dirty,
 		Summary: dashLiveSummary(status.Live),
@@ -325,7 +326,7 @@ func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map
 	if s := src.Sessions; s != nil {
 		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
 		if len(guards) > 0 && !guards[0].Empty() {
-			visible := guardExportSessions(guards[0], s.Sessions)
+			visible := bmanifest.GuardSessions(guards[0], s.Sessions)
 			count, checkpoints = len(visible), 0
 			for _, session := range visible {
 				checkpoints += session.CheckpointsCount
@@ -429,7 +430,7 @@ func dashFactViews(facts []factRecord, brainDir string, limit int) []tui.FactVie
 }
 
 func dashSessionViews(sessions []exportSession, brainDir string, limit int, guard sessionReadGuard) []tui.SessionView {
-	sessions = guardExportSessions(guard, sessions)
+	sessions = bmanifest.GuardSessions(guard, sessions)
 	if limit > 0 && len(sessions) > limit {
 		sessions = sessions[:limit]
 	}
@@ -598,15 +599,6 @@ func appendCapNote(notes []string, label string, total, shown int) []string {
 		return append(notes, fmt.Sprintf("%s: showing %d of %d", label, shown, total))
 	}
 	return notes
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func anySource(s brainStatusSources) bool {

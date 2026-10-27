@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
@@ -502,7 +503,7 @@ func TestRetrievalWriteLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	if got := out.String(); got != "private response\n" {
 		t.Fatalf("response=%q", got)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -752,15 +753,15 @@ func TestVizAPIResponseLinearizesBeforeConcurrentTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &vizServer{
-		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.Empty(),
+	srv := &viz.Server{
+		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
+		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
 	}
-	handler, err := srv.mux()
+	handler, err := srv.Mux()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,15 +797,15 @@ func TestVizAPIResponseRejectsLateTombstone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(fixture.BrainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(fixture.BrainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &vizServer{
-		repoDir: fixture.Options.Env.RepoRoot, brainDir: fixture.BrainDir, branch: "feature", manifest: manifest,
-		guard: guard, guardObserved: !guard.Empty(),
+	srv := &viz.Server{
+		RepoDir: fixture.Options.Env.RepoRoot, BrainDir: fixture.BrainDir, Branch: "feature", Manifest: manifest,
+		Guard: guard, GuardObserved: !guard.Empty(), Deps: vizDeps(),
 	}
-	handler, err := srv.mux()
+	handler, err := srv.Mux()
 	if err != nil {
 		t.Fatal(err)
 	}

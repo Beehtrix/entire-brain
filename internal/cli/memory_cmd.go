@@ -679,7 +679,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err != nil {
 		return 0, nil // deterministic projection is not current yet
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return 0, err
 	}

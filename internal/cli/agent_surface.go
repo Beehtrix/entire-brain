@@ -544,7 +544,7 @@ func runBrainOverview(ctx context.Context, cmd *cobra.Command, opts Options, tar
 	if err != nil {
 		return err
 	}
-	overviewPrivacyGuard, err := loadSessionReadGuard(status.Brain.Path, status.Manifest)
+	overviewPrivacyGuard, err := bmanifest.LoadSessionReadGuard(status.Brain.Path, status.Manifest)
 	if err != nil {
 		return err
 	}
@@ -648,7 +648,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	}
 	var decisions []historyRecord
 	for _, record := range index.Records {
-		if record.Kind == "decision" && !guardBlocksRecord(guard, record) {
+		if record.Kind == "decision" && !historystore.GuardBlocksRecord(guard, record) {
 			decisions = append(decisions, record)
 		}
 	}
@@ -1497,7 +1497,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	if err != nil {
 		return err
 	}
-	briefPrivacyGuard, err := loadSessionReadGuard(status.Brain.Path, status.Manifest)
+	briefPrivacyGuard, err := bmanifest.LoadSessionReadGuard(status.Brain.Path, status.Manifest)
 	if err != nil {
 		return err
 	}
@@ -1713,7 +1713,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			briefGuard := briefPrivacyGuard
 			var briefGuardPred func(historyRecord) bool
 			if !briefGuard.Empty() {
-				briefGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(briefGuard, r) }
+				briefGuardPred = func(r historyRecord) bool { return !historystore.GuardBlocksRecord(briefGuard, r) }
 			}
 			if len(freshOverlay.overlay) > 0 || len(freshOverlay.replaced) > 0 {
 				if rankedHistoryIndex != nil {
@@ -1821,7 +1821,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
-			facts = guardFactRecords(briefPrivacyGuard, facts)
+			facts = factstore.GuardRecords(briefPrivacyGuard, facts)
 			factsRankStarted := profile.start()
 			report.Facts = rankFacts(facts, task, brainBriefFactsCount(briefOpts.limit), false)
 			report.GlobalFactIDs = factscmd.SortedGlobalFactIDs(report.Facts, briefGlobalIDs)
@@ -5147,7 +5147,7 @@ func inspectBrainRawTextObserved(brainDir, kind, query string, maxHits int, obse
 	if manifestErr != nil {
 		return report, manifestErr
 	}
-	rawGuard, guardErr := loadSessionReadGuard(brainDir, rawManifest)
+	rawGuard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, rawManifest)
 	if guardErr != nil {
 		return report, guardErr
 	}
@@ -5404,7 +5404,7 @@ func brainBriefRawHistoryMatchesSingleScanObserved(brainDir, task string, existi
 	if manifestErr != nil {
 		return nil, manifestErr
 	}
-	rawGuard, guardErr := loadSessionReadGuard(brainDir, rawManifest)
+	rawGuard, guardErr := bmanifest.LoadSessionReadGuard(brainDir, rawManifest)
 	if guardErr != nil {
 		return nil, guardErr
 	}
@@ -5715,7 +5715,7 @@ func brainBriefFocusedHistoryMatches(brainDir string, fresh freshHistory, primar
 	// assembling the brief.
 	var fGuardPred func(historyRecord) bool
 	if !fGuard.Empty() {
-		fGuardPred = func(r historyRecord) bool { return !guardBlocksRecord(fGuard, r) }
+		fGuardPred = func(r historyRecord) bool { return !historystore.GuardBlocksRecord(fGuard, r) }
 	}
 	// rankFreshHistory keeps the FTS arm on the on-disk long-term index
 	// and fuses the short-term overlay in memory (Bugbot PR #77: passing a

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
@@ -119,7 +120,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err != nil {
 		return err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
@@ -170,7 +171,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	// Session tombstones (Phase 4): excluded sessions and duplicate manifest
 	// entries that alias an excluded transcript never enter the corpus; dropping
 	// them from the present set prunes previously indexed rows below.
-	sessions = guardExportSessions(guard, sessions)
+	sessions = bmanifest.GuardSessions(guard, sessions)
 	// Optional enrichment source: durable facts, branch-scoped. Missing is
 	// empty, but corrupt/unsafe state fails closed and tombstoned-only facts are
 	// filtered before they can be linked back into a rebuilt corpus.
@@ -179,7 +180,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		return err
 	}
 	for branch, facts := range factsByBranch {
-		factsByBranch[branch] = guardFactRecords(guard, facts)
+		factsByBranch[branch] = factstore.GuardRecords(guard, facts)
 	}
 
 	// Fact enrichment is an input independent of transcript identity. A changed

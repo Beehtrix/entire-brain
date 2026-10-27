@@ -77,7 +77,7 @@ func rankGuardedHistoryForRetrieval(brainDir string, source *historySourceManife
 	// path here too.
 	index := fresh.longTermReconciled()
 	if guardPred != nil {
-		index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
+		index = historyIndex{GeneratedAt: index.GeneratedAt, Records: historystore.FilterRecords(index.Records, guardPred)}
 	}
 	scored := rankFreshHistory(fresh, kind, query, limit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, kind, query, limit, historyFTSRelevanceCutoff, eligible)

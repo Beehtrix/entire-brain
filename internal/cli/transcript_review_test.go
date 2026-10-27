@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
@@ -164,10 +165,10 @@ func TestFilelessDashboardSourcesReadOnDemand(t *testing.T) {
 	}
 	reader := brainSourceReader(context.Background(), opts.Runner, brain)
 	targets := []string{
-		dashSessionViews(manifest.Sessions, brain, 0, sessionReadGuard{})[0].Source,
-		dashHistoryViews([]historyRecord{{Path: session.TranscriptPath}}, brain, 0)[0].Source,
-		dashFactViews([]factRecord{{Provenance: []factAnchor{{Transcript: session.TranscriptPath}}}}, brain, 0)[0].Source,
-		searchResultFromUnified(unifiedResult{Source: "history", Path: session.TranscriptPath}, brain).OpenPath,
+		dash.SessionViews(manifest.Sessions, brain, 0, sessionReadGuard{})[0].Source,
+		dash.HistoryViews([]historyRecord{{Path: session.TranscriptPath}}, brain, 0)[0].Source,
+		dash.FactViews([]factRecord{{Provenance: []factAnchor{{Transcript: session.TranscriptPath}}}}, brain, 0)[0].Source,
+		dash.SearchResultFromUnified(unifiedResult{Source: "history", Path: session.TranscriptPath}, brain).OpenPath,
 	}
 	for _, target := range targets {
 		data, handled, err := reader(target)

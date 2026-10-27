@@ -768,7 +768,7 @@ func rankFreshHistory(
 	if !ok {
 		fallback := fresh.index
 		if eligible != nil {
-			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligible)}
+			fallback = historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligible)}
 		}
 		lex = rankHistoryRecordsScored(fallback, kind, query, limit, 0)
 	}
@@ -844,7 +844,7 @@ func rankFreshHistoryExhaustive(
 			return nil, historyExhaustiveRankRawScanOverflow
 		}
 		rawScanned += fallbackScanned
-		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: filterHistoryRecords(fresh.index.Records, eligibleLongTerm)}
+		fallback := historyIndex{GeneratedAt: fresh.index.GeneratedAt, Records: historystore.FilterRecords(fresh.index.Records, eligibleLongTerm)}
 		lex = rankHistoryRecordsScoredExhaustive(fallback, kind, query, ceiling+1)
 		if len(lex) > ceiling {
 			return nil, historyExhaustiveRankCandidateOverflow
@@ -952,19 +952,6 @@ func rankHistoryRecordsScoredExhaustive(index historyIndex, kind, query string, 
 		scored = scored[:limit]
 	}
 	return scored
-}
-
-// filterHistoryRecords returns the records passing pred, for the in-memory
-// ranking arms. Never feed a filtered slice to the FTS ranker: the shared
-// store's freshness identity must only ever see the on-disk index.
-func filterHistoryRecords(records []historyRecord, pred func(historyRecord) bool) []historyRecord {
-	kept := make([]historyRecord, 0, len(records))
-	for _, r := range records {
-		if pred(r) {
-			kept = append(kept, r)
-		}
-	}
-	return kept
 }
 
 // --- refresh delta verb ---

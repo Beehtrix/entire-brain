@@ -66,8 +66,8 @@ type Flags struct {
 }
 
 // New builds `entire brain viz` — a local, no-egress web interface
-// that renders the brain's semantic graph. It mirrors newDashCommand's shape
-// (dash.go) but serves a browser UI instead of a terminal TUI.
+// that renders the brain's semantic graph. It mirrors dash.New's shape
+// (command/dash/dash.go) but serves a browser UI instead of a terminal TUI.
 func New(cfg Config) *cobra.Command {
 	var flags Flags
 	cmd := &cobra.Command{

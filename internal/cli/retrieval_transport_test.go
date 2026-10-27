@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -555,7 +556,7 @@ func TestTranscriptDerivedCLIResponsesLinearizeBeforeConcurrentTombstone(t *test
 	t.Run("dash json", func(t *testing.T) {
 		fixture := writeRetrievalEmissionPrivacyFixture(t)
 		requireCommandWriteLinearizesBeforeTombstone(t, fixture, func(cmd *cobra.Command) error {
-			return runDash(context.Background(), cmd, fixture.Options, dashFlags{json: true, limit: 10}, fixture.Options.Env.RepoRoot)
+			return dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
 		})
 	})
 
@@ -592,7 +593,7 @@ func TestTranscriptDerivedCLIResponsesRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runDash(context.Background(), cmd, fixture.Options, dashFlags{json: true, limit: 10}, fixture.Options.Env.RepoRoot)
+		err := dash.Run(context.Background(), cmd, dashConfig(fixture.Options), dash.Flags{JSON: true, Limit: 10}, fixture.Options.Env.RepoRoot)
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 

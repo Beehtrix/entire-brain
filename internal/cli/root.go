@@ -22,6 +22,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
@@ -129,7 +130,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("explore", newVsearchCommand(opts))
 	addGrouped("explore", newGetCommand(opts))
 	addGrouped("explore", newMultiGetCommand(opts))
-	addGrouped("explore", newDashCommand(opts))
+	addGrouped("explore", dash.New(dashConfig(opts)))
 
 	addGrouped("facts", facts.NewRecall(factsCommandConfig(opts)))
 	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))

@@ -460,7 +460,7 @@ const doctorActionableDetailBudget = 160
 // resolved repository, and every finding at full detail, passing or not.
 func renderDoctorVerbose(out io.Writer, report doctorReport) {
 	for _, key := range []string{"ENTIRE_CLI_VERSION", "ENTIRE_REPO_ROOT", "ENTIRE_PLUGIN_CONFIG_DIR", "ENTIRE_PLUGIN_DATA_DIR", "ENTIRE_PLUGIN_STATE_DIR", "ENTIRE_PLUGIN_CACHE_DIR"} {
-		fmt.Fprintf(out, "%s=%s\n", key, valueOrUnset(report.Env[key]))
+		fmt.Fprintf(out, "%s=%s\n", key, cmdutil.ValueOrUnset(report.Env[key]))
 	}
 	if report.RepoRoot != "" && report.RepoRootSource != base.EnvRepoRoot {
 		fmt.Fprintf(out, "repo root: %s (inferred from %s)\n", report.RepoRoot, report.RepoRootSource)

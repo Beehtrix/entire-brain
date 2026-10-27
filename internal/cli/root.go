@@ -29,6 +29,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
+	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
@@ -148,7 +149,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("operations", newSemanticRepairCommand(opts))
 
 	addGrouped("maintain", newAgentStatusCommand(opts))
-	addGrouped("maintain", newStatsCommand(opts))
+	addGrouped("maintain", stats.New(statsConfig(opts)))
 	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
 	addGrouped("operations", newWatchCommand(opts))

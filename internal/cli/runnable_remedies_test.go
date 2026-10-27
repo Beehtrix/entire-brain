@@ -43,11 +43,12 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	scanned, helperSites, allowed := 0, 0, 0
 	// "." plus the packages remedies have sunk into (COR-2268): the fact-store
-	// remedies, the add command, the declared-index repair hint, and the
-	// history-store, semantic-store, doc-store, and retrieval-engine read
-	// layers must stay under this guard rather than escape it by moving.
+	// remedies, the add command, the stats command, the declared-index repair
+	// hint, and the history-store, semantic-store, doc-store, and
+	// retrieval-engine read layers must stay under this guard rather than
+	// escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "command/stats", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

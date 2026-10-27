@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -711,7 +712,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	fmt.Fprintf(out, "%s %s%s%s\n", statusDot(render, health),
 		render.Bold(render.Paint(render.Theme().Accent, "Brain")),
 		statusSep(render),
-		render.Bold(valueOrUnset(report.Repo.Key)))
+		render.Bold(cmdutil.ValueOrUnset(report.Repo.Key)))
 	fmt.Fprintln(out)
 
 	if value := statusMemoriesValue(render, report); value != "" {

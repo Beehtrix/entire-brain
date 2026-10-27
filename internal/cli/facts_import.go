@@ -141,7 +141,7 @@ func parseMem0(data []byte) ([]importedMemory, int, error) {
 		// unescaped foreign text reaches the terminal. The ids take the same
 		// path and were left raw: ForeignID is embedded in the anchor as
 		// "<tool>:<id>", and `facts show` prints anchor.SessionID straight
-		// through valueOrUnset with %s (facts_read_cmd.go:540), which neither
+		// through cmdutil.ValueOrUnset with %s (facts_read_cmd.go:540), which neither
 		// quotes nor strips. An export with ANSI escapes, bidi overrides or
 		// zero-width runes in `id` reached the terminal unsanitised --
 		// contradicting this file's own stated threat model for foreign text.

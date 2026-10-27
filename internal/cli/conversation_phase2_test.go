@@ -10,6 +10,7 @@ import (
 	"time"
 
 	entirebrain "github.com/entireio/entire-brain"
+	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -591,7 +592,7 @@ func TestRecallSkillTemplatesEmbeddedAndSafe(t *testing.T) {
 
 func TestBrainStatsReportCountsAndVersions(t *testing.T) {
 	brainDir, _ := buildConversationBrainFixture(t, "sess-stats")
-	report, err := buildBrainStatsReport(brainDir, time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC))
+	report, err := stats.BuildReport(brainDir, time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), statsDeps())
 	if err != nil {
 		t.Fatalf("stats: %v", err)
 	}

@@ -546,13 +546,6 @@ func localRepoKey(repoDir string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
-func valueOrUnset(value string) string {
-	if value == "" {
-		return "<unset>"
-	}
-	return value
-}
-
 // lookupRepoDomainSlug reads an established binding without allocating one or
 // quarantining malformed configuration. A getter must not redefine identity.
 func lookupRepoDomainSlug(configDir, host string) (string, error) {

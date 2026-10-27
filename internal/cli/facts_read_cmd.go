@@ -376,7 +376,7 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 					verified = "verified"
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "  - session=%s checkpoint=%s commit=%s %s:%d (%s)\n",
-					valueOrUnset(a.SessionID), valueOrUnset(a.CheckpointID), valueOrUnset(a.Commit), valueOrUnset(a.Transcript), a.Line, verified)
+					cmdutil.ValueOrUnset(a.SessionID), cmdutil.ValueOrUnset(a.CheckpointID), cmdutil.ValueOrUnset(a.Commit), cmdutil.ValueOrUnset(a.Transcript), a.Line, verified)
 			}
 			return nil
 		},

@@ -1382,7 +1382,7 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 	if r := report.Retrieval; r != nil {
 		fmt.Fprintln(out, "\nRetrieval")
 		if r.SeedCommit != "" {
-			fmt.Fprintf(out, "  seed: %s (%s)\n", shortCommitHash(r.SeedCommit), valueOrUnset(r.SeedMode))
+			fmt.Fprintf(out, "  seed: %s (%s)\n", shortCommitHash(r.SeedCommit), cmdutil.ValueOrUnset(r.SeedMode))
 		}
 		if r.DocsGeneratedAt != "" {
 			fmt.Fprintf(out, "  docs: %d records from %d files (generated %s)\n", r.DocsRecords, r.DocsFiles, r.DocsGeneratedAt)
@@ -1404,8 +1404,8 @@ func renderBrainStatusText(cmd *cobra.Command, report brainStatusReport, verbose
 		}
 	}
 	fmt.Fprintln(out, "\nLive")
-	fmt.Fprintf(out, "  branch: %s\n", valueOrUnset(report.Live.Branch))
-	fmt.Fprintf(out, "  head: %s\n", valueOrUnset(report.Live.Head))
+	fmt.Fprintf(out, "  branch: %s\n", cmdutil.ValueOrUnset(report.Live.Branch))
+	fmt.Fprintf(out, "  head: %s\n", cmdutil.ValueOrUnset(report.Live.Head))
 	fmt.Fprintf(out, "  dirty: %t\n", report.Live.Dirty)
 	if report.Live.DiffStat != "" {
 		fmt.Fprintf(out, "  diff: %s\n", strings.TrimSpace(report.Live.DiffStat))

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
@@ -41,7 +42,7 @@ func writeLegacyHistoryIdentityFixture(t testing.TB, index historyIndex) (string
 
 func loadLegacyHistoryIdentityCandidate(t testing.TB, brainDir string, source *historySourceManifest) (historyIndex, *historyLegacyIdentity) {
 	t.Helper()
-	index, identity, err := loadBrainHistoryIndexWithLegacyIdentity(brainDir, source)
+	index, identity, err := historystore.LoadIndexWithLegacyIdentity(brainDir, source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,20 +84,20 @@ func TestLoadBrainHistoryIndexGenericDoesNotDeriveLegacyIdentity(t *testing.T) {
 	t.Parallel()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, ftsTestIndex())
 
-	generic, err := loadBrainHistoryIndex(brainDir, legacy)
+	generic, err := historystore.LoadIndex(brainDir, legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if generic.recordsFingerprint != "" {
-		t.Fatalf("generic load derived legacy identity: %q", generic.recordsFingerprint)
+	if generic.RecordsFingerprint != "" {
+		t.Fatalf("generic load derived legacy identity: %q", generic.RecordsFingerprint)
 	}
 
-	explicit, identity, err := loadBrainHistoryIndexWithLegacyIdentity(brainDir, legacy)
+	explicit, identity, err := historystore.LoadIndexWithLegacyIdentity(brainDir, legacy)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if identity == nil || explicit.recordsFingerprint != identity.RecordsFingerprint {
-		t.Fatalf("explicit migration load did not derive identity: index=%q identity=%+v", explicit.recordsFingerprint, identity)
+	if identity == nil || explicit.RecordsFingerprint != identity.RecordsFingerprint {
+		t.Fatalf("explicit migration load did not derive identity: index=%q identity=%+v", explicit.RecordsFingerprint, identity)
 	}
 	if !reflect.DeepEqual(generic.Records, explicit.Records) {
 		t.Fatal("generic and explicit loaders decoded different index truth")
@@ -144,7 +145,7 @@ func TestHistoryLegacyIdentityUpgradeRequiresVerifiedTruthAndDirectPayload(t *te
 	if !bytes.Equal(manifestAfter, manifestBefore) {
 		t.Fatal("already-upgraded migration rewrote manifest")
 	}
-	if _, next, err := loadBrainHistoryIndexWithLegacyIdentity(brainDir, identity.sourceWithIdentity(legacy)); err != nil || next != nil {
+	if _, next, err := historystore.LoadIndexWithLegacyIdentity(brainDir, identity.SourceWithIdentity(legacy)); err != nil || next != nil {
 		t.Fatalf("upgraded source offered another migration: identity=%+v err=%v", next, err)
 	}
 }
@@ -153,13 +154,13 @@ func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(
 	t.Parallel()
 	indexA := ftsTestIndex()
 	brainDir, legacy := writeLegacyHistoryIdentityFixture(t, indexA)
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	dataA, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decodedA, err := decodeBrainHistoryIndex(dataA, legacy)
-	identity := deriveHistoryLegacyIdentity(legacy, dataA, decodedA)
+	decodedA, err := historystore.DecodeIndex(dataA, legacy)
+	identity := historystore.DeriveLegacyIdentity(legacy, dataA, decodedA)
 	if err != nil || identity == nil || !reflect.DeepEqual(decodedA.Records, indexA.Records) {
 		t.Fatalf("decode A: identity=%+v err=%v", identity, err)
 	}
@@ -178,7 +179,7 @@ func TestHistoryLegacyIdentityHashAndParseShareBytesAndReplacementAbortsPersist(
 	if err := brainstore.WriteFileAtomic(path, dataB, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if identity.IndexSHA256 != historyIndexBytesFingerprint(dataA) || identity.IndexSHA256 == historyIndexBytesFingerprint(dataB) {
+	if identity.IndexSHA256 != historystore.IndexBytesFingerprint(dataA) || identity.IndexSHA256 == historystore.IndexBytesFingerprint(dataB) {
 		t.Fatal("derived identity did not stay bound to parsed bytes A")
 	}
 
@@ -270,8 +271,8 @@ func TestHistoryLegacyIdentityNoPayloadCorruptPayloadAndReadOnlyFailOpen(t *test
 			t.Fatal(err)
 		}
 		data = append(data, '\n')
-		legacy := &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records)}
-		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+		legacy := &historySourceManifest{GeneratedAt: index.GeneratedAt, IndexPath: historystore.IndexPath, Records: len(index.Records)}
+		if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historystore.IndexPath, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if err := writeBrainManifestAndReadme(brainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, Sources: &brainSources{History: legacy}}); err != nil {
@@ -478,7 +479,7 @@ func TestBrainBriefLegacyHistoryIdentityFirstAndDirectPacketsAreExact(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if upgraded.Sources.History.IndexBytes <= 0 || !validHistorySHA256(upgraded.Sources.History.IndexSHA256) || !validHistorySHA256(upgraded.Sources.History.RecordsFingerprint) {
+	if upgraded.Sources.History.IndexBytes <= 0 || !historystore.ValidSHA256(upgraded.Sources.History.IndexSHA256) || !historystore.ValidSHA256(upgraded.Sources.History.RecordsFingerprint) {
 		t.Fatalf("first brief did not persist strong identity: %+v", upgraded.Sources.History)
 	}
 	second, secondProfile := runLegacyIdentityProfiledBrief(t, fixture)

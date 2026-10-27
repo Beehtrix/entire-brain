@@ -3,6 +3,7 @@ package cli
 import (
 	"database/sql"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"path/filepath"
 	"testing"
@@ -64,7 +65,7 @@ func TestMemoryHistoryFTSHealthComparesCanonicalHistoryFingerprint(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}

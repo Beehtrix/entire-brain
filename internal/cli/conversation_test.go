@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -365,7 +366,7 @@ func buildConversationBrainFixture(t *testing.T, sessionID string) (string, *his
 
 func conversationRecordsFromIndex(t *testing.T, brainDir string, source *historySourceManifest) []historyRecord {
 	t.Helper()
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		t.Fatalf("load index: %v", err)
 	}
@@ -540,7 +541,7 @@ func TestConversationRetrievalIsolationAndCaveats(t *testing.T) {
 	}
 
 	// Default retrieval (source omitted / all) must not surface exchanges.
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		t.Fatal(err)
 	}

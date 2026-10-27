@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -128,7 +129,7 @@ func TestMemoryLifecycleProjectionFailureRetriesThenCompletes(t *testing.T) {
 	originalWrite := historyProjectionWriteFile
 	failures := 0
 	historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
-		if failures == 0 && filepath.Base(rel) == historyIndexFileName {
+		if failures == 0 && filepath.Base(rel) == historystore.IndexFileName {
 			failures++
 			return os.ErrPermission
 		}

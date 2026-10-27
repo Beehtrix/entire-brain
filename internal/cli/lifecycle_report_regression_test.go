@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -113,7 +114,7 @@ func TestRefreshHistoryRootCommandIndexesIDsWithoutVectorOptIn(t *testing.T) {
 	if err != nil || manifest.Sources == nil || manifest.Sources.History == nil {
 		t.Fatalf("history source missing: %v %+v", err, manifest)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load indexed history: %v", err)
 	}

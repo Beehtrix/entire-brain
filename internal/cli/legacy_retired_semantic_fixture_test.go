@@ -15,6 +15,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
 // semanticIndexStageDeadline stops an index at a stage boundary when its caller's
@@ -230,7 +232,7 @@ func semanticFileContentHash(repoDir, path string) string {
 	if err != nil {
 		return ""
 	}
-	if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
+	if err := base.RejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
 		return ""
 	}
 	f, err := os.Open(filepath.Join(repoDir, filepath.FromSlash(clean)))

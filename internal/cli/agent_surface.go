@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"io/fs"
 	"os"
@@ -637,7 +638,7 @@ func recentDecisionMatches(brainDir string, source *historySourceManifest, limit
 	if limit <= 0 {
 		return nil, nil
 	}
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		return nil, err
 	}
@@ -1660,7 +1661,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				indexLoadStarted := profile.start()
 				var index historyIndex
 				var legacyIdentity *historyLegacyIdentity
-				index, legacyIdentity, historyErr = loadBrainHistoryIndexWithLegacyIdentity(status.Brain.Path, source)
+				index, legacyIdentity, historyErr = historystore.LoadIndexWithLegacyIdentity(status.Brain.Path, source)
 				rankedHistoryIndex = &index
 				if profile != nil {
 					historyErrors := 0
@@ -3449,7 +3450,7 @@ func brainBriefRepoFileExists(repoRoot, rel string) bool {
 		return false
 	}
 	nativeRel := filepath.FromSlash(clean)
-	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
 		return false
 	}
 	info, err := os.Lstat(filepath.Join(repoRoot, nativeRel))
@@ -3462,7 +3463,7 @@ func brainBriefReadRepoFile(repoRoot, rel string) ([]byte, error) {
 		return nil, fmt.Errorf("repo-relative path is unsafe: %s", rel)
 	}
 	nativeRel := filepath.FromSlash(clean)
-	if err := rejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(repoRoot, nativeRel); err != nil {
 		return nil, err
 	}
 	return os.ReadFile(filepath.Join(repoRoot, nativeRel))

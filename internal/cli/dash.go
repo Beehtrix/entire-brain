@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"path/filepath"
@@ -226,7 +227,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		}
 		// History (index.json).
 		if h := manifest.Sources.History; h != nil {
-			if idx, err := loadBrainHistoryIndex(brainDir, h); err != nil {
+			if idx, err := historystore.LoadIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
 				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !guardBlocksRecord(guard, record) })

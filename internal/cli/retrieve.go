@@ -404,7 +404,7 @@ func retrieveUnifiedWithOptions(repoDir, brainDir, branch, query string, limit i
 		//
 		// A brain whose manifest declares NO docs source keeps the silent skip.
 		// That is a brain that has not been refreshed, not a broken one.
-		if defect := inspectBrainDeclaredIndex(brainDir, declaredIndexDocs); !defect.OK() {
+		if defect := inspectBrainDeclaredIndex(brainDir, brainstore.DeclaredIndexDocs); !defect.OK() {
 			return nil, defect
 		}
 	case derr != nil && !os.IsNotExist(derr):
@@ -984,7 +984,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 				docByID[r.ID] = r
 			}
 		case os.IsNotExist(err):
-			if defect := inspectBrainDeclaredIndex(brainDir, declaredIndexDocs); !defect.OK() {
+			if defect := inspectBrainDeclaredIndex(brainDir, brainstore.DeclaredIndexDocs); !defect.OK() {
 				return nil, nil, defect
 			}
 		case !os.IsNotExist(err):

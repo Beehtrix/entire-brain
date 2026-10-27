@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -239,7 +240,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 		t.Fatalf("create history dir: %v", err)
 	}
 	indexData := []byte(`{"records":[]}`)
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), indexData, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), indexData, 0o600); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	sessionPath := filepath.Join(brainDir, filepath.FromSlash(sessionSource.Sessions[0].TranscriptPath))
@@ -256,10 +257,10 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	manifest := &exportManifest{Sources: &brainSources{
 		Sessions: sessionSource,
 		History: &historySourceManifest{
-			IndexPath:              historyIndexPath,
+			IndexPath:              historystore.IndexPath,
 			IndexBytes:             int64(len(indexData)),
-			IndexSHA256:            historyIndexBytesFingerprint(indexData),
-			RecordsFingerprint:     historyRecordsFingerprint(nil),
+			IndexSHA256:            historystore.IndexBytesFingerprint(indexData),
+			RecordsFingerprint:     historystore.RecordsFingerprint(nil),
 			SessionsFingerprint:    sessionSourceFingerprint(sessionSource),
 			TranscriptsFingerprint: historyTranscriptFilesFingerprint(files),
 		},
@@ -365,7 +366,7 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if !historyIndexCurrent(fixture.brainDir, rebuiltManifest) {
 		t.Fatal("rebuilt history index should be current")
 	}
-	rebuilt, err := loadBrainHistoryIndex(fixture.brainDir, rebuiltManifest.Sources.History)
+	rebuilt, err := historystore.LoadIndex(fixture.brainDir, rebuiltManifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load rebuilt history: %v", err)
 	}
@@ -385,7 +386,7 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load corrupted-source manifest: %v", err)
 	}
-	corruptIndex, err := loadBrainHistoryIndex(fixture.brainDir, corruptManifest.Sources.History)
+	corruptIndex, err := historystore.LoadIndex(fixture.brainDir, corruptManifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load corrupted-source history: %v", err)
 	}

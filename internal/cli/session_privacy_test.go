@@ -13,6 +13,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -81,7 +82,7 @@ func assertCanaryAbsent(t *testing.T, brainDir string) {
 			}
 		}
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +115,7 @@ func TestSessionExcludeRemovesDerivedRecordsButKeepsTranscript(t *testing.T) {
 
 	// Precondition: the canary is indexed.
 	manifest, _ := bmanifest.Load(brainDir)
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +191,7 @@ func TestSessionPurgeCanaryAbsentEverywhereAndIdempotent(t *testing.T) {
 
 	// Warm the FTS index so purge has a derived store to remove.
 	manifest, _ := bmanifest.Load(brainDir)
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -949,7 +950,7 @@ func TestVerifyFlagsDirtyFTSStoreByContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}

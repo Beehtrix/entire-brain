@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
@@ -584,8 +585,8 @@ func TestMemoryRebuildFailurePreservesVectorStores(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
 		SchemaVersion: bmanifest.SchemaVersion,
 		Sources: &brainSources{History: &historySourceManifest{
-			IndexPath:           historyGenerationArtifactPath(generation, historyIndexFileName),
-			ProjectionStatePath: historyGenerationArtifactPath(generation, projectionStateFileName),
+			IndexPath:           historystore.GenerationArtifactPath(generation, historystore.IndexFileName),
+			ProjectionStatePath: historystore.GenerationArtifactPath(generation, projectionStateFileName),
 		}},
 	}); err != nil {
 		t.Fatal(err)

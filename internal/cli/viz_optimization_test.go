@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
 
@@ -231,14 +232,14 @@ func TestVizHistoryFiltersPrivateAndMalformedRecordsDeterministically(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	source := &historySourceManifest{IndexPath: historyIndexPath, Records: len(index.Records)}
+	source := &historySourceManifest{IndexPath: historystore.IndexPath, Records: len(index.Records)}
 	srv := &vizServer{
 		brainDir: brainDir,
 		manifest: &exportManifest{Sources: &brainSources{History: source}},

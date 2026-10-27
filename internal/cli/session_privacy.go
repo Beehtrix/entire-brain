@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"io/fs"
 	"net/url"
@@ -953,7 +954,7 @@ func buildSessionPurgePlan(brainDir, sessionID string) (sessionPurgePlan, error)
 		// A declared-but-unreadable index is a real storage problem: failing
 		// here beats an under-reported plan that execution would then trust
 		// (dry-run and execution inventories must match).
-		index, ierr := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, ierr := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if ierr != nil {
 			return plan, fmt.Errorf("load history index: %w", ierr)
 		}
@@ -1138,7 +1139,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	for _, legacy := range []struct {
 		path   string
 		active string
-	}{{historyIndexPath, activeIndex}, {projectionStateRel, activeReceipt}} {
+	}{{historystore.IndexPath, activeIndex}, {projectionStateRel, activeReceipt}} {
 		if legacy.path == legacy.active {
 			continue
 		}
@@ -1157,7 +1158,7 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 	// History generations are immutable publication artifacts. Every old
 	// generation may still contain the excluded session even though only one is
 	// manifest-referenced, so privacy cleanup inventories and deletes them all.
-	for _, rootRel := range []string{historyGenerationsDir, historyStagingDir} {
+	for _, rootRel := range []string{historystore.GenerationsDir, historystore.StagingDir} {
 		root := filepath.Join(brainDir, filepath.FromSlash(rootRel))
 		err := privacyWalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
@@ -1178,8 +1179,8 @@ func privacyDerivedStoreArtifacts(brainDir string) ([]string, error) {
 			}
 			if rel, relErr := filepath.Rel(brainDir, path); relErr == nil {
 				rel = filepath.ToSlash(rel)
-				if validHistoryGenerationArtifactPath(rel, historyIndexFileName) || validHistoryGenerationArtifactPath(rel, projectionStateFileName) ||
-					validHistoryStagingArtifactPath(rel, historyIndexFileName) || validHistoryStagingArtifactPath(rel, projectionStateFileName) {
+				if historystore.ValidGenerationArtifactPath(rel, historystore.IndexFileName) || historystore.ValidGenerationArtifactPath(rel, projectionStateFileName) ||
+					historystore.ValidStagingArtifactPath(rel, historystore.IndexFileName) || historystore.ValidStagingArtifactPath(rel, projectionStateFileName) {
 					if rel == activeIndex || rel == activeReceipt {
 						return nil
 					}
@@ -1665,7 +1666,7 @@ func executeSessionCleanup(brainDir, sessionID string, plan sessionPurgePlan, no
 	if !keepTranscripts {
 		for _, artifact := range plan.Transcripts {
 			path := filepath.Join(brainDir, filepath.FromSlash(artifact.Path))
-			if err := rejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
+			if err := clibase.RejectSymlinkPathComponents(brainDir, filepath.FromSlash(artifact.Path)); err != nil {
 				if os.IsNotExist(err) {
 					continue
 				}

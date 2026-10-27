@@ -94,8 +94,8 @@ func TestCapWarnings(t *testing.T) {
 
 func TestFactTaxonomyBlockDeterministic(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	a := factTaxonomyBlock(factstore.DefaultTaxonomy(now))
-	b := factTaxonomyBlock(factstore.DefaultTaxonomy(now))
+	a := factstore.TaxonomyBlock(factstore.DefaultTaxonomy(now))
+	b := factstore.TaxonomyBlock(factstore.DefaultTaxonomy(now))
 	if a != b {
 		t.Fatalf("taxonomy block not deterministic")
 	}

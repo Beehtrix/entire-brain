@@ -330,6 +330,63 @@ func PathKnownTopLevel(taxonomy Taxonomy, path string) bool {
 	return ok
 }
 
+// TaxonomyBlock renders the taxonomy as the prompt section the agent uses to
+// classify facts: the fixed top-level categories and the known three-level
+// paths with descriptions. Output is deterministic (sorted) so the rendered
+// prompt is stable across runs.
+func TaxonomyBlock(taxonomy Taxonomy) string {
+	var b strings.Builder
+	b.WriteString("## Taxonomy\n\n")
+	b.WriteString("Top-level categories are fixed. You may invent a new three-level path only under one of these categories:\n\n")
+
+	categories := make([]string, 0, len(taxonomy.Categories))
+	for category := range taxonomy.Categories {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+	for _, category := range categories {
+		fmt.Fprintf(&b, "- `%s` — %s\n", category, taxonomy.Categories[category])
+	}
+
+	if len(taxonomy.Paths) > 0 {
+		b.WriteString("\nKnown paths (prefer these):\n\n")
+		paths := append([]PathDef(nil), taxonomy.Paths...)
+		sort.Slice(paths, func(i, j int) bool { return paths[i].Path < paths[j].Path })
+		for _, def := range paths {
+			if def.Description != "" {
+				fmt.Fprintf(&b, "- `%s` — %s\n", def.Path, def.Description)
+			} else {
+				fmt.Fprintf(&b, "- `%s`\n", def.Path)
+			}
+		}
+	}
+	return b.String()
+}
+
+// FilterPathsByTaxonomy keeps only paths whose top-level category exists in
+// the taxonomy, recording a warning for each dropped path. Paths are already
+// syntactically valid (factmerge.NormalizePaths ran first).
+func FilterPathsByTaxonomy(paths []string, taxonomy Taxonomy, warnings *[]string) []string {
+	tops := TaxonomyTopLevels(taxonomy)
+	kept := paths[:0:0]
+	for _, path := range paths {
+		if _, ok := tops[TopLevel(path)]; ok {
+			kept = append(kept, path)
+			continue
+		}
+		*warnings = append(*warnings, fmt.Sprintf("dropped path under unknown category: %s", path))
+	}
+	return kept
+}
+
+// ValidateKindFlag rejects an unrecognized --kind value (empty = no filter).
+func ValidateKindFlag(kind string) error {
+	if strings.TrimSpace(kind) == "" || factmerge.ValidFactKind(kind) {
+		return nil
+	}
+	return fmt.Errorf("--kind must be one of decision|invariant|gotcha|preference|convention")
+}
+
 // --- manifest summary -----------------------------------------------------
 
 // SummarizeSource folds a per-branch view of the fact store into the

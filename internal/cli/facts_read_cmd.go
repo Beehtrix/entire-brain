@@ -115,7 +115,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if err := validateScopeFlag(scope); err != nil {
 				return err
 			}
-			if err := validateKindFlag(kind); err != nil {
+			if err := factstore.ValidateKindFlag(kind); err != nil {
 				return err
 			}
 			repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
@@ -137,7 +137,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			// though this repo had declared it is a different thing.
 			globalIDs := map[string]bool{}
 			if globalFactsEnabled(noGlobal) {
-				globalFacts, globalErr := loadGlobalFacts(opts.Env)
+				globalFacts, globalErr := factstore.LoadGlobal(opts.Env)
 				if globalErr != nil {
 					// A damaged global store must not take recall down with it;
 					// the repository's own facts are the answer to most queries.
@@ -338,14 +338,6 @@ func validateScopeFlag(scope string) error {
 	default:
 		return fmt.Errorf("--scope must be %q or %q", factstore.ScopeLocal, factstore.ScopeCrossCutting)
 	}
-}
-
-// validateKindFlag rejects an unrecognized --kind value (empty = no filter).
-func validateKindFlag(kind string) error {
-	if strings.TrimSpace(kind) == "" || validFactKind(kind) {
-		return nil
-	}
-	return fmt.Errorf("--kind must be one of decision|invariant|gotcha|preference|convention")
 }
 
 func newInspectBlameCommand(opts Options) *cobra.Command {

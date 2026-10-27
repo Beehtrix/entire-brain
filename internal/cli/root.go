@@ -21,6 +21,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
+	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
@@ -123,7 +124,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("explore", newDashCommand(opts))
 
 	addGrouped("facts", newRecallCommand(opts))
-	addGrouped("facts", newRememberCommand(opts))
+	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))
 	addGrouped("facts", newDistillCommand(opts))
 	addGrouped("facts", newFactsCommand(opts))
 	addGrouped("facts", connect.New(connectConfig(opts)))

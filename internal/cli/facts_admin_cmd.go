@@ -67,7 +67,7 @@ func newFactsRetractCommand(opts Options) *cobra.Command {
 				if strings.TrimSpace(branch) != "" {
 					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
-				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
+				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
 				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			}
@@ -483,7 +483,7 @@ func newFactsGCCommand(opts Options) *cobra.Command {
 				if strings.TrimSpace(branch) != "" {
 					return fmt.Errorf("--global and --branch cannot be combined: a global memory is not on a branch")
 				}
-				brainDir, resolvedBranch, err = resolveGlobalFactsTarget(opts.Env)
+				brainDir, resolvedBranch, err = factstore.ResolveGlobalTarget(opts.Env)
 			} else {
 				_, brainDir, resolvedBranch, err = resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
 			}

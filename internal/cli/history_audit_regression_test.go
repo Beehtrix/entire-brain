@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -160,7 +161,7 @@ func TestHistoryAuditEmptyReplacementHidesAllOldViews(t *testing.T) {
 	if len(fresh.mergedRecords()) != 0 || len(fresh.longTermActive().Records) != 0 {
 		t.Error("old history survived empty replacement")
 	}
-	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, modeLexical, retrievalOptions{Source: retrievalSourceHistory})
+	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("empty replacement retrieval: %v %v", hits, err)
 	}

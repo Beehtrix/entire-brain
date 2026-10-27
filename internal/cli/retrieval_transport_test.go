@@ -35,7 +35,7 @@ func largeCoverageResults(count int) []unifiedResult {
 			}
 		}
 		results[i] = unifiedResult{
-			Source: retrievalSourceConversation, ID: sessionRef, Heading: "session_coverage", SessionRef: sessionRef,
+			Source: brainstore.RetrievalSourceConversation, ID: sessionRef, Heading: "session_coverage", SessionRef: sessionRef,
 			Text: strings.Repeat(`quoted "proof" \\ newline\n`, 500), VerificationRequired: true,
 			Concepts: concepts, ConceptMatches: matches, EvidenceIDs: evidenceIDs,
 			WorstRank: i + conversationConceptsMaxTotal, RankSum: 5*i + 15, Approximate: i%2 == 0,
@@ -114,7 +114,7 @@ func TestMultiConceptExactTransportBudgets(t *testing.T) {
 }
 
 func TestMultiConceptLimitContractAcrossSurfaces(t *testing.T) {
-	ropts := retrievalOptions{Source: retrievalSourceConversation, Concepts: []string{"second"}}
+	ropts := retrievalOptions{Source: brainstore.RetrievalSourceConversation, Concepts: []string{"second"}}
 	for _, limit := range []int{0, conversationConceptResultMax + 1} {
 		if _, err := retrieveConversationMultiConcept(t.TempDir(), "first", limit, modeLexical, ropts); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 			t.Fatalf("core limit %d: %v", limit, err)
@@ -124,11 +124,11 @@ func TestMultiConceptLimitContractAcrossSurfaces(t *testing.T) {
 	if err := runRetrieve(context.Background(), cmd, Options{}, "first", modeLexical, 51, "", ropts, true, false, "query"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("CLI limit: %v", err)
 	}
-	if err := runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 51, source: retrievalSourceConversation, concepts: []string{"second"}}, modeLexical, "missing", "first"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
+	if err := runWorkspaceRetrieve(cmd, Options{}, workspaceRetrieveOptions{limit: 51, source: brainstore.RetrievalSourceConversation, concepts: []string{"second"}}, modeLexical, "missing", "first"); err == nil || !strings.Contains(err.Error(), "between 1 and 50") {
 		t.Fatalf("workspace limit: %v", err)
 	}
 	huge := make([]string, 1<<16)
-	if _, err := buildRetrievalOptions(retrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
+	if _, err := buildRetrievalOptions(brainstore.RetrievalSourceConversation, "", "", "", "", "", huge); err == nil || !strings.Contains(err.Error(), "at most 4") {
 		t.Fatalf("oversized concept list: %v", err)
 	}
 }
@@ -194,7 +194,7 @@ func TestMultiConceptTextProofParity(t *testing.T) {
 func TestMultiConceptPreEmissionPrivacyRaceFailsClosed(t *testing.T) {
 	brainDir := writeMultiConceptFixture(t)
 	results, err := retrieveConversationMultiConcept(brainDir, "alpha rollout", 10, modeLexical, retrievalOptions{
-		Source: retrievalSourceConversation, Concepts: []string{"beta cache eviction"},
+		Source: brainstore.RetrievalSourceConversation, Concepts: []string{"beta cache eviction"},
 	})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("rank fixture: %v %+v", err, results)
@@ -323,7 +323,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 		cmd := &cobra.Command{}
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		err := runRetrieve(context.Background(), cmd, fixture.Options, "final privacy gate", modeLexical, 10, "", retrievalOptions{Source: retrievalSourceConversation}, true, false, "query")
+		err := runRetrieve(context.Background(), cmd, fixture.Options, "final privacy gate", modeLexical, 10, "", retrievalOptions{Source: brainstore.RetrievalSourceConversation}, true, false, "query")
 		requireLatePrivacyEmissionFailure(t, err, &out, called)
 	})
 
@@ -379,7 +379,7 @@ func TestAllRetrievalEmissionPathsRejectLateTombstone(t *testing.T) {
 			if get {
 				err = runWorkspaceGet(cmd, fixture.Options, workspaceName, []string{fmt.Sprintf("%s/%s", fixture.RepoKey, fixture.RecordID)}, "", true, getOptions{})
 			} else {
-				err = runWorkspaceRetrieve(cmd, fixture.Options, workspaceRetrieveOptions{limit: 10, source: retrievalSourceConversation, json: true}, modeLexical, workspaceName, "final privacy gate")
+				err = runWorkspaceRetrieve(cmd, fixture.Options, workspaceRetrieveOptions{limit: 10, source: brainstore.RetrievalSourceConversation, json: true}, modeLexical, workspaceName, "final privacy gate")
 			}
 			requireLatePrivacyEmissionFailure(t, err, &out, called)
 		})
@@ -693,7 +693,7 @@ func TestExplicitPatternRequestsReportUnavailableCorpusWithoutOutput(t *testing.
 		run  func(*cobra.Command) error
 	}{
 		{name: "retrieve patterns", run: func(cmd *cobra.Command) error {
-			return runRetrieve(context.Background(), cmd, fixture.Options, "privacy state", modeLexical, 5, "", retrievalOptions{Source: retrievalSourceConversation}, true, true, "query")
+			return runRetrieve(context.Background(), cmd, fixture.Options, "privacy state", modeLexical, 5, "", retrievalOptions{Source: brainstore.RetrievalSourceConversation}, true, true, "query")
 		}},
 		{name: "get pattern", run: func(cmd *cobra.Command) error {
 			_, err := runGet(context.Background(), cmd, fixture.Options, []string{"pattern:missing"}, "", true, getOptions{}, "get")

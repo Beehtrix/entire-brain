@@ -15,6 +15,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
+	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -147,10 +149,10 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("misc", newPathCommand(opts))
 	addGrouped("operations", newRepoIdentityCommand(opts))
-	addGrouped("misc", newCapabilitiesCommand(opts))
+	addGrouped("misc", capabilities.New(opts))
 	addGrouped("misc", newDoctorCommand(opts))
 	addHidden(newBenchmarkCommand(opts))
-	addGrouped("misc", newVersionCommand(opts.Version))
+	addGrouped("misc", version.New(opts.Version))
 
 	// Hidden: `review` is the machine contract `entire review`'s diff-less mode shells
 	// (`entire-brain review --json`), NOT a human-facing verb — the human

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -680,7 +681,7 @@ func TestQueryAndSearchSurfaceGlobalFacts(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
 	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
-		retrievalOptions{Source: retrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
+		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
 		t.Fatalf("runRetrieve: %v", err)
 	}
 	if !strings.Contains(out.String(), "global convention applies everywhere") {
@@ -700,7 +701,7 @@ func TestQueryRespectsTheGlobalOffSwitch(t *testing.T) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&strings.Builder{})
 	if err := runRetrieve(context.Background(), cmd, opts, "orion", modeLexical, 10, "feature",
-		retrievalOptions{Source: retrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
+		retrievalOptions{Source: brainstore.RetrievalSourceFact}, true, false, "mcp:brain_query"); err != nil {
 		t.Fatalf("runRetrieve: %v", err)
 	}
 	if strings.Contains(out.String(), "global convention applies everywhere") {
@@ -815,7 +816,7 @@ func TestUnifiedRetrievalChecksOnlyLocalLoci(t *testing.T) {
 	}
 	for _, mode := range []retrievalMode{modeLexical, modeHybrid, modeVector} {
 		results, err := retrieveUnifiedWithOptions(opts.Env.RepoRoot, brainDir, "feature", "orion", 10, mode,
-			retrievalOptions{Source: retrievalSourceFact, GlobalFacts: globals})
+			retrievalOptions{Source: brainstore.RetrievalSourceFact, GlobalFacts: globals})
 		if err != nil {
 			t.Fatal(err)
 		}

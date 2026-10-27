@@ -171,7 +171,7 @@ func conversationSessionOutline(view conversationSessionView, afterTurn, limit i
 		limit = conversationOutlineMaxLimit
 	}
 	result := unifiedResult{
-		Source:               retrievalSourceConversation,
+		Source:               brainstore.RetrievalSourceConversation,
 		ID:                   view.Ref,
 		Heading:              "session_outline",
 		SessionRef:           view.Ref,

@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
@@ -1238,8 +1239,8 @@ func memoryInstallHealth(brainDir string) map[string]any {
 		},
 	}
 	return map[string]any{
-		"cgo_build":     brainCGOBuild,
-		"vector_build":  brainCGOBuild,
+		"cgo_build":     sqlitedriver.BrainCGO,
+		"vector_build":  sqlitedriver.BrainCGO,
 		"build_profile": buildProfile,
 		"entire_binary": inspectEntireBinary(),
 		"directories": map[string]memoryInstallDirectoryHealth{

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"math"
 	"strings"
 	"testing"
@@ -20,7 +21,7 @@ func TestRetrievalRecencyPromotesCandidateBelowCutoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {
-		opts := retrievalOptions{Source: retrievalSourceFact, Recency: enabled, Now: now}
+		opts := retrievalOptions{Source: brainstore.RetrievalSourceFact, Recency: enabled, Now: now}
 		full, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 2, modeLexical, opts)
 		if err != nil {
 			t.Fatal(err)
@@ -55,7 +56,7 @@ func TestRetrievalRecencyDemotesDatedCandidateOutsidePage(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, enabled := range []bool{false, true} {
-		results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 1, modeLexical, retrievalOptions{Source: retrievalSourceFact, Recency: enabled, Now: now})
+		results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha beta", 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, Recency: enabled, Now: now})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -103,7 +104,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 			if err := writeFacts(brainDir, "main", facts); err != nil {
 				t.Fatal(err)
 			}
-			results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha", 10, modeLexical, retrievalOptions{Source: retrievalSourceFact, Recency: tc.enabled, Now: now})
+			results, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, Recency: tc.enabled, Now: now})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -122,7 +123,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 				}
 			}
 			if tc.wantCaveat {
-				baseline, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha", 10, modeLexical, retrievalOptions{Source: retrievalSourceFact})
+				baseline, err := retrieveUnifiedWithOptions("", brainDir, "main", "alpha", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact})
 				if err != nil {
 					t.Fatal(err)
 				}

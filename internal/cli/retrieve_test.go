@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"slices"
@@ -234,7 +235,7 @@ func TestHistoryRetrievalPathFiltersSelfEchoesAndRefills(t *testing.T) {
 		{ID: "history:evidence", Kind: "code_fact", Path: "sessions/main/a.jsonl", Line: 3, Summary: `Regression coverage proves the .github symbol was unexpectedly ignored.`},
 	}}
 	brainDir, _ := writeDirectHistoryFTSFixture(t, index)
-	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, modeLexical, retrievalOptions{Source: retrievalSourceHistory})
+	got, err := retrieveUnifiedWithOptions("", brainDir, "main", query, 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil {
 		t.Fatal(err)
 	}

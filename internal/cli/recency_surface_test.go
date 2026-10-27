@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"strings"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func TestRecencySurfaceValidation(t *testing.T) {
 			}
 		})
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: retrievalSourceConversation, Recency: true}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation, Recency: true}); err == nil {
 		t.Fatal("conversation must reject recency at retrieval boundary")
 	}
 }

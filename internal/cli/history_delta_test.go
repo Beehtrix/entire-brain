@@ -373,7 +373,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 		if result.Source == "history" && strings.Contains(result.Text, "gzip") {
 			foundDecision = true
 		}
-		if result.Source == retrievalSourceConversation {
+		if result.Source == brainstore.RetrievalSourceConversation {
 			t.Fatalf("exchange leaked into default retrieval via the overlay: %+v", result)
 		}
 	}

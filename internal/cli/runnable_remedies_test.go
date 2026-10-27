@@ -32,7 +32,6 @@ var deliberatelyHardcoded = []struct{ file, contains, reason string }{
 	{"retrieve.go", `"entire brain search`, "matcher over transcript text, not a printed remedy"},
 	{"mcp.go", "entire brain", "MCP tool descriptions are pinned by TestMCPToolSurfaceGolden; env-dependent descriptions would make the golden vary by shell"},
 	{"seed.go", "Intake: run `entire brain inspect", "written into the persisted seed artifact; spelling must be deterministic, not reader-dependent"},
-	{"capabilities.go", `"entire brain status --details --json"`, "machine-readable capabilities contract pinned by capabilities_report_regression_test.go"},
 	{"retrieve.go", `"entire brain query`, "matcher over transcript text, not a printed remedy"},
 	{"retrieve.go", `"entire brain brief`, "matcher over transcript text, not a printed remedy"},
 	{"viz.go", `"entire brain viz — %s`, "banner naming the surface being shown, not a command to run"},

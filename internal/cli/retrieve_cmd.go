@@ -161,7 +161,7 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 		}
 		trimmedConcepts = append(trimmedConcepts, concept)
 	}
-	if len(trimmedConcepts) > 0 && parsedSource != retrievalSourceConversation {
+	if len(trimmedConcepts) > 0 && parsedSource != brainstore.RetrievalSourceConversation {
 		return retrievalOptions{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
 	}
 	afterTime, err := parseRetrievalTimeFilter(after)
@@ -251,7 +251,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	var abstractPreviews []sessionAbstractPreview
 	var abstractPreviewsTruncated bool
 	if ropts.IncludeAbstract {
-		if ropts.Source != retrievalSourceConversation {
+		if ropts.Source != brainstore.RetrievalSourceConversation {
 			return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 		}
 		abstractPreviews, abstractPreviewsTruncated, err = abstractPreviewsForResults(brainDir, results)

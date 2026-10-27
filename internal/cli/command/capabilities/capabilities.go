@@ -1,15 +1,17 @@
-package cli
+package capabilities
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	"github.com/spf13/cobra"
 )
 
-type brainSourceCapability struct {
+type BrainSourceCapability struct {
 	Name             string   `json:"name"`
 	Default          bool     `json:"default"`
 	Experimental     bool     `json:"experimental"`
@@ -18,7 +20,7 @@ type brainSourceCapability struct {
 	SemanticRequires []string `json:"semantic_requires"`
 }
 
-type brainCapabilities struct {
+type BrainCapabilities struct {
 	SchemaVersion int    `json:"schema_version"`
 	Version       string `json:"version"`
 	Scope         string `json:"scope"`
@@ -32,7 +34,7 @@ type brainCapabilities struct {
 		Inputs                     []string `json:"inputs"`
 		ModeFlagsMutuallyExclusive bool     `json:"mode_flags_mutually_exclusive"`
 	} `json:"query"`
-	Sources       []brainSourceCapability `json:"sources"`
+	Sources       []BrainSourceCapability `json:"sources"`
 	Features      []string                `json:"features"`
 	Experimental  []string                `json:"experimental"`
 	GraphProvider struct {
@@ -42,10 +44,10 @@ type brainCapabilities struct {
 	ReadinessCommand string `json:"readiness_command"`
 }
 
-func compiledBrainCapabilities(version string) brainCapabilities {
-	var c brainCapabilities
+func compiledBrainCapabilities(version string) BrainCapabilities {
+	var c BrainCapabilities
 	c.SchemaVersion, c.Version, c.Scope = 1, version, "compiled; not repository readiness"
-	c.Build.BrainCGO, c.Build.SQLiteDriver = brainCGOBuild, sqlitedriver.Name
+	c.Build.BrainCGO, c.Build.SQLiteDriver = sqlitedriver.BrainCGO, sqlitedriver.Name
 	// Semantic retrieval was removed (trail #278: BM25 lexical matched or beat
 	// the embedder stack end-to-end). The "semantic" mode and the per-source
 	// semantic fields stay in the schema reporting unavailable, so committed
@@ -55,11 +57,11 @@ func compiledBrainCapabilities(version string) brainCapabilities {
 	c.Query.Inputs = []string{"positional", "--query"}
 	c.Query.ModeFlagsMutuallyExclusive = true
 	removed := []string{"semantic retrieval removed (trail #278); BM25 lexical is the only ranking"}
-	c.Sources = []brainSourceCapability{
-		{retrievalSourceFact, true, false, true, false, removed},
-		{retrievalSourceHistory, true, false, true, false, removed},
-		{retrievalSourceDoc, true, false, true, false, removed},
-		{retrievalSourceConversation, false, true, true, false, removed},
+	c.Sources = []BrainSourceCapability{
+		{brainstore.RetrievalSourceFact, true, false, true, false, removed},
+		{brainstore.RetrievalSourceHistory, true, false, true, false, removed},
+		{brainstore.RetrievalSourceDoc, true, false, true, false, removed},
+		{brainstore.RetrievalSourceConversation, false, true, true, false, removed},
 	}
 	c.Features = []string{"agent_instructions", "bm25_retrieval", "durable_facts", "task_briefs", "workspaces", "graph_inspection", "freshness_checks"}
 	c.Experimental = []string{"conversation_retrieval", "compact_brief_formats", "recall_expansion", "deterministic_evidence_recall"}
@@ -69,7 +71,7 @@ func compiledBrainCapabilities(version string) brainCapabilities {
 	return c
 }
 
-func newCapabilitiesCommand(opts Options) *cobra.Command {
+func New(opts base.Options) *cobra.Command {
 	var jsonOut bool
 	cmd := &cobra.Command{
 		Use:   "capabilities",

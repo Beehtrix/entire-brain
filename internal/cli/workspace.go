@@ -1023,13 +1023,13 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		return fmt.Errorf("--%s", err.Error())
 	}
 	ropts.IncludeAbstract = retrieveOpts.includeAbstract
-	if ropts.IncludeAbstract && ropts.Source != retrievalSourceConversation {
+	if ropts.IncludeAbstract && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 	}
-	if mode == modeVector && ropts.Source == retrievalSourceConversation {
+	if mode == modeVector && ropts.Source == brainstore.RetrievalSourceConversation {
 		return errConversationVectorUnsupported
 	}
-	if ropts.hasConversationOnlyFilters() && ropts.Source != retrievalSourceConversation {
+	if ropts.hasConversationOnlyFilters() && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
 	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
@@ -1086,7 +1086,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// single-source selection (conversation, fact, history, doc) is a source
 	// isolation contract: no fan-out or append stage may add records from any
 	// other source.
-	if mode != modeVector && ropts.Source == retrievalSourceAll {
+	if mode != modeVector && ropts.Source == brainstore.RetrievalSourceAll {
 		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			results = append(results, workspaceRetrieveResult{

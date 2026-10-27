@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // conversation_multiconcept.go implements multi-concept session recall:
@@ -240,7 +242,7 @@ func retrieveConversationMultiConcept(brainDir, query string, limit int, mode re
 	out := make([]unifiedResult, 0, len(sessions))
 	for _, session := range sessions {
 		result := unifiedResult{
-			Source:               retrievalSourceConversation,
+			Source:               brainstore.RetrievalSourceConversation,
 			ID:                   session.ref,
 			Heading:              "session_coverage",
 			SessionRef:           session.ref,

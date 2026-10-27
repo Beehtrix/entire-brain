@@ -85,10 +85,10 @@ const (
 // failed by setup is the component the reader then finds as failed there.
 const (
 	brainComponentSessions       = "sessions"
-	brainComponentSeed           = "seed"
-	brainComponentDocs           = "docs"
+	brainComponentSeed           = string(brainstore.DeclaredIndexSeed)
+	brainComponentDocs           = string(brainstore.DeclaredIndexDocs)
 	brainComponentSemantic       = "semantic"
-	brainComponentHistory        = "history"
+	brainComponentHistory        = string(brainstore.DeclaredIndexHistory)
 	brainComponentHistoryVectors = "history-vectors"
 	brainComponentBranches       = "branches"
 	brainComponentFacts          = "facts"
@@ -100,10 +100,10 @@ const (
 // setupComponentLabels name each component the way the setup lines say it.
 var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
-	brainComponentSeed:           "seed baseline",
-	brainComponentDocs:           "doc index",
+	brainComponentSeed:           brainstore.DeclaredIndexSeed.Label(),
+	brainComponentDocs:           brainstore.DeclaredIndexDocs.Label(),
 	brainComponentSemantic:       "code index",
-	brainComponentHistory:        "history index",
+	brainComponentHistory:        brainstore.DeclaredIndexHistory.Label(),
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",
 	brainComponentFacts:          "fact reclassification",

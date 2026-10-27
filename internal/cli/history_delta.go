@@ -14,6 +14,7 @@ import (
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -458,7 +459,7 @@ type freshHistory struct {
 }
 
 func loadFreshHistory(brainDir string, source *historySourceManifest) (freshHistory, error) {
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		return freshHistory{}, err
 	}
@@ -530,7 +531,7 @@ func rankFreshHistoryLexicalFromSource(brainDir string, source *historySourceMan
 		ranked := rankFreshHistory(fresh, kind, query, limit, pred, func(historyIndex, func(historyRecord) bool) ([]scoredHistoryRecord, bool) { return lex, true })
 		return ranked, historyIndexAccessFTSPayload, source.Records + len(fresh.overlay), nil
 	}
-	index, err := loadBrainHistoryIndex(brainDir, source)
+	index, err := historystore.LoadIndex(brainDir, source)
 	if err != nil {
 		return nil, "", 0, err
 	}

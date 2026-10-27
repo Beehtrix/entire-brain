@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
 	"os/exec"
@@ -178,7 +179,7 @@ func emitMemoryOperationSuccess(
 // derived artifact for receipts and dry-runs.
 func memoryDerivedArtifactStates(brainDir string) []memoryReceiptArtifact {
 	var artifacts []memoryReceiptArtifact
-	indexRel := historyIndexPath
+	indexRel := historystore.IndexPath
 	receiptRel := projectionStateRel
 	if manifest, err := bmanifest.Load(brainDir); err == nil && manifest.Sources != nil && manifest.Sources.History != nil {
 		if manifest.Sources.History.IndexPath != "" {
@@ -250,9 +251,9 @@ func markProjectionRefreshStates(brainDir string, artifacts *[]memoryReceiptArti
 var markMemoryProjectionRefreshStates = markProjectionRefreshStates
 
 func isHistoryProjectionPointerArtifact(path string) bool {
-	return path == historyIndexPath || path == projectionStateRel ||
-		(strings.HasPrefix(path, historyGenerationsDir+"/") &&
-			(strings.HasSuffix(path, "/"+historyIndexFileName) || strings.HasSuffix(path, "/"+projectionStateFileName)))
+	return path == historystore.IndexPath || path == projectionStateRel ||
+		(strings.HasPrefix(path, historystore.GenerationsDir+"/") &&
+			(strings.HasSuffix(path, "/"+historystore.IndexFileName) || strings.HasSuffix(path, "/"+projectionStateFileName)))
 }
 
 // memoryProjectionRefreshArtifactOutcome is the shared transition planner for
@@ -424,7 +425,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 			// treats a missing legacy digest or any bounded-read/digest failure as
 			// a deterministic rebuild request instead of becoming unable to repair
 			// the very state it is responsible for recovering.
-			_, indexErr := loadBrainHistoryIndex(brainDir, source)
+			_, indexErr := historystore.LoadIndex(brainDir, source)
 			indexCurrent := indexErr == nil && source != nil && source.IndexDigest != ""
 			verifyAvailable := indexErr == nil
 			verify := privacyVerifyReport{Findings: []privacyVerifyFinding{}}
@@ -481,7 +482,7 @@ func newMemoryRepairCommand(opts Options) *cobra.Command {
 				if postSource == nil || postSource.IndexDigest == "" {
 					return fail(fmt.Errorf("%s: repair did not publish an integrity-protected history index", brainstore.StateCorruptCode))
 				}
-				if _, postIndexErr := loadBrainHistoryIndex(brainDir, postSource); postIndexErr != nil {
+				if _, postIndexErr := historystore.LoadIndex(brainDir, postSource); postIndexErr != nil {
 					return fail(fmt.Errorf("%s: repair published an unreadable history index: %w", brainstore.StateCorruptCode, postIndexErr))
 				}
 				indexCurrent = true
@@ -689,11 +690,11 @@ func detectMemoryMigrations(brainDir string, source *historySourceManifest) []me
 	if source != nil {
 		path := strings.TrimSpace(source.IndexPath)
 		if path == "" {
-			path = historyIndexPath
+			path = historystore.IndexPath
 		}
-		if source.IndexDigest == "" && validHistoryGenerationArtifactPath(path, historyIndexFileName) {
+		if source.IndexDigest == "" && historystore.ValidGenerationArtifactPath(path, historystore.IndexFileName) {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "rebuild the generation and publish its manifest content digest (full refresh)"})
-		} else if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+		} else if _, err := historystore.LoadIndex(brainDir, source); err != nil {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.StateCorruptCode, Action: "rebuild the disposable history projection from canonical sessions"})
 		} else if source.IndexDigest == "" {
 			findings = append(findings, memoryMigrationFinding{Path: path, State: brainstore.MigrationRequiredCode, Action: "publish a manifest-committed index content digest (full refresh)"})
@@ -799,7 +800,7 @@ func rewriteLegacyMemoryJob(brainDir, rel string) error {
 	if !strings.HasPrefix(filepath.ToSlash(clean), memoryJobsDirRel+"/") {
 		return fmt.Errorf("%s: unsafe legacy job path", brainstore.StateCorruptCode)
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return fmt.Errorf("%s: unsafe legacy job path", brainstore.StateCorruptCode)
 	}
 	data, present, err := brainstore.ReadMemoryStateFile(brainDir, filepath.ToSlash(clean), "legacy memory job", base.MaxManifestBytes)
@@ -888,7 +889,7 @@ func newMemoryMigrateCommand(opts Options) *cobra.Command {
 				if source != nil {
 					indexPath = strings.TrimSpace(source.IndexPath)
 					if indexPath == "" {
-						indexPath = historyIndexPath
+						indexPath = historystore.IndexPath
 					}
 					if configured := filepath.ToSlash(strings.TrimSpace(source.ProjectionStatePath)); configured != "" {
 						receiptPath = configured

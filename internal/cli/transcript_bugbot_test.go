@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -168,7 +169,7 @@ func TestFilelessRefreshPreparesHistoryOutsideWriteLock(t *testing.T) {
 			originalWrite := historyProjectionWriteFile
 			checked := false
 			historyProjectionWriteFile = func(dir, rel string, data []byte, mode os.FileMode) error {
-				if !checked && strings.HasPrefix(rel, historyStagingDir+"/") {
+				if !checked && strings.HasPrefix(rel, historystore.StagingDir+"/") {
 					checked = true
 					unlock, err := brainstore.AcquireBrainWriteLockTimeout(brain, 100*time.Millisecond)
 					if err != nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -528,7 +529,7 @@ func detectRegressionAnomaliesCapped(brainDir, repoRoot string, semSource *seman
 		}
 		nativeClean := filepath.FromSlash(clean)
 		full := filepath.Join(repoRoot, nativeClean)
-		if err := rejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
+		if err := base.RejectSymlinkPathComponents(repoRoot, nativeClean); err != nil {
 			continue // per-component symlink guard, matching the brain's other repo reads
 		}
 		info, err := os.Stat(full)

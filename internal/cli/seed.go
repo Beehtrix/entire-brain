@@ -498,7 +498,7 @@ func inspectSeedFile(repoDir, rel string, opts seedCommandOptions) seedFileIndex
 		entry.Reason = "tests excluded"
 		return entry
 	}
-	if err := rejectSymlinkPathComponents(repoDir, clean); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(repoDir, clean); err != nil {
 		entry.Included = false
 		entry.Reason = "symlink path"
 		return entry
@@ -873,7 +873,7 @@ func writeSeedDocs(outputDir string, scan *seedScanResult) error {
 			dropSeedDocument(scan, doc, "unsafe source path")
 			continue
 		}
-		if err := rejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(scan.RepoDir, cleanSrc); err != nil {
 			dropSeedDocument(scan, doc, fmt.Sprintf("not read: %v", err))
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -59,7 +60,7 @@ func TestHistoryAuditRetiredGenerationRecovers(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(dir, now.Add(time.Minute), nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadBrainHistoryIndex(dir, old); err != nil {
+	if _, err := historystore.LoadIndex(dir, old); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, err := rankHistoryLexicalFromSource(dir, old, "history", "manifest", 10); err != nil {

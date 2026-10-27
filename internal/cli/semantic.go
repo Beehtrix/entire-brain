@@ -4328,7 +4328,7 @@ func semanticContextContent(repoDir string, symbols []semanticRecord) []semantic
 		if err != nil {
 			continue
 		}
-		if err := rejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(repoDir, filepath.FromSlash(clean)); err != nil {
 			continue
 		}
 		text, truncated, err := readSemanticContextSnippet(filepath.Join(repoDir, filepath.FromSlash(clean)), symbol.StartLine, symbol.EndLine)
@@ -4601,7 +4601,7 @@ func collectBrainBundleLayerPaths(root string, layer brainBundleLayer) ([]string
 		if d.IsDir() {
 			return nil
 		}
-		if err := rejectSymlinkPathComponents(root, rel); err != nil {
+		if err := clibase.RejectSymlinkPathComponents(root, rel); err != nil {
 			return err
 		}
 		paths = append(paths, rel)
@@ -4823,7 +4823,7 @@ func addBundleManifest(tw *tar.Writer, manifest exportManifest) error {
 }
 
 func addBundlePath(tw *tar.Writer, root, rel string) error {
-	if err := rejectSymlinkPathComponents(root, rel); err != nil {
+	if err := clibase.RejectSymlinkPathComponents(root, rel); err != nil {
 		return err
 	}
 	path := filepath.Join(root, rel)
@@ -4867,42 +4867,6 @@ func sanitizeSemanticRecordID(value, repoDir string, idMap map[string]string) st
 	sanitized = "redacted:" + hex.EncodeToString(sum[:8])
 	idMap[value] = sanitized
 	return sanitized
-}
-
-func rejectSymlinkPathComponents(root, rel string) error {
-	clean := filepath.Clean(rel)
-	// clean == ".." must be listed explicitly: filepath.Clean("..") is "..",
-	// which is neither "." nor prefixed with "../", so a bare ".." otherwise
-	// falls through this whole test. The per-component walk below then Lstats
-	// the PARENT of root — a real directory, not a symlink — and passes it, and
-	// the closing containment check returns nil early whenever root does not
-	// exist yet. One level up is exactly the escape the guard exists to stop.
-	if filepath.IsAbs(clean) || clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("path is outside root: %s", rel)
-	}
-	current := root
-	for _, part := range strings.Split(clean, string(filepath.Separator)) {
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path component must not be a symlink: %s", rel)
-		}
-	}
-	rootResolved, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return err
-	}
-	pathResolved, err := filepath.EvalSymlinks(filepath.Join(root, clean))
-	if err != nil {
-		return err
-	}
-	if !clibase.PathInside(rootResolved, pathResolved) {
-		return fmt.Errorf("path escapes root through symlinks: %s", rel)
-	}
-	return nil
 }
 
 func rejectBundleOutputInsideBrain(output, brainDir string) error {

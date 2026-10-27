@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -264,7 +265,7 @@ func writeRetrievalEmissionPrivacyFixture(t *testing.T) retrievalEmissionPrivacy
 	if err != nil {
 		t.Fatal(err)
 	}
-	index, err := loadBrainHistoryIndex(brainDir, manifestOnDisk.Sources.History)
+	index, err := historystore.LoadIndex(brainDir, manifestOnDisk.Sources.History)
 	if err != nil {
 		t.Fatal(err)
 	}

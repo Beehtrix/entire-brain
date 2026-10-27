@@ -11,6 +11,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -162,7 +163,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -170,7 +171,7 @@ func TestRunFactsEvalRetrieverArms(t *testing.T) {
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{session}},
-			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 1, Decisions: 1},
+			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historystore.IndexPath, Records: 1, Decisions: 1},
 		},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -256,7 +257,7 @@ func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -267,7 +268,7 @@ func TestRunFactsEvalBranchScopesHistoryAndQuery(t *testing.T) {
 				{SessionID: "s1", Branch: "main", TranscriptPath: mainRel, CreatedAt: now},
 				{SessionID: "s2", Branch: "feature", TranscriptPath: featureRel, CreatedAt: now.Add(time.Minute)},
 			}},
-			History: &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 2, Decisions: 2},
+			History: &historySourceManifest{GeneratedAt: now, IndexPath: historystore.IndexPath, Records: 2, Decisions: 2},
 		},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -317,7 +318,7 @@ func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(brainDir, brainstore.HistoryDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), historyData, 0o600); err != nil {
+	if err := brainstore.WriteFileAtomic(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), historyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
@@ -325,7 +326,7 @@ func TestRunFactsEvalSourceMatchMissDoesNotAutoJudge(t *testing.T) {
 		DefaultBranch: "main",
 		Sources: &brainSources{
 			Sessions: &sessionSourceManifest{GeneratedAt: now, DefaultBranch: "main", Sessions: []exportSession{{SessionID: "session-one", Branch: "main", TranscriptPath: transcriptRel, CreatedAt: now}}},
-			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historyIndexPath, Records: 1, Decisions: 1},
+			History:  &historySourceManifest{GeneratedAt: now, IndexPath: historystore.IndexPath, Records: 1, Decisions: 1},
 		},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {

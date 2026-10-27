@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -639,7 +640,7 @@ func retrieveEvalItems(ctx context.Context, brainDir, branch, query string, limi
 		if manifest.Sources == nil || manifest.Sources.History == nil {
 			return nil, nil
 		}
-		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if err != nil {
 			return nil, err
 		}
@@ -677,7 +678,7 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		return nil, err
 	}
 	if manifest.Sources != nil && manifest.Sources.History != nil {
-		index, err := loadBrainHistoryIndex(brainDir, manifest.Sources.History)
+		index, err := historystore.LoadIndex(brainDir, manifest.Sources.History)
 		if err != nil {
 			return nil, fmt.Errorf("load history index: %w", err)
 		}
@@ -716,7 +717,7 @@ func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest
 		}
 	}
 	index.Records = filtered
-	index.recordsFingerprint = ""
+	index.RecordsFingerprint = ""
 	return index
 }
 

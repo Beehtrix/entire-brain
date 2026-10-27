@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
@@ -44,13 +45,13 @@ func writeMultiConceptFixture(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
 		SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: index.GeneratedAt, RepoKey: "test/mc",
 		Sources: &brainSources{History: &historySourceManifest{
-			GeneratedAt: index.GeneratedAt, IndexPath: historyIndexPath, Records: len(index.Records),
+			GeneratedAt: index.GeneratedAt, IndexPath: historystore.IndexPath, Records: len(index.Records),
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
@@ -225,7 +226,7 @@ func replaceMultiConceptLongTermRecords(t *testing.T, brainDir string, records [
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	manifest.Sources.History.Records = len(records)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"io/fs"
 	"net"
@@ -1068,7 +1069,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"no history yet — run `" + base.BrainInvocation(os.LookupEnv, "refresh") + "`"}})
 		return
 	}
-	idx, err := loadBrainHistoryIndex(s.brainDir, s.manifest.Sources.History)
+	idx, err := historystore.LoadIndex(s.brainDir, s.manifest.Sources.History)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"history unavailable: " + err.Error()}})
 		return

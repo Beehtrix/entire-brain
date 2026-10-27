@@ -7,6 +7,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"os"
@@ -43,7 +44,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "taxonomy.json"), `{"version":1}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "main-0000", factstore.FileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.SessionsDirName, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historyIndexFileName), `{"records":[]}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.HistoryDirName, "generations", "gen1", historystore.IndexFileName), `{"records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, brainPatternsDirName, "episodes.ndjson"), `{"id":"episode:1"}`+"\n")
 
 	// Privacy policy and operational state: present in the brain, and never in
@@ -62,7 +63,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: now, SummaryPath: seedDirName + "/repo-overview.md", WorktreeMode: "head"}
 	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docDirName + "/" + docIndexFileName, Records: 0, Files: 1}
 	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factstore.DirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
-	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName}
+	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName}
 	manifest.Sources.Patterns = &patternSourceManifest{GeneratedAt: now, EpisodesPath: brainPatternsDirName + "/episodes.ndjson", Episodes: 1}
 	manifest.Sources.Sessions = &sessionSourceManifest{GeneratedAt: now, TranscriptMode: "full", Scope: "repo"}
 	manifest.Branches = []exportBranch{{Branch: "main", Directory: brainstore.SessionsDirName + "/main", SessionCount: 1, Default: true}}
@@ -218,7 +219,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	entries := bundleTestEntries(t, output)
 	for _, forbidden := range []string{
 		brainstore.SessionsDirName + "/main/session.jsonl",
-		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if slicesContainsString(entries, forbidden) {
@@ -232,7 +233,7 @@ func TestBundleExportExcludesSessionFamilyAndPrivacyState(t *testing.T) {
 	sessionEntries := bundleTestEntries(t, withSessions)
 	for _, want := range []string{
 		brainstore.SessionsDirName + "/main/session.jsonl",
-		brainstore.HistoryDirName + "/generations/gen1/" + historyIndexFileName,
+		brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName,
 		brainPatternsDirName + "/episodes.ndjson",
 	} {
 		if !slicesContainsString(sessionEntries, want) {

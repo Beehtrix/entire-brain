@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 )
@@ -46,19 +47,19 @@ func writeDirectHistoryFTSFixture(t testing.TB, index historyIndex) (string, *hi
 		t.Fatal(err)
 	}
 	data = append(data, '\n')
-	fingerprint := historyRecordsFingerprint(index.Records)
+	fingerprint := historystore.RecordsFingerprint(index.Records)
 	source := &historySourceManifest{
 		GeneratedAt:        index.GeneratedAt,
-		IndexPath:          historyIndexPath,
+		IndexPath:          historystore.IndexPath,
 		IndexBytes:         int64(len(data)),
-		IndexSHA256:        historyIndexBytesFingerprint(data),
+		IndexSHA256:        historystore.IndexBytesFingerprint(data),
 		RecordsFingerprint: fingerprint,
 		Records:            len(index.Records),
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historystore.IndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	index.recordsFingerprint = fingerprint
+	index.RecordsFingerprint = fingerprint
 	db, err := openHistoryFTSLocked(brainDir, index)
 	if err != nil {
 		t.Fatal(err)
@@ -275,13 +276,13 @@ func TestHistoryFTSReadOnlyMissDoesNotCreateCache(t *testing.T) {
 	data = append(data, '\n')
 	source := &historySourceManifest{
 		GeneratedAt:        index.GeneratedAt,
-		IndexPath:          historyIndexPath,
+		IndexPath:          historystore.IndexPath,
 		IndexBytes:         int64(len(data)),
-		IndexSHA256:        historyIndexBytesFingerprint(data),
-		RecordsFingerprint: historyRecordsFingerprint(index.Records),
+		IndexSHA256:        historystore.IndexBytesFingerprint(data),
+		RecordsFingerprint: historystore.RecordsFingerprint(index.Records),
 		Records:            len(index.Records),
 	}
-	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historyIndexPath, data, 0o600); err != nil {
+	if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, historystore.IndexPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(historyFTSDBPath(brainDir)); !os.IsNotExist(err) {
@@ -302,7 +303,7 @@ func TestHistoryFTSDirectSizeMismatchIsHardWithoutWriter(t *testing.T) {
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -327,7 +328,7 @@ func TestHistoryFTSDirectServesMatchingSnapshotDuringRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unlock()
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -348,10 +349,10 @@ func TestHistoryFTSDirectServesMatchingSnapshotDuringRefresh(t *testing.T) {
 func TestHistoryIndexSourceIdentityDetectsTamper(t *testing.T) {
 	index := ftsTestIndex()
 	brainDir, source := writeDirectHistoryFTSFixture(t, index)
-	if _, err := loadBrainHistoryIndex(brainDir, source); err != nil {
+	if _, err := historystore.LoadIndex(brainDir, source); err != nil {
 		t.Fatalf("valid source rejected: %v", err)
 	}
-	path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+	path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -365,7 +366,7 @@ func TestHistoryIndexSourceIdentityDetectsTamper(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadBrainHistoryIndex(brainDir, source); err == nil {
+	if _, err := historystore.LoadIndex(brainDir, source); err == nil {
 		t.Fatal("same-size history index tamper passed source checksum validation")
 	}
 }
@@ -375,7 +376,7 @@ func TestHistoryFTSDirectSecurityAndAuthoritativeFailures(t *testing.T) {
 
 	t.Run("missing authoritative index is hard error", func(t *testing.T) {
 		brainDir, source := writeDirectHistoryFTSFixture(t, index)
-		if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))); err != nil {
+		if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))); err != nil {
 			t.Fatal(err)
 		}
 		if _, used, err := rankHistoryViaFreshFTS(brainDir, source, "decisions", "embedding", 25); err == nil || used {
@@ -394,7 +395,7 @@ func TestHistoryFTSDirectSecurityAndAuthoritativeFailures(t *testing.T) {
 
 	t.Run("symlinked authoritative index is hard error", func(t *testing.T) {
 		brainDir, source := writeDirectHistoryFTSFixture(t, index)
-		path := filepath.Join(brainDir, filepath.FromSlash(historyIndexPath))
+		path := filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath))
 		outside := filepath.Join(t.TempDir(), "index.json")
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -570,8 +571,8 @@ func TestHistoryFTSRebuildsForEqualTimeAndCountGeneration(t *testing.T) {
 			ID: "old", Kind: "decision", Path: "sessions/main/old.jsonl", Line: 1,
 			Summary: "PRIVATE-OLD-GENERATION-CANARY alpha",
 		}},
-		storageIdentity: "history/generations/v1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.json",
-		contentIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		StorageIdentity: "history/generations/v1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/index.json",
+		ContentIdentity: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
 	if scored, ok := rankHistoryViaFTS(brainDir, first, "decisions", "alpha", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "old" {
 		t.Fatalf("seed generation ranking: ok=%v scored=%+v", ok, scored)
@@ -583,8 +584,8 @@ func TestHistoryFTSRebuildsForEqualTimeAndCountGeneration(t *testing.T) {
 			ID: "new", Kind: "decision", Path: "sessions/main/new.jsonl", Line: 1,
 			Summary: "replacement generation beta",
 		}},
-		storageIdentity: "history/generations/v1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.json",
-		contentIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		StorageIdentity: "history/generations/v1/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/index.json",
+		ContentIdentity: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 	}
 	if scored, ok := rankHistoryViaFTS(brainDir, second, "decisions", "beta", 10); !ok || len(scored) != 1 || scored[0].Record.ID != "new" {
 		t.Fatalf("replacement generation did not rebuild FTS: ok=%v scored=%+v", ok, scored)

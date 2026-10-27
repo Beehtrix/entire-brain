@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
@@ -556,18 +557,18 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	}
 	history := manifest.Sources.History
 	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
-		!validHistorySHA256(history.IndexSHA256) || !validHistorySHA256(history.RecordsFingerprint) ||
-		!validHistorySHA256(history.TranscriptsFingerprint) {
+		!historystore.ValidSHA256(history.IndexSHA256) || !historystore.ValidSHA256(history.RecordsFingerprint) ||
+		!historystore.ValidSHA256(history.TranscriptsFingerprint) {
 		return false
 	}
 	if history.SessionsFingerprint != sessionSourceFingerprint(manifest.Sources.Sessions) {
 		return false
 	}
-	clean, err := validateHistoryIndexPath(history.IndexPath)
+	clean, err := historystore.ValidateIndexPath(history.IndexPath)
 	if err != nil {
 		return false
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return false
 	}
 	indexPath := filepath.Join(brainDir, clean)

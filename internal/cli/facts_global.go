@@ -47,17 +47,6 @@ func globalFactIDs(facts []factRecord) map[string]bool {
 	return ids
 }
 
-// globalFactsForRead loads the global store for a read surface, honouring the
-// off switches. A damaged global store must not take retrieval down with it, so
-// the error comes back for the caller to warn about rather than to propagate:
-// the repository's own facts are still the answer to most queries.
-func globalFactsForRead(env EntireEnv, noGlobal bool) ([]factRecord, error) {
-	if !factstore.GlobalFactsEnabled(noGlobal) {
-		return nil, nil
-	}
-	return factstore.LoadGlobal(env)
-}
-
 // inARepository reports whether the current directory is actually inside a git
 // working tree.
 //

@@ -605,14 +605,6 @@ func reconcileStaleAbstractEgressReceiptsLocked(brainDir string, now time.Time) 
 	return reconciled, nil
 }
 
-type sessionAbstractPreview struct {
-	SessionRef     string             `json:"session_ref"`
-	AbstractStatus string             `json:"abstract_status"`
-	AbstractIssue  string             `json:"abstract_issue,omitempty"`
-	Overview       *abstractStatement `json:"overview,omitempty"`
-	InputTruncated bool               `json:"input_truncated,omitempty"`
-}
-
 // abstractPreviewsForResults builds the bounded top-level retrieval envelope.
 // It is read-only: status lookup never calls a provider. The caller links each
 // hit to a preview through its existing session_ref.

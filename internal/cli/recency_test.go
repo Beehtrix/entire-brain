@@ -133,7 +133,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 						t.Fatal("undated scores/order changed")
 					}
 				}
-				encoded, err := json.Marshal(compactUnifiedResults(results, "alpha"))
+				encoded, err := json.Marshal(retrieval.CompactResults(results, "alpha"))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -141,7 +141,7 @@ func TestRetrievalRecencyReportsUndatedResults(t *testing.T) {
 					t.Fatalf("JSON lost caveat: %s", encoded)
 				}
 				var out bytes.Buffer
-				printRetrievalCaveats(&out, results[0])
+				retrieval.PrintResultCaveats(&out, results[0])
 				if !strings.Contains(out.String(), "none of the retrieved candidates has a usable timestamp") {
 					t.Fatalf("text lost caveat: %s", out.String())
 				}

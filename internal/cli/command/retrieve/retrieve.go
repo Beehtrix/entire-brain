@@ -1,94 +1,42 @@
-package cli
+package retrieve
 
 import (
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
-	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
-const retrievalExcerptBytes = 600
-
-type compactUnifiedResult struct {
-	Source  string `json:"source"`
-	ID      string `json:"id"`
-	Path    string `json:"path,omitempty"`
-	Heading string `json:"heading,omitempty"`
-	Line    int    `json:"line,omitempty"`
-	// Text is retained for JSON compatibility. Excerpt is the bounded locator
-	// projection newer agents may prefer before calling get/multi-get; it is
-	// omitted when it would duplicate Text byte for byte, which is the common
-	// case for short records. Duplicating both doubled every result and agents
-	// that page output through `head` lost the tail of the ranking: a decisive
-	// record at rank 6 was observed cut off by exactly this.
-	Text                 string            `json:"text"`
-	Excerpt              string            `json:"excerpt,omitempty"`
-	Score                float64           `json:"score,omitempty"`
-	VerificationRequired bool              `json:"verification_required,omitempty"`
-	Caveats              []retrievalCaveat `json:"caveats,omitempty"`
-	RelatedIDs           []string          `json:"related_ids,omitempty"`
-
-	// Source provenance; available fields vary by source.
-	EndLine      int      `json:"end_line,omitempty"`
-	Branch       string   `json:"branch,omitempty"`
-	SessionID    string   `json:"session_id,omitempty"`
-	Agent        string   `json:"agent,omitempty"`
-	CreatedAt    string   `json:"created_at,omitempty"`
-	UpdatedAt    string   `json:"updated_at,omitempty"`
-	Truncated    bool     `json:"truncated,omitempty"`
-	MatchedTerms []string `json:"matched_terms,omitempty"`
-	// SessionRef names the virtual session so a caller can fetch the
-	// outline or adjacent context.
-	SessionRef string `json:"session_ref,omitempty"`
-	// Multi-concept session coverage (additive).
-	Concepts          []string       `json:"concepts,omitempty"`
-	ConceptMatches    []conceptMatch `json:"concept_matches,omitempty"`
-	EvidenceIDs       []string       `json:"evidence_ids,omitempty"`
-	WorstRank         int            `json:"worst_rank,omitempty"`
-	RankSum           int            `json:"rank_sum,omitempty"`
-	Approximate       bool           `json:"approximate,omitempty"`
-	ResponseTruncated bool           `json:"response_truncated,omitempty"`
-}
-
-type retrievalTaskHints struct {
-	LikelyEditFiles []string
-	LikelyTestFiles []string
-	ActionChecklist []brainBriefAction
-}
-
-// retrieve_cmd.go wires the qmd-inspired verbs over the unified text index:
+// retrieve.go wires the qmd-inspired verbs over the unified text index:
 // search (lexical), query (BM25 lexical; semantic retrieval was removed in
 // trail #278), vsearch (compatibility alias for query), and get/multi-get (fetch by
 // id). These verbs subsumed the old per-source inspect kinds (facts/docs/history
 // text). What remains under `inspect` is only what the verbs can't do: symbol-graph
 // traversal (code/context/impact/changes/tests/boundaries) and regression analysis.
 
-func newSearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "search", retrieval.ModeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
+func NewSearch(cfg Config) *cobra.Command {
+	return NewRetrieve(cfg, "search", retrieval.ModeLexical, "Lexical keyword search across facts, history, and docs (BM25 ranking; facts add locus and closed-negative boosts)")
 }
 
-func newVsearchCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "vsearch", retrieval.ModeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
+func NewVsearch(cfg Config) *cobra.Command {
+	return NewRetrieve(cfg, "vsearch", retrieval.ModeHybrid, "Compatibility alias for query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
-func newQueryCommand(opts Options) *cobra.Command {
-	return newRetrieveCommand(opts, "query", retrieval.ModeHybrid, "Search the brain (BM25 lexical ranking)")
+func NewQuery(cfg Config) *cobra.Command {
+	return NewRetrieve(cfg, "query", retrieval.ModeHybrid, "Search the brain (BM25 lexical ranking)")
 }
 
-func newRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
-	var selection querySelection
+func NewRetrieve(cfg Config, use string, mode retrieval.Mode, short string) *cobra.Command {
+	var selection QuerySelection
 	var jsonOut bool
 	var format string
 	var limit int
@@ -107,7 +55,7 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			ropts, err := buildRetrievalOptions(source, after, before, session, agent, branch, concepts)
+			ropts, err := BuildRetrievalOptions(source, after, before, session, agent, branch, concepts)
 			if err != nil {
 				return fmt.Errorf("--%s", err.Error())
 			}
@@ -117,15 +65,15 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 			if err != nil {
 				return err
 			}
-			selectedMode, err := selection.mode(mode)
+			selectedMode, err := selection.Mode(mode)
 			if err != nil {
 				return err
 			}
-			warnRemovedSemanticAlias(cmd, use, selection.semantic)
-			return runRetrieve(cmd.Context(), cmd, opts, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
+			WarnRemovedSemanticAlias(cmd, use, selection.Semantic)
+			return Run(cmd.Context(), cmd, cfg, args[0], selectedMode, limit, branch, ropts, wantJSON, patterns, use)
 		},
 	}
-	configureQueryCommand(cmd, use, &selection, 0)
+	ConfigureQueryCommand(cmd, use, &selection, 0)
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	cmd.Flags().IntVar(&limit, "limit", 10, "Maximum results")
 	cmd.Flags().IntVarP(&limit, "number", "n", 10, "Maximum results (QMD-style alias for --limit)")
@@ -145,40 +93,40 @@ func newRetrieveCommand(opts Options, use string, mode retrievalMode, short stri
 	return cmd
 }
 
-// buildRetrievalOptions validates and assembles the shared retrieval-options
+// BuildRetrievalOptions validates and assembles the shared retrieval-options
 // contract from CLI flags. branch doubles as the conversation
 // branch filter; error text names bare flag words so the CLI can prefix "--".
-func buildRetrievalOptions(source, after, before, session, agent, branch string, concepts []string) (retrievalOptions, error) {
+func BuildRetrievalOptions(source, after, before, session, agent, branch string, concepts []string) (retrieval.Options, error) {
 	parsedSource, err := retrieval.ParseSource(source)
 	if err != nil {
-		return retrievalOptions{}, err
+		return retrieval.Options{}, err
 	}
-	if len(concepts) > conversationConceptsMaxTotal-1 {
-		return retrievalOptions{}, fmt.Errorf("concept: at most %d additional concepts (got %d)", conversationConceptsMaxTotal-1, len(concepts))
+	if len(concepts) > retrieval.ConversationConceptsMaxTotal-1 {
+		return retrieval.Options{}, fmt.Errorf("concept: at most %d additional concepts (got %d)", retrieval.ConversationConceptsMaxTotal-1, len(concepts))
 	}
 	trimmedConcepts := make([]string, 0, len(concepts))
 	for _, concept := range concepts {
 		concept = strings.TrimSpace(concept)
 		if concept == "" {
-			return retrievalOptions{}, fmt.Errorf("concept: concepts must be non-empty")
+			return retrieval.Options{}, fmt.Errorf("concept: concepts must be non-empty")
 		}
 		trimmedConcepts = append(trimmedConcepts, concept)
 	}
 	if len(trimmedConcepts) > 0 && parsedSource != brainstore.RetrievalSourceConversation {
-		return retrievalOptions{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
+		return retrieval.Options{}, fmt.Errorf(`concept: concepts require source "conversation" (got %q)`, parsedSource)
 	}
 	afterTime, err := retrieval.ParseTimeFilter(after)
 	if err != nil {
-		return retrievalOptions{}, fmt.Errorf("after: %s", err.Error())
+		return retrieval.Options{}, fmt.Errorf("after: %s", err.Error())
 	}
 	beforeTime, err := retrieval.ParseTimeFilter(before)
 	if err != nil {
-		return retrievalOptions{}, fmt.Errorf("before: %s", err.Error())
+		return retrieval.Options{}, fmt.Errorf("before: %s", err.Error())
 	}
 	if !afterTime.IsZero() && !beforeTime.IsZero() && !afterTime.Before(beforeTime) {
-		return retrievalOptions{}, fmt.Errorf("after (%s) must be earlier than before (%s)", after, before)
+		return retrieval.Options{}, fmt.Errorf("after (%s) must be earlier than before (%s)", after, before)
 	}
-	return retrievalOptions{
+	return retrieval.Options{
 		Source:    parsedSource,
 		After:     afterTime,
 		Before:    beforeTime,
@@ -192,19 +140,19 @@ func buildRetrievalOptions(source, after, before, session, agent, branch string,
 // surface names the read surface for serve receipts ("search"/"vsearch"/
 // "query"). ropts carries the
 // validated source selector and structured filters; branch (the raw flag)
-// still selects the facts branch via resolveFactsTarget.
-func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query string, mode retrievalMode, limit int, branch string, ropts retrievalOptions, jsonOut, patterns bool, surface string) error {
+// still selects the facts branch via the resolve-target seam.
+func Run(ctx context.Context, cmd *cobra.Command, cfg Config, query string, mode retrieval.Mode, limit int, branch string, ropts retrieval.Options, jsonOut, patterns bool, surface string) error {
 	// Reject --limit <= 0 rather than silently defaulting, so a typo like
 	// `--limit 0` is an explicit error (matching the rest of the CLI surface).
 	if limit <= 0 {
 		return fmt.Errorf("--limit must be greater than 0")
 	}
 	if len(ropts.Concepts) > 0 {
-		if err := validateRetrievalLimit(limit); err != nil {
+		if err := retrieval.ValidateRetrievalLimit(limit); err != nil {
 			return fmt.Errorf("--%s", err.Error())
 		}
 	}
-	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
+	repoDir, brainDir, resolvedBranch, err := cfg.Deps.ResolveTarget(ctx, cfg.Options, branch)
 	if err != nil {
 		return err
 	}
@@ -214,10 +162,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	}
 	if patterns {
 		privacyPolicy.RequireDerivedClean = true
-		if err := requirePrivacyDerivedRead(brainDir); err != nil {
-			return err
-		}
-		if err := requirePatternCorpusAvailable(brainDir); err != nil {
+		if err := cfg.Deps.RequirePatternsReadable(brainDir); err != nil {
 			return err
 		}
 	}
@@ -225,12 +170,12 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// ranking, so a preference recorded once applies on every retrieval surface
 	// rather than only on the one command that happened to load them. They go
 	// through the same guard, filters and scoring as repository facts.
-	if globalFacts, globalErr := globalFactsForRead(opts.Env, ropts.NoGlobalFacts); globalErr != nil {
+	if globalFacts, globalErr := factstore.GlobalFactsForRead(cfg.Options.Env, ropts.NoGlobalFacts); globalErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		ropts.GlobalFacts = globalFacts
 	}
-	results, err := retrieveUnifiedWithOptions(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
+	results, err := cfg.Deps.RetrieveUnified(repoDir, brainDir, resolvedBranch, query, limit, mode, ropts)
 	if err != nil {
 		return err
 	}
@@ -238,26 +183,26 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	policyIdentityBeforeExtras := privacyPolicy.Identity
 	factIDs := unifiedFactIDs(results)
 	recordReceipt := func() {
-		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
-			vitalityHead(ctx, opts.Runner, repoDir), query, factIDs)
+		cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), ctx, cfg.Options, brainDir, resolvedBranch, surface,
+			repoDir, query, factIDs)
 	}
 	// Discoverability only: pattern/theme pointers never enter the facts/history/
 	// docs ranking — they are a separate, capped, opt-in section so default
 	// retrieval quality is unchanged by construction.
-	var related []relatedPatternRef
+	var related []retrieval.RelatedPatternRef
 	if patterns {
-		related, err = relatedPatternPointersChecked(brainDir, query, patternPointerCap)
+		related, err = cfg.Deps.RelatedPatternPointers(brainDir, query)
 		if err != nil {
 			return err
 		}
 	}
-	var abstractPreviews []sessionAbstractPreview
+	var abstractPreviews []retrieval.SessionAbstractPreview
 	var abstractPreviewsTruncated bool
 	if ropts.IncludeAbstract {
 		if ropts.Source != brainstore.RetrievalSourceConversation {
 			return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 		}
-		abstractPreviews, abstractPreviewsTruncated, err = abstractPreviewsForResults(brainDir, results)
+		abstractPreviews, abstractPreviewsTruncated, err = cfg.Deps.AbstractPreviews(brainDir, results)
 		if err != nil {
 			return err
 		}
@@ -268,12 +213,12 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		// 128 KiB response contract and proof rendering still belong only to
 		// multi-concept coverage.
 		if jsonOut {
-			out := map[string]any{"query": query, "branch": resolvedBranch, "results": compactUnifiedResults(results, query)}
+			out := map[string]any{"query": query, "branch": resolvedBranch, "results": retrieval.CompactResults(results, query)}
 			if ropts.IncludeAbstract {
 				out["abstract_previews"] = abstractPreviews
 				out["abstract_previews_truncated"] = abstractPreviewsTruncated
 			}
-			hints := retrievalHintsForResults(repoDir, results, query)
+			hints := cfg.Deps.TaskHints(repoDir, results, query)
 			if len(hints.LikelyEditFiles) > 0 {
 				out["likely_edit_files"] = hints.LikelyEditFiles
 			}
@@ -287,15 +232,15 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				out["related_patterns"] = related
 			}
 			if len(results) == 0 {
-				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
+				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" {
 					out["blind_spot"] = note
 				}
 			}
-			serialized, err := jsonOutputBytes(out)
+			serialized, err := cmdutil.JSONOutputBytes(out)
 			if err != nil {
 				return err
 			}
-			if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
+			if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
 				return err
 			}
 			if len(factIDs) > 0 {
@@ -307,11 +252,11 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		if err := cmdutil.WriteTextToWriter(&rendered, func(out io.Writer) {
 			if len(results) == 0 {
 				fmt.Fprintf(out, "no results for %q\n", query)
-				if note := emptyResultBlindSpotOnBranch(brainDir, resolvedBranch); note != "" {
+				if note := cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch); note != "" {
 					fmt.Fprintln(out, note)
 				}
 			}
-			hints := retrievalHintsForResults(repoDir, results, query)
+			hints := cfg.Deps.TaskHints(repoDir, results, query)
 			for _, file := range hints.LikelyEditFiles {
 				fmt.Fprintf(out, "edit_file %s\n", file)
 			}
@@ -327,8 +272,8 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 				if result.VerificationRequired {
 					label += " verify"
 				}
-				fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, result.ID, unifiedResultLocation(result), ex)
-				printRetrievalCaveats(out, result)
+				fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, result.ID, retrieval.ResultLocation(result), ex)
+				retrieval.PrintResultCaveats(out, result)
 			}
 			for _, pattern := range related {
 				fmt.Fprintf(out, "related [%s] %s  %s\n", pattern.Type, pattern.ID, pattern.Title)
@@ -349,7 +294,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		}); err != nil {
 			return err
 		}
-		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
+		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
 			return err
 		}
 		if len(factIDs) > 0 {
@@ -360,7 +305,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	// Ranking may be slow enough for a concurrent exclusion to land after its
 	// first guard snapshot. Revalidate immediately before transport assembly;
 	// no JSON or text bytes are emitted before this check succeeds.
-	results, policyAfter, err := revalidateRetrievalResponsePrivacy(brainDir, results)
+	results, policyAfter, err := cfg.Deps.RevalidateResponsePrivacy(brainDir, results)
 	if err != nil {
 		return err
 	}
@@ -372,40 +317,23 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 		abstractPreviews = nil
 		abstractPreviewsTruncated = true
 	}
-	extras := retrievalTransportExtras{
+	extras := retrieval.TransportExtras{
 		AbstractPreviews:          abstractPreviews,
 		AbstractPreviewsTruncated: abstractPreviewsTruncated,
-		Hints:                     retrievalHintsForResults(repoDir, results, query),
+		Hints:                     cfg.Deps.TaskHints(repoDir, results, query),
 		Related:                   related,
 	}
 	if len(results) == 0 {
-		extras.BlindSpot = emptyResultBlindSpotOnBranch(brainDir, resolvedBranch)
+		extras.BlindSpot = cfg.Deps.EmptyResultBlindSpot(brainDir, resolvedBranch)
 	}
-	if jsonOut {
-		// Preserve the established JSON `text` field
-		// surfaces. Excerpt is additive; existing consumers must not be forced to
-		// switch to a second brain_get round trip.
-		out, err := boundedRetrievalJSONPayload(query, resolvedBranch, results, extras)
-		if err != nil {
-			return err
-		}
-		serialized, err := jsonOutputBytes(out)
-		if err != nil {
-			return err
-		}
-		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
-			return err
-		}
-		if len(factIDs) > 0 {
-			recordReceipt()
-		}
-		return nil
-	}
-	text, err := boundedSingleRepoRetrievalText(query, results, extras)
+	// Preserve the established JSON `text` field
+	// surfaces. Excerpt is additive; existing consumers must not be forced to
+	// switch to a second brain_get round trip.
+	data, err := cfg.Deps.BoundedResponseBytes(query, resolvedBranch, results, extras, jsonOut)
 	if err != nil {
 		return err
 	}
-	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), text, retrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
+	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), data, brainstore.RetrievalPrivacyPolicy{BrainDir: brainDir, Identity: policyAfter}); err != nil {
 		return err
 	}
 	if len(factIDs) > 0 {
@@ -414,184 +342,7 @@ func runRetrieve(ctx context.Context, cmd *cobra.Command, opts Options, query st
 	return nil
 }
 
-func retrievalHintsForResults(repoRoot string, results []unifiedResult, query string) retrievalTaskHints {
-	_ = query
-	seen := map[string]struct{}{}
-	var editFiles, testFiles []string
-	addPath := func(path string) {
-		clean, ok := cleanBrainBriefHistoryFile(repoRoot, path)
-		if !ok || !brainBriefRepoFileExists(repoRoot, clean) {
-			return
-		}
-		if _, ok := seen[clean]; ok {
-			return
-		}
-		seen[clean] = struct{}{}
-		if brainBriefLikelyTestFile(clean) {
-			testFiles = append(testFiles, clean)
-		} else {
-			editFiles = append(editFiles, clean)
-		}
-	}
-	for _, result := range results {
-		if result.Source != "history" && result.Source != "doc" {
-			continue
-		}
-		addPath(result.Path)
-		for _, path := range extractBrainBriefPaths(result.Text) {
-			addPath(path)
-		}
-	}
-
-	// Pair an indexed test locator with its conventional implementation path.
-	// This uses only the paths contained in indexed results plus bounded stat
-	// calls; ordinary retrieval never scans or reads the live source tree.
-	var siblingImplementations []string
-	for _, testFile := range testFiles {
-		for _, candidate := range retrievalSiblingImplementationCandidates(testFile) {
-			if _, exists := seen[candidate]; exists || !brainBriefRepoFileExists(repoRoot, candidate) {
-				continue
-			}
-			seen[candidate] = struct{}{}
-			siblingImplementations = append(siblingImplementations, candidate)
-		}
-	}
-	editFiles = append(siblingImplementations, editFiles...)
-	if len(editFiles) > 3 {
-		editFiles = editFiles[:3]
-	}
-	if len(testFiles) > 3 {
-		testFiles = testFiles[:3]
-	}
-	return retrievalTaskHints{LikelyEditFiles: editFiles, LikelyTestFiles: testFiles}
-}
-
-func retrievalSiblingImplementationCandidates(testFile string) []string {
-	ext := filepath.Ext(testFile)
-	switch {
-	case strings.HasSuffix(testFile, "_test.go"):
-		return []string{strings.TrimSuffix(testFile, "_test.go") + ".go"}
-	case strings.HasSuffix(testFile, "_test.py"):
-		return []string{strings.TrimSuffix(testFile, "_test.py") + ".py"}
-	case strings.Contains(testFile, ".test"+ext):
-		return []string{strings.Replace(testFile, ".test"+ext, ext, 1)}
-	case strings.Contains(testFile, ".spec"+ext):
-		return []string{strings.Replace(testFile, ".spec"+ext, ext, 1)}
-	default:
-		return nil
-	}
-}
-
-func compactUnifiedResults(results []unifiedResult, query string) []compactUnifiedResult {
-	if results == nil {
-		return []compactUnifiedResult{}
-	}
-	out := make([]compactUnifiedResult, len(results))
-	for i, result := range results {
-		out[i] = compactUnifiedResult{
-			Source: result.Source, ID: result.ID, Path: result.Path, Heading: result.Heading, Line: result.Line,
-			Text: result.Text, Excerpt: distinctRetrievalExcerpt(result.Text, query), Score: result.Score,
-			VerificationRequired: result.VerificationRequired, Caveats: result.Caveats, RelatedIDs: result.RelatedIDs,
-			EndLine: result.EndLine, Branch: result.Branch, SessionID: result.SessionID,
-			Agent: result.Agent, CreatedAt: result.CreatedAt, UpdatedAt: result.UpdatedAt, Truncated: result.Truncated,
-			MatchedTerms: result.MatchedTerms, SessionRef: result.SessionRef,
-			Concepts: result.Concepts, ConceptMatches: result.ConceptMatches,
-			EvidenceIDs: result.EvidenceIDs, WorstRank: result.WorstRank, RankSum: result.RankSum,
-			Approximate: result.Approximate, ResponseTruncated: result.ResponseTruncated,
-		}
-	}
-	return out
-}
-
-// retrievalResultExcerpt centers a compact result on the densest query-term
-// window. Ranked retrieval is a locator surface; get/multi-get own full bodies.
-// distinctRetrievalExcerpt returns the bounded excerpt only when it adds
-// information over Text; an identical projection is omitted.
-func distinctRetrievalExcerpt(text, query string) string {
-	excerpt := retrievalResultExcerpt(text, query, retrievalExcerptBytes)
-	if excerpt == strings.Join(strings.Fields(text), " ") {
-		return ""
-	}
-	return excerpt
-}
-
-func retrievalResultExcerpt(value, query string, maxBytes int) string {
-	text := strings.Join(strings.Fields(value), " ")
-	if maxBytes <= 0 || text == "" {
-		return ""
-	}
-	if len(text) <= maxBytes {
-		return text
-	}
-	lower, originalOffsets := foldedTextOffsets(text)
-	terms := semstore.QueryTokens(query)
-	bestStart, bestScore := 0, -1
-	for _, anchor := range terms {
-		for searchAt := 0; searchAt < len(lower); {
-			rel := strings.Index(lower[searchAt:], anchor)
-			if rel < 0 {
-				break
-			}
-			at := searchAt + rel
-			originalAt := originalOffsets[min(at, len(originalOffsets)-1)]
-			start := max(0, originalAt-maxBytes/3)
-			end := min(len(text), start+maxBytes)
-			for start > 0 && !utf8.RuneStart(text[start]) {
-				start--
-			}
-			for end < len(text) && !utf8.RuneStart(text[end]) {
-				end++
-			}
-			window := strings.ToLower(text[start:end])
-			score := 0
-			for _, term := range terms {
-				if strings.Contains(window, term) {
-					score += len(term)
-				}
-			}
-			if score > bestScore {
-				bestStart, bestScore = start, score
-			}
-			searchAt = at + len(anchor)
-		}
-	}
-	start := bestStart
-	end := min(len(text), start+maxBytes)
-	for start > 0 && !utf8.RuneStart(text[start]) {
-		start--
-	}
-	for end < len(text) && !utf8.RuneStart(text[end]) {
-		end++
-	}
-	excerpt := strings.TrimSpace(text[start:end])
-	if start > 0 {
-		excerpt = "..." + excerpt
-	}
-	if end < len(text) {
-		excerpt += "..."
-	}
-	return excerpt
-}
-
-// foldedTextOffsets returns a lowercase search string plus a byte-offset map
-// back to the original UTF-8 text. Unicode case folding can change byte length
-// (for example, K -> k), so offsets into strings.ToLower(text) must never be
-// applied directly to text.
-func foldedTextOffsets(text string) (string, []int) {
-	var folded strings.Builder
-	offsets := make([]int, 0, len(text)+1)
-	for originalAt, r := range text {
-		lowerRune := strings.ToLower(string(r))
-		folded.WriteString(lowerRune)
-		for range []byte(lowerRune) {
-			offsets = append(offsets, originalAt)
-		}
-	}
-	offsets = append(offsets, len(text))
-	return folded.String(), offsets
-}
-
-func newGetCommand(opts Options) *cobra.Command {
+func NewGet(cfg Config) *cobra.Command {
 	var jsonOut bool
 	var format string
 	var branch string
@@ -611,13 +362,13 @@ exiting, so the result is readable either way.`,
 			if err != nil {
 				return err
 			}
-			gopts := getOptions{
+			gopts := retrieval.GetOptions{
 				ContextBefore: contextBefore, ContextAfter: contextAfter,
 				AfterTurn: afterTurn, OutlineLimit: outlineLimit,
 				ContextSet: cmd.Flags().Changed("context-before") || cmd.Flags().Changed("context-after"),
 				OutlineSet: cmd.Flags().Changed("after-turn") || cmd.Flags().Changed("limit"),
 			}
-			missing, err := runGet(cmd.Context(), cmd, opts, []string{args[0]}, branch, wantJSON, gopts, "get")
+			missing, err := RunGet(cmd.Context(), cmd, cfg, []string{args[0]}, branch, wantJSON, gopts, "get")
 			if err != nil {
 				return err
 			}
@@ -634,7 +385,7 @@ exiting, so the result is readable either way.`,
 	return cmd
 }
 
-func newMultiGetCommand(opts Options) *cobra.Command {
+func NewMultiGet(cfg Config) *cobra.Command {
 	var jsonOut bool
 	var format string
 	var branch string
@@ -655,7 +406,7 @@ survives the nonzero exit.`,
 			if err != nil {
 				return err
 			}
-			missing, err := runGet(cmd.Context(), cmd, opts, args, branch, wantJSON, getOptions{}, "multi-get")
+			missing, err := RunGet(cmd.Context(), cmd, cfg, args, branch, wantJSON, retrieval.GetOptions{}, "multi-get")
 			if err != nil {
 				return err
 			}
@@ -668,9 +419,9 @@ survives the nonzero exit.`,
 	return cmd
 }
 
-// errRetrievalIDsMissing is the gate `get` and `multi-get` close when an id the
+// ErrRetrievalIDsMissing is the gate `get` and `multi-get` close when an id the
 // caller named was not in the brain.
-var errRetrievalIDsMissing = errors.New("requested ids were not found")
+var ErrRetrievalIDsMissing = errors.New("requested ids were not found")
 
 // retrievalMissingFailure turns "part of what you asked for is not here" into an
 // exit code, AFTER the results and the `not found:` lines have been written.
@@ -687,13 +438,13 @@ var errRetrievalIDsMissing = errors.New("requested ids were not found")
 // `missing` array) are already out, so a caller that wants the partial answer
 // still has it and can ignore the code.
 //
-// renderedCommandError because the ids were named on the way out; repeating
-// them on stderr would say it twice.
+// cmdutil.RenderedCommandError because the ids were named on the way out;
+// repeating them on stderr would say it twice.
 func retrievalMissingFailure(missing []string) error {
 	if len(missing) == 0 {
 		return nil
 	}
-	return renderedCommandError{err: fmt.Errorf("%w: %s", errRetrievalIDsMissing, strings.Join(missing, ", "))}
+	return cmdutil.RenderedCommandError{Err: fmt.Errorf("%w: %s", ErrRetrievalIDsMissing, strings.Join(missing, ", "))}
 }
 
 func outputWantsJSON(jsonOut bool, format string) (bool, error) {
@@ -709,12 +460,12 @@ func outputWantsJSON(jsonOut bool, format string) (bool, error) {
 	}
 }
 
-// runGet emits the requested items and REPORTS which ids were not found rather
+// RunGet emits the requested items and REPORTS which ids were not found rather
 // than failing on them. The miss is a result, not an error: the JSON payload
 // keeps carrying `missing`. Turning a miss into an exit code is the CLI's job,
 // one layer up -- see retrievalMissingFailure.
-func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string, branch string, jsonOut bool, gopts getOptions, surface string) ([]string, error) {
-	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(ctx, opts, agentSurfaceTarget(opts, nil), branch)
+func RunGet(ctx context.Context, cmd *cobra.Command, cfg Config, ids []string, branch string, jsonOut bool, gopts retrieval.GetOptions, surface string) ([]string, error) {
+	repoDir, brainDir, resolvedBranch, err := cfg.Deps.ResolveTarget(ctx, cfg.Options, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -731,33 +482,30 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		}
 	}
 	if requestedPattern {
-		if err := requirePrivacyDerivedRead(brainDir); err != nil {
-			return nil, err
-		}
-		if err := requirePatternCorpusAvailable(brainDir); err != nil {
+		if err := cfg.Deps.RequirePatternsReadable(brainDir); err != nil {
 			return nil, err
 		}
 	}
 	// An id that query or search just handed back and get reports missing is a
 	// worse seam than not returning it at all.
-	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+	if globalFacts, globalErr := factstore.GlobalFactsForRead(cfg.Options.Env, false); globalErr != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 	} else {
 		gopts.GlobalFacts = globalFacts
 	}
-	found, missing, err := getUnifiedBatchOptions(repoDir, brainDir, resolvedBranch, ids, gopts)
+	found, missing, err := cfg.Deps.GetUnifiedBatch(repoDir, brainDir, resolvedBranch, ids, gopts)
 	if err != nil {
 		return nil, err
 	}
 	factIDs := unifiedFactIDs(found)
 	recordReceipt := func() {
-		recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), brainDir, resolvedBranch, surface,
-			vitalityHead(ctx, opts.Runner, repoDir), "", factIDs)
+		cfg.Deps.RecordServedFacts(cmd.ErrOrStderr(), ctx, cfg.Options, brainDir, resolvedBranch, surface,
+			repoDir, "", factIDs)
 	}
 	// Normalize empty collections to [] so --json emits arrays, not null, matching
 	// the repo's JSON contract (see TestInspectCodeEmptyResultsEmitArrayNotNull).
 	if found == nil {
-		found = []unifiedResult{}
+		found = []retrieval.Result{}
 	}
 	if missing == nil {
 		missing = []string{}
@@ -774,11 +522,11 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 		if missNote != "" {
 			payload["blind_spot"] = missNote
 		}
-		serialized, err := jsonOutputBytes(payload)
+		serialized, err := cmdutil.JSONOutputBytes(payload)
 		if err != nil {
 			return nil, err
 		}
-		if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
+		if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), serialized, privacyPolicy); err != nil {
 			return nil, err
 		}
 		if len(factIDs) > 0 {
@@ -793,8 +541,8 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 			if r.VerificationRequired {
 				label += " verify"
 			}
-			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, unifiedResultLocation(r), r.Text)
-			printRetrievalCaveats(out, r)
+			fmt.Fprintf(out, "[%s] %s  %s\n%s\n", label, r.ID, retrieval.ResultLocation(r), r.Text)
+			retrieval.PrintResultCaveats(out, r)
 			printConversationTurns(out, r)
 			fmt.Fprintln(out)
 		}
@@ -812,7 +560,7 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	}); err != nil {
 		return nil, err
 	}
-	if err := writeRetrievalResponseBytes(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
+	if err := cfg.Deps.WriteRetrievalResponse(cmd.OutOrStdout(), rendered.Bytes(), privacyPolicy); err != nil {
 		return nil, err
 	}
 	if len(factIDs) > 0 {
@@ -821,63 +569,67 @@ func runGet(ctx context.Context, cmd *cobra.Command, opts Options, ids []string,
 	return missing, nil
 }
 
-// unifiedResultLocation renders a result's source anchor, including the
-// inclusive end line for range-bearing results (conversation exchanges).
-func unifiedResultLocation(r unifiedResult) string {
-	switch {
-	case r.Line > 0 && r.EndLine > r.Line:
-		return fmt.Sprintf("%s:%d-%d", r.Path, r.Line, r.EndLine)
-	case r.Line > 0:
-		return fmt.Sprintf("%s:%d", r.Path, r.Line)
-	default:
-		return r.Path
+// unifiedFactIDs extracts the fact-layer ids from unified retrieval results.
+// Only source "fact" is a served fact; review groups, history, and docs carry
+// no per-fact vitality.
+func unifiedFactIDs(results []retrieval.Result) []string {
+	var ids []string
+	for _, r := range results {
+		if r.Source == "fact" {
+			ids = append(ids, r.ID)
+		}
+	}
+	return ids
+}
+
+// printConversationTurns renders outline or context entries for the text
+// surface; JSON callers get the structured turns directly.
+func printConversationTurns(out io.Writer, r retrieval.Result) {
+	for _, turn := range r.Turns {
+		body := turn.Request
+		if body == "" {
+			body = turn.Text
+		}
+		fmt.Fprintf(out, "  turn %d [%s] %s\n", turn.TurnOrdinal, turn.ConversationID, strings.Join(strings.Fields(body), " "))
+		for _, caveat := range turn.Caveats {
+			if caveat.Kind != retrieval.CaveatHistoricalConversation {
+				fmt.Fprintf(out, "    caveat %s: %s\n", caveat.Kind, caveat.Message)
+			}
+		}
+	}
+	if r.NextTurn > 0 {
+		fmt.Fprintf(out, "  next turn: %d\n", r.NextTurn)
+	}
+	if r.PacketTruncated {
+		fmt.Fprintln(out, "  packet truncated: byte cap reached")
 	}
 }
 
-func printRetrievalCaveats(out io.Writer, result unifiedResult) {
-	for _, caveat := range result.Caveats {
-		fmt.Fprintf(out, "    verify: %s\n", caveat.Message)
-		details := make([]string, 0, 4)
-		if len(caveat.Paths) > 0 {
-			details = append(details, "paths="+strings.Join(caveat.Paths, ","))
-		}
-		if caveat.ReviewID != "" {
-			details = append(details, "review="+caveat.ReviewID)
-		}
-		if caveat.Action != "" {
-			details = append(details, "action="+caveat.Action)
-			details = append(details, fmt.Sprintf("confidence=%.2f", caveat.Confidence))
-		}
-		if len(details) > 0 {
-			fmt.Fprintf(out, "      details: %s\n", strings.Join(details, "  "))
-		}
-	}
-}
-
-// warnRemovedSemanticAlias prints the one-line deprecation notice when a
+// WarnRemovedSemanticAlias prints the one-line deprecation notice when a
 // caller reaches retrieval through a removed-semantic surface (the vsearch
 // verb or --semantic). stderr only, so JSON/CSV consumers are unaffected.
-func warnRemovedSemanticAlias(cmd *cobra.Command, use string, semanticFlag bool) {
+func WarnRemovedSemanticAlias(cmd *cobra.Command, use string, semanticFlag bool) {
 	if use != "vsearch" && !semanticFlag {
 		return
 	}
 	fmt.Fprintln(cmd.ErrOrStderr(), "warning: semantic retrieval was removed (trail #278); running the standard BM25 lexical ranking")
 }
 
-// querySelection is shared by local and workspace query commands.
-type querySelection struct {
-	text              string
-	keyword, semantic bool
+// QuerySelection is shared by local and workspace query commands.
+type QuerySelection struct {
+	text     string
+	keyword  bool
+	Semantic bool
 }
 
-func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
-	if s.keyword && s.semantic {
+func (s QuerySelection) Mode(fallback retrieval.Mode) (retrieval.Mode, error) {
+	if s.keyword && s.Semantic {
 		return fallback, fmt.Errorf("--keyword and --semantic are mutually exclusive")
 	}
 	if s.keyword {
 		return retrieval.ModeLexical, nil
 	}
-	if s.semantic {
+	if s.Semantic {
 		// Semantic retrieval was removed (trail #278); the flag is honored as
 		// a compatibility alias for the default BM25 ranking.
 		return retrieval.ModeHybrid, nil
@@ -885,7 +637,7 @@ func (s querySelection) mode(fallback retrievalMode) (retrievalMode, error) {
 	return fallback, nil
 }
 
-func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelection, prefixArgs int) {
+func ConfigureQueryCommand(cmd *cobra.Command, use string, selection *QuerySelection, prefixArgs int) {
 	if use != "query" {
 		cmd.Hidden = true // Keep search/vsearch callable for existing integrations.
 		return
@@ -897,7 +649,7 @@ func configureQueryCommand(cmd *cobra.Command, use string, selection *querySelec
 	cmd.Long = cmd.Short + ". Supply the text positionally or with --query. Flags may appear before or after the text."
 	cmd.Flags().StringVar(&selection.text, "query", "", "Query text (alternative to the positional query)")
 	cmd.Flags().BoolVar(&selection.keyword, "keyword", false, "Match keywords and identifiers only")
-	cmd.Flags().BoolVar(&selection.semantic, "semantic", false, "Compatibility alias: semantic retrieval was removed; ranking is BM25 lexical")
+	cmd.Flags().BoolVar(&selection.Semantic, "semantic", false, "Compatibility alias: semantic retrieval was removed; ranking is BM25 lexical")
 	cmd.MarkFlagsMutuallyExclusive("keyword", "semantic")
 	cmd.Args = func(cmd *cobra.Command, args []string) error {
 		if cmd.Flags().Changed("query") {
@@ -975,5 +727,5 @@ func getMissNote(brainDir, branch string, missing []string) string {
 	if !missingFactIDs(missing) {
 		return ""
 	}
-	return otherBranchBlindSpot(brainDir, branch)
+	return factstore.OtherBranchBlindSpot(brainDir, branch)
 }

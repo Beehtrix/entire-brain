@@ -415,14 +415,6 @@ type brainBriefHistory struct {
 	Matches []brainTextMatch `json:"matches,omitempty"`
 }
 
-type brainBriefAction struct {
-	Kind     string `json:"kind,omitempty"`
-	File     string `json:"file,omitempty"`
-	Symbol   string `json:"symbol,omitempty"`
-	Action   string `json:"action"`
-	Evidence string `json:"evidence,omitempty"`
-}
-
 type brainShowReport struct {
 	Freshness staleReport    `json:"freshness"`
 	Record    semanticRecord `json:"record"`
@@ -1155,7 +1147,7 @@ func runAgentStatus(ctx context.Context, cmd *cobra.Command, opts Options, statu
 		renderBrainStatusText(cmd, report, statusOpts.verbose)
 	}
 	if err := semanticAuditFailureForReport(brainStatusFreshnessSeverity(report), len(brainStatusBlindSpots(report)), failOn); err != nil {
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	}
 	return nil
 }
@@ -1768,7 +1760,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 	// down.
 	var briefGlobalFacts []factRecord
 	var briefGlobalIDs map[string]bool
-	if globalFacts, globalErr := globalFactsForRead(opts.Env, false); globalErr != nil {
+	if globalFacts, globalErr := factstore.GlobalFactsForRead(opts.Env, false); globalErr != nil {
 		report.Warnings = append(report.Warnings, "global memories unavailable: "+globalErr.Error())
 	} else {
 		briefGlobalFacts = globalFacts
@@ -2124,7 +2116,7 @@ func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefCo
 	for _, result := range results {
 		hits = append(hits, brainBriefConversationHit{
 			ID:          result.ID,
-			Excerpt:     retrievalResultExcerpt(result.Text, task, 200),
+			Excerpt:     retrieval.ResultExcerpt(result.Text, task, 200),
 			Path:        result.Path,
 			Line:        result.Line,
 			EndLine:     result.EndLine,

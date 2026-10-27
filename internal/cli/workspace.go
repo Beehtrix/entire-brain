@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -544,26 +545,26 @@ func newWorkspaceQueryCommand(opts Options) *cobra.Command {
 }
 
 // newWorkspaceRetrieveCommand mirrors the top-level search/vsearch/query verbs
-// (retrieve_cmd.go) as a per-member fan-out: each repo's brain is ranked
+// (command/retrieve) as a per-member fan-out: each repo's brain is ranked
 // independently and results stay grouped by repo — scores from different brains'
 // indexes are not comparable, so there is no cross-repo fusion.
 func newWorkspaceRetrieveCommand(opts Options, use string, mode retrievalMode, short string) *cobra.Command {
-	var selection querySelection
+	var selection retrieve.QuerySelection
 	retrieveOpts := workspaceRetrieveOptions{limit: 10}
 	cmd := &cobra.Command{
 		Use:   use + " <workspace> <query>",
 		Short: short,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selectedMode, err := selection.mode(mode)
+			selectedMode, err := selection.Mode(mode)
 			if err != nil {
 				return err
 			}
-			warnRemovedSemanticAlias(cmd, use, selection.semantic)
+			retrieve.WarnRemovedSemanticAlias(cmd, use, selection.Semantic)
 			return runWorkspaceRetrieve(cmd, opts, retrieveOpts, selectedMode, args[0], args[1])
 		},
 	}
-	configureQueryCommand(cmd, use, &selection, 1)
+	retrieve.ConfigureQueryCommand(cmd, use, &selection, 1)
 	cmd.Flags().IntVar(&retrieveOpts.limit, "limit", 10, "Maximum results per repo")
 	cmd.Flags().StringVar(&retrieveOpts.branch, "branch", "", "Branch for facts in every repo (default: each repo's distill default)")
 	cmd.Flags().BoolVar(&retrieveOpts.json, "json", false, "Emit machine-readable JSON")
@@ -1011,7 +1012,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		return errors.New("--limit must be greater than zero")
 	}
 	if len(retrieveOpts.concepts) > 0 {
-		if err := validateRetrievalLimit(retrieveOpts.limit); err != nil {
+		if err := retrieval.ValidateRetrievalLimit(retrieveOpts.limit); err != nil {
 			return fmt.Errorf("--%s", err.Error())
 		}
 	}
@@ -1022,7 +1023,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// to that captured branch in each member brain, exactly like the
 	// top-level verbs. Members without that branch simply return no
 	// conversation hits.
-	ropts, err := buildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
+	ropts, err := retrieve.BuildRetrievalOptions(retrieveOpts.source, retrieveOpts.after, retrieveOpts.before, retrieveOpts.session, retrieveOpts.agent, retrieveOpts.branch, retrieveOpts.concepts)
 	if err != nil {
 		return fmt.Errorf("--%s", err.Error())
 	}
@@ -1136,14 +1137,14 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 			if budgetErr != nil {
 				return budgetErr
 			}
-			serialized, marshalErr := jsonOutputBytes(payload)
+			serialized, marshalErr := cmdutil.JSONOutputBytes(payload)
 			if marshalErr != nil {
 				return marshalErr
 			}
 			return writeRetrievalResponseBytes(cmd.OutOrStdout(), serialized, privacyPolicies...)
 		}
 		qualified := qualifyWorkspaceRetrieveGroups(manifest.Name, results)
-		serialized, marshalErr := jsonOutputBytes(struct {
+		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
 			Workspace string                    `json:"workspace"`
 			Query     string                    `json:"query"`
 			Results   []workspaceRetrieveResult `json:"results"`
@@ -1179,7 +1180,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, printedID, loc, ex)
-			printRetrievalCaveats(out, r)
+			retrieval.PrintResultCaveats(out, r)
 		}
 		if result.Error != "" {
 			fmt.Fprintf(out, "%s error %s\n", result.RepoKey, result.Error)
@@ -1326,7 +1327,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 				qualified[i].Results[j] = qualifyWorkspaceUnifiedResult(result.RepoKey, manifest.Name, item)
 			}
 		}
-		serialized, marshalErr := jsonOutputBytes(struct {
+		serialized, marshalErr := cmdutil.JSONOutputBytes(struct {
 			Workspace string               `json:"workspace"`
 			Results   []workspaceGetResult `json:"results"`
 		}{Workspace: manifest.Name, Results: qualified})
@@ -1348,7 +1349,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 				label += " verify"
 			}
 			fmt.Fprintf(out, "[%s] %s/%s  %s\n%s\n", label, result.RepoKey, r.ID, loc, r.Text)
-			printRetrievalCaveats(out, r)
+			retrieval.PrintResultCaveats(out, r)
 			fmt.Fprintln(out)
 		}
 		for _, id := range result.Missing {

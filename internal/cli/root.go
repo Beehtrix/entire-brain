@@ -15,6 +15,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+	"github.com/entireio/entire-brain/internal/cli/command/add"
 	"github.com/entireio/entire-brain/internal/cli/command/capabilities"
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
@@ -22,6 +23,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
+	"github.com/entireio/entire-brain/internal/cli/command/guide"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
@@ -109,8 +111,8 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	}
 
 	addGrouped("setup", newSetupCommand(opts))
-	addGrouped("setup", newAddCommand(opts))
-	addGrouped("setup", newBrainGuideCommand(opts))
+	addGrouped("setup", add.New(opts))
+	addGrouped("setup", guide.New(opts))
 	addGrouped("setup", webhook.New(opts))
 	addGrouped("setup", config.New(opts.Env))
 

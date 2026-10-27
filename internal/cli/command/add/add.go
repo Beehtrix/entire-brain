@@ -1,4 +1,4 @@
-package cli
+package add
 
 import (
 	"context"
@@ -21,7 +21,7 @@ type addFlags struct {
 	checkpointLimit int
 }
 
-func newAddCommand(opts Options) *cobra.Command {
+func New(opts base.Options) *cobra.Command {
 	var flags addFlags
 	cmd := &cobra.Command{
 		Use:   "add <repo-url>",
@@ -41,7 +41,7 @@ with ` + "`entire brain dash`" + `, ` + "`status`" + `, or ` + "`search`" + ` fr
 	return cmd
 }
 
-func runBrainAdd(cmd *cobra.Command, opts Options, flags addFlags, repoURL string) error {
+func runBrainAdd(cmd *cobra.Command, opts base.Options, flags addFlags, repoURL string) error {
 	ctx := cmd.Context()
 	out := cmd.OutOrStdout()
 	errOut := cmd.ErrOrStderr()
@@ -240,7 +240,7 @@ func sameCloneOrigin(want, got string) bool {
 		host, path := "", ""
 		if u, err := url.Parse(remote); err == nil && u.Host != "" && u.Scheme != "" {
 			host, path = strings.ToLower(u.Host), u.EscapedPath()
-		} else if m := repoRemoteSCPRegex.FindStringSubmatch(remote); len(m) == 3 {
+		} else if m := base.RemoteSCPRegex.FindStringSubmatch(remote); len(m) == 3 {
 			host, path = strings.ToLower(m[1]), m[2]
 		} else {
 			return strings.TrimSuffix(strings.TrimSuffix(remote, "/"), ".git")

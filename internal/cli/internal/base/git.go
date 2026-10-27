@@ -2,8 +2,13 @@ package base
 
 import (
 	"context"
+	"regexp"
 	"strings"
 )
+
+// RemoteSCPRegex matches scp-like git remotes (git@host:path), capturing the
+// host and the path.
+var RemoteSCPRegex = regexp.MustCompile(`^(?:[^@]+@)?([^:/]+):(.+)$`)
 
 func GitScalar(ctx context.Context, runner CommandRunner, repoDir string, args ...string) (string, error) {
 	stdout, _, err := runner.Run(ctx, repoDir, "git", args...)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"sort"
 	"strings"
@@ -120,21 +121,6 @@ func buildConversationSessionViews(fresh freshHistory, repoKey string, manifest 
 		views[ref] = view
 	}
 	return views
-}
-
-// conversationTurn is one bounded outline or context entry. Outline entries
-// carry the request excerpt; context entries carry the expanded bounded text.
-// Neither ever contains hidden reasoning or raw tool output.
-type conversationTurn struct {
-	ConversationID  string            `json:"conversation_id"`
-	TurnOrdinal     int               `json:"turn_ordinal"`
-	CreatedAt       string            `json:"created_at,omitempty"`
-	Request         string            `json:"request,omitempty"`
-	Text            string            `json:"text,omitempty"`
-	RangeIncomplete bool              `json:"range_incomplete,omitempty"`
-	ToolNames       []string          `json:"tool_names,omitempty"`
-	Truncated       bool              `json:"truncated,omitempty"`
-	Caveats         []retrievalCaveat `json:"caveats,omitempty"`
 }
 
 func conversationOutlineEntry(record historyRecord) conversationTurn {
@@ -312,7 +298,7 @@ func printConversationTurns(out io.Writer, r unifiedResult) {
 		}
 		fmt.Fprintf(out, "  turn %d [%s] %s\n", turn.TurnOrdinal, turn.ConversationID, strings.Join(strings.Fields(body), " "))
 		for _, caveat := range turn.Caveats {
-			if caveat.Kind != retrievalCaveatHistoricalConversation {
+			if caveat.Kind != retrieval.CaveatHistoricalConversation {
 				fmt.Fprintf(out, "    caveat %s: %s\n", caveat.Kind, caveat.Message)
 			}
 		}

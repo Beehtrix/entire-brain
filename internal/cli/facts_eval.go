@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"sort"
@@ -671,7 +673,7 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		}
 	}
 	if len(active) > 0 {
-		lists = append(lists, factsToUnified(rankFacts(active, query, limit*2, false)))
+		lists = append(lists, retrieval.FactsToUnified(rankFacts(active, query, limit*2, false)))
 	}
 	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
@@ -684,19 +686,19 @@ func retrieveEvalUnifiedLexical(brainDir, branch, query string, limit int, facts
 		}
 		index = filterHistoryIndexForEvalBranch(index, branch, manifest)
 		if scored := rankHistoryRecordsScored(index, "history", query, limit*2, 0); len(scored) > 0 {
-			lists = append(lists, historyToUnified(scored))
+			lists = append(lists, retrieval.HistoryToUnified(scored))
 		}
 	}
-	docIdx, derr := loadDocIndex(brainDir)
+	docIdx, derr := docstore.Load(brainDir)
 	switch {
 	case derr == nil && len(docIdx.Records) > 0:
 		if scored := rankDocsLexical(docIdx, query, limit*2); len(scored) > 0 {
-			lists = append(lists, docsToUnified(scored))
+			lists = append(lists, retrieval.DocsToUnified(scored))
 		}
 	case derr != nil && !os.IsNotExist(derr):
 		return nil, fmt.Errorf("load doc index: %w", derr)
 	}
-	return rrfMergeUnified(lists, limit), nil
+	return retrieval.RRFMergeUnified(lists, limit), nil
 }
 
 func filterHistoryIndexForEvalBranch(index historyIndex, branch string, manifest *exportManifest) historyIndex {

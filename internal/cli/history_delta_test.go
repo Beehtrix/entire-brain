@@ -17,6 +17,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -330,7 +331,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	brainDir, changedRel, _ := shortTermFixture(t)
 
 	// Before the delta: the in-flight turn is invisible.
-	before, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	before, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +345,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 
 	// Conversation source: the fresh exchange from the changed session and the
 	// parallel session's exchange are both recallable.
-	after, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	after, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +358,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	if freshID == "" {
 		t.Fatalf("fresh exchange not retrievable after delta: %+v", after)
 	}
-	parallel, err := retrieveConversation(brainDir, "profile the exporter hot loop", 10, modeLexical, retrievalOptions{})
+	parallel, err := retrieveConversation(brainDir, "profile the exporter hot loop", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(parallel) == 0 {
 		t.Fatalf("parallel session not retrievable: %v (%d results)", err, len(parallel))
 	}
@@ -366,7 +367,7 @@ func TestShortTermRecordsAreRetrievableAndGettable(t *testing.T) {
 	}
 
 	// General history arm sees the fresh decision too.
-	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "exporter hot loop gzip", 10, modeLexical, retrievalOptions{})
+	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", "exporter hot loop gzip", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +500,7 @@ func TestShortTermConsolidationClearsOverlayAndPreservesRecall(t *testing.T) {
 		t.Fatalf("overlay must be cleared by consolidation: %v", err)
 	}
 	// Everything the overlay held is now long-term recallable.
-	results, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "corrupted vector store checksum", 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("post-consolidation recall failed: %v (%d)", err, len(results))
 	}

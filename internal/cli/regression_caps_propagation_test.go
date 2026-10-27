@@ -141,7 +141,7 @@ func TestCauseTruncationReservesTheEllipsisInRunes(t *testing.T) {
 func TestIterativePathCompressionIsStillCorrect(t *testing.T) {
 	t.Parallel()
 
-	src := readGoSourceForTest(t, "retrieval_guard.go")
+	src := readGoSourceForTest(t, "internal/retrieval/guard.go")
 	if strings.Contains(src, "findRoot = func(id string) string") {
 		t.Error("findRoot is still the recursive closure, so deep chains are bounded only by the stack")
 	}

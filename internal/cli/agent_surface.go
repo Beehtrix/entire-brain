@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"io/fs"
@@ -1814,7 +1816,7 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 				}
 			}
 			if len(briefGlobalFacts) > 0 {
-				facts, briefGlobalIDs = mergeGlobalFacts(facts, briefGlobalFacts)
+				facts, briefGlobalIDs = retrieval.MergeGlobalFacts(facts, briefGlobalFacts)
 			}
 			// Exclusion guard: the brief's fact context honors
 			// tombstones at read time like every retrieval surface.
@@ -1838,16 +1840,16 @@ func runBrainBriefWithRawHistoryMatcher(ctx context.Context, cmd *cobra.Command,
 			// skip the proposal read on the empty-brief path.
 			if len(report.Facts) > 0 {
 				if proposals, proposalsErr := loadFactProposals(status.Brain.Path, branch); proposalsErr != nil {
-					report.Warnings = append(report.Warnings, factReviewQueueUnavailableWarning)
+					report.Warnings = append(report.Warnings, retrieval.FactReviewQueueUnavailableWarning)
 				} else {
-					localFacts := factsEligibleForLocusDrift(facts, briefGlobalIDs)
-					report.FactsPendingReview = factsPendingReview(localFacts, proposals, report.Facts)
+					localFacts := retrieval.FactsEligibleForLocusDrift(facts, briefGlobalIDs)
+					report.FactsPendingReview = retrieval.FactsPendingReview(localFacts, proposals, report.Facts)
 				}
 			}
 		}
 	}
 	likelyFilesStarted := profile.start()
-	report.FactsLocusDrift = factsLocusDrift(status.Repo.Root, factsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
+	report.FactsLocusDrift = retrieval.FactsLocusDrift(status.Repo.Root, retrieval.FactsEligibleForLocusDrift(report.Facts, briefGlobalIDs))
 	if len(report.GlobalFactIDs) > 0 {
 		report.Guidance = append(report.Guidance, "Memories from the global store (not scoped to this repository): "+strings.Join(report.GlobalFactIDs, ", "))
 	}
@@ -2054,7 +2056,7 @@ func emitBrainBriefReport(cmd *cobra.Command, report brainBriefReport, jsonOutpu
 			fmt.Fprintf(cmd.OutOrStdout(), "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 		}
 		if notice, ok := report.FactsPendingReview[fact.ID]; ok {
-			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", factReviewNoticeLine(notice))
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", retrieval.FactReviewNoticeLine(notice))
 		}
 	}
 	for _, item := range report.ActionChecklist {
@@ -2112,7 +2114,7 @@ func brainBriefConversationHits(brainDir, task string, limit int) []brainBriefCo
 	if count <= 0 {
 		return nil
 	}
-	results, err := retrieveConversation(brainDir, task, count, modeHybrid, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, task, count, retrieval.ModeHybrid, retrievalOptions{})
 	if err != nil {
 		return nil
 	}
@@ -4861,7 +4863,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 		report.DocsGeneratedAt = docs.GeneratedAt.Format(time.RFC3339)
 		report.DocsRecords = docs.Records
 		report.DocsFiles = docs.Files
-		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+		if err := docstore.VerifyDeclaredIndex(brainDir); err != nil {
 			// The manifest declaring a docs index is not evidence the index is
 			// on disk, and retrieval skips a missing index silently. Freshness
 			// must not claim "ok" for a docs layer that will contribute nothing.
@@ -4870,7 +4872,7 @@ func buildBrainRetrievalStatus(ctx context.Context, runner CommandRunner, brainD
 			remedy := "run `" + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none` to rebuild it"
 			if os.IsNotExist(err) {
 				state = "missing"
-				detail = "docs index declared in the manifest but " + docIndexPath + " is absent; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
+				detail = "docs index declared in the manifest but " + docstore.IndexPath + " is absent; run " + clibase.BrainInvocation(os.LookupEnv, "refresh") + " --agent none"
 				remedy = ""
 			}
 			axes["docs"] = staleAxis{State: state, Detail: detail, Remedy: remedy}

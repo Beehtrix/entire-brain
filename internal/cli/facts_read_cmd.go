@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"strings"
 
@@ -143,7 +144,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					// the repository's own facts are the answer to most queries.
 					fmt.Fprintf(cmd.ErrOrStderr(), "warning: global memories unavailable: %v\n", globalErr)
 				} else {
-					allFacts, globalIDs = mergeGlobalFacts(allFacts, globalFacts)
+					allFacts, globalIDs = retrieval.MergeGlobalFacts(allFacts, globalFacts)
 				}
 			}
 			var storeWarning string
@@ -195,7 +196,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 			matches := rankFacts(facts, effectiveQuery, limit, includeAll)
 			// Locus drift (Phase 2 item 4): flag surfaced facts whose code
 			// locus left the worktree, so the agent knows which to re-verify.
-			drift := factsLocusDrift(repoDir, factsEligibleForLocusDrift(matches, globalIDs))
+			drift := retrieval.FactsLocusDrift(repoDir, retrieval.FactsEligibleForLocusDrift(matches, globalIDs))
 			// Live trust state: a surfaced fact with a pending merge/supersede
 			// proposal is annotated (not collapsed — recall keeps its record
 			// shape), matching the guard the unified query/search/get path
@@ -209,8 +210,8 @@ func newRecallCommand(opts Options) *cobra.Command {
 			if len(matches) > 0 {
 				proposals, proposalsErr = loadFactProposals(brainDir, resolvedBranch)
 				if proposalsErr == nil {
-					localFacts := factsEligibleForLocusDrift(allFacts, globalIDs)
-					pendingReviews = factsPendingReview(localFacts, proposals, matches)
+					localFacts := retrieval.FactsEligibleForLocusDrift(allFacts, globalIDs)
+					pendingReviews = retrieval.FactsPendingReview(localFacts, proposals, matches)
 				}
 			}
 			recordReceipt := func() {
@@ -248,7 +249,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					out["pending_reviews"] = pendingReviews
 				}
 				if proposalsErr != nil && len(matches) > 0 {
-					out["warnings"] = []string{factReviewQueueUnavailableWarning}
+					out["warnings"] = []string{retrieval.FactReviewQueueUnavailableWarning}
 				}
 				if storeWarning != "" {
 					warnings, _ := out["warnings"].([]string)
@@ -283,7 +284,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 					fmt.Fprintln(out, "warning: "+storeWarning)
 				}
 				if proposalsErr != nil {
-					fmt.Fprintf(out, "⚠ %s\n", factReviewQueueUnavailableWarning)
+					fmt.Fprintf(out, "⚠ %s\n", retrieval.FactReviewQueueUnavailableWarning)
 				}
 				for _, f := range matches {
 					if globalIDs[f.ID] {
@@ -298,7 +299,7 @@ func newRecallCommand(opts Options) *cobra.Command {
 						fmt.Fprintf(out, "  ⚠ stale locus (no longer in worktree): %s\n", strings.Join(gone, ", "))
 					}
 					if notice, ok := pendingReviews[f.ID]; ok {
-						fmt.Fprintf(out, "  %s\n", factReviewNoticeLine(notice))
+						fmt.Fprintf(out, "  %s\n", retrieval.FactReviewNoticeLine(notice))
 					}
 				}
 			}); err != nil {
@@ -383,27 +384,6 @@ func newInspectBlameCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&branch, "branch", "", "Branch the memory belongs to (default: current branch)")
 	cmd.Flags().BoolVar(&jsonOut, "json", false, "Emit machine-readable JSON")
 	return cmd
-}
-
-// factsEligibleForLocusDrift drops global facts before the drift check.
-//
-// Locus drift asks whether a fact's code locus still exists in THIS worktree.
-// A global fact was never scoped to this repository, so the answer is
-// meaningless and always alarming: any path it mentions would be reported as a
-// stale locus in every repository except the one it was written in. Global
-// facts are excluded here for the same reason they are kept out of this
-// repository's semantic cache.
-func factsEligibleForLocusDrift(matches []factRecord, globalIDs map[string]bool) []factRecord {
-	if len(globalIDs) == 0 {
-		return matches
-	}
-	eligible := make([]factRecord, 0, len(matches))
-	for _, fact := range matches {
-		if !globalIDs[fact.ID] {
-			eligible = append(eligible, fact)
-		}
-	}
-	return eligible
 }
 
 // printGlobalFactLine renders a fact that came from the global store rather than

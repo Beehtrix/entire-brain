@@ -16,6 +16,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/spf13/cobra"
 )
 
@@ -1052,10 +1053,6 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 // fuseScoredRankLists is the shared RRF merge over already-ranked record lists
 // (k=60, equal weight). Conversation records fuse by replacement-scoped
 // identity, not globally by a potentially legacy/colliding ID.
-// rrfK is the Reciprocal Rank Fusion constant (canonical 60): survives the
-// semantic removal because lexical two-tier history merging still rank-fuses.
-const rrfK = 60.0
-
 func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHistoryRecord {
 	type fusedRec struct {
 		s     scoredHistoryRecord
@@ -1070,7 +1067,7 @@ func fuseScoredRankLists(lists [][]scoredHistoryRecord, limit int) []scoredHisto
 				f = &fusedRec{s: s}
 				fused[key] = f
 			}
-			f.score += 1.0 / (rrfK + float64(rank+1))
+			f.score += 1.0 / (retrieval.RRFK + float64(rank+1))
 		}
 	}
 	out := make([]*fusedRec, 0, len(fused))

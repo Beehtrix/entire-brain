@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,7 +86,7 @@ func TestConversationSessionRefIdentity(t *testing.T) {
 
 func TestConversationSearchCarriesSessionRef(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	results, err := retrieveConversation(brainDir, "flag parser stage", 5, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "flag parser stage", 5, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(results) == 0 {
 		t.Fatalf("search: %v (%d)", err, len(results))
 	}
@@ -275,7 +276,7 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 	// permission to choose a global winner.
 	assertBothScopesVisible := func(stage string) {
 		t.Helper()
-		results, err := retrieveConversation(brainDir, "shared request", 10, modeLexical, retrievalOptions{})
+		results, err := retrieveConversation(brainDir, "shared request", 10, retrieval.ModeLexical, retrievalOptions{})
 		if err != nil {
 			t.Fatalf("%s search: %v", stage, err)
 		}
@@ -289,7 +290,7 @@ func TestConversationLegacyIDCollisionIsAmbiguous(t *testing.T) {
 			t.Fatalf("%s search hid a colliding session scope: results=%+v", stage, results)
 		}
 
-		coverage, err := retrieveConversationMultiConcept(brainDir, "shared", 10, modeLexical, retrievalOptions{
+		coverage, err := retrieveConversationMultiConcept(brainDir, "shared", 10, retrieval.ModeLexical, retrievalOptions{
 			Concepts: []string{"request"},
 		})
 		if err != nil {

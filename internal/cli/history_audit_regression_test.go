@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,7 +27,7 @@ func TestHistoryAuditDeclaredDocLossFailsExpansion(t *testing.T) {
 	if err := writeBrainManifestAndReadme(dir, *m); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(docIndexPath))); err != nil {
+	if err := os.Remove(filepath.Join(dir, filepath.FromSlash(docstore.IndexPath))); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := getUnifiedBatch("", dir, "main", []string{"doc:d1"}); err == nil {
@@ -163,7 +165,7 @@ func TestHistoryAuditEmptyReplacementHidesAllOldViews(t *testing.T) {
 	if len(fresh.mergedRecords()) != 0 || len(fresh.longTermActive().Records) != 0 {
 		t.Error("old history survived empty replacement")
 	}
-	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
+	hits, err := retrieveUnifiedWithOptions("", brainDir, "main", "lock timeout", 10, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceHistory})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("empty replacement retrieval: %v %v", hits, err)
 	}
@@ -202,7 +204,7 @@ func TestHistoryAuditNoProposalsAllocatesNoReviewGraph(t *testing.T) {
 		facts[i] = factRecord{ID: fmt.Sprint(i), Status: factStatusActive}
 	}
 	allocations := testing.AllocsPerRun(10, func() {
-		if len(buildFactReviewGroups(facts, nil)) != 0 {
+		if len(retrieval.BuildFactReviewGroups(facts, nil)) != 0 {
 			t.Fatal("unexpected groups")
 		}
 	})

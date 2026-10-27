@@ -6,6 +6,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
@@ -153,7 +154,7 @@ func (w dashTTYWriter) Write(p []byte) (int, error) { return w.guarded.Write(p) 
 // the CLI verb while keeping the TUI free of file IO.
 func brainSearchFunc(repoDir, brainDir, branch string) tui.SearchFunc {
 	return func(query string) ([]tui.SearchResult, error) {
-		results, err := retrieveUnified(repoDir, brainDir, branch, query, dashSearchLimit, modeLexical)
+		results, err := retrieveUnified(repoDir, brainDir, branch, query, dashSearchLimit, retrieval.ModeLexical)
 		if err != nil {
 			return nil, err
 		}

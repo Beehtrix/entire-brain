@@ -1,4 +1,4 @@
-package cli
+package retrieval
 
 import (
 	"os"
@@ -6,10 +6,11 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
-// facts_staleness.go is Phase 2 item 4 (agent-utility plan): the per-fact
+// staleness.go is Phase 2 item 4 (agent-utility plan): the per-fact
 // locus-drift signal. Agents are (correctly) instructed to verify recalled
 // memory before acting on it, but a fact's provenance anchors point at
 // transcripts — the immutable past — so verifying "is this still true?" costs
@@ -27,10 +28,10 @@ import (
 // overlay seam. Drift is computed for the k facts being SURFACED, never the
 // whole corpus, so the read path stays warm.
 
-// factLocusDrift returns the file-path locus tokens of a fact that no longer
+// FactLocusDrift returns the file-path locus tokens of a fact that no longer
 // exist in the repo worktree. Empty repoDir (no live repo, e.g. a
 // bundle-only brain) reports no drift — absence of evidence, not evidence.
-func factLocusDrift(repoDir string, f factRecord) []string {
+func FactLocusDrift(repoDir string, f factmerge.Record) []string {
 	if repoDir == "" {
 		return nil
 	}
@@ -58,13 +59,13 @@ func locusTokenIsFilePath(tok string) bool {
 	return locusFileExtPattern.MatchString(tok)
 }
 
-// factsLocusDrift maps fact id -> drifted locus tokens for the surfaced
+// FactsLocusDrift maps fact id -> drifted locus tokens for the surfaced
 // facts, omitting facts with no drift. nil when nothing drifted, so JSON
 // surfaces stay clean for the common case.
-func factsLocusDrift(repoDir string, facts []factRecord) map[string][]string {
+func FactsLocusDrift(repoDir string, facts []factmerge.Record) map[string][]string {
 	var out map[string][]string
 	for _, f := range facts {
-		if drift := factLocusDrift(repoDir, f); len(drift) > 0 {
+		if drift := FactLocusDrift(repoDir, f); len(drift) > 0 {
 			if out == nil {
 				out = map[string][]string{}
 			}

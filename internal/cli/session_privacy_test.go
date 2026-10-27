@@ -15,6 +15,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
@@ -89,7 +90,7 @@ func assertCanaryAbsent(t *testing.T, brainDir string) {
 	if scored, ok := rankHistoryViaFTS(brainDir, index, "history", privacyCanary, 10); ok && len(scored) > 0 {
 		t.Fatalf("canary reachable through FTS: %+v", scored)
 	}
-	if results, err := retrieveConversation(brainDir, privacyCanary, 10, modeLexical, retrievalOptions{}); err == nil {
+	if results, err := retrieveConversation(brainDir, privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{}); err == nil {
 		for _, result := range results {
 			if strings.Contains(result.Text, privacyCanary) {
 				t.Fatalf("canary reachable through conversation retrieval: %+v", result)
@@ -660,7 +661,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 	}
 
 	// Adversarial precondition: everything is served before the tombstone.
-	pre, err := retrieveConversation(brainDir, privacyCanary, 10, modeLexical, retrievalOptions{})
+	pre, err := retrieveConversation(brainDir, privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil || len(pre) == 0 {
 		t.Fatalf("canary conversation must be retrievable before exclusion: %v (%d)", err, len(pre))
 	}
@@ -686,7 +687,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	post, err := retrieveConversation(brainDir, privacyCanary, 10, modeLexical, retrievalOptions{})
+	post, err := retrieveConversation(brainDir, privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +696,7 @@ func TestExclusionReadGuardBlocksImmediately(t *testing.T) {
 			t.Fatalf("tombstoned conversation still served: %+v", r)
 		}
 	}
-	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, modeLexical, retrievalOptions{})
+	unified, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

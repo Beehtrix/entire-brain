@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"io/fs"
@@ -405,7 +407,7 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 	resp := vizSummaryResp{Repo: s.repoDisplayName(), Branch: s.branch}
 	// Counts come straight from the manifest captured at startup. Rebuilding the
 	// full status report here costs several seconds on large brains and would
-	// block the very first paint of the hub — so we don't. loadDocIndex is cheap.
+	// block the very first paint of the hub — so we don't. docstore.Load is cheap.
 	if m := s.manifest; m != nil && m.Sources != nil {
 		if sem := m.Sources.Semantic; sem != nil {
 			resp.Counts.Symbols = sem.Symbols
@@ -425,7 +427,7 @@ func (s *vizServer) handleSummary(w http.ResponseWriter, r *http.Request) {
 			resp.Counts.Sessions = len(s.sessionsFromManifest(guard))
 		}
 	}
-	if docs, err := loadDocIndex(s.brainDir); err == nil {
+	if docs, err := docstore.Load(s.brainDir); err == nil {
 		resp.Counts.Docs = len(docs.Records)
 	}
 	writeJSONHTTP(w, http.StatusOK, resp)
@@ -1136,7 +1138,7 @@ func (s *vizServer) handleHistory(w http.ResponseWriter, r *http.Request) {
 
 func (s *vizServer) handleDocs(w http.ResponseWriter, r *http.Request) {
 	limit := vizQueryLimit(r, 2000)
-	idx, err := loadDocIndex(s.brainDir)
+	idx, err := docstore.Load(s.brainDir)
 	if err != nil {
 		writeJSONHTTP(w, http.StatusOK, vizFeatureGraph{Nodes: []vizGNode{}, Edges: []vizGEdge{}, Warnings: []string{"docs unavailable: " + err.Error()}})
 		return
@@ -1412,7 +1414,7 @@ func (s *vizServer) handleSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Memory hits (facts / history / docs), same code path as `entire brain search`.
-	if u, err := retrieveUnified(s.repoDir, s.brainDir, s.branch, q, limit, modeLexical); err == nil {
+	if u, err := retrieveUnified(s.repoDir, s.brainDir, s.branch, q, limit, retrieval.ModeLexical); err == nil {
 		for _, h := range u {
 			text := h.Text
 			if h.VerificationRequired {

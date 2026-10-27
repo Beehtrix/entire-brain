@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -41,7 +42,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 	t.Helper()
 	now := time.Date(2026, 2, 3, 4, 5, 6, 0, time.UTC)
 	writeBundleTestFile(t, filepath.Join(brainDir, seedDirName, "repo-overview.md"), "# overview\n")
-	writeBundleTestFile(t, filepath.Join(brainDir, docDirName, docIndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
+	writeBundleTestFile(t, filepath.Join(brainDir, docstore.DirName, docstore.IndexFileName), `{"generated_at":"2026-02-03T04:05:06Z","records":[]}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "taxonomy.json"), `{"version":1}`)
 	writeBundleTestFile(t, filepath.Join(brainDir, factstore.DirName, "main-0000", factstore.FileName), `{"id":"fact:abc","kind":"decision","statement":"authored fact that must survive a round trip"}`+"\n")
 	writeBundleTestFile(t, filepath.Join(brainDir, brainstore.SessionsDirName, "main", "session.jsonl"), `{"role":"user","text":"verbatim conversation content"}`+"\n")
@@ -62,7 +63,7 @@ func seedBundleTestLayers(t *testing.T, brainDir string) {
 		manifest.Sources = &brainSources{}
 	}
 	manifest.Sources.Seed = &seedSourceManifest{GeneratedAt: now, SummaryPath: seedDirName + "/repo-overview.md", WorktreeMode: "head"}
-	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docDirName + "/" + docIndexFileName, Records: 0, Files: 1}
+	manifest.Sources.Docs = &docSourceManifest{GeneratedAt: now, IndexPath: docstore.DirName + "/" + docstore.IndexFileName, Records: 0, Files: 1}
 	manifest.Sources.Facts = &factSourceManifest{GeneratedAt: now, TaxonomyPath: factstore.DirName + "/taxonomy.json", Branches: []string{"main"}, Facts: 1, Authored: 1}
 	manifest.Sources.History = &historySourceManifest{GeneratedAt: now, IndexPath: brainstore.HistoryDirName + "/generations/gen1/" + historystore.IndexFileName}
 	manifest.Sources.Patterns = &patternSourceManifest{GeneratedAt: now, EpisodesPath: brainPatternsDirName + "/episodes.ndjson", Episodes: 1}
@@ -161,7 +162,7 @@ func TestBundleExportCarriesEveryDefaultLayer(t *testing.T) {
 	joined := strings.Join(entries, "\n")
 	for _, want := range []string{
 		"seed/repo-overview.md",
-		"docs/" + docIndexFileName,
+		"docs/" + docstore.IndexFileName,
 		"facts/taxonomy.json",
 		"facts/main-0000/" + factstore.FileName,
 	} {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"io"
 	"os"
@@ -416,7 +417,7 @@ func brainDoctorReadOnlyReport(ctx context.Context, opts Options, target string)
 	// unreadable docs layer here rather than letting doctor pass while the
 	// whole layer contributes nothing.
 	if manifest.Sources != nil && manifest.Sources.Docs != nil {
-		if err := verifyDeclaredDocIndex(brainDir); err != nil {
+		if err := docstore.VerifyDeclaredIndex(brainDir); err != nil {
 			add("docs_index", "error", "declared but unreadable: "+err.Error())
 		} else {
 			add("docs_index", "ok", fmt.Sprintf("%d records from %d files", manifest.Sources.Docs.Records, manifest.Sources.Docs.Files))

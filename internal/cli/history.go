@@ -69,12 +69,6 @@ const (
 	historyScanCacheVersion = 10
 )
 
-type scoredHistoryRecord struct {
-	Record historyRecord
-	Score  int
-	Order  int
-}
-
 type historyFragment struct {
 	Text   string
 	Source string

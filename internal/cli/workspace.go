@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
@@ -531,15 +532,15 @@ func newWorkspaceGraphCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceSearchCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "search", modeLexical, "Lexical keyword search across every workspace repo's brain (facts, history, docs)")
+	return newWorkspaceRetrieveCommand(opts, "search", retrieval.ModeLexical, "Lexical keyword search across every workspace repo's brain (facts, history, docs)")
 }
 
 func newWorkspaceVsearchCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "vsearch", modeHybrid, "Compatibility alias for workspace query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
+	return newWorkspaceRetrieveCommand(opts, "vsearch", retrieval.ModeHybrid, "Compatibility alias for workspace query: semantic retrieval was removed (trail #278); runs the same BM25 lexical ranking")
 }
 
 func newWorkspaceQueryCommand(opts Options) *cobra.Command {
-	return newWorkspaceRetrieveCommand(opts, "query", modeHybrid, "Search every workspace repo's brain (BM25 lexical)")
+	return newWorkspaceRetrieveCommand(opts, "query", retrieval.ModeHybrid, "Search every workspace repo's brain (BM25 lexical)")
 }
 
 // newWorkspaceRetrieveCommand mirrors the top-level search/vsearch/query verbs
@@ -1029,10 +1030,10 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	if ropts.IncludeAbstract && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`--include-abstract requires --source conversation (got %q)`, ropts.Source)
 	}
-	if mode == modeVector && ropts.Source == brainstore.RetrievalSourceConversation {
+	if mode == retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceConversation {
 		return errConversationVectorUnsupported
 	}
-	if ropts.hasConversationOnlyFilters() && ropts.Source != brainstore.RetrievalSourceConversation {
+	if ropts.HasConversationOnlyFilters() && ropts.Source != brainstore.RetrievalSourceConversation {
 		return fmt.Errorf(`after/before/session/agent filters require --source conversation (got %q)`, ropts.Source)
 	}
 	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(workspaceName)
@@ -1069,7 +1070,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 		} else {
 			if found != nil {
 				if repoDir == "" {
-					found = annotateCurrentCodeUnavailable(found)
+					found = retrieval.AnnotateCurrentCodeUnavailable(found)
 				}
 				result.Results = found
 			}
@@ -1089,7 +1090,7 @@ func runWorkspaceRetrieve(cmd *cobra.Command, opts Options, retrieveOpts workspa
 	// single-source selection (conversation, fact, history, doc) is a source
 	// isolation contract: no fan-out or append stage may add records from any
 	// other source.
-	if mode != modeVector && ropts.Source == brainstore.RetrievalSourceAll {
+	if mode != retrieval.ModeVector && ropts.Source == brainstore.RetrievalSourceAll {
 		graphResults, err := retrieveWorkspaceGraphCrossEdges(opts.Env, manifest.Name, query, retrieveOpts.limit)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			results = append(results, workspaceRetrieveResult{
@@ -1306,7 +1307,7 @@ func runWorkspaceGet(cmd *cobra.Command, opts Options, workspaceName string, qua
 		}
 		if found != nil {
 			if repoDir == "" {
-				found = annotateCurrentCodeUnavailable(found)
+				found = retrieval.AnnotateCurrentCodeUnavailable(found)
 			}
 			result.Results = found
 		}

@@ -13,6 +13,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 )
 
 func TestConfiguredConversationAbstractorsAreExplicitAndBounded(t *testing.T) {
@@ -139,7 +140,7 @@ func TestAbstractRetrievalOptionParity(t *testing.T) {
 	if cmd.Flags().Lookup("include-abstract") == nil {
 		t.Fatal("CLI retrieval must expose --include-abstract")
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceFact, IncludeAbstract: true}); err == nil || !strings.Contains(err.Error(), "include_abstract") {
 		t.Fatalf("non-conversation include_abstract must fail, got %v", err)
 	}
 }

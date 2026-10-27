@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"strings"
 	"testing"
 	"time"
@@ -85,7 +86,7 @@ func TestRecencySurfaceValidation(t *testing.T) {
 			}
 		})
 	}
-	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, modeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation, Recency: true}); err == nil {
+	if _, err := retrieveUnifiedWithOptions("", t.TempDir(), "", "q", 1, retrieval.ModeLexical, retrievalOptions{Source: brainstore.RetrievalSourceConversation, Recency: true}); err == nil {
 		t.Fatal("conversation must reject recency at retrieval boundary")
 	}
 }

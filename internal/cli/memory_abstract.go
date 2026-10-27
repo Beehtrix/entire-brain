@@ -190,41 +190,6 @@ func saveMemoryConfig(brainDir string, config memoryConfig) error {
 	return brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryConfigRel, append(data, '\n'), 0o600)
 }
 
-// abstractStatement is one evidence-linked claim; the evidence ids must cite
-// exchanges of the same session.
-type abstractStatement struct {
-	Text        string   `json:"text"`
-	EvidenceIDs []string `json:"evidence_ids"`
-}
-
-type abstractCoverageRange struct {
-	StartTurn int `json:"start_turn"`
-	EndTurn   int `json:"end_turn"`
-}
-
-type sessionAbstract struct {
-	SchemaVersion int       `json:"schema_version"`
-	SessionRef    string    `json:"session_ref"`
-	SessionDigest string    `json:"session_digest"`
-	GeneratedAt   time.Time `json:"generated_at"`
-	Generator     struct {
-		Kind            string `json:"kind"` // local | hosted
-		Provider        string `json:"provider"`
-		Model           string `json:"model"`
-		ContractVersion int    `json:"contract_version"`
-	} `json:"generator"`
-	Overview       abstractStatement   `json:"overview"`
-	Outcomes       []abstractStatement `json:"outcomes,omitempty"`
-	Decisions      []abstractStatement `json:"decisions,omitempty"`
-	Unresolved     []abstractStatement `json:"unresolved,omitempty"`
-	InputTruncated bool                `json:"input_truncated,omitempty"`
-	Coverage       struct {
-		TotalTurns     int                     `json:"total_turns"`
-		IncludedTurns  int                     `json:"included_turns"`
-		IncludedRanges []abstractCoverageRange `json:"included_ranges,omitempty"`
-	} `json:"coverage"`
-}
-
 type abstractEgressReceipt struct {
 	SchemaVersion int       `json:"schema_version"`
 	OperationID   string    `json:"operation_id"`

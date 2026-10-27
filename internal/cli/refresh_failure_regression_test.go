@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
@@ -50,7 +51,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	historyMarker := "committed-history-directory-marker"
 	docsMarker := "committed-doc-directory-marker"
 	replaceRefreshComponentDirWithFile(t, brainDir, brainstore.HistoryDirName, historyMarker)
-	replaceRefreshComponentDirWithFile(t, brainDir, docDirName, docsMarker)
+	replaceRefreshComponentDirWithFile(t, brainDir, docstore.DirName, docsMarker)
 
 	outcomes := map[string]error{}
 	cmd := &cobra.Command{}
@@ -79,7 +80,7 @@ func TestRefreshBestEffortReportsHistoryAndDocsFailuresAndPreservesInputs(t *tes
 	if !strings.Contains(stderr.String(), "history index") || !strings.Contains(stderr.String(), "doc index") || !strings.Contains(stdout.String(), "refreshed brain:") {
 		t.Fatalf("best-effort reporting incomplete\nstdout=%s\nstderr=%s", stdout.String(), stderr.String())
 	}
-	for rel, want := range map[string]string{brainstore.HistoryDirName: historyMarker, docDirName: docsMarker} {
+	for rel, want := range map[string]string{brainstore.HistoryDirName: historyMarker, docstore.DirName: docsMarker} {
 		got, err := os.ReadFile(filepath.Join(brainDir, rel))
 		if err != nil || string(got) != want {
 			t.Fatalf("failed %s input was replaced: got=%q err=%v", rel, got, err)

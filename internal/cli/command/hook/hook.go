@@ -1,23 +1,23 @@
-package cli
+package hook
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/entireio/entire-brain/internal/cli/entities"
+	"github.com/entireio/entire-brain/factmerge"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
-// hook_cmd.go is Phase 2 item 2 (agent-utility plan): moment-of-relevance
+// hook.go is Phase 2 item 2 (agent-utility plan): moment-of-relevance
 // delivery. Everything else in the brain is pull — the agent must know to
 // ask. These verbs are designed to be wired into agent-harness hooks (Claude
 // Code PreToolUse/PostToolUse, Entire CLI hooks) so the right fact arrives
@@ -51,7 +51,7 @@ const hookPostFailureMinScore = 40
 // would dilute term matching and slow the hook.
 const hookFailureTailBytes = 4096
 
-func newHookCommand(opts Options) *cobra.Command {
+func New(cfg Config) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "hook",
 		Short: "Agent-harness hook surface: surface relevant memories at the moment of action",
@@ -60,13 +60,13 @@ func newHookCommand(opts Options) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newHookPreEditCommand(opts))
-	cmd.AddCommand(newHookPostFailureCommand(opts))
-	cmd.AddCommand(newHookSessionEndCommand(opts))
+	cmd.AddCommand(newPreEditCommand(cfg))
+	cmd.AddCommand(NewPostFailure(cfg))
+	cmd.AddCommand(NewSessionEnd(cfg))
 	return cmd
 }
 
-// newHookSessionEndCommand is Phase 2 item 5: per-session incremental distill,
+// NewSessionEnd is Phase 2 item 5: per-session incremental distill,
 // closing the write loop. Batch distill is expensive and run occasionally, so
 // today's insights are invisible to tomorrow's session unless someone
 // remembers to run it. Wired to a session-lifecycle hook, this distills the
@@ -81,7 +81,7 @@ func newHookCommand(opts Options) *cobra.Command {
 // rest of the hook contract: stdout stays empty (a one-line summary goes to
 // stderr), and environment problems (no repo, no brain, no agent on PATH)
 // are silence, never an error.
-func newHookSessionEndCommand(opts Options) *cobra.Command {
+func NewSessionEnd(cfg Config) *cobra.Command {
 	var (
 		sessionID string
 		branch    string
@@ -97,103 +97,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 			if strings.TrimSpace(sessionID) == "" {
 				return fmt.Errorf("--session <id> is required")
 			}
-			// Paused: skipping loses nothing. The captured session stays
-			// canonical; reconciliation re-exports it after `start`, and the next
-			// gated or manual distill extracts its facts.
-			if memoryWorkerOrigin() || base.BackgroundPaused(opts.Env) {
-				return nil
-			}
-			target := agentSurfaceTarget(opts, nil)
-			repoDir, local, err := base.ResolveLocalTargetRepoDir(cmd.Context(), opts.Runner, target)
-			if err != nil || !local {
-				return nil // no local repo: silence, never an error
-			}
-			perRepo := opts
-			perRepo.Env.RepoRoot = repoDir
-			// Export only changed sessions and publish the short-term overlay so
-			// recall and distill can see the just-ended session immediately. The
-			// durable coordinator performs the heavier long-term consolidation.
-			sub := &cobra.Command{}
-			sub.SetContext(cmd.Context())
-			sub.SetOut(cmd.ErrOrStderr())
-			sub.SetErr(cmd.ErrOrStderr())
-			_, deltaErr := watchShortTermDelta(cmd.Context(), sub, perRepo, repoDir)
-
-			// Record the lifecycle event even when export failed. The hint is
-			// content-free and durable; startup/watch reconciliation or a later
-			// worker pass can repair the missed export without retaining content.
-			storage, storageErr := repoStoragePaths(cmd.Context(), perRepo.Runner, perRepo.Env, repoDir)
-			resolvedBranch := strings.TrimSpace(branch)
-			if resolvedBranch == "" {
-				if current, gitErr := base.GitScalar(cmd.Context(), perRepo.Runner, repoDir, "branch", "--show-current"); gitErr == nil {
-					resolvedBranch = strings.TrimSpace(current)
-				}
-			}
-			if storageErr == nil {
-				_, warning, hintErr := recordMemoryLifecycleAndLaunch(
-					storage.BrainDir, repoDir, storage.Key, sessionID, resolvedBranch, "session_end", perRepo.Now().UTC(),
-				)
-				if hintErr != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "session-end: memory hint failed: %v\n", hintErr)
-				} else if warning != "" {
-					fmt.Fprintf(cmd.ErrOrStderr(), "session-end: %s\n", warning)
-				}
-			}
-			// Deterministic, token-free and bounded: index the commits the
-			// session just produced so "which checkpoint changed this symbol"
-			// is answerable immediately. It runs AFTER the durable lifecycle
-			// hint (that must never wait on a slow provider) and independently
-			// of the export result, since it reads git, not transcripts. Never
-			// fails the hook.
-			if entityErr := entities.RefreshIndexQuietly(cmd.Context(), entityConfig(perRepo), repoDir); entityErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: entity index refresh skipped: %v\n", entityErr)
-			}
-			// Hosted sync runs on every exit path — the pull half matters even
-			// when this session's export or distill could not: current branch,
-			// then the default branch (the spec's per-trigger coverage).
-			// hostedFactsSyncAndPull soaks every gated/soft failure itself;
-			// the print covers programming errors only. Stderr only — the
-			// hook's stdout is machine-read.
-			syncHosted := func() {
-				if storageErr != nil {
-					return
-				}
-				syncBranches := []string{distillDefaultBranch}
-				if resolvedBranch != "" && resolvedBranch != distillDefaultBranch {
-					syncBranches = []string{resolvedBranch, distillDefaultBranch}
-				}
-				for _, syncBranch := range syncBranches {
-					if _, err := hostedFactsSyncAndPull(cmd.Context(), cmd.ErrOrStderr(), perRepo, repoDir, storage, syncBranch); err != nil {
-						fmt.Fprintf(cmd.ErrOrStderr(), "session-end: hosted memory sync failed (local brain unaffected): %v\n", err)
-					}
-				}
-			}
-			if deltaErr != nil {
-				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: incremental export failed: %v\n", deltaErr)
-				syncHosted()
-				return nil
-			}
-			distillOpts := distillCommandOptions{
-				session:             sessionID,
-				agent:               agent,
-				model:               model,
-				effort:              effort,
-				timeout:             defaultDistillTimeout,
-				maxChunkBytes:       defaultDistillChunkSize,
-				confidenceThreshold: defaultFactConfidenceThreshold,
-				// Constructed in Go, so the flag defaults never applied: without
-				// this the hook's distill was rejected outright by runDistill's
-				// concurrency guard, and the "closing the write loop" step
-				// silently never ran.
-				concurrency: defaultDistillConcurrency,
-			}
-			if err := runDistill(cmd.Context(), sub, opts, distillOpts, repoDir); err != nil {
-				// No agent on PATH, session not exported yet, etc.: report on
-				// stderr for the curious, succeed for the harness.
-				fmt.Fprintf(cmd.ErrOrStderr(), "session-end: distill skipped: %v\n", err)
-			}
-			syncHosted()
-			return nil
+			return cfg.Deps.SessionEnd(cmd, cfg.Options, sessionID, branch, agent, model, effort)
 		},
 	}
 	cmd.Flags().StringVar(&sessionID, "session", "", "The just-ended session's id")
@@ -204,7 +108,7 @@ func newHookSessionEndCommand(opts Options) *cobra.Command {
 	return cmd
 }
 
-func newHookPreEditCommand(opts Options) *cobra.Command {
+func newPreEditCommand(cfg Config) *cobra.Command {
 	var (
 		file       string
 		branch     string
@@ -234,7 +138,7 @@ wires it.`,
 			// to bypass this guard, so hand-running the exact command the docs
 			// suggest -- the flag's own documented testing route -- blocked for
 			// ever on a read that would never return. Say so instead.
-			if claudeHook && !stdinIsPipe(cmd.InOrStdin()) && strings.TrimSpace(file) == "" {
+			if claudeHook && !StdinIsPipe(cmd.InOrStdin()) && strings.TrimSpace(file) == "" {
 				return fmt.Errorf("--claude-hook reads the host's PreToolUse event from stdin, and stdin is a terminal here; pipe an event in, or pass --file <path> to check one file by hand")
 			}
 			// Only read when the answer is still missing. Keying this on
@@ -244,8 +148,8 @@ wires it.`,
 			// EOF -- one inherited from a parent that has not closed it -- that
 			// read blocks for up to maxClaudeHookEventBytes, which is the
 			// hand-run hang the check above this one exists to prevent.
-			if strings.TrimSpace(file) == "" && stdinIsPipe(cmd.InOrStdin()) {
-				if path, ok := decodeClaudeHookEventPath(cmd.InOrStdin()); ok {
+			if strings.TrimSpace(file) == "" && StdinIsPipe(cmd.InOrStdin()) {
+				if path, ok := DecodeClaudeHookEventPath(cmd.InOrStdin()); ok {
 					file = path
 				}
 			}
@@ -259,7 +163,7 @@ wires it.`,
 				}
 				return fmt.Errorf("--file is required")
 			}
-			facts, target, ok := hookLoadFacts(cmd, opts, branch)
+			facts, target, ok := hookLoadFacts(cmd, cfg, branch)
 			if !ok {
 				return nil // no brain / no facts: silence, never an error
 			}
@@ -274,16 +178,16 @@ wires it.`,
 			stem := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(rel))
 			// The stem ("distill_cmd") matches facts that name the file without
 			// its extension or talk about its symbols' shared prefix.
-			hits := factsRelevantToChange([]string{rel, stem}, nil, facts, 8)
-			var kept []factRecord
+			hits := cfg.Deps.FactsRelevantToChange([]string{rel, stem}, facts, 8)
+			var kept []factmerge.Record
 			var err error
 			if claudeHook {
 				kept, err = hookEmitClaudeEnvelope(cmd, hits, budget)
 			} else {
-				kept, err = hookEmit(cmd, hits, budget, jsonOut)
+				kept, err = Emit(cmd, hits, budget, jsonOut)
 			}
 			if err == nil {
-				hookRecordServed(cmd, opts, target, "hook-pre-edit", rel, kept)
+				hookRecordServed(cmd, cfg, target, "hook-pre-edit", rel, kept)
 			}
 			return err
 		},
@@ -309,10 +213,10 @@ type claudeHookEvent struct {
 	} `json:"tool_input"`
 }
 
-// decodeClaudeHookEventPath reads one PreToolUse event and returns the path the
+// DecodeClaudeHookEventPath reads one PreToolUse event and returns the path the
 // tool is about to write. Malformed input is "no path", never an error — the
 // hook contract is that a data problem is silence.
-func decodeClaudeHookEventPath(r io.Reader) (string, bool) {
+func DecodeClaudeHookEventPath(r io.Reader) (string, bool) {
 	if r == nil {
 		return "", false
 	}
@@ -336,10 +240,10 @@ func decodeClaudeHookEventPath(r io.Reader) (string, bool) {
 // hook must not be the thing that runs the machine out of memory.
 const maxClaudeHookEventBytes = 1 << 20
 
-// stdinIsPipe reports whether stdin carries piped input. A character device is
+// StdinIsPipe reports whether stdin carries piped input. A character device is
 // a terminal, and reading one blocks forever — the difference between a hook
 // that no-ops when hand-run and one that hangs the shell.
-func stdinIsPipe(r io.Reader) bool {
+func StdinIsPipe(r io.Reader) bool {
 	file, ok := r.(*os.File)
 	if !ok {
 		// A test buffer or any other reader: readable without blocking.
@@ -360,7 +264,7 @@ func stdinIsPipe(r io.Reader) bool {
 // It keeps the rest of the hook contract exactly: nothing at all when no fact
 // cleared the bar (an empty envelope is noise), the same budget, and no
 // permissionDecision, because surfacing a fact must never block an edit.
-func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) ([]factRecord, error) {
+func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factmerge.Record, budget int) ([]factmerge.Record, error) {
 	kept := hookKeepWithinBudget(hits, budget)
 	if len(kept) == 0 {
 		return nil, nil
@@ -380,7 +284,7 @@ func hookEmitClaudeEnvelope(cmd *cobra.Command, hits []factRecord, budget int) (
 	return kept, cmdutil.WriteJSON(cmd, envelope)
 }
 
-func newHookPostFailureCommand(opts Options) *cobra.Command {
+func NewPostFailure(cfg Config) *cobra.Command {
 	var (
 		command string
 		branch  string
@@ -403,14 +307,14 @@ steps into one, not after re-deriving it. Pipe the failure output on stdin:
 			if query == "" {
 				return nil // nothing to match against: silence
 			}
-			facts, target, ok := hookLoadFacts(cmd, opts, branch)
+			facts, target, ok := hookLoadFacts(cmd, cfg, branch)
 			if !ok {
 				return nil
 			}
-			hits := hookMatchFailure(facts, query)
-			kept, err := hookEmit(cmd, hits, budget, jsonOut)
+			hits := MatchFailure(facts, query, cfg.Deps.FactLexicalScore)
+			kept, err := Emit(cmd, hits, budget, jsonOut)
 			if err == nil {
-				hookRecordServed(cmd, opts, target, "hook-post-failure", query, kept)
+				hookRecordServed(cmd, cfg, target, "hook-post-failure", query, kept)
 			}
 			return err
 		},
@@ -432,8 +336,8 @@ type hookTarget struct {
 
 // hookLoadFacts resolves the brain and loads the branch's facts, reporting
 // ok=false (silence) on any problem — the hook contract.
-func hookLoadFacts(cmd *cobra.Command, opts Options, branch string) ([]factRecord, hookTarget, bool) {
-	repoDir, brainDir, resolvedBranch, err := resolveFactsTarget(cmd.Context(), opts, agentSurfaceTarget(opts, nil), branch)
+func hookLoadFacts(cmd *cobra.Command, cfg Config, branch string) ([]factmerge.Record, hookTarget, bool) {
+	repoDir, brainDir, resolvedBranch, err := cfg.Deps.ResolveTarget(cmd.Context(), cfg.Options, branch)
 	if err != nil {
 		return nil, hookTarget{}, false
 	}
@@ -448,12 +352,12 @@ func hookLoadFacts(cmd *cobra.Command, opts Options, branch string) ([]factRecor
 // emission actually carried. Best-effort like everything else here: recording
 // problems go to stderr (bounded to one line), never to stdout, and never
 // fail the hook. Only a hash of the trigger text is persisted.
-func hookRecordServed(cmd *cobra.Command, opts Options, target hookTarget, surface, triggerText string, kept []factRecord) {
+func hookRecordServed(cmd *cobra.Command, cfg Config, target hookTarget, surface, triggerText string, kept []factmerge.Record) {
 	if len(kept) == 0 {
 		return
 	}
-	recordServedFacts(cmd.ErrOrStderr(), vitalityNow(opts), target.brainDir, target.branch, surface,
-		vitalityHead(cmd.Context(), opts.Runner, target.repoDir), triggerText, factRecordIDs(kept))
+	cfg.Deps.RecordServed(cmd.ErrOrStderr(), cmd.Context(), cfg.Options,
+		target.brainDir, target.branch, surface, target.repoDir, triggerText, kept)
 }
 
 // hookReadFailureTail reads at most the last hookFailureTailBytes of stdin —
@@ -478,27 +382,28 @@ func hookReadFailureTail(r io.Reader) string {
 	}
 }
 
-// hookMatchFailure ranks gotcha and closed-negative facts against the failure
+// MatchFailure ranks gotcha and closed-negative facts against the failure
 // text. Only those two kinds are considered — a failure moment wants traps and
 // dead ends, not conventions — and only scores at or above the precision bar
-// survive.
-func hookMatchFailure(facts []factRecord, query string) []factRecord {
+// survive. score is the legacy lexical scorer (Deps.FactLexicalScore);
+// hookPostFailureMinScore is calibrated to its scale.
+func MatchFailure(facts []factmerge.Record, query string, score func(f factmerge.Record, query string, queryLocus []string) int) []factmerge.Record {
 	queryLocus := base.FactLocus(query)
 	type scored struct {
-		rec factRecord
+		rec factmerge.Record
 		n   int
 	}
 	var hits []scored
 	for _, f := range facts {
-		if f.Status != factStatusActive {
+		if f.Status != factmerge.StatusActive {
 			continue
 		}
 		switch factstore.KindOrInferred(f) {
-		case factKindGotcha, factKindClosedNegative:
+		case factmerge.KindGotcha, factmerge.KindClosedNegative:
 		default:
 			continue
 		}
-		if score := factLexicalScore(f, query, queryLocus); score >= hookPostFailureMinScore {
+		if score := score(f, query, queryLocus); score >= hookPostFailureMinScore {
 			hits = append(hits, scored{f, score})
 		}
 	}
@@ -508,14 +413,14 @@ func hookMatchFailure(facts []factRecord, query string) []factRecord {
 		}
 		return hits[i].rec.UpdatedAt.After(hits[j].rec.UpdatedAt)
 	})
-	out := make([]factRecord, len(hits))
+	out := make([]factmerge.Record, len(hits))
 	for i, h := range hits {
 		out[i] = h.rec
 	}
 	return out
 }
 
-// hookEmit writes the budget-capped emission: nothing at all when hits is
+// Emit writes the budget-capped emission: nothing at all when hits is
 // empty (the silent default), else one compact line per fact (or a JSON
 // object with --json). At least one fact is emitted when any matched, even if
 // it alone exceeds the budget — an empty emission for a real match would be a
@@ -525,17 +430,17 @@ func hookMatchFailure(facts []factRecord, query string) []factRecord {
 // shape so a new one cannot quietly get a different cap. At least one fact
 // survives when any matched, even if it alone exceeds the budget — an empty
 // emission for a real match would be a false negative, the worse failure mode.
-func hookKeepWithinBudget(hits []factRecord, budget int) []factRecord {
+func hookKeepWithinBudget(hits []factmerge.Record, budget int) []factmerge.Record {
 	if len(hits) == 0 {
 		return nil
 	}
 	if budget <= 0 {
 		budget = hookDefaultBudgetTokens
 	}
-	kept := make([]factRecord, 0, len(hits))
+	kept := make([]factmerge.Record, 0, len(hits))
 	spent := 0
 	for _, f := range hits {
-		cost := estimateTokens([]factRecord{f})
+		cost := estimateTokens([]factmerge.Record{f})
 		if len(kept) > 0 && spent+cost > budget {
 			break
 		}
@@ -545,7 +450,18 @@ func hookKeepWithinBudget(hits []factRecord, budget int) []factRecord {
 	return kept
 }
 
-func hookEmit(cmd *cobra.Command, hits []factRecord, budget int, jsonOut bool) ([]factRecord, error) {
+// estimateTokens is a deterministic ~4-chars-per-token estimate over the text
+// an agent would actually load (fact text plus its paths). It is a relative
+// measure for comparing retrieval configurations, not an exact tokenizer.
+func estimateTokens(facts []factmerge.Record) int {
+	chars := 0
+	for _, f := range facts {
+		chars += len(f.Text) + len(strings.Join(f.Paths, ",")) + 4 // small per-fact framing
+	}
+	return (chars + 3) / 4
+}
+
+func Emit(cmd *cobra.Command, hits []factmerge.Record, budget int, jsonOut bool) ([]factmerge.Record, error) {
 	kept := hookKeepWithinBudget(hits, budget)
 	if len(kept) == 0 {
 		return nil, nil
@@ -602,7 +518,7 @@ type agentHookPayload struct {
 // A harness always redirects stdin, so this is false for every real hook
 // invocation and true only for someone running the verb by hand.
 func hookStdinWouldBlock(in io.Reader) bool {
-	return in == os.Stdin && stdinIsTerminal()
+	return in == os.Stdin && base.StdinIsTerminal()
 }
 
 // hookFileFromStdin reads a harness hook payload and returns the path of the

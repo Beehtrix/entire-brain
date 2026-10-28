@@ -1706,7 +1706,7 @@ func truncateAgentWarning(warning string) string {
 }
 
 func promptSeedTimeoutAction(opts seedCommandOptions, timeout time.Duration, fallback string) string {
-	if opts.noInteractive || !stdinIsTerminal() {
+	if opts.noInteractive || !clibase.StdinIsTerminal() {
 		return fallback
 	}
 	fmt.Fprintf(os.Stderr, "Deep synthesis has been running for %s. Keep quick result, continue, or fail?\n[k]eep quick / [c]ontinue / [f]ail: ", timeout)
@@ -1722,11 +1722,6 @@ func promptSeedTimeoutAction(opts seedCommandOptions, timeout time.Duration, fal
 	default:
 		return "keep-quick"
 	}
-}
-
-func stdinIsTerminal() bool {
-	info, err := os.Stdin.Stat()
-	return err == nil && (info.Mode()&os.ModeCharDevice) != 0
 }
 
 func seedAgentCommandArgs(repoDir, phase string, opts seedCommandOptions) ([]string, error) {

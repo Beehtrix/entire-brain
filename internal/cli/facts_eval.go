@@ -136,17 +136,6 @@ type evalRetrievedItem struct {
 	Path string
 }
 
-// estimateTokens is a deterministic ~4-chars-per-token estimate over the text
-// an agent would actually load (fact text plus its paths). It is a relative
-// measure for comparing retrieval configurations, not an exact tokenizer.
-func estimateTokens(facts []factRecord) int {
-	chars := 0
-	for _, f := range facts {
-		chars += len(f.Text) + len(strings.Join(f.Paths, ",")) + 4 // small per-fact framing
-	}
-	return (chars + 3) / 4
-}
-
 func estimateRetrievedTokens(items []evalRetrievedItem) int {
 	chars := 0
 	for _, item := range items {

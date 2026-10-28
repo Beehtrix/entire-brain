@@ -1038,7 +1038,7 @@ type-specific and error on any other id kind; `workspace get` accepts them
 for repo-qualified ids.
 
 Exchanges are extracted deterministically and locally (no model calls) and
-never enter default retrieval or published bundles. Lexical BM25 is the
+never enter default retrieval. Lexical BM25 is the
 only ranking: the conversation vector store was removed with the rest of
 semantic retrieval (trail #278), so a semantic-only request (`vsearch
 --source conversation`) returns a structured error naming the removal, and
@@ -1494,10 +1494,10 @@ model or by fetching over the network:
 - pattern verification and skill synthesis
 - explicitly configured session-abstract generation
 - judged evaluation commands
-- `publish` uploads the serialized local brain (manifest, semantic snapshots,
-  branch overlays, durable facts) to hosted Entire; opt-in and off by default,
-  requiring the command plus a target — the connected binding by default, else
-  explicit `--repo-id`/`--api-url`/`--token`
+- `memories sync` pushes and pulls this branch's memories with the hosted
+  memory set over the per-fact wire; opt-in and off by default, requiring the
+  command plus a target — the connected binding by default, else explicit
+  `--repo-id`/`--api-url`/`--token`
 - webhooks POST a small JSON event to `ENTIRE_BRAIN_WEBHOOK_URL` when a fact is
   recorded or retracted or the brain is refreshed; off until that variable is
   set. The payload carries the fact id, kind and taxonomy paths and the
@@ -1578,7 +1578,7 @@ required for normal use.
 | `ENTIRE_BRAIN_ACTION_CHECKLIST` | disabled | Set to `1`/`true`/`yes`/`on` to render high-confidence production-symbol evidence as an inspection action. Trusted symbol and directly associated test evidence narrow the normal brief in either mode; the flag changes only the action rendering. Intended for controlled agent ablations until stable lift is demonstrated. |
 | `ENTIRE_BRAIN_BRIEF_CONVERSATION` | disabled | Development flag: include conversation hits in `brain_brief`. Off until qualified for the compact budget. |
 | `ENTIRE_BRAIN_NO_EGRESS` | (unset) | Master egress kill switch; enforces locality for no-agent, dry-run, and loopback-Ollama paths and disables every hosted surface. `ENTIRE_BRAIN_LOCAL_ONLY` is a deprecated alias (still honored, warns). See SECURITY.md "Egress controls". |
-| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted publish and hosted memories sync otherwise require `https://`, since they send brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
+| `ENTIRE_BRAIN_ALLOW_INSECURE_API_URL` | (unset) | Allows a plaintext `http://` `--api-url`/`ENTIRE_API_URL` pointing at a **non-loopback** host. Off by default and fail-closed (only `1`/`true`/`yes`/`on`/`enable`/`enabled` enables it): hosted memories sync otherwise requires `https://`, since it sends brain content and the API bearer token. `http://` to a loopback host (`127.0.0.0/8`, `::1`, `localhost`) never needs this. |
 
 ## Development
 

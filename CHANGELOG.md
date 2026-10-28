@@ -5,13 +5,18 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
-### Fixed
+### Removed
 
-- `publish` refusals on a non-github.com origin (GitLab, GitHub Enterprise,
-  Entire-native hosting) now name the supported path for pushing memories:
-  `memories sync` on a connected repo works for any host over the per-fact
-  wire. The bare "github.com-hosted repos only" message read as "memories
-  cannot be pushed" and dead-ended Entire-native users (COR-2290).
+- `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
+  The `/brain/artifacts` endpoint publish posted to was never deployed — the
+  server exists only in unmerged entire-api PRs — so the command failed for
+  every host, and its github.com-only client gate dead-ended Entire-native
+  users with a misleading refusal (COR-2290). Memories travel the per-fact
+  wire: `entire brain memories sync` on a connected repo works for any host
+  and is the manual push path. Invoking `publish` now fails with a tombstone
+  naming that replacement, following the `init-agents` precedent. The https
+  floor and malformed-URL fences moved from publish to the memories-sync
+  surface, which shares the same hosted-target resolution.
 
 ## [0.4.0] - 2026-10-27
 

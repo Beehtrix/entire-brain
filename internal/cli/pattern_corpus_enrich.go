@@ -126,7 +126,8 @@ func corpusEpisodeOps(workText string) (tools []corpusToolOp, commands []corpusC
 			if jsonString(obj["type"]) == "message" && jsonString(msg["role"]) != "assistant" {
 				continue
 			}
-			t, c, f := claudeContentOps(msg["content"], ln)
+			// claude-code and pi nest the turn under "message"; compact v1 does not.
+			t, c, f := claudeContentOps(transcriptRecordContent(obj), ln)
 			tools = append(tools, t...)
 			commands = append(commands, c...)
 			files = append(files, f...)

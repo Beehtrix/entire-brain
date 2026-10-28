@@ -77,7 +77,8 @@ func toolCallsFromObj(obj map[string]any) []episodeToolCall {
 			return []episodeToolCall{{name: strings.ToLower(strings.TrimSpace(jsonString(p["name"])))}}
 		}
 	case "assistant":
-		return toolCallsFromContent(jsonMap(obj["message"])["content"])
+		// claude-code nests the turn under "message"; compact v1 does not.
+		return toolCallsFromContent(transcriptRecordContent(obj))
 	case "message": // pi wraps every turn as {"type":"message","message":{role,content}}
 		m := jsonMap(obj["message"])
 		if jsonString(m["role"]) == "assistant" {

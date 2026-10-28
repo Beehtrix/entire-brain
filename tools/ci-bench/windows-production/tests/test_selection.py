@@ -161,6 +161,29 @@ class SelectedPlanTests(unittest.TestCase):
         self.assertEqual(baseline, explicit)
         self.assertNotIn("selection", baseline)
 
+    def test_selection_weight_accounting_describes_planned_roots_only(self):
+        weights = {
+            ("example/heavy", "TestA"): 30.0,
+            ("example/heavy", "TestB"): 20.0,
+            ("example/heavy2", "TestX"): 10.0,
+        }
+        metadata = dict(WEIGHT_METADATA, entryCount=len(weights))
+        plan = plan_shards.create_plan(
+            two_heavy_inventories(),
+            two_heavy_settings(shard_count=2),
+            weights,
+            metadata,
+            selected_packages=frozenset({"example/heavy2"}),
+        )
+        historical = plan["historicalWeights"]
+        self.assertEqual(historical["usedCount"], 1)
+        self.assertEqual(historical["defaultedCount"], plan["rootCount"] - 1)
+        self.assertGreaterEqual(historical["defaultedCount"], 0)
+        self.assertEqual(
+            historical["unusedKeys"],
+            ["example/heavy::TestA", "example/heavy::TestB"],
+        )
+
     def test_selected_packages_filter_planned_roots_only(self):
         selected = frozenset({"example/heavy2", "example/nonheavy"})
         plan = plan_shards.create_plan(

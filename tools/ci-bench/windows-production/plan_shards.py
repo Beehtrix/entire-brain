@@ -463,6 +463,14 @@ def create_plan(
         # Selection filters which roots are planned; every heavy package is
         # still compiled, hashed, and inventoried exactly as for a full run.
         work = [item for item in work if item["importPath"] in selected_packages]
+        # Weight accounting must describe the planned roots, not the full
+        # inventory, or defaultedCount goes negative when selection drops
+        # weighted roots.
+        used_weight_keys = {
+            (item["importPath"], item["name"])
+            for item in work
+            if item["weightSource"] == "historical-windows"
+        }
         shard_count = effective_shard_count(shard_count, len(work))
     work.sort(key=lambda item: (-item["weightSeconds"], item["importPath"], item["name"]))
     bins: list[list[dict[str, Any]]] = [[] for _ in range(shard_count)]

@@ -1,4 +1,4 @@
-package cli
+package watch
 
 import (
 	"bytes"
@@ -19,8 +19,8 @@ func fixedClock(t time.Time) func() time.Time { return func() time.Time { return
 // testWatchLogFields is the fields a test line carries, with pid pinned so the
 // expected prefix is a constant rather than a reconstruction of the code under
 // test.
-func testWatchLogFields(repo string, tick *int) watchLogFields {
-	return watchLogFields{pid: 4242, build: "0.2.0", tick: tick, repo: repo}
+func testWatchLogFields(repo string, tick *int) LogFields {
+	return LogFields{pid: 4242, Build: "0.2.0", Tick: tick, Repo: repo}
 }
 
 // TestWatchLogPrefixStampsEveryLine is the guard for the diagnosis that cost
@@ -31,7 +31,7 @@ func TestWatchLogPrefixStampsEveryLine(t *testing.T) {
 	var buf bytes.Buffer
 	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
 	tick := 42
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("gh/entireio/entire-brain", &tick), fixedClock(at))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("gh/entireio/entire-brain", &tick), fixedClock(at))
 
 	fmt.Fprintf(w, "[watch] refresh failed: %v\n", errors.New("brain_locked"))
 	fmt.Fprint(w, "refresh: seed baseline failed\n[watch] distill skipped\n")
@@ -53,7 +53,7 @@ func TestWatchLogPrefixTracksTheLoopCounter(t *testing.T) {
 	var buf bytes.Buffer
 	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
 	tick := 1
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", &tick), fixedClock(at))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("repo", &tick), fixedClock(at))
 	fmt.Fprint(w, "[watch] first\n")
 	tick = 2
 	fmt.Fprint(w, "[watch] second\n")
@@ -73,7 +73,7 @@ func TestWatchLogPrefixOmitsAbsentFields(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("", nil), fixedClock(at))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("", nil), fixedClock(at))
 	fmt.Fprint(w, "[watch] workspace ws — 3 repos\n")
 	want := "2026-10-24T09:30:15Z pid=4242 build=0.2.0 [watch] workspace ws — 3 repos\n"
 	if got := buf.String(); got != want {
@@ -92,7 +92,7 @@ func TestWatchLogPrefixOmitsAbsentFields(t *testing.T) {
 func TestWatchLogPrefixDefaultsPidAndBuild(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, watchLogFields{repo: "repo"}, fixedClock(time.Unix(0, 0).UTC()))
+	w := NewLogPrefixWriter(&buf, LogFields{Repo: "repo"}, fixedClock(time.Unix(0, 0).UTC()))
 	fmt.Fprint(w, "[watch] line\n")
 	wantPid := fmt.Sprintf("pid=%d ", os.Getpid())
 	if !strings.Contains(buf.String(), wantPid) {
@@ -108,7 +108,7 @@ func TestWatchLogPrefixDefaultsPidAndBuild(t *testing.T) {
 func TestWatchLogPrefixReportsCallerLength(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	payload := []byte("[watch] line\n")
 	n, err := w.Write(payload)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestWatchLogPrefixReportsCallerLength(t *testing.T) {
 func TestWatchLogPrefixNoBarePrefixOnTrailingNewline(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	fmt.Fprint(w, "[watch] only line\n")
 	want := "1970-01-01T00:00:00Z pid=4242 build=0.2.0 repo=repo [watch] only line\n"
 	if got := buf.String(); got != want {
@@ -140,7 +140,7 @@ func TestWatchLogPrefixNoBarePrefixOnTrailingNewline(t *testing.T) {
 func TestWatchLogPrefixDoesNotSplitAPartialLine(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("repo", nil), fixedClock(time.Unix(0, 0).UTC()))
 	fmt.Fprint(w, "[watch] half")
 	fmt.Fprint(w, " and half\n")
 	fmt.Fprint(w, "[watch] next\n")
@@ -157,7 +157,7 @@ func TestWatchLogPrefixAdvancesTheClock(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
 	cur := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
-	w := newWatchLogPrefixWriter(&buf, testWatchLogFields("repo", nil), func() time.Time {
+	w := NewLogPrefixWriter(&buf, testWatchLogFields("repo", nil), func() time.Time {
 		at := cur
 		cur = cur.Add(time.Minute)
 		return at
@@ -182,16 +182,16 @@ func TestWatchLoopStampsTickLinesAndStepOutput(t *testing.T) {
 	cursor := filepath.Join(dir, "watch.json")
 	at := time.Date(2026, 10, 24, 9, 30, 15, 0, time.UTC)
 	var refreshed, seeded, distilled int
-	w := defaultWatchOptions()
-	w.once = true
+	w := DefaultFlags()
+	w.Once = true
 
 	var buf bytes.Buffer
 	var sawSink bool
-	stepsFor := func(sink io.Writer) watchSteps {
+	stepsFor := func(sink io.Writer) Steps {
 		sawSink = true
 		steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-		inner := steps.refresh
-		steps.refresh = func(c context.Context) error {
+		inner := steps.Refresh
+		steps.Refresh = func(c context.Context) error {
 			// Stand in for watchDeterministicRefresh's progress reporter,
 			// which writes through the command it is handed.
 			fmt.Fprintln(sink, "refresh: seed baseline failed")
@@ -199,7 +199,7 @@ func TestWatchLoopStampsTickLinesAndStepOutput(t *testing.T) {
 		}
 		return steps
 	}
-	if err := watchLoop(context.Background(), &buf, watchLogFields{pid: 4242, build: "0.2.0", repo: "gh/entireio/entire-brain"},
+	if err := watchLoop(context.Background(), &buf, LogFields{pid: 4242, Build: "0.2.0", Repo: "gh/entireio/entire-brain"},
 		fixedClock(at), w, cursor, stepsFor); err != nil {
 		t.Fatalf("watchLoop: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestWatchLoopStampsTickLinesAndStepOutput(t *testing.T) {
 // it mis-attributes continuation lines rather than crashing.
 func TestWatchLogPrefixIsSafeForConcurrentWriters(t *testing.T) {
 	var sink lockedBuffer
-	w := newWatchLogPrefixWriter(&sink, testWatchLogFields("repo-a", nil), fixedClock(time.Unix(0, 0).UTC()))
+	w := NewLogPrefixWriter(&sink, testWatchLogFields("repo-a", nil), fixedClock(time.Unix(0, 0).UTC()))
 
 	const writers, perWriter = 8, 40
 	var wg sync.WaitGroup

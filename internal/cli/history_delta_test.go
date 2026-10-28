@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
@@ -87,9 +88,9 @@ func mustReadFile(t *testing.T, path string) []byte {
 	return data
 }
 
-func buildShortTermResult(t *testing.T, brainDir string) (shortTermStats, error) {
+func buildShortTermResult(t *testing.T, brainDir string) (historystore.ShortTermStats, error) {
 	t.Helper()
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLocked(brainDir, time.Now().UTC())
@@ -163,9 +164,9 @@ func shortTermFixture(t *testing.T) (brainDir string, changedRel, newRel string)
 	return brainDir, changedRel, newRel
 }
 
-func buildShortTerm(t *testing.T, brainDir string) shortTermStats {
+func buildShortTerm(t *testing.T, brainDir string) historystore.ShortTermStats {
 	t.Helper()
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
 		var err error
 		stats, err = buildHistoryShortTermLocked(brainDir, time.Date(2026, 8, 7, 13, 0, 0, 0, time.UTC))
@@ -595,25 +596,25 @@ func TestShortTermHonorsTombstonesAndBuffersBound(t *testing.T) {
 func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 	var out strings.Builder
 	deltas := 0
-	steps := watchSteps{
-		now:         func() time.Time { return time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC) },
-		fingerprint: func(ctxArg context.Context) string { return "same" },
-		delta: func(ctxArg context.Context) (shortTermStats, error) {
+	steps := watch.Steps{
+		Now:         func() time.Time { return time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC) },
+		Fingerprint: func(ctxArg context.Context) string { return "same" },
+		Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
 			deltas++
-			return shortTermStats{Records: 1, Files: 1}, nil
+			return historystore.ShortTermStats{Records: 1, Files: 1}, nil
 		},
-		refresh: func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
-		seed:    func(ctxArg context.Context) error { return nil },
-		distill: func(ctxArg context.Context) error { return nil },
+		Refresh: func(ctxArg context.Context) error { t.Fatal("refresh must not run without change"); return nil },
+		Seed:    func(ctxArg context.Context) error { return nil },
+		Distill: func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
 	// Seed the cursor so "no change" is reachable (a zero cursor forces refresh).
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "same", LastRefreshAt: time.Date(2026, 8, 7, 11, 0, 0, 0, time.UTC)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "same", LastRefreshAt: time.Date(2026, 8, 7, 11, 0, 0, 0, time.UTC)}); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
 	if deltas != 2 {
 		t.Fatalf("delta ran %d times over 2 ticks, want every tick", deltas)
 	}
@@ -631,26 +632,26 @@ func TestWatchTickRunsShortTermDeltaEveryTick(t *testing.T) {
 // backoff.
 func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	start := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	options := defaultWatchOptions() // interval 5m, consolidateEvery 30m
+	options := watch.DefaultFlags() // interval 5m, consolidateEvery 30m
 	clock := start
 	refreshes := 0
 	tick := 0
 	deltaFails := true
-	steps := watchSteps{
-		now:         func() time.Time { return clock },
-		fingerprint: func(ctxArg context.Context) string { return fmt.Sprintf("fp-%d", tick) },
-		delta: func(ctxArg context.Context) (shortTermStats, error) {
+	steps := watch.Steps{
+		Now:         func() time.Time { return clock },
+		Fingerprint: func(ctxArg context.Context) string { return fmt.Sprintf("fp-%d", tick) },
+		Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
 			if deltaFails {
-				return shortTermStats{}, errors.New("brain write lock busy")
+				return historystore.ShortTermStats{}, errors.New("brain write lock busy")
 			}
-			return shortTermStats{Records: 1, Files: 1}, nil
+			return historystore.ShortTermStats{Records: 1, Files: 1}, nil
 		},
-		refresh: func(ctxArg context.Context) error { refreshes++; return nil },
-		seed:    func(ctxArg context.Context) error { return nil },
-		distill: func(ctxArg context.Context) error { return nil },
+		Refresh: func(ctxArg context.Context) error { refreshes++; return nil },
+		Seed:    func(ctxArg context.Context) error { return nil },
+		Distill: func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "seed", LastRefreshAt: start.Add(-6 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "seed", LastRefreshAt: start.Add(-6 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -660,8 +661,8 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	calls := 0
 	const ticks = 20
 	for ; tick < ticks; tick++ {
-		watchTick(nil, &out, options, cursorPath, steps, &calls)
-		clock = clock.Add(options.interval)
+		watch.Tick(nil, &out, options, cursorPath, steps, &calls)
+		clock = clock.Add(options.Interval)
 	}
 	// Pre-fix this was one full refresh per tick. The backoff must cut it to a
 	// small fraction; the exact schedule is 5m/10m/20m/30m/30m over 100 minutes.
@@ -678,7 +679,7 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	if !strings.Contains(out.String(), "repair refresh backing off") {
 		t.Fatalf("deferral must name the repair backoff: %q", out.String())
 	}
-	cursor := loadWatchCursor(cursorPath)
+	cursor := watch.LoadCursor(cursorPath)
 	if cursor.ConsolidationRepairs == 0 {
 		t.Fatalf("consecutive repairs must be recorded: %+v", cursor)
 	}
@@ -686,33 +687,33 @@ func TestWatchTickFailedDeltaRepairIsBounded(t *testing.T) {
 	// A healthy delta clears the backoff so the next failure repairs promptly again.
 	deltaFails = false
 	out.Reset()
-	clock = clock.Add(options.consolidateEvery)
-	watchTick(nil, &out, options, cursorPath, steps, &calls)
-	if cursor := loadWatchCursor(cursorPath); cursor.ConsolidationRepairs != 0 {
+	clock = clock.Add(options.ConsolidateEvery)
+	watch.Tick(nil, &out, options, cursorPath, steps, &calls)
+	if cursor := watch.LoadCursor(cursorPath); cursor.ConsolidationRepairs != 0 {
 		t.Fatalf("healthy delta must reset the repair backoff: %+v", cursor)
 	}
 }
 
-// TestWatchTickNilDeltaKeepsNormalCadence locks that a watchSteps without a
+// TestWatchTickNilDeltaKeepsNormalCadence locks that a watch.Steps without a
 // delta step is not treated as a permanently failing delta: with no short-term
 // path there is nothing to repair, so --consolidate-every applies as usual.
 func TestWatchTickNilDeltaKeepsNormalCadence(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
 	refreshes := 0
-	steps := watchSteps{
-		now:         func() time.Time { return now },
-		fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
-		refresh:     func(ctxArg context.Context) error { refreshes++; return nil },
-		seed:        func(ctxArg context.Context) error { return nil },
-		distill:     func(ctxArg context.Context) error { return nil },
+	steps := watch.Steps{
+		Now:         func() time.Time { return now },
+		Fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+		Refresh:     func(ctxArg context.Context) error { refreshes++; return nil },
+		Seed:        func(ctxArg context.Context) error { return nil },
+		Distill:     func(ctxArg context.Context) error { return nil },
 	}
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	var out strings.Builder
 	calls := 0
-	watchTick(nil, &out, defaultWatchOptions(), cursorPath, steps, &calls)
+	watch.Tick(nil, &out, watch.DefaultFlags(), cursorPath, steps, &calls)
 	if refreshes != 0 || !strings.Contains(out.String(), "short-term memory is current") {
 		t.Fatalf("nil delta must defer on the normal cadence: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -724,40 +725,40 @@ func TestWatchTickNilDeltaKeepsNormalCadence(t *testing.T) {
 // elapsed interval forces consolidation; 0 restores consolidate-on-every-change.
 func TestWatchTickConsolidationCadence(t *testing.T) {
 	now := time.Date(2026, 8, 7, 12, 0, 0, 0, time.UTC)
-	newSteps := func(refreshes *int, full bool) watchSteps {
-		return watchSteps{
-			now:         func() time.Time { return now },
-			fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
-			delta: func(ctxArg context.Context) (shortTermStats, error) {
-				return shortTermStats{Records: 2, Files: 1, Truncated: full}, nil
+	newSteps := func(refreshes *int, full bool) watch.Steps {
+		return watch.Steps{
+			Now:         func() time.Time { return now },
+			Fingerprint: func(ctxArg context.Context) string { return "changed-fp" },
+			Delta: func(ctxArg context.Context) (historystore.ShortTermStats, error) {
+				return historystore.ShortTermStats{Records: 2, Files: 1, Truncated: full}, nil
 			},
-			refresh: func(ctxArg context.Context) error { *refreshes++; return nil },
-			seed:    func(ctxArg context.Context) error { return nil },
-			distill: func(ctxArg context.Context) error { return nil },
+			Refresh: func(ctxArg context.Context) error { *refreshes++; return nil },
+			Seed:    func(ctxArg context.Context) error { return nil },
+			Distill: func(ctxArg context.Context) error { return nil },
 		}
 	}
-	cursor := watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}
-	options := defaultWatchOptions() // consolidateEvery 30m
+	cursor := watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-10 * time.Minute)}
+	options := watch.DefaultFlags() // consolidateEvery 30m
 
 	// Changed fingerprint, 10m since last full refresh: deferred.
 	var out strings.Builder
 	refreshes := 0
 	cursorPath := filepath.Join(t.TempDir(), "cursor.json")
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
 	calls := 0
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 0 || !strings.Contains(out.String(), "consolidation deferred") {
 		t.Fatalf("expected deferral: refreshes=%d out=%q", refreshes, out.String())
 	}
 
 	// Same state but the short-term buffer overflowed: consolidate now.
 	out.Reset()
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, true), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, true), &calls)
 	if refreshes != 1 {
 		t.Fatalf("full buffer must force consolidation: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -765,10 +766,10 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	// Interval elapsed: consolidate.
 	out.Reset()
 	refreshes = 0
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-45 * time.Minute)}); err != nil {
+	if err := watch.SaveCursor(cursorPath, watch.Cursor{LastFingerprint: "old-fp", LastRefreshAt: now.Add(-45 * time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("elapsed interval must consolidate: refreshes=%d out=%q", refreshes, out.String())
 	}
@@ -776,11 +777,11 @@ func TestWatchTickConsolidationCadence(t *testing.T) {
 	// consolidate-every 0: pre-short-term behavior (refresh on every change).
 	out.Reset()
 	refreshes = 0
-	options.consolidateEvery = 0
-	if err := saveWatchCursor(cursorPath, cursor); err != nil {
+	options.ConsolidateEvery = 0
+	if err := watch.SaveCursor(cursorPath, cursor); err != nil {
 		t.Fatal(err)
 	}
-	watchTick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
+	watch.Tick(nil, &out, options, cursorPath, newSteps(&refreshes, false), &calls)
 	if refreshes != 1 {
 		t.Fatalf("consolidate-every=0 must refresh on change: refreshes=%d out=%q", refreshes, out.String())
 	}

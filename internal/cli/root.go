@@ -36,6 +36,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
@@ -157,7 +158,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("maintain", stats.New(statsConfig(opts)))
 	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
-	addGrouped("operations", newWatchCommand(opts))
+	addGrouped("operations", watch.New(watchConfig(opts)))
 	addHidden(daemonreregister.New(daemonReregisterConfig(opts)))
 	addGrouped("operations", pause.NewStop(opts))
 	addGrouped("operations", pause.NewStart(opts))

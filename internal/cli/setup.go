@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
@@ -317,7 +318,7 @@ func setupIsRepoKeyMismatch(detail string) bool {
 // (seed.go and semantic.go), not their prose, so rewording either message
 // cannot silently drop the hint.
 func setupIsDirtyWorktree(detail string) bool {
-	return strings.Contains(detail, dirtyWorktreeErrorCode+":")
+	return strings.Contains(detail, brainstore.DirtyWorktreeCode+":")
 }
 
 // setupIsNoReadableSessions matches the export failure raised when nothing is
@@ -531,15 +532,15 @@ type setupCommandOptions struct {
 }
 
 func defaultSetupOptions() setupCommandOptions {
-	watch := defaultWatchOptions()
+	watchDefaults := watch.DefaultFlags()
 	return setupCommandOptions{
 		workspace:      setupDefaultWorkspace,
 		daemonName:     daemonDefaultName,
 		agent:          "auto",
 		effort:         setupBackfillDefaultEffort,
 		backfillBudget: setupDefaultBackfillBudget,
-		interval:       watch.interval,
-		distillEvery:   watch.distillEvery,
+		interval:       watchDefaults.Interval,
+		distillEvery:   watchDefaults.DistillEvery,
 	}
 }
 

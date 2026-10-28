@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
 	"github.com/spf13/cobra"
 )
 
@@ -80,11 +82,11 @@ func TestSupervisedWatchIdlesWhilePaused(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := &bytes.Buffer{}
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	passes := 0
 	if err := supervisedWatchLoop(context.Background(), out, f.env, base,
-		func(string, watchCommandOptions, *int) error { passes++; return nil }, nil, nil); err != nil {
+		func(string, watch.Flags, *int) error { passes++; return nil }, nil, nil); err != nil {
 		t.Fatalf("a paused watcher must keep running, not exit: %v", err)
 	}
 	if passes != 0 {
@@ -104,11 +106,11 @@ func TestSupervisedWatchStopsVisitingWorkspacesWhenPausedMidPass(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	base := defaultWatchOptions()
-	base.once = true
+	base := watch.DefaultFlags()
+	base.Once = true
 	var seen []string
 	if err := supervisedWatchLoop(context.Background(), &bytes.Buffer{}, f.env, base,
-		func(workspace string, _ watchCommandOptions, _ *int) error {
+		func(workspace string, _ watch.Flags, _ *int) error {
 			seen = append(seen, workspace)
 			return clibase.SetBackgroundPaused(f.env, true)
 		}, nil, nil); err != nil {
@@ -127,20 +129,20 @@ func TestWatchTickDoesNothingWhilePaused(t *testing.T) {
 	if err := clibase.SetBackgroundPaused(f.env, true); err != nil {
 		t.Fatal(err)
 	}
-	steps := watchStepsForRepo(&cobra.Command{}, f.opts, defaultWatchOptions(), f.repoDir, time.Now)
+	steps := watchStepsForRepo(&cobra.Command{}, f.opts, watch.DefaultFlags(), f.repoDir, time.Now)
 	var ran []string
-	steps.fingerprint = func(context.Context) string { ran = append(ran, "fingerprint"); return "changed" }
-	steps.delta = func(context.Context) (shortTermStats, error) {
+	steps.Fingerprint = func(context.Context) string { ran = append(ran, "fingerprint"); return "changed" }
+	steps.Delta = func(context.Context) (historystore.ShortTermStats, error) {
 		ran = append(ran, "delta")
-		return shortTermStats{}, nil
+		return historystore.ShortTermStats{}, nil
 	}
-	steps.reconcile = func(context.Context) error { ran = append(ran, "reconcile"); return nil }
-	steps.refresh = func(context.Context) error { ran = append(ran, "refresh"); return nil }
-	steps.seed = func(context.Context) error { ran = append(ran, "seed"); return nil }
-	steps.distill = func(context.Context) error { ran = append(ran, "distill"); return nil }
+	steps.Reconcile = func(context.Context) error { ran = append(ran, "reconcile"); return nil }
+	steps.Refresh = func(context.Context) error { ran = append(ran, "refresh"); return nil }
+	steps.Seed = func(context.Context) error { ran = append(ran, "seed"); return nil }
+	steps.Distill = func(context.Context) error { ran = append(ran, "distill"); return nil }
 	out := &bytes.Buffer{}
 	agentCalls := 0
-	watchTick(context.Background(), out, defaultWatchOptions(), filepath.Join(t.TempDir(), "watch.json"), steps, &agentCalls)
+	watch.Tick(context.Background(), out, watch.DefaultFlags(), filepath.Join(t.TempDir(), "watch.json"), steps, &agentCalls)
 	if len(ran) != 0 {
 		t.Fatalf("paused, but the tick ran %v", ran)
 	}

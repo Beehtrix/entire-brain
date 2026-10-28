@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/docstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -46,8 +47,8 @@ func TestWorkspaceWatchFansOverMembersWithSharedBudget(t *testing.T) {
 		seen = append(seen, *agentCalls)
 		*agentCalls++ // simulate a token-spending step to prove the counter is shared, not per-repo
 	}
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
@@ -138,10 +139,10 @@ func TestWorkspaceWatchMemoryQueuesStayIsolatedAcrossRepoCopies(t *testing.T) {
 	cmd := &cobra.Command{}
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	for _, repoDir := range []string{aliasA, repoB} {
 		steps := watchStepsForRepo(cmd, opts, w, repoDir, opts.Now)
-		if err := steps.reconcile(context.Background()); err != nil {
+		if err := steps.Reconcile(context.Background()); err != nil {
 			t.Fatalf("reconcile %s: %v", repoDir, err)
 		}
 	}
@@ -185,8 +186,8 @@ func TestWorkspaceWatchOnceSkipsStaleLocalPathHintBeforeTick(t *testing.T) {
 		t.Fatalf("write workspace: %v", err)
 	}
 
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	out := &bytes.Buffer{}
 	agentCalls := 0
@@ -2133,8 +2134,8 @@ func TestWorkspaceWatchStampsEveryLineWithClockAndRepo(t *testing.T) {
 	repoTick := func(out io.Writer, repoDir string, agentCalls *int) {
 		fmt.Fprintf(out, "[watch] refresh failed: %v\n", errors.New("brain_locked"))
 	}
-	w := defaultWatchOptions()
-	w.once = true
+	w := watch.DefaultFlags()
+	w.Once = true
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return at }}
 	out := &bytes.Buffer{}
 	agentCalls := 0

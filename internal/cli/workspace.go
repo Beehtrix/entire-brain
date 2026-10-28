@@ -19,6 +19,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -255,7 +256,7 @@ func newWorkspaceRefreshCommand(opts Options) *cobra.Command {
 }
 
 func newWorkspaceWatchCommand(opts Options) *cobra.Command {
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	cmd := &cobra.Command{
 		Use:   "watch [workspace]",
 		Short: "Keep every repo in a workspace fresh automatically (deterministic refresh is free; agent steps gated)",
@@ -274,7 +275,7 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 			return runWorkspaceWatch(cmd.Context(), cmd, opts, w, args[0])
 		},
 	}
-	bindWatchFlags(cmd, &w)
+	watch.BindFlags(cmd, &w)
 	return cmd
 }
 
@@ -287,17 +288,17 @@ func newWorkspaceWatchCommand(opts Options) *cobra.Command {
 // non-zero because nothing is registered yet is a restart loop, and the honest
 // state of a machine mid-onboarding is "nothing to watch yet", so it says that
 // once per pass and keeps waiting.
-func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions) error {
-	if w.distillJobs <= 0 {
+func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags) error {
+	if w.DistillJobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
 	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
 	}
-	ctx, stop := watchSignalContext(ctx)
+	ctx, stop := watch.SignalContext(ctx)
 	defer stop()
-	onePass := func(workspaceName string, pass watchCommandOptions, agentCalls *int) error {
+	onePass := func(workspaceName string, pass watch.Flags, agentCalls *int) error {
 		return runWorkspaceWatchPass(ctx, cmd, opts, pass, workspaceName, now, agentCalls)
 	}
 	maintain := daemonLogMaintainer(opts.Env)
@@ -307,10 +308,10 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 		// is attended, and exiting it over an upgrade would surprise the person
 		// who started it. The maintainer is already the "am I the installed
 		// service" test (stdout is the unit's log file).
-		stale = watchBinaryChanged()
+		stale = watch.BinaryChanged()
 	}
 	err := supervisedWatchLoop(ctx, cmd.OutOrStdout(), opts.Env, w, onePass, maintain, stale)
-	if errors.Is(err, errWatchBinaryReplaced) {
+	if errors.Is(err, watch.ErrBinaryReplaced) {
 		relaunchInstalledDaemon(cmd.OutOrStdout(), opts.Env)
 		// Exit cleanly: KeepAlive/Restart=always makes the service manager
 		// restart on the current binary; a non-zero exit adds nothing but noise.
@@ -329,10 +330,10 @@ func runSupervisedWatch(ctx context.Context, cmd *cobra.Command, opts Options, w
 // anyway — an empty or unreadable plan logs once per interval forever. It is
 // nil for any watcher that is not the installed service.
 // stale reports that the executable this daemon started from was replaced on
-// disk (nil = never check); the loop then returns errWatchBinaryReplaced so the
+// disk (nil = never check); the loop then returns watch.ErrBinaryReplaced so the
 // caller can exit and let the service manager restart on the current binary,
 // instead of running an outdated build forever (COR-2174).
-func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watchCommandOptions, onePass func(workspace string, pass watchCommandOptions, agentCalls *int) error, maintain func(), stale func() bool) error {
+func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w watch.Flags, onePass func(workspace string, pass watch.Flags, agentCalls *int) error, maintain func(), stale func() bool) error {
 	// This counter belongs to the supervised process, not to an individual
 	// workspace pass. --budget is documented as a lifetime cap, so it must
 	// survive both workspace fan-out and every outer-plan tick.
@@ -347,7 +348,7 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 		}
 		if stale != nil && stale() {
 			fmt.Fprintln(out, "[watch] binary replaced on disk; exiting so the service manager restarts on the current build")
-			return errWatchBinaryReplaced
+			return watch.ErrBinaryReplaced
 		}
 		plan, err := loadSetupWatchPlan(env)
 		if err != nil {
@@ -370,7 +371,7 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 			pass := applyWatchPlanEntry(w, entry)
 			// once: this loop owns the waiting, so the inner workspace loop runs
 			// exactly one pass over its members and returns.
-			pass.once = true
+			pass.Once = true
 			if err := onePass(entry.Workspace, pass, &agentCalls); err != nil {
 				// One broken workspace must not stop the others. A manifest
 				// deleted by hand is a normal state, not a fatal one.
@@ -381,14 +382,14 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 				return nil
 			}
 		}
-		if w.once {
+		if w.Once {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
-		case <-time.After(watchPlanSleep(plan, w.interval)):
+		case <-time.After(watchPlanSleep(plan, w.Interval)):
 		}
 	}
 }
@@ -396,8 +397,8 @@ func supervisedWatchLoop(ctx context.Context, out io.Writer, env EntireEnv, w wa
 // runWorkspaceWatch fans the WS3 watch loop over every member repo, reusing the same per-repo
 // deterministic-refresh + gated-distill + per-repo cursor. The --budget cap is shared across all members
 // so the --budget distill-run cap (and thus token spend) can't be multiplied across repos.
-func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string) error {
-	if w.distillJobs <= 0 {
+func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags, workspaceName string) error {
+	if w.DistillJobs <= 0 {
 		return fmt.Errorf("--jobs must be greater than 0")
 	}
 	now := opts.Now
@@ -405,7 +406,7 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 		now = time.Now
 	}
 	// Stop cleanly between ticks on SIGINT/SIGTERM (same as single-repo watch).
-	ctx, stop := watchSignalContext(ctx)
+	ctx, stop := watch.SignalContext(ctx)
 	defer stop()
 	agentCalls := 0
 	return runWorkspaceWatchPass(ctx, cmd, opts, w, workspaceName, now, &agentCalls)
@@ -414,7 +415,7 @@ func runWorkspaceWatch(ctx context.Context, cmd *cobra.Command, opts Options, w 
 // runWorkspaceWatchPass is runWorkspaceWatch without the signal plumbing, so the
 // supervised loop can drive one workspace at a time under a context it already
 // owns instead of installing a second signal handler per workspace per pass.
-func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watchCommandOptions, workspaceName string, now func() time.Time, agentCalls *int) error {
+func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options, w watch.Flags, workspaceName string, now func() time.Time, agentCalls *int) error {
 	out := cmd.OutOrStdout()
 	// repoOut is the member's already-attributed writer, handed down by the
 	// loop (see workspaceWatchLoop): the fan-out is the case that needs the
@@ -427,7 +428,7 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 			return
 		}
 		cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
-		watchTick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watchStepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
+		watch.Tick(ctx, repoOut, w, cursorPath, watchStepsForRepo(watch.StepCommand(cmd, repoOut), opts, w, repoDir, now), agentCalls)
 	}
 	return workspaceWatchLoop(ctx, out, opts, w, workspaceName, agentCalls, now, repoTick)
 }
@@ -435,9 +436,9 @@ func runWorkspaceWatchPass(ctx context.Context, cmd *cobra.Command, opts Options
 // workspaceWatchLoop iterates the workspace members, resolving each to a local repo and handing it to
 // repoTick with a single shared agentCalls counter (so --budget caps total token spend across the whole
 // workspace, not per-repo). repoTick is injected so the fan-out is testable without a real refresh.
-func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watchCommandOptions, workspaceName string, agentCalls *int, now func() time.Time, repoTick func(out io.Writer, repoDir string, agentCalls *int)) error {
-	if w.interval <= 0 {
-		w.interval = 5 * time.Minute
+func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watch.Flags, workspaceName string, agentCalls *int, now func() time.Time, repoTick func(out io.Writer, repoDir string, agentCalls *int)) error {
+	if w.Interval <= 0 {
+		w.Interval = 5 * time.Minute
 	}
 	// The loop, not the tick, decides a line's attribution, so a tick cannot
 	// forget it: workspace-level lines carry the clock alone, and every member
@@ -447,7 +448,7 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 	// pass counts the fan-out sweeps so a member's lines say which sweep they
 	// belong to, the same way a single-repo daemon's lines say which tick.
 	pass := 0
-	out = newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass}, now)
+	out = watch.NewLogPrefixWriter(raw, watch.LogFields{Build: opts.Version, Tick: &pass}, now)
 	for {
 		if ctx.Err() != nil {
 			fmt.Fprintln(out, "[watch] stopping")
@@ -459,8 +460,8 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 			return err
 		}
 		fmt.Fprintf(out, "[watch] workspace %s — %d repos, distill=%v (every %s, max-sessions=%s, run-budget=%s)\n",
-			manifest.Name, len(manifest.Repos), w.distill, w.distillEvery,
-			watchCapLabel(w.distillMaxSessions), watchCapLabel(w.budget))
+			manifest.Name, len(manifest.Repos), w.Distill, w.DistillEvery,
+			watch.CapLabel(w.DistillMaxSessions), watch.CapLabel(w.Budget))
 		dirs, err := base.ResolvePluginDirs(opts.Env)
 		if err != nil {
 			return err
@@ -472,16 +473,16 @@ func workspaceWatchLoop(ctx context.Context, out io.Writer, opts Options, w watc
 				continue
 			}
 			fmt.Fprintf(out, "[watch] %s:\n", repo.RepoKey)
-			repoTick(newWatchLogPrefixWriter(raw, watchLogFields{build: opts.Version, tick: &pass, repo: repo.RepoKey}, now), repoDir, agentCalls)
+			repoTick(watch.NewLogPrefixWriter(raw, watch.LogFields{Build: opts.Version, Tick: &pass, Repo: repo.RepoKey}, now), repoDir, agentCalls)
 		}
-		if w.once {
+		if w.Once {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			fmt.Fprintln(out, "[watch] stopping")
 			return nil
-		case <-time.After(w.interval):
+		case <-time.After(w.Interval):
 		}
 	}
 }

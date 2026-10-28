@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
@@ -166,7 +167,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Facts.LogPath = state.LogPath
 		onboarding.Facts.Running = onboarding.Facts.Pending() > 0 && backfillRunning(storage.BrainDir, state.PID)
 	}
-	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
+	if cursor := watch.LoadCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
 	var watchPlanErr error

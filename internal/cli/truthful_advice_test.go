@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // Three defects shared one shape: a string telling the reader something that is
@@ -177,8 +178,8 @@ func assertDirtyRefusalIsActionable(t *testing.T, what string, err error, wantPa
 	}
 	message := err.Error()
 	// The machine-readable prefix, by constant: setup keys its remedy off it.
-	if !strings.Contains(message, dirtyWorktreeErrorCode+":") {
-		t.Errorf("%s refusal lost the %s code: %q", what, dirtyWorktreeErrorCode, message)
+	if !strings.Contains(message, brainstore.DirtyWorktreeCode+":") {
+		t.Errorf("%s refusal lost the %s code: %q", what, brainstore.DirtyWorktreeCode, message)
 	}
 	for _, want := range []string{".brainignore", "--worktree"} {
 		if !strings.Contains(message, want) {
@@ -215,7 +216,7 @@ func TestBrainignoredPathsDoNotTriggerTheDirtyRefusal(t *testing.T) {
 
 	err := runSemanticIndex((&cobra.Command{}).Context(), &cobra.Command{Use: "index"},
 		Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir)
-	if err != nil && strings.Contains(err.Error(), dirtyWorktreeErrorCode) {
+	if err != nil && strings.Contains(err.Error(), brainstore.DirtyWorktreeCode) {
 		t.Fatalf("a worktree dirty only in .brainignore'd paths was refused: %v", err)
 	}
 }

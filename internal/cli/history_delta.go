@@ -219,19 +219,6 @@ func clearHistoryShortTerm(brainDir string) {
 	_ = os.Remove(filepath.Join(brainDir, filepath.FromSlash(historyShortTermPath)))
 }
 
-type shortTermStats struct {
-	Files               int  `json:"files"`
-	Records             int  `json:"records"`
-	Exchanges           int  `json:"exchanges"`
-	IncompleteExchanges int  `json:"incomplete_exchanges"`
-	Reused              int  `json:"reused_files"`
-	Scanned             int  `json:"scanned_files"`
-	Truncated           bool `json:"truncated,omitempty"`
-	// Failed counts transcripts this delta could not scan; the overlay
-	// records their identities durably.
-	Failed int `json:"failed_files,omitempty"`
-}
-
 // shortTermCanonicalInputRefusal separates ordinary availability failures,
 // which remain durably visible as an incomplete overlay, from failures that
 // make the canonical input unsafe or unbounded. Permission-denied and a single
@@ -275,12 +262,12 @@ func shortTermCanonicalInputRefusal(err error) bool {
 // whose content digest differs from the long-term scan cache is short-term
 // material; files unchanged since the previous delta are carried over without
 // re-parsing. Caller holds the brain write lock.
-func buildHistoryShortTermLocked(outputDir string, now time.Time) (shortTermStats, error) {
+func buildHistoryShortTermLocked(outputDir string, now time.Time) (historystore.ShortTermStats, error) {
 	return buildHistoryShortTermLockedContext(context.Background(), outputDir, now)
 }
 
-func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (shortTermStats, error) {
-	var stats shortTermStats
+func buildHistoryShortTermLockedContext(ctx context.Context, outputDir string, now time.Time) (historystore.ShortTermStats, error) {
+	var stats historystore.ShortTermStats
 	manifest, err := bmanifest.Load(outputDir)
 	if err != nil {
 		return stats, err
@@ -1002,7 +989,7 @@ func runRefreshDelta(cmd *cobra.Command, opts Options, export bool) error {
 // background memory worker (memoryWorkerPrepass) never runs the destructive
 // transcript cache sweep: nobody is watching that process's stderr to learn
 // that files were deleted. User-invoked delta/refresh passes false.
-func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTranscriptSweep bool) (shortTermStats, error) {
+func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTranscriptSweep bool) (historystore.ShortTermStats, error) {
 	ctx := cmd.Context()
 	if export {
 		exportOpts := exportCommandOptions{
@@ -1013,22 +1000,22 @@ func runRefreshDeltaStats(cmd *cobra.Command, opts Options, export bool, skipTra
 			skipTranscriptSweep: skipTranscriptSweep,
 		}
 		if err := runExport(ctx, cmd, opts, exportOpts); err != nil {
-			return shortTermStats{}, fmt.Errorf("delta session export: %w", err)
+			return historystore.ShortTermStats{}, fmt.Errorf("delta session export: %w", err)
 		}
 	}
 	target := agentSurfaceTarget(opts, nil)
 	repoDir, local, err := clibase.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
 	if err != nil {
-		return shortTermStats{}, err
+		return historystore.ShortTermStats{}, err
 	}
 	if !local {
-		return shortTermStats{}, fmt.Errorf("refresh delta requires a local repository path: %s", target)
+		return historystore.ShortTermStats{}, fmt.Errorf("refresh delta requires a local repository path: %s", target)
 	}
 	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
 	if err != nil {
-		return shortTermStats{}, err
+		return historystore.ShortTermStats{}, err
 	}
-	var stats shortTermStats
+	var stats historystore.ShortTermStats
 	err = brainstore.WithBrainWriteLock(storage.BrainDir, func() error {
 		var buildErr error
 		stats, buildErr = buildHistoryShortTermLockedContext(ctx, storage.BrainDir, opts.Now().UTC())

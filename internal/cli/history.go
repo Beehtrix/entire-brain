@@ -2162,11 +2162,12 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	message := jsonMap(obj["message"])
-	if len(message) == 0 {
-		return nil
+	if message := jsonMap(obj["message"]); len(message) > 0 {
+		return extractContentFragments(message["content"], role+"_message")
 	}
-	return extractContentFragments(message["content"], role+"_message")
+	// ETF compact records carry the content blocks at the record's top level
+	// (see distillConversationText).
+	return extractContentFragments(obj["content"], role+"_message")
 }
 
 func extractContentFragments(content any, source string) []historyFragment {

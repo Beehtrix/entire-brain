@@ -716,7 +716,11 @@ func (v *verifyContext) localCheckpointSnapshot() (*checkpointSnapshot, error) {
 		return v.snapshot, v.snapshotErr
 	}
 	v.snapshotLoaded = true
-	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, true, checkpointBranchDestinations{}, nil)
+	// Compare like with like: a compact-mode export carries the checkpoint's
+	// compact transcript, so the snapshot must resolve the compact flavor too.
+	// An absent or pre-transcript_mode manifest means raw, the historical mode.
+	raw := v.manifest == nil || v.manifest.TranscriptMode != "compact"
+	snapshot, warnings, err := loadLocalCheckpointSnapshotLocalOnly(v.ctx, v.opts.Runner, v.repoDir, raw, checkpointBranchDestinations{}, nil)
 	v.snapshot = snapshot
 	v.snapshotErr = err
 	v.snapshotWarnings = append(v.snapshotWarnings, warnings...)

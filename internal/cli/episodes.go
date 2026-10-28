@@ -339,7 +339,7 @@ func refreshPatternLayer(brainDir string, force bool, now time.Time) (bool, erro
 
 // loadBrainEpisodes reads the persisted episode layer. Missing file -> empty.
 func loadBrainEpisodes(brainDir string) ([]episodeRecord, error) {
-	content, err := readBrainRelativeStateFile(brainDir, patternsEpisodesPath)
+	content, err := brainstore.ReadBrainRelativeStateFile(brainDir, patternsEpisodesPath)
 	if err != nil {
 		return nil, nil
 	}

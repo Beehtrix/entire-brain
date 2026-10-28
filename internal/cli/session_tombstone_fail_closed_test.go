@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
 	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
@@ -190,7 +191,7 @@ func TestCorruptTombstonesRefuseHandoffDashAndVizStartup(t *testing.T) {
 	for name, run := range map[string]func() error{
 		"handoff": func() error { return runBrainHandoff(context.Background(), cmd, opts, 5, true) },
 		"dash": func() error {
-			_, err := assembleBrainSnapshot(context.Background(), opts, repoDir, repoDir, storage.BrainDir, "feature", 10)
+			_, err := dash.AssembleBrainSnapshot(context.Background(), dashConfig(opts), repoDir, repoDir, storage.BrainDir, "feature", 10)
 			return err
 		},
 		"viz": func() error {

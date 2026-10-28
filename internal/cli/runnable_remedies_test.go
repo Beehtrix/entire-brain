@@ -48,7 +48,7 @@ func TestNoHardcodedBrainSpellingInPrintedRemedies(t *testing.T) {
 	// retrieval-engine read layers must stay under this guard rather than
 	// escape it by moving.
 	var names []string
-	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/publish", "command/repoidentity", "command/stats", "command/viz", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval"} {
+	for _, dir := range []string{".", "internal/factstore", "command/add", "command/bench", "command/dash", "command/patternscmd", "command/publish", "command/repoidentity", "command/retrieve", "command/stats", "command/viz", "internal/brainstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval", "patterns"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

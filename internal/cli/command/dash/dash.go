@@ -1,21 +1,20 @@
-package cli
+package dash
 
 import (
 	"context"
 	"fmt"
-	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
-	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
-	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
-	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
-	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
-	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
-	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"github.com/entireio/entire-brain/internal/tui"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -31,17 +30,20 @@ const dashDefaultLimit = 500
 // matching the `entire brain search` default surface.
 const dashSearchLimit = 25
 
-type dashFlags struct {
-	theme  string
-	tab    string
-	branch string
-	limit  int
-	json   bool
-	plain  bool
+// Flags are the dash command's flag values. Fields are exported so the
+// cli-staying transport tests can drive Run directly.
+type Flags struct {
+	Theme  string
+	Tab    string
+	Branch string
+	Limit  int
+	JSON   bool
+	Plain  bool
 }
 
-func newDashCommand(opts Options) *cobra.Command {
-	var flags dashFlags
+// New builds the `dash` command.
+func New(cfg Config) *cobra.Command {
+	var flags Flags
 	cmd := &cobra.Command{
 		Use:   "dash [path]",
 		Short: "Browse the brain in an interactive dashboard",
@@ -54,32 +56,34 @@ On a non-TTY (piped output) it prints a plain summary instead; --json emits the
 loaded snapshot.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDash(cmd.Context(), cmd, opts, flags, agentSurfaceTarget(opts, args))
+			return Run(cmd.Context(), cmd, cfg, flags, cfg.Deps.AgentSurfaceTarget(cfg.Options, args))
 		},
 	}
-	cmd.Flags().StringVar(&flags.theme, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
-	cmd.Flags().StringVar(&flags.tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic, search")
-	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch whose memories to load (default: current branch)")
-	cmd.Flags().IntVar(&flags.limit, "limit", dashDefaultLimit, "Max entries loaded per tab (0 = no cap)")
-	cmd.Flags().BoolVar(&flags.json, "json", false, "Emit the loaded snapshot as JSON instead of opening the dashboard")
-	cmd.Flags().BoolVar(&flags.plain, "plain", false, "Print a plain text summary instead of opening the dashboard")
+	cmd.Flags().StringVar(&flags.Theme, "theme", "", "Color theme: "+strings.Join(tui.ThemeNames(), ", ")+" (or set ENTIRE_BRAIN_THEME)")
+	cmd.Flags().StringVar(&flags.Tab, "tab", "", "Tab to open on: home, facts, sessions, history, semantic, search")
+	cmd.Flags().StringVar(&flags.Branch, "branch", "", "Branch whose memories to load (default: current branch)")
+	cmd.Flags().IntVar(&flags.Limit, "limit", dashDefaultLimit, "Max entries loaded per tab (0 = no cap)")
+	cmd.Flags().BoolVar(&flags.JSON, "json", false, "Emit the loaded snapshot as JSON instead of opening the dashboard")
+	cmd.Flags().BoolVar(&flags.Plain, "plain", false, "Print a plain text summary instead of opening the dashboard")
 	return cmd
 }
 
-func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFlags, target string) error {
-	startTab, ok := tui.ParseTab(flags.tab)
-	if !ok && flags.tab != "" {
-		return fmt.Errorf("unknown_tab: %q (want home, facts, sessions, history, semantic, or search)", flags.tab)
+// Run executes the dash command. It is exported so the cli transport tests
+// can exercise the --json privacy-emission path directly.
+func Run(ctx context.Context, cmd *cobra.Command, cfg Config, flags Flags, target string) error {
+	startTab, ok := tui.ParseTab(flags.Tab)
+	if !ok && flags.Tab != "" {
+		return fmt.Errorf("unknown_tab: %q (want home, facts, sessions, history, semantic, or search)", flags.Tab)
 	}
 
 	// Validate the theme up front (like the tab) so a typo fails fast with the
 	// valid names, in any output mode, rather than silently falling back.
-	theme, err := resolveDashTheme(flags.theme)
+	theme, err := resolveDashTheme(flags.Theme)
 	if err != nil {
 		return err
 	}
 
-	repoDir, brainDir, branch, err := resolveFactsTarget(ctx, opts, target, flags.branch)
+	repoDir, brainDir, branch, err := cfg.Deps.ResolveFactsTarget(ctx, cfg.Options, target, flags.Branch)
 	if err != nil {
 		return err
 	}
@@ -88,7 +92,7 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 		return err
 	}
 
-	snap, err := assembleBrainSnapshot(ctx, opts, target, repoDir, brainDir, branch, flags.limit)
+	snap, err := AssembleBrainSnapshot(ctx, cfg, target, repoDir, brainDir, branch, flags.Limit)
 	if err != nil {
 		return err
 	}
@@ -99,79 +103,44 @@ func runDash(ctx context.Context, cmd *cobra.Command, opts Options, flags dashFl
 	// plain summary is the same content in a form that terminal can show, and
 	// the note goes to stderr so stdout stays byte-identical to --plain.
 	dumbTerminal := commandOutputIsTTY(cmd) && !tui.SupportsFullScreen(os.Getenv)
-	if flags.json || flags.plain || !commandOutputIsTTY(cmd) || dumbTerminal {
-		if dumbTerminal && !flags.json && !flags.plain {
+	if flags.JSON || flags.Plain || !commandOutputIsTTY(cmd) || dumbTerminal {
+		if dumbTerminal && !flags.JSON && !flags.Plain {
 			fmt.Fprintln(cmd.ErrOrStderr(), "note: TERM is unset or dumb — printing the plain summary; the dashboard needs a terminal that renders escape sequences")
 		}
-		return bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{privacyPolicy}, func() error {
-			if flags.json {
+		return cfg.Deps.BufferRetrievalOutput(cmd, []brainstore.RetrievalPrivacyPolicy{privacyPolicy}, func() error {
+			if flags.JSON {
 				return cmdutil.WriteJSON(cmd, snap)
 			}
 			printDashPlain(cmd, snap)
 			return nil
 		})
 	}
-	return tui.Run(snap, theme, brainSearchFunc(repoDir, brainDir, branch), startTab,
-		dashTerminalWriter(cmd.OutOrStdout(), privacyPolicy), brainSourceReader(ctx, opts.Runner, brainDir))
+	return tui.Run(snap, theme, brainSearchFunc(cfg.Deps, repoDir, brainDir, branch), startTab,
+		cfg.Deps.TerminalWriter(cmd.OutOrStdout(), privacyPolicy), cfg.Deps.BrainSourceReader(ctx, cfg.Options.Runner, brainDir))
 }
-
-// dashTerminalWriter is the stream the dashboard program renders to: every
-// write still goes through the privacy re-check, but the terminal underneath
-// stays visible to the terminal library.
-//
-// That second half is not a nicety. bubbletea learns the window size by calling
-// Fd() on its output and only if the output satisfies term.File (an
-// io.ReadWriteCloser with an Fd); anything else is "can't query window size",
-// so it never sends the initial WindowSizeMsg and never installs the SIGWINCH
-// resize watcher. A plain privacyLinearizedWriter is exactly that anything
-// else — one Write method — so the dashboard sat on its pre-size placeholder
-// ("loading…") forever on a real terminal, and resizing it did nothing. It
-// still accepted keys and still quit on q, which is why exit-code checks never
-// caught it.
-//
-// Embedding the file carries Read/Close/Fd through untouched while Write stays
-// on the audited path, so the privacy boundary is unchanged.
-func dashTerminalWriter(out io.Writer, policy retrievalPrivacyPolicy) io.Writer {
-	guarded := privacyLinearizedWriter{out: out, policies: []retrievalPrivacyPolicy{policy}}
-	file, ok := out.(*os.File)
-	if !ok {
-		return guarded
-	}
-	return dashTTYWriter{File: file, guarded: guarded}
-}
-
-// dashTTYWriter is a terminal that writes through the privacy guard. The
-// embedded *os.File supplies Read/Close/Fd (what bubbletea probes for a window
-// size); Write is overridden so no byte reaches the terminal unchecked.
-type dashTTYWriter struct {
-	*os.File
-	guarded privacyLinearizedWriter
-}
-
-func (w dashTTYWriter) Write(p []byte) (int, error) { return w.guarded.Write(p) }
 
 // brainSearchFunc adapts the lexical retrieval (`entire brain search`) into the
 // callback the dashboard's `s` key invokes, so search runs the same code path as
 // the CLI verb while keeping the TUI free of file IO.
-func brainSearchFunc(repoDir, brainDir, branch string) tui.SearchFunc {
+func brainSearchFunc(deps Deps, repoDir, brainDir, branch string) tui.SearchFunc {
 	return func(query string) ([]tui.SearchResult, error) {
-		results, err := retrieveUnified(repoDir, brainDir, branch, query, dashSearchLimit, retrieval.ModeLexical)
+		results, err := deps.RetrieveUnified(repoDir, brainDir, branch, query, dashSearchLimit, retrieval.ModeLexical)
 		if err != nil {
 			return nil, err
 		}
 		out := make([]tui.SearchResult, 0, len(results))
 		for _, r := range results {
-			out = append(out, searchResultFromUnified(r, brainDir))
+			out = append(out, SearchResultFromUnified(r, brainDir))
 		}
 		return out, nil
 	}
 }
 
-// searchResultFromUnified maps a retrieval hit to the TUI view model and decides
+// SearchResultFromUnified maps a retrieval hit to the TUI view model and decides
 // its "open source" target. Only history and doc hits carry a real
 // brain-relative file path; a fact's Path is its taxonomy labels (not a file),
 // so a fact hit gets no open target rather than a bogus one.
-func searchResultFromUnified(r unifiedResult, brainDir string) tui.SearchResult {
+func SearchResultFromUnified(r retrieval.Result, brainDir string) tui.SearchResult {
 	text := r.Text
 	if r.VerificationRequired {
 		text = "VERIFY AGAINST CURRENT EVIDENCE: " + text
@@ -192,32 +161,29 @@ func searchResultFromUnified(r unifiedResult, brainDir string) tui.SearchResult 
 	return sr
 }
 
-// assembleBrainSnapshot is the only place that touches the brain on disk. It
+// AssembleBrainSnapshot is the only place that touches the brain on disk. It
 // reuses the existing loaders to build a read-only tui.Snapshot; no agent calls.
-func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, brainDir, branch string, limit int) (tui.Snapshot, error) {
+func AssembleBrainSnapshot(ctx context.Context, cfg Config, target, repoDir, brainDir, branch string, limit int) (tui.Snapshot, error) {
 	snap := tui.Snapshot{Repo: repoDir, Branch: branch}
 
-	status, err := buildBrainStatusReport(ctx, opts, target)
+	status, err := cfg.Deps.StatusHome(ctx, cfg.Options, target, branch, brainDir)
 	if err != nil {
 		return snap, err
 	}
-	if status.Repo.Root != "" {
-		snap.Repo = status.Repo.Root
+	if status.RepoRoot != "" {
+		snap.Repo = status.RepoRoot
 	}
-	snap.GeneratedAt = status.Brain.GeneratedAt
+	snap.GeneratedAt = status.GeneratedAt
 	manifest := status.Manifest
-	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
-	if err != nil {
-		return snap, err
-	}
-	snap.Home = dashHomeView(status, manifest, branch, guard)
+	guard := status.Guard
+	snap.Home = status.Home
 
 	// Facts (per branch).
 	if facts, err := factstore.Load(brainDir, branch); err != nil {
 		markSourceUnreadable(&snap.Home, "Facts", "facts unavailable: "+err.Error())
 	} else {
 		facts = factstore.GuardRecords(guard, facts)
-		snap.Facts = dashFactViews(facts, brainDir, limit)
+		snap.Facts = FactViews(facts, brainDir, limit)
 		snap.Notes = appendCapNote(snap.Notes, "facts", len(facts), len(snap.Facts))
 	}
 
@@ -225,7 +191,7 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 		// Sessions (from the manifest).
 		if s := manifest.Sources.Sessions; s != nil {
 			visibleSessions := bmanifest.GuardSessions(guard, s.Sessions)
-			snap.Sessions = dashSessionViews(visibleSessions, brainDir, limit, guard)
+			snap.Sessions = SessionViews(visibleSessions, brainDir, limit, guard)
 			snap.Notes = appendCapNote(snap.Notes, "sessions", len(visibleSessions), len(snap.Sessions))
 		}
 		// History (index.json).
@@ -233,8 +199,8 @@ func assembleBrainSnapshot(ctx context.Context, opts Options, target, repoDir, b
 			if idx, err := historystore.LoadIndex(brainDir, h); err != nil {
 				markSourceUnreadable(&snap.Home, "History", "history unavailable: "+err.Error())
 			} else {
-				records := filterHistoryRecords(idx.Records, func(record historyRecord) bool { return !historystore.GuardBlocksRecord(guard, record) })
-				snap.History = dashHistoryViews(records, brainDir, limit)
+				records := historystore.FilterRecords(idx.Records, func(record historystore.Record) bool { return !historystore.GuardBlocksRecord(guard, record) })
+				snap.History = HistoryViews(records, brainDir, limit)
 				snap.Notes = appendCapNote(snap.Notes, "history", len(records), len(snap.History))
 			}
 		}
@@ -279,122 +245,7 @@ func markSourceUnreadable(home *tui.HomeView, name, warning string) {
 	}
 }
 
-// dashHomeView maps the status report into the Home tab view model.
-func dashHomeView(status brainStatusReport, manifest *exportManifest, branch string, guards ...sessionReadGuard) tui.HomeView {
-	home := tui.HomeView{
-		Freshness:  brainStatusFreshnessSeverity(status),
-		Warnings:   append([]string(nil), status.Warnings...),
-		BlindSpots: dashBlindSpotLabels(brainStatusBlindSpots(status)),
-	}
-
-	present := status.Sources
-	detail := dashSourceDetails(manifest, guards...)
-	home.Sources = []tui.SourceHealth{
-		{Name: "Seed", Present: present.Seed, Detail: detail["seed"]},
-		{Name: "Sessions", Present: present.Sessions, Detail: detail["sessions"]},
-		{Name: "Code", Present: present.Semantic, Detail: detail["semantic"]},
-		{Name: "History", Present: present.History, Detail: detail["history"]},
-		{Name: "Facts", Present: present.Facts, Detail: detail["facts"]},
-	}
-
-	if status.Semantic != nil && status.Semantic.Freshness != nil {
-		for name, axis := range status.Semantic.Freshness.Axes {
-			home.Axes = append(home.Axes, tui.FreshnessAxis{Name: name, State: axis.State, Detail: axis.Detail})
-		}
-		sortFreshnessAxes(home.Axes)
-	}
-
-	home.Live = tui.LiveState{
-		Branch:  clibase.FirstNonEmpty(status.Live.Branch, branch),
-		Head:    status.Live.Head,
-		Dirty:   status.Live.Dirty,
-		Summary: dashLiveSummary(status.Live),
-	}
-
-	if manifest != nil && manifest.GeneratedAt.IsZero() && !anySource(present) {
-		home.Warnings = append(home.Warnings, "brain not built yet — run `"+clibase.BrainInvocation(os.LookupEnv, "refresh")+"`")
-	}
-	return home
-}
-
-func dashSourceDetails(manifest *exportManifest, guards ...sessionReadGuard) map[string]string {
-	out := map[string]string{}
-	if manifest == nil || manifest.Sources == nil {
-		return out
-	}
-	src := manifest.Sources
-	if s := src.Sessions; s != nil {
-		count, checkpoints := len(s.Sessions), s.CheckpointsScanned
-		if len(guards) > 0 && !guards[0].Empty() {
-			visible := bmanifest.GuardSessions(guards[0], s.Sessions)
-			count, checkpoints = len(visible), 0
-			for _, session := range visible {
-				checkpoints += session.CheckpointsCount
-			}
-		}
-		out["sessions"] = fmt.Sprintf("%d sessions · %d checkpoints scanned", count, checkpoints)
-	}
-	if s := src.Semantic; s != nil {
-		out["semantic"] = fmt.Sprintf("%d symbols · %d relations · %d files", s.Symbols, s.Relations, s.Files)
-	}
-	if h := src.History; h != nil {
-		out["history"] = fmt.Sprintf("%d records (%d decisions · %d learnings)", h.Records, h.Decisions, h.Learnings)
-	}
-	if f := src.Facts; f != nil {
-		out["facts"] = fmt.Sprintf("%d facts across %d branch(es)", f.Facts, len(f.Branches))
-	}
-	if s := src.Seed; s != nil {
-		out["seed"] = fmt.Sprintf("%d entrypoints · %d commands", len(s.Entrypoints), len(s.Commands))
-	}
-	return out
-}
-
-func dashBlindSpotLabels(spots []brainBlindSpot) []string {
-	if len(spots) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(spots))
-	for _, s := range spots {
-		label := s.Detail
-		if label == "" {
-			label = s.Code
-		}
-		if s.Path != "" {
-			if label == "" {
-				label = s.Path
-			} else {
-				label = s.Path + ": " + label
-			}
-		}
-		if label == "" {
-			continue
-		}
-		out = append(out, label)
-	}
-	return out
-}
-
-func dashLiveSummary(live brainLiveState) string {
-	if !live.Dirty {
-		return "clean"
-	}
-	parts := make([]string, 0, 3)
-	if n := len(live.Staged); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d staged", n))
-	}
-	if n := len(live.Unstaged); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d unstaged", n))
-	}
-	if n := len(live.Untracked); n > 0 {
-		parts = append(parts, fmt.Sprintf("%d untracked", n))
-	}
-	if len(parts) == 0 {
-		return "dirty"
-	}
-	return strings.Join(parts, " · ")
-}
-
-func dashFactViews(facts []factRecord, brainDir string, limit int) []tui.FactView {
+func FactViews(facts []factmerge.Record, brainDir string, limit int) []tui.FactView {
 	if limit > 0 && len(facts) > limit {
 		facts = facts[:limit]
 	}
@@ -429,7 +280,7 @@ func dashFactViews(facts []factRecord, brainDir string, limit int) []tui.FactVie
 	return out
 }
 
-func dashSessionViews(sessions []exportSession, brainDir string, limit int, guard sessionReadGuard) []tui.SessionView {
+func SessionViews(sessions []bmanifest.Session, brainDir string, limit int, guard brainstore.SessionReadGuard) []tui.SessionView {
 	sessions = bmanifest.GuardSessions(guard, sessions)
 	if limit > 0 && len(sessions) > limit {
 		sessions = sessions[:limit]
@@ -464,7 +315,7 @@ func dashSessionViews(sessions []exportSession, brainDir string, limit int, guar
 	return out
 }
 
-func dashHistoryViews(records []historyRecord, brainDir string, limit int) []tui.HistoryView {
+func HistoryViews(records []historystore.Record, brainDir string, limit int) []tui.HistoryView {
 	if limit > 0 && len(records) > limit {
 		records = records[:limit]
 	}
@@ -487,7 +338,7 @@ func dashHistoryViews(records []historyRecord, brainDir string, limit int) []tui
 	return out
 }
 
-func dashSemanticViews(syms []semanticRecord, repoDir string) []tui.SemanticView {
+func dashSemanticViews(syms []semstore.Record, repoDir string) []tui.SemanticView {
 	out := make([]tui.SemanticView, 0, len(syms))
 	for _, s := range syms {
 		view := tui.SemanticView{
@@ -601,40 +452,9 @@ func appendCapNote(notes []string, label string, total, shown int) []string {
 	return notes
 }
 
-func anySource(s brainStatusSources) bool {
-	return s.Seed || s.Sessions || s.Semantic || s.History || s.Facts
-}
-
 func orEmpty(v string) string {
 	if v == "" {
 		return "(unknown)"
 	}
 	return v
-}
-
-func sortFreshnessAxes(axes []tui.FreshnessAxis) {
-	for i := 1; i < len(axes); i++ {
-		for j := i; j > 0 && axes[j-1].Name > axes[j].Name; j-- {
-			axes[j-1], axes[j] = axes[j], axes[j-1]
-		}
-	}
-}
-
-// brainSourceReader keeps virtual transcript addresses out of the OS opener.
-// Reads happen only on demand and use the same fresh privacy gate as retrieval;
-// the TUI holds bytes in memory and never leaves temporary transcript files.
-func brainSourceReader(ctx context.Context, runner CommandRunner, brainDir string) tui.SourceReader {
-	store := newTranscriptStore(runner, brainDir)
-	return func(target string) (string, bool, error) {
-		rel, err := filepath.Rel(brainDir, target)
-		if err != nil {
-			return "", false, nil
-		}
-		rel = filepath.ToSlash(rel)
-		if !strings.HasPrefix(rel, "sessions/") {
-			return "", false, nil
-		}
-		data, err := store.Read(ctx, rel)
-		return string(data), true, err
-	}
 }

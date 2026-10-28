@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
 
 // Skill install destinations + skill-memory recording (Pattern Consolidation).
@@ -39,7 +40,7 @@ type skillDestination struct {
 // recordSkillDecision upserts a skill-memory record by pattern/task id, preserving
 // the rest of the user-state file and the original creation time.
 func recordSkillDecision(brainDir string, rec skillMemoryRecord) error {
-	existing, err := loadBrainSkillMemory(brainDir)
+	existing, err := patterncore.LoadBrainSkillMemory(brainDir)
 	if err != nil {
 		return err
 	}
@@ -60,7 +61,7 @@ func recordSkillDecision(brainDir string, rec skillMemoryRecord) error {
 		out = append(out, rec)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].PatternID < out[j].PatternID })
-	return writeBrainSkillMemory(brainDir, out)
+	return patterncore.WriteBrainSkillMemory(brainDir, out)
 }
 
 // skillDestinations resolves the install paths for a target+scope. "standard" is
@@ -280,7 +281,7 @@ func writeSkillFileBeforeReplace(d skillDestination, data []byte, beforeReplace 
 // expanding a leading ~ first. Display/JSON keep the slash form; only writes use
 // this.
 func skillFilePath(p string) string {
-	return filepath.FromSlash(expandHomePath(p))
+	return filepath.FromSlash(patterncore.ExpandHomePath(p))
 }
 
 // harnessHomeRoot is a coding agent's configuration home: the variable that

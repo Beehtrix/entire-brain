@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,7 @@ func TestPatternsCurrencyTracksThePrivacyEpoch(t *testing.T) {
 	if baseline == 0 {
 		t.Fatal("fixture produced no episodes; the test would prove nothing")
 	}
-	if report, err := buildPatternsStatusReportChecked(brainDir); err != nil || report.Freshness != "current" {
+	if report, err := patternscmd.BuildStatusReportChecked(brainDir, patternsCmdDeps()); err != nil || report.Freshness != "current" {
 		t.Fatalf("freshly built corpus: freshness=%q err=%v", report.Freshness, err)
 	}
 
@@ -61,7 +62,7 @@ func TestPatternsCurrencyTracksThePrivacyEpoch(t *testing.T) {
 	if excluded >= baseline {
 		t.Fatalf("exclusion did not remove any episode (%d -> %d)", baseline, excluded)
 	}
-	report, err := buildPatternsStatusReportChecked(brainDir)
+	report, err := patternscmd.BuildStatusReportChecked(brainDir, patternsCmdDeps())
 	if err != nil {
 		t.Fatalf("status after exclude: %v", err)
 	}
@@ -78,7 +79,7 @@ func TestPatternsCurrencyTracksThePrivacyEpoch(t *testing.T) {
 	if !rebuilt {
 		t.Fatal("refresh skipped the pattern layer after a privacy change")
 	}
-	report, err = buildPatternsStatusReportChecked(brainDir)
+	report, err = patternscmd.BuildStatusReportChecked(brainDir, patternsCmdDeps())
 	if err != nil {
 		t.Fatalf("status after rebuild: %v", err)
 	}
@@ -92,7 +93,7 @@ func TestPatternsCurrencyTracksThePrivacyEpoch(t *testing.T) {
 	if err := includeSessionLocked(brainDir, "secret-sess", now); err != nil {
 		t.Fatalf("include: %v", err)
 	}
-	report, err = buildPatternsStatusReportChecked(brainDir)
+	report, err = patternscmd.BuildStatusReportChecked(brainDir, patternsCmdDeps())
 	if err != nil {
 		t.Fatalf("status after include: %v", err)
 	}

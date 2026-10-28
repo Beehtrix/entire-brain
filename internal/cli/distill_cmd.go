@@ -2530,20 +2530,6 @@ func cachedDistillFingerprintForKey(cache distillCache, key string) (string, boo
 	return fp, ok
 }
 
-// readBrainRelativeStateFile is for small derived Brain state, never canonical
-// session transcripts. It shares the hardened state reader and an explicit
-// whole-file bound so derived JSON cannot revive the legacy unbounded read.
-func readBrainRelativeStateFile(brainDir, rel string) (string, error) {
-	data, present, err := brainstore.ReadMemoryStateFile(brainDir, filepath.ToSlash(rel), "derived Brain state", base.DefaultMaxReadBytes)
-	if err != nil {
-		return "", err
-	}
-	if !present {
-		return "", os.ErrNotExist
-	}
-	return string(data), nil
-}
-
 // loadDistillCache reads the incremental cache, always returning a usable value:
 // any read/parse error or version mismatch yields an empty cache so the next
 // run simply re-distills everything.

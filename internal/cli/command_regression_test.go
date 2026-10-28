@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
@@ -280,7 +281,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if err != nil {
 		t.Fatalf("patterns status: %v\n%s", err, out)
 	}
-	var status patternsStatusReport
+	var status patternscmd.StatusReport
 	if err := json.Unmarshal([]byte(out), &status); err != nil {
 		t.Fatalf("decode status JSON: %v\n%s", err, out)
 	}
@@ -339,7 +340,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if out, err = execute(t, NewRootCommand(opts), "patterns", "skills", "form", taskID, repoDir, "--yes"); err == nil || !strings.Contains(err.Error(), "needs deep verification first") {
 		t.Fatalf("form shallow task error = %v\n%s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("failed form persisted skill memory: %v", err)
 	}
 
@@ -379,7 +380,7 @@ func TestRootCommandPatternsLifecycleAndPrivacyFailures(t *testing.T) {
 	if preview.TaskID != taskID || !preview.IsSkill || preview.Name != "deploy-release" || !strings.Contains(preview.Skill, "## Verification") {
 		t.Fatalf("skill preview lost synthesis contract: %+v", preview)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("draft-only form persisted skill memory: %v", err)
 	}
 	out, stderr, err = executeSplit(t, NewRootCommand(opts), "patterns", "skills", "form", taskID, repoDir, "--scope", "repo", "--agent", "codex")

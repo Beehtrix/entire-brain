@@ -22,13 +22,16 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/config"
 	"github.com/entireio/entire-brain/internal/cli/command/connect"
 	"github.com/entireio/entire-brain/internal/cli/command/daemonreregister"
+	"github.com/entireio/entire-brain/internal/cli/command/dash"
 	"github.com/entireio/entire-brain/internal/cli/command/disconnect"
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/guide"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
+	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
@@ -124,12 +127,12 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("explore", newBrainOverviewCommand(opts))
 	addGrouped("explore", newBrainBriefCommand(opts))
-	addGrouped("explore", newQueryCommand(opts))
-	addGrouped("explore", newSearchCommand(opts))
-	addGrouped("explore", newVsearchCommand(opts))
-	addGrouped("explore", newGetCommand(opts))
-	addGrouped("explore", newMultiGetCommand(opts))
-	addGrouped("explore", newDashCommand(opts))
+	addGrouped("explore", retrieve.NewQuery(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewSearch(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewVsearch(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewGet(retrieveCommandConfig(opts)))
+	addGrouped("explore", retrieve.NewMultiGet(retrieveCommandConfig(opts)))
+	addGrouped("explore", dash.New(dashConfig(opts)))
 
 	addGrouped("facts", facts.NewRecall(factsCommandConfig(opts)))
 	addGrouped("facts", facts.NewRemember(factsCommandConfig(opts)))
@@ -138,7 +141,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("facts", connect.New(connectConfig(opts)))
 	addGrouped("facts", disconnect.New(disconnectConfig(opts)))
 	addGrouped("facts", newVerifyCommand(opts))
-	addGrouped("facts", newPatternsCommand(opts))
+	addGrouped("facts", patternscmd.New(patternsCmdConfig(opts)))
 
 	addGrouped("operations", newMemoryCommand(opts))
 	addGrouped("operations", newPrivacyCommand(opts))
@@ -336,30 +339,14 @@ type commandJSONError struct {
 	Message string `json:"message"`
 }
 
-type renderedCommandError struct {
-	err error
-}
+// The rendered-error marker lives in cmdutil so extracted command packages can
+// construct it; the alias keeps the package-local name for existing callers.
+type renderedCommandError = cmdutil.RenderedCommandError
 
 var errRenderedCommand = renderedCommandError{}
 
 func RenderedError() error {
 	return errRenderedCommand
-}
-
-func (e renderedCommandError) Error() string {
-	if e.err == nil {
-		return "command error rendered"
-	}
-	return e.err.Error()
-}
-
-func (e renderedCommandError) Unwrap() error {
-	return e.err
-}
-
-func (e renderedCommandError) Is(target error) bool {
-	_, ok := target.(renderedCommandError)
-	return ok
 }
 
 func commandErrorWasRendered(err error) bool {
@@ -376,7 +363,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 				return err
 			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-			return renderedCommandError{err: err}
+			return renderedCommandError{Err: err}
 		}
 	}
 	if cmd.RunE != nil {
@@ -390,7 +377,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 				return err
 			}
 			_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-			return renderedCommandError{err: err}
+			return renderedCommandError{Err: err}
 		}
 	}
 	// CHAIN, do not replace. This walks every child, and a plain
@@ -410,7 +397,7 @@ func wrapJSONErrorRendering(cmd *cobra.Command) {
 			return err
 		}
 		_ = writeCommandJSONError(cmd.ErrOrStderr(), err)
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	})
 	for _, child := range cmd.Commands() {
 		wrapJSONErrorRendering(child)

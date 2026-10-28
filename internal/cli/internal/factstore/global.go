@@ -65,6 +65,17 @@ func LoadGlobal(env base.EntireEnv) ([]factmerge.Record, error) {
 	return Load(brainDir, GlobalBranch)
 }
 
+// GlobalFactsForRead loads the global store for a read surface, honouring the
+// off switches. A damaged global store must not take retrieval down with it, so
+// the error comes back for the caller to warn about rather than to propagate:
+// the repository's own facts are still the answer to most queries.
+func GlobalFactsForRead(env base.EntireEnv, noGlobal bool) ([]factmerge.Record, error) {
+	if !GlobalFactsEnabled(noGlobal) {
+		return nil, nil
+	}
+	return LoadGlobal(env)
+}
+
 // ResolveGlobalTarget is the global counterpart of the per-repo facts-target
 // resolution, for commands operating on the global store directly.
 func ResolveGlobalTarget(env base.EntireEnv) (brainDir, branch string, err error) {

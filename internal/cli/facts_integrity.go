@@ -33,5 +33,5 @@ func reportFactStoreIntegrity(cmd *cobra.Command, brainDir string, jsonOut bool)
 		out = cmd.ErrOrStderr()
 	}
 	fmt.Fprintf(out, "warning: %s\n", integrity.Warning())
-	return renderedCommandError{err: errFactStoreIncomplete}
+	return renderedCommandError{Err: errFactStoreIncomplete}
 }

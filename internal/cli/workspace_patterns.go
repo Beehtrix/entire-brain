@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -30,7 +31,7 @@ import (
 // Workspace pattern files live under the workspace dir, a sibling of repos/.
 
 func newWorkspacePatternsCommand(opts Options) *cobra.Command {
-	var list patternsListOptions
+	var list patternscmd.ListOptions
 	cmd := &cobra.Command{
 		Use:   "patterns <workspace>",
 		Short: "Inspect and rebuild cross-repo patterns for a workspace",
@@ -42,10 +43,10 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 			return runWorkspacePatternsList(cmd.Context(), cmd, opts, args[0], list)
 		},
 	}
-	cmd.Flags().BoolVar(&list.asJSON, "json", false, "Emit patterns as JSON")
-	cmd.Flags().IntVar(&list.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&list.typ, "type", "", "Filter by type: task|procedure|risk|practice")
-	cmd.Flags().StringVar(&list.scope, "scope", "", "Filter by scope: workspace")
+	cmd.Flags().BoolVar(&list.AsJSON, "json", false, "Emit patterns as JSON")
+	cmd.Flags().IntVar(&list.Limit, "limit", 20, "Maximum number of patterns to show")
+	cmd.Flags().StringVar(&list.Type, "type", "", "Filter by type: task|procedure|risk|practice")
+	cmd.Flags().StringVar(&list.Scope, "scope", "", "Filter by scope: workspace")
 
 	refresh := &cobra.Command{
 		Use:   "refresh <workspace>",
@@ -185,11 +186,11 @@ func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatter
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: %v", repo.RepoKey, err))
 			continue
 		}
-		procs, err := loadBrainProcedures(brainDir)
+		procs, err := patterncore.LoadBrainProcedures(brainDir)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: procedures: %v", repo.RepoKey, err))
 		}
-		pracs, err := loadBrainPractices(brainDir)
+		pracs, err := patterncore.LoadBrainPractices(brainDir)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: practices: %v", repo.RepoKey, err))
 		}
@@ -460,7 +461,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	return nil
 }
 
-func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
+func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternscmd.ListOptions) error {
 	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
@@ -476,7 +477,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, corpusBacked, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -488,20 +489,20 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	filtered := views[:0:0]
 	for _, v := range views {
-		if list.typ != "" && v.Type != list.typ {
+		if list.Type != "" && v.Type != list.Type {
 			continue
 		}
-		if list.scope != "" && v.Scope != list.scope {
+		if list.Scope != "" && v.Scope != list.Scope {
 			continue
 		}
 		filtered = append(filtered, v)
 	}
 	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Strength > filtered[j].Strength })
-	if list.limit > 0 && len(filtered) > list.limit {
-		filtered = filtered[:list.limit]
+	if list.Limit > 0 && len(filtered) > list.Limit {
+		filtered = filtered[:list.Limit]
 	}
 	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
-		if list.asJSON {
+		if list.AsJSON {
 			return cmdutil.WriteJSON(cmd, filtered)
 		}
 		out := cmd.OutOrStdout()
@@ -510,7 +511,7 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 			return nil
 		}
 		for _, v := range filtered {
-			renderPatternView(out, v)
+			patterncore.RenderPatternView(out, v)
 		}
 		return nil
 	})
@@ -532,11 +533,11 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	procs, err := loadBrainProcedures(wsDir)
+	procs, err := patterncore.LoadBrainProcedures(wsDir)
 	if err != nil {
 		return err
 	}
-	pracs, err := loadBrainPractices(wsDir)
+	pracs, err := patterncore.LoadBrainPractices(wsDir)
 	if err != nil {
 		return err
 	}
@@ -544,7 +545,7 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	views, _, corpusPresent, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, corpusPresent, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		return err
 	}

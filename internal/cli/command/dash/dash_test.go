@@ -1,24 +1,27 @@
-package cli
+package dash
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/factmerge"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 )
 
 func TestDashFactViewsMapsFieldsAndSource(t *testing.T) {
-	facts := []factRecord{
+	facts := []factmerge.Record{
 		{
 			ID: "fact:aaa", Kind: "decision", Text: "Chose SQLite.", Paths: []string{"architecture.storage"},
 			Status: "active", Origin: "distilled", RelatedIDs: []string{"fact:bbb"},
-			Provenance: []factAnchor{{SessionID: "s1", Transcript: "sessions/x.jsonl", Line: 9, Verified: true}},
+			Provenance: []factmerge.Anchor{{SessionID: "s1", Transcript: "sessions/x.jsonl", Line: 9, Verified: true}},
 		},
 		{ID: "fact:bbb", Kind: "gotcha", Text: "No transcript anchor here.", Status: "active"},
 	}
-	views := dashFactViews(facts, "/brain", 0)
+	views := FactViews(facts, "/brain", 0)
 	if len(views) != 2 {
 		t.Fatalf("got %d views, want 2", len(views))
 	}
@@ -32,19 +35,19 @@ func TestDashFactViewsMapsFieldsAndSource(t *testing.T) {
 		t.Errorf("fact[1] without an anchor should have no open target, got %q", views[1].Source)
 	}
 	// Limit caps the slice.
-	if got := dashFactViews(facts, "/brain", 1); len(got) != 1 {
+	if got := FactViews(facts, "/brain", 1); len(got) != 1 {
 		t.Errorf("limit 1 -> %d views", len(got))
 	}
 }
 
 func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
-	sessions := []exportSession{{
+	sessions := []bmanifest.Session{{
 		SessionID: "sess-1", Agent: "claude-code", Model: "opus", CreatedAt: time.Date(2026, 6, 9, 10, 0, 0, 0, time.UTC),
 		FilesTouched: []string{"a.go"}, CheckpointsCount: 3, TranscriptPath: "sessions/x.jsonl",
-		TokenUsage: &checkpointTokenUsage{InputTokens: 100, OutputTokens: 40},
-		Summary:    &checkpointSummary{Intent: "add dash", Outcome: "shipped"},
+		TokenUsage: &bmanifest.CheckpointTokenUsage{InputTokens: 100, OutputTokens: 40},
+		Summary:    &bmanifest.CheckpointSummary{Intent: "add dash", Outcome: "shipped"},
 	}}
-	v := dashSessionViews(sessions, "/brain", 0, sessionReadGuard{})[0]
+	v := SessionViews(sessions, "/brain", 0, brainstore.SessionReadGuard{})[0]
 	if v.Agent != "claude-code" || v.Model != "opus" || v.InputTok != 100 || v.OutputTok != 40 {
 		t.Errorf("session usage mapped wrong: %+v", v)
 	}
@@ -57,19 +60,19 @@ func TestDashSessionViewsMapsUsageAndSummary(t *testing.T) {
 }
 
 func TestDashSessionViewsOmitExcludedMetadata(t *testing.T) {
-	sessions := []exportSession{
-		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &checkpointSummary{Intent: "PRIVATE-DASH-CANARY"}},
-		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &checkpointSummary{Intent: "safe"}},
+	sessions := []bmanifest.Session{
+		{SessionID: "private", TranscriptPath: "sessions/private.jsonl", Summary: &bmanifest.CheckpointSummary{Intent: "PRIVATE-DASH-CANARY"}},
+		{SessionID: "public", TranscriptPath: "sessions/public.jsonl", Summary: &bmanifest.CheckpointSummary{Intent: "safe"}},
 	}
-	guard := sessionReadGuard{IDs: map[string]sessionTombstone{"private": {At: time.Now().UTC()}}}
-	views := dashSessionViews(sessions, "/brain", 0, guard)
+	guard := brainstore.SessionReadGuard{IDs: map[string]brainstore.SessionTombstone{"private": {At: time.Now().UTC()}}}
+	views := SessionViews(sessions, "/brain", 0, guard)
 	if len(views) != 1 || views[0].ID != "public" || views[0].Intent != "safe" {
 		t.Fatalf("dashboard exposed excluded session metadata: %+v", views)
 	}
 }
 
 func TestDashSemanticViewsResolvesRepoSource(t *testing.T) {
-	syms := []semanticRecord{{RecordType: "symbol", Kind: "func", Name: "Run", QualifiedName: "tui.Run",
+	syms := []semstore.Record{{RecordType: "symbol", Kind: "func", Name: "Run", QualifiedName: "tui.Run",
 		FilePath: "internal/tui/tui.go", StartLine: 80, EndLine: 90, Signature: "func Run()", Language: "go"}}
 	v := dashSemanticViews(syms, "/work/acme")[0]
 	if v.Name != "Run" || v.Language != "go" || v.StartLine != 80 {
@@ -77,64 +80,6 @@ func TestDashSemanticViewsResolvesRepoSource(t *testing.T) {
 	}
 	if v.Source != filepath.Join("/work/acme", "internal/tui/tui.go") || v.SourceLine != 80 {
 		t.Errorf("semantic source = %q:%d", v.Source, v.SourceLine)
-	}
-}
-
-func TestDashHomeViewSourcesAndNotBuilt(t *testing.T) {
-	// An empty manifest (no sources, zero generated_at) flags "not built".
-	report := brainStatusReport{Sources: brainStatusSources{}}
-	empty := &exportManifest{}
-	home := dashHomeView(report, empty, "main")
-	if len(home.Sources) != 5 {
-		t.Fatalf("want 5 source rows, got %d", len(home.Sources))
-	}
-	foundNotBuilt := false
-	for _, w := range home.Warnings {
-		if w == "brain not built yet — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`" {
-			foundNotBuilt = true
-		}
-	}
-	if !foundNotBuilt {
-		t.Errorf("empty brain should warn it is not built; warnings=%v", home.Warnings)
-	}
-
-	// A built brain with sources present should not warn "not built" and should
-	// carry per-source detail.
-	built := brainStatusReport{
-		Sources: brainStatusSources{Sessions: true, Semantic: true},
-		Brain:   brainStatusBrain{GeneratedAt: "2026-06-10T09:00:00Z"},
-	}
-	manifest := &exportManifest{
-		GeneratedAt: time.Now(),
-		Sources: &brainSources{
-			Sessions: &sessionSourceManifest{Sessions: make([]exportSession, 14), CheckpointsScanned: 30},
-			Semantic: &semanticSourceManifest{Symbols: 55, Relations: 165, Files: 8},
-		},
-	}
-	home = dashHomeView(built, manifest, "main")
-	for _, w := range home.Warnings {
-		if w == "brain not built yet — run `"+base.BrainInvocation(os.LookupEnv, "refresh")+"`" {
-			t.Errorf("built brain should not warn not-built")
-		}
-	}
-	var semDetail string
-	for _, s := range home.Sources {
-		if s.Name == "Code" {
-			semDetail = s.Detail
-		}
-	}
-	if semDetail == "" || semDetail[:2] != "55" {
-		t.Errorf("semantic source detail = %q, want it to start with the symbol count", semDetail)
-	}
-}
-
-func TestDashLiveSummary(t *testing.T) {
-	if got := dashLiveSummary(brainLiveState{Dirty: false}); got != "clean" {
-		t.Errorf("clean tree summary = %q", got)
-	}
-	got := dashLiveSummary(brainLiveState{Dirty: true, Staged: []string{"a"}, Untracked: []string{"b", "c"}})
-	if got != "1 staged · 2 untracked" {
-		t.Errorf("dirty summary = %q, want \"1 staged · 2 untracked\"", got)
 	}
 }
 
@@ -193,11 +138,11 @@ func TestBrainRelPathRejectsTraversal(t *testing.T) {
 
 func TestSearchResultFromUnifiedGatesOpenPath(t *testing.T) {
 	// history/doc hits carry a real file path; fact hits carry taxonomy labels.
-	hist := searchResultFromUnified(unifiedResult{Source: "history", ID: "h1", Path: "sessions/x.jsonl", Line: 4, Text: "t"}, "/brain")
+	hist := SearchResultFromUnified(retrieval.Result{Source: "history", ID: "h1", Path: "sessions/x.jsonl", Line: 4, Text: "t"}, "/brain")
 	if hist.OpenPath != filepath.Join("/brain", "sessions/x.jsonl") || hist.OpenLine != 4 {
 		t.Errorf("history result open target = %q:%d", hist.OpenPath, hist.OpenLine)
 	}
-	fact := searchResultFromUnified(unifiedResult{Source: "fact", ID: "fact:x", Path: "arch.storage.layout,perf.io.batching", Text: "t"}, "/brain")
+	fact := SearchResultFromUnified(retrieval.Result{Source: "fact", ID: "fact:x", Path: "arch.storage.layout,perf.io.batching", Text: "t"}, "/brain")
 	if fact.OpenPath != "" {
 		t.Errorf("fact result must have no open target (Path is a taxonomy label), got %q", fact.OpenPath)
 	}

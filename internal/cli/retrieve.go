@@ -77,7 +77,7 @@ func rankGuardedHistoryForRetrieval(brainDir string, source *historySourceManife
 	// path here too.
 	index := fresh.longTermReconciled()
 	if guardPred != nil {
-		index = historyIndex{GeneratedAt: index.GeneratedAt, Records: filterHistoryRecords(index.Records, guardPred)}
+		index = historyIndex{GeneratedAt: index.GeneratedAt, Records: historystore.FilterRecords(index.Records, guardPred)}
 	}
 	scored := rankFreshHistory(fresh, kind, query, limit, guardPred, func(longTerm historyIndex, eligible func(historyRecord) bool) ([]scoredHistoryRecord, bool) {
 		lex, complete, ok := rankHistoryViaFTSFiltered(brainDir, longTerm, kind, query, limit, historyFTSRelevanceCutoff, eligible)
@@ -398,7 +398,7 @@ func getUnifiedBatchOptions(repoDir, brainDir, branch string, ids []string, gopt
 	// single conversation: target, outline cursor/limit to a single
 	// conversation-session: target. Anything else is a structured
 	// invalid-argument error, never an ignored option.
-	if gopts.navigation() && len(ids) != 1 {
+	if gopts.Navigation() && len(ids) != 1 {
 		return nil, nil, fmt.Errorf("navigation options require exactly one target id (got %d)", len(ids))
 	}
 	if gopts.ContextSet && !wantConversation {

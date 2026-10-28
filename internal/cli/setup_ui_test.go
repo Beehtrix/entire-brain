@@ -12,6 +12,7 @@ import (
 	"time"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/setupui"
 	"github.com/entireio/entire-brain/internal/tui"
 )
@@ -199,7 +200,7 @@ func TestSetupBuildPhaseGivesNoSubStepItsOwnLine(t *testing.T) {
 // and `setup && query` proceeded on it.
 func TestSetupExitsNonZeroWhenTheBrainCannotAnswer(t *testing.T) {
 	f := newSetupTestFixture(t)
-	dirty := errors.New(dirtyWorktreeErrorCode + ": refusing to index uncommitted content")
+	dirty := errors.New(brainstore.DirtyWorktreeCode + ": refusing to index uncommitted content")
 	rec := &recordedSetup{instantComponents: []setupComponent{
 		newSetupComponent(brainComponentDocs, nil, clibase.SetupBrainBinaryName),
 		newSetupComponent(brainComponentEntities, nil, clibase.SetupBrainBinaryName),

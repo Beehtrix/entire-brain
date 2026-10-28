@@ -1,4 +1,4 @@
-package cli
+package watch
 
 import (
 	"context"
@@ -13,26 +13,26 @@ func TestWatchDeferredWorkRetriesWithoutCommit(t *testing.T) {
 		t.Run(map[bool]string{false: "interval_deferred", true: "busy_distill"}[busy], func(t *testing.T) {
 			p := filepath.Join(t.TempDir(), "watch.json")
 			now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
-			w := defaultWatchOptions()
-			w.distill = true
-			w.consolidateEvery = 0
+			w := DefaultFlags()
+			w.Distill = true
+			w.ConsolidateEvery = 0
 			if !busy {
-				if e := saveWatchCursor(p, watchCursor{LastFingerprint: "old", LastRefreshAt: now.Add(-time.Hour), LastAgentSpendAt: now.Add(-time.Hour)}); e != nil {
+				if e := SaveCursor(p, Cursor{LastFingerprint: "old", LastRefreshAt: now.Add(-time.Hour), LastAgentSpendAt: now.Add(-time.Hour)}); e != nil {
 					t.Fatal(e)
 				}
 			}
 			calls, distills := 0, 0
-			s := watchSteps{now: func() time.Time { return now }, fingerprint: func(context.Context) string { return "new" }, refresh: func(context.Context) error { return nil }, distill: func(context.Context) error {
+			s := Steps{Now: func() time.Time { return now }, Fingerprint: func(context.Context) string { return "new" }, Refresh: func(context.Context) error { return nil }, Distill: func(context.Context) error {
 				distills++
 				if busy {
-					return errDistillPassBusy
+					return ErrDistillPassBusy
 				}
 				return nil
 			}}
-			watchTick(context.Background(), io.Discard, w, p, s, &calls)
+			Tick(context.Background(), io.Discard, w, p, s, &calls)
 			before := distills
 			now = now.Add(48 * time.Hour)
-			watchTick(context.Background(), io.Discard, w, p, s, &calls)
+			Tick(context.Background(), io.Discard, w, p, s, &calls)
 			if distills != before+1 {
 				t.Fatalf("due work not retried: before=%d after=%d", before, distills)
 			}
@@ -43,21 +43,21 @@ func TestWatchDeferredWorkRetriesWithoutCommit(t *testing.T) {
 func TestWatchCappedWorkSurvivesRestartWithoutRepeatingSeed(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "watch.json")
 	now := time.Date(2026, 8, 8, 12, 0, 0, 0, time.UTC)
-	w := defaultWatchOptions()
-	w.distill = true
-	w.seedAgent = "codex"
-	w.consolidateEvery = 0
+	w := DefaultFlags()
+	w.Distill = true
+	w.SeedAgent = "codex"
+	w.ConsolidateEvery = 0
 	calls, seeds, distills, refreshes := 0, 0, 0, 0
-	s := watchSteps{now: func() time.Time { return now }, fingerprint: func(context.Context) string { return "stable" }, refresh: func(context.Context) error { refreshes++; return nil }, seed: func(context.Context) error { seeds++; return nil }, distill: func(context.Context) error {
+	s := Steps{Now: func() time.Time { return now }, Fingerprint: func(context.Context) string { return "stable" }, Refresh: func(context.Context) error { refreshes++; return nil }, Seed: func(context.Context) error { seeds++; return nil }, Distill: func(context.Context) error {
 		distills++
 		if distills == 1 {
-			return errDistillDeferred
+			return ErrDistillDeferred
 		}
 		return nil
 	}}
-	tick := func() { watchTick(context.Background(), io.Discard, w, p, s, &calls) }
+	tick := func() { Tick(context.Background(), io.Discard, w, p, s, &calls) }
 	tick()
-	if c := loadWatchCursor(p); !c.PendingDistill || c.PendingSeed {
+	if c := LoadCursor(p); !c.PendingDistill || c.PendingSeed {
 		t.Fatalf("pending state=%+v", c)
 	}
 	calls = 0 // process restart must not bypass the persisted spend interval.
@@ -73,7 +73,7 @@ func TestWatchCappedWorkSurvivesRestartWithoutRepeatingSeed(t *testing.T) {
 	}
 	now = now.Add(48 * time.Hour)
 	tick()
-	if distills != 2 || loadWatchCursor(p).PendingDistill {
+	if distills != 2 || LoadCursor(p).PendingDistill {
 		t.Fatal("completed work was retried")
 	}
 }

@@ -1,4 +1,4 @@
-package cli
+package watch
 
 import (
 	"bytes"
@@ -13,10 +13,10 @@ func TestWatchTickRunsHostedSyncAfterRefresh(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
+	steps.FactsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if refreshed != 1 || synced != 1 {
 		t.Fatalf("hosted sync must run after a successful refresh, got refresh=%d sync=%d", refreshed, synced)
 	}
@@ -32,11 +32,11 @@ func TestWatchTickRunsHostedSyncWhenRefreshFails(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.refresh = func(context.Context) error { return errors.New("refresh broke") }
-	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
+	steps.Refresh = func(context.Context) error { return errors.New("refresh broke") }
+	steps.FactsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	// COR-2114: receive-only members must not starve when refresh always fails.
 	if synced != 1 {
 		t.Fatalf("hosted sync must run even when refresh failed, got %d", synced)
@@ -50,10 +50,10 @@ func TestWatchTickHostedSyncErrorDoesNotFailTick(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) (bool, error) { return false, errors.New("hosted outage") }
+	steps.FactsSync = func(context.Context) (bool, error) { return false, errors.New("hosted outage") }
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if refreshed != 1 {
 		t.Fatalf("tick must complete, got refresh=%d", refreshed)
 	}
@@ -72,13 +72,13 @@ func TestWatchTickThrottlesHostedSync(t *testing.T) {
 	var refreshed, seeded, distilled, synced int
 	fp := "ck1:head1"
 	steps := fakeWatchSteps("", &refreshed, &seeded, &distilled)
-	steps.fingerprint = func(context.Context) string { return fp }
-	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
+	steps.Fingerprint = func(context.Context) string { return fp }
+	steps.FactsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	fp = "ck2:head2"
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if refreshed != 2 {
 		t.Fatalf("both ticks must refresh, got %d", refreshed)
 	}
@@ -93,7 +93,7 @@ func TestWatchTickNilFactsSyncIsSkipped(t *testing.T) {
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if refreshed != 1 {
 		t.Fatalf("tick must run normally with no factsSync step, got refresh=%d", refreshed)
 	}
@@ -106,15 +106,15 @@ func TestWatchTickRunsHostedSyncOnNoChangeTick(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled, synced int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) (bool, error) { synced++; return true, nil }
+	steps.FactsSync = func(context.Context) (bool, error) { synced++; return true, nil }
 	// Seed a cursor matching the fingerprint with a prior refresh: the idle,
 	// no-change tick — the main pull scenario for a machine receiving facts.
-	if err := saveWatchCursor(cursorPath, watchCursor{LastFingerprint: "ck1:head1", LastRefreshAt: steps.now()}); err != nil {
+	if err := SaveCursor(cursorPath, Cursor{LastFingerprint: "ck1:head1", LastRefreshAt: steps.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if refreshed != 0 {
 		t.Fatalf("no-change tick must not refresh, got %d", refreshed)
 	}
@@ -130,10 +130,10 @@ func TestWatchTickSilentWhenHostedSyncNotAttempted(t *testing.T) {
 	cursorPath := filepath.Join(t.TempDir(), "watch.json")
 	var refreshed, seeded, distilled int
 	steps := fakeWatchSteps("ck1:head1", &refreshed, &seeded, &distilled)
-	steps.factsSync = func(context.Context) (bool, error) { return false, nil }
+	steps.FactsSync = func(context.Context) (bool, error) { return false, nil }
 	var out bytes.Buffer
 	var agentCalls int
-	watchTick(context.Background(), &out, watchCommandOptions{}, cursorPath, steps, &agentCalls)
+	Tick(context.Background(), &out, Flags{}, cursorPath, steps, &agentCalls)
 	if strings.Contains(out.String(), "hosted fact sync ran") {
 		t.Fatalf("a skipped sync must not be reported as ran:\n%s", out.String())
 	}

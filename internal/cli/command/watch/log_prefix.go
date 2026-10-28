@@ -1,4 +1,4 @@
-package cli
+package watch
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// watchLogFields are the facts a watch.log line must carry to be readable on
+// LogFields are the facts a watch.log line must carry to be readable on
 // its own: when it was written, which process and build wrote it, which tick
 // it belongs to, and which repo it is about.
 //
@@ -26,11 +26,11 @@ import (
 // tick is nil for lines written outside a tick (the startup banner); when set
 // it is read at write time, so one writer tracks a loop's counter as it
 // advances rather than freezing the value it was built with.
-type watchLogFields struct {
+type LogFields struct {
 	pid   int
-	build string
-	tick  *int
-	repo  string
+	Build string
+	Tick  *int
+	Repo  string
 }
 
 // watchLogPrefixWriter stamps every line written through it with those fields.
@@ -61,24 +61,24 @@ type watchLogPrefixWriter struct {
 	// The cost is one uncontended atomic per line on a logging path.
 	mu     sync.Mutex
 	out    io.Writer
-	fields watchLogFields
+	fields LogFields
 	now    func() time.Time
 	// midLine records that the previous write ended without a newline, so the
 	// continuation of that line is not stamped a second time in its middle.
 	midLine bool
 }
 
-// newWatchLogPrefixWriter wraps out so each line gets the watch.log prefix.
+// NewLogPrefixWriter wraps out so each line gets the watch.log prefix.
 // Wrap a given sink once: nesting two of these stamps every line twice.
-func newWatchLogPrefixWriter(out io.Writer, fields watchLogFields, now func() time.Time) io.Writer {
+func NewLogPrefixWriter(out io.Writer, fields LogFields, now func() time.Time) io.Writer {
 	if now == nil {
 		now = time.Now
 	}
 	if fields.pid == 0 {
 		fields.pid = os.Getpid()
 	}
-	if fields.build == "" {
-		fields.build = "dev"
+	if fields.Build == "" {
+		fields.Build = "dev"
 	}
 	return &watchLogPrefixWriter{out: out, fields: fields, now: now}
 }
@@ -92,14 +92,14 @@ func (w *watchLogPrefixWriter) prefix() string {
 	b.WriteString(" pid=")
 	b.WriteString(strconv.Itoa(w.fields.pid))
 	b.WriteString(" build=")
-	b.WriteString(w.fields.build)
-	if w.fields.tick != nil {
+	b.WriteString(w.fields.Build)
+	if w.fields.Tick != nil {
 		b.WriteString(" tick=")
-		b.WriteString(strconv.Itoa(*w.fields.tick))
+		b.WriteString(strconv.Itoa(*w.fields.Tick))
 	}
-	if w.fields.repo != "" {
+	if w.fields.Repo != "" {
 		b.WriteString(" repo=")
-		b.WriteString(w.fields.repo)
+		b.WriteString(w.fields.Repo)
 	}
 	b.WriteByte(' ')
 	return b.String()

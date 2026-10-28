@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
@@ -309,12 +310,12 @@ func TestBuildDistillPlanHonorsOrderAndBudget(t *testing.T) {
 // token-spending path and the session-end write loop were dead.
 func TestInProcessDistillOptionsPassTheConcurrencyGuard(t *testing.T) {
 	t.Parallel()
-	w := defaultWatchOptions()
+	w := watch.DefaultFlags()
 	if got := watchDistillOptions(w); got.concurrency <= 0 {
 		t.Fatalf("watch's distill options must set concurrency, got %d", got.concurrency)
 	}
 	// A caller that raises --jobs must raise the pool the pipeline actually reads.
-	w.distillJobs = 4
+	w.DistillJobs = 4
 	if got := watchDistillOptions(w); got.concurrency != 4 {
 		t.Fatalf("--jobs must drive the distill pool, got concurrency %d", got.concurrency)
 	}

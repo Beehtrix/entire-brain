@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // The Entire CLI's compact transcript (Entire Transcript Format) carries the
@@ -74,5 +78,41 @@ func TestExtractHistoryJSONFragmentsCompactETF(t *testing.T) {
 	}
 	if !sources[historyToolCallSource("Bash")] {
 		t.Errorf("assistant fragments missing tool call: %v", sources)
+	}
+}
+
+// TestHistoryScanCachePreETFEntriesIgnored covers the upgrade path for an
+// existing brain: a cache written before compact (ETF) parsing holds the empty
+// results of a scanner that saw nothing in a compact transcript, and the
+// content digest is the sole reuse authority, so unchanged transcripts would
+// keep those empty results forever. Any version at or after the ETF bump must
+// reject them so the next refresh rescans (COR-2289).
+func TestHistoryScanCachePreETFEntriesIgnored(t *testing.T) {
+	if historyScanCacheVersion < 11 {
+		t.Fatalf("test guards the pre-ETF -> ETF cache migration; any later version must also reject v10 entries (version = %d)", historyScanCacheVersion)
+	}
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, brainstore.HistoryDirName), 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	stale := historyScanCache{Version: 10, Files: map[string]historyScanCacheEntry{
+		"sessions/main/compact.jsonl": {ContentDigest: "sha256:unchanged", Records: nil},
+	}}
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if err := json.NewEncoder(gz).Encode(stale); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("close gzip: %v", err)
+	}
+	path := filepath.Join(dir, filepath.FromSlash(historyScanCachePath))
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatalf("write cache: %v", err)
+	}
+
+	cache := loadHistoryScanCache(dir)
+	if len(cache.Files) != 0 {
+		t.Fatalf("pre-ETF cache entries were reused: %+v", cache.Files)
 	}
 }

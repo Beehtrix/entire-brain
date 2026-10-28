@@ -14,6 +14,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
   searchable exchanges, no user-prompt history records — until the user
   re-exported with `refresh sessions --raw` (COR-2289).
 
+  Upgrading rebuilds the history index once: the scan cache version is bumped
+  so caches filled by the pre-compact scanner — which recorded none of those
+  records — are discarded instead of reused. No re-export is needed; the next
+  `refresh` rescans the transcripts already on disk, and stored memories,
+  their anchors and their ids are unaffected.
+
 - `verify` no longer byte-compares transcripts in checkpoint-backed brains,
   where the transcript it just read came out of the checkpoint store itself —
   the comparison re-resolved the transcript flavor through an all-or-nothing

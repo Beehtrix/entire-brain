@@ -14,12 +14,16 @@ All notable changes to `entire-brain` are recorded here. The format follows
   searchable exchanges, no user-prompt history records — until the user
   re-exported with `refresh sessions --raw` (COR-2289).
 
-- `verify` compares the exported transcript against the local checkpoint
-  flavor the export manifest declares. A compact-mode export was previously
-  byte-compared against the raw `full.jsonl`, so every session-anchored
-  memory read back "stale: exported transcript differs from local checkpoint
-  transcript" until a `--raw` re-export, and the next delta refresh restored
-  the false staleness (COR-2289).
+- `verify` no longer byte-compares transcripts in checkpoint-backed brains,
+  where the transcript it just read came out of the checkpoint store itself —
+  the comparison re-resolved the transcript flavor through an all-or-nothing
+  switch, so one session without a compact transcript anywhere in the store
+  marked every session-anchored memory "stale: exported transcript differs
+  from local checkpoint transcript" on each default (compact) refresh
+  (COR-2289). Brains with materialized transcript files (standalone bundles,
+  pre-0.4.0 brains) keep the comparison in the manifest's declared flavor and
+  report "unverifiable here" instead of a false stale when the local store
+  can no longer resolve that flavor.
 
 ## [0.4.0] - 2026-10-27
 

@@ -315,6 +315,16 @@ func buildPublishBundle(ctx context.Context, cfg Config, storage clibase.RepoSto
 // wire repo_key the server accepts.
 const brainProviderPrefixGitHub = "gh"
 
+// publishRefusalMemoriesHint rides on every wire-repo_key refusal: publish is
+// only the GitHub-keyed brain-bundle surface, while memories travel the
+// per-fact wire, which works for ANY connected repo (Entire-native included).
+// Customers on non-GitHub repos read the bare refusal as "memories cannot be
+// pushed" and dead-ended (COR-2290).
+func publishRefusalMemoriesHint() string {
+	return fmt.Sprintf("; to push memories to Entire, publish is not needed: run '%s' on a connected repo ('%s'), which works for any host",
+		clibase.BrainInvocation(os.LookupEnv, "memories sync"), clibase.BrainInvocation(os.LookupEnv, "connect"))
+}
+
 // CanonicalWireRepoKey derives the wire manifest repo_key from the repo's origin
 // remote in the exact form entire-api's brainSlugResolver emits:
 // "gh/" + <normalized owner>/<normalized repo>. Owner/repo come from the same
@@ -335,10 +345,10 @@ func CanonicalWireRepoKey(ctx context.Context, cfg Config, repoDir string) (stri
 	remote := strings.TrimSpace(string(clibase.GitOutput(ctx, cfg.Runner, repoDir, "remote", "get-url", "origin")))
 	host, components, ok := cfg.Deps.ParseRepoRemote(remote)
 	if !ok {
-		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a github.com origin remote")
+		return "", fmt.Errorf("could not resolve a git origin remote for this repo; hosted publish requires a github.com origin remote%s", publishRefusalMemoriesHint())
 	}
 	if !cfg.Deps.isGitHubDotComHost(host) {
-		return "", fmt.Errorf("hosted publish currently supports github.com-hosted repos only; origin remote host %q is not github.com (the hosted brain store is GitHub-sourced)", host)
+		return "", fmt.Errorf("hosted publish currently supports github.com-hosted repos only; origin remote host %q is not github.com (the hosted brain store is GitHub-sourced)%s", host, publishRefusalMemoriesHint())
 	}
 	return brainProviderPrefixGitHub + "/" + strings.Join(components, "/"), nil
 }

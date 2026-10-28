@@ -5,6 +5,14 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `publish` refusals on a non-github.com origin (GitLab, GitHub Enterprise,
+  Entire-native hosting) now name the supported path for pushing memories:
+  `memories sync` on a connected repo works for any host over the per-fact
+  wire. The bare "github.com-hosted repos only" message read as "memories
+  cannot be pushed" and dead-ended Entire-native users (COR-2290).
+
 ## [0.4.0] - 2026-10-27
 
 ### Removed

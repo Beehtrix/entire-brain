@@ -30,7 +30,6 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
-	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
@@ -166,7 +165,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
-	addGrouped("share", publish.New(publishConfig(opts)))
 
 	addGrouped("misc", newPathCommand(opts))
 	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
@@ -194,6 +192,12 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	// scripts calling the old name fail with a pointer to the replacement
 	// instead of cobra's generic "unknown command".
 	addHidden(newInitAgentsTombstoneCommand())
+
+	// Tombstone: `publish` was removed (the brain-bundle endpoint it posted
+	// to was never deployed; memories travel the per-fact wire). Hidden so
+	// old invocations fail with a pointer to `memories sync` instead of
+	// cobra's generic "unknown command".
+	addHidden(newPublishTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)

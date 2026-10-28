@@ -5,6 +5,19 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
+  The `/brain/artifacts` endpoint publish posted to was never deployed — the
+  server exists only in unmerged entire-api PRs — so the command failed for
+  every host, and its github.com-only client gate dead-ended Entire-native
+  users with a misleading refusal (COR-2290). Memories travel the per-fact
+  wire: `entire brain memories sync` on a connected repo works for any host
+  and is the manual push path. Invoking `publish` now fails with a tombstone
+  naming that replacement, following the `init-agents` precedent. The https
+  floor and malformed-URL fences moved from publish to the memories-sync
+  surface, which shares the same hosted-target resolution.
+
 ### Fixed
 
 - The conversation and history parsers now read the compact transcript

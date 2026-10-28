@@ -28,7 +28,7 @@ const (
 type factsSyncOptions struct {
 	branch  string
 	backend string
-	// explicit hosted target (mirror publish's flag/env resolution):
+	// explicit hosted target (flag wins over its ENTIRE_* env variable):
 	apiURL string
 	token  string
 	repoID string

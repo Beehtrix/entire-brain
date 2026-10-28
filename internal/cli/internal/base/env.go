@@ -24,6 +24,14 @@ type RepoStorage struct {
 	HeadPath string
 }
 
+// StdinIsTerminal reports whether the process's stdin is a character device —
+// a person's terminal rather than a pipe or redirect. Shared by the seed
+// prompt and the hook command's would-block guard (COR-2268: one home).
+func StdinIsTerminal() bool {
+	info, err := os.Stdin.Stat()
+	return err == nil && (info.Mode()&os.ModeCharDevice) != 0
+}
+
 // RepoIdentityConflictCode is the error code every repo-scoped command reports
 // while one repository's brain is split across more than one store. The
 // repo-identity command repairs that state and prints the same code.

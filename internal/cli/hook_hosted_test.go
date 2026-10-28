@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/internal/clitest"
 	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
@@ -15,7 +16,7 @@ import (
 
 func runSessionEndHook(t *testing.T, opts Options) (string, string) {
 	t.Helper()
-	cmd := newHookSessionEndCommand(opts)
+	cmd := hook.NewSessionEnd(hookCommandConfig(opts))
 	cmd.SetArgs([]string{"--session", "s1"})
 	var out, errOut bytes.Buffer
 	cmd.SetOut(&out)

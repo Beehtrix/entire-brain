@@ -44,18 +44,6 @@ func TestEvalMetricsLabeled(t *testing.T) {
 	}
 }
 
-func TestEstimateTokensMonotonic(t *testing.T) {
-	few := []factRecord{{Text: "short", Paths: []string{"a.b.c"}}}
-	more := append([]factRecord(nil), few...)
-	more = append(more, factRecord{Text: "a considerably longer fact statement here", Paths: []string{"a.b.c"}})
-	if estimateTokens(more) <= estimateTokens(few) {
-		t.Fatalf("more facts should estimate more tokens")
-	}
-	if estimateTokens(nil) != 0 {
-		t.Fatalf("empty should be 0 tokens")
-	}
-}
-
 func TestParseJudgeOutput(t *testing.T) {
 	facts := []factRecord{{ID: "a"}, {ID: "b"}, {ID: "c"}}
 	out := "1 yes\n2 no\n3 YES\ngarbage\n9 yes" // 9 out of range, garbage skipped

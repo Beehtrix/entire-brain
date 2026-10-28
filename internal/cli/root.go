@@ -27,6 +27,7 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/docs"
 	"github.com/entireio/entire-brain/internal/cli/command/facts"
 	"github.com/entireio/entire-brain/internal/cli/command/guide"
+	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
 	"github.com/entireio/entire-brain/internal/cli/command/publish"
@@ -186,7 +187,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	// Hidden agent-harness hook surface (Phase 2 item 2): wired into hooks by
 	// the harness (Claude Code, Entire CLI), not invoked by humans or agents.
-	addHidden(newHookCommand(opts))
+	addHidden(hook.New(hookCommandConfig(opts)))
 
 	// Tombstone: `init-agents` was removed (folded into `setup`). Hidden so
 	// scripts calling the old name fail with a pointer to the replacement

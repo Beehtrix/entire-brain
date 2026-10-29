@@ -66,7 +66,14 @@ const (
 	// would silently keep that lineage's behavior, so both are invalidated.
 	// v10: admit all transcript JSON for authoritative extraction and include
 	// wrapper-filtered user requests from document transcripts.
-	historyScanCacheVersion = 10
+	// v11: read the compact (Entire Transcript Format) dialect, whose records
+	// carry their content blocks at the record's top level. A v10 cache was
+	// filled by a scanner that saw no requests, no assistant narrative and no
+	// exchanges in a default (compact) export, and the content digest is the
+	// sole reuse authority — unchanged transcripts would keep those empty
+	// results forever, so an upgraded brain would never recover its history
+	// without a manual rebuild (COR-2289).
+	historyScanCacheVersion = 11
 )
 
 type historyFragment struct {
@@ -2162,11 +2169,12 @@ func extractClaudeToolResultFragments(obj map[string]any) []historyFragment {
 }
 
 func extractClaudeMessageFragments(obj map[string]any, role string) []historyFragment {
-	message := jsonMap(obj["message"])
-	if len(message) == 0 {
-		return nil
+	if message := jsonMap(obj["message"]); len(message) > 0 {
+		return extractContentFragments(message["content"], role+"_message")
 	}
-	return extractContentFragments(message["content"], role+"_message")
+	// ETF compact records carry the content blocks at the record's top level
+	// (see distillConversationText).
+	return extractContentFragments(obj["content"], role+"_message")
 }
 
 func extractContentFragments(content any, source string) []historyFragment {

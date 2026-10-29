@@ -374,6 +374,7 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// completeness is at risk, and a successful consolidation clears the
 	// overlay, so it cannot repeat the way a failing delta can. The first ever
 	// refresh always runs.
+	refreshDue := changed
 	if cursor.PendingRefresh && !cursor.LastRefreshAttemptAt.IsZero() && !bufferFull {
 		// A dirty-tree refusal must survive a restart or a stash (neither
 		// changes the fingerprint), but must not replay the heavy refresh on
@@ -393,7 +394,10 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 		}
 		if since := steps.Now().UTC().Sub(cursor.LastRefreshAttemptAt); since < wait {
 			fmt.Fprintf(out, "[watch] refresh still pending after uncommitted worktree; retry due in %s\n", (wait - since).Round(time.Second))
-			return
+			// Only the heavy refresh is waiting. Previously queued agent work
+			// still gets its own interval/budget check below, as on the first
+			// dirty tick, without advancing the refresh attempt clock.
+			refreshDue = false
 		}
 	} else if changed && w.ConsolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
 		wait := w.ConsolidateEvery
@@ -409,7 +413,7 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 		}
 	}
 	refresh := refreshUnchanged
-	if changed {
+	if refreshDue {
 		refresh = refreshSucceeded
 		if err := steps.Refresh(ctx); err != nil {
 			// A refusal to index an uncommitted worktree is not a failure: it

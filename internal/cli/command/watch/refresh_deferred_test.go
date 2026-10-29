@@ -215,3 +215,68 @@ func TestWatchDeferredRefreshRepairBacksOffWhileStillDirty(t *testing.T) {
 		t.Fatalf("healthy delta must clear repair backoff while retaining dirty refresh: %+v", c)
 	}
 }
+
+func TestWatchDeferredRefreshDoesNotBlockDueAgentWork(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		priorSpend   bool
+		seed         bool
+		firstDistill error
+	}{
+		{name: "interval_deferred", priorSpend: true, seed: true},
+		{name: "busy_distill", firstDistill: ErrDistillPassBusy},
+		{name: "capped_distill", seed: true, firstDistill: ErrDistillDeferred},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			start := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+			now := start
+			path := filepath.Join(t.TempDir(), "watch.json")
+			flags := DefaultFlags()
+			flags.Distill = true
+			flags.DistillEvery = 5 * time.Minute
+			if tc.seed {
+				flags.SeedAgent = "codex"
+			}
+			if tc.priorSpend {
+				if err := SaveCursor(path, Cursor{LastAgentSpendAt: start}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			refreshes, seeds, distills, agentCalls := 0, 0, 0, 0
+			steps := Steps{
+				Now:         func() time.Time { return now },
+				Fingerprint: func(context.Context) string { return "same-head" },
+				Refresh: func(context.Context) error {
+					refreshes++
+					return errors.New(brainstore.DirtyWorktreeCode + ": uncommitted edits")
+				},
+				Seed: func(context.Context) error { seeds++; return nil },
+				Distill: func(context.Context) error {
+					distills++
+					if distills == 1 {
+						return tc.firstDistill
+					}
+					return nil
+				},
+			}
+			var out bytes.Buffer
+			tick := func() { Tick(context.Background(), &out, flags, path, steps, &agentCalls) }
+			tick()
+			before := distills
+			agentCalls = 0 // Restart: eligibility is persisted in the cursor.
+			now = now.Add(flags.DistillEvery)
+			tick()
+			if distills != before+1 || agentCalls != 1 {
+				t.Fatalf("due agent work blocked by refresh cadence: distills=%d before=%d agent calls=%d output=%s", distills, before, agentCalls, out.String())
+			}
+			if c := LoadCursor(path); !c.PendingRefresh || !c.LastRefreshAt.IsZero() || !c.LastRefreshAttemptAt.Equal(start) || c.PendingSeed || c.PendingDistill {
+				t.Fatalf("agent-only tick changed refresh state or lost completion: %+v", c)
+			}
+			now = now.Add(flags.DistillEvery)
+			tick()
+			if refreshes != 1 || distills != before+1 || agentCalls != 1 || tc.seed && seeds != 1 {
+				t.Fatalf("agent-only ticks repeated work: refreshes=%d seeds=%d distills=%d agent calls=%d", refreshes, seeds, distills, agentCalls)
+			}
+		})
+	}
+}

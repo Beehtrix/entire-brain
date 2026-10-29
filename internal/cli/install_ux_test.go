@@ -529,6 +529,9 @@ func TestResolveRefreshAgentAnnouncesChoice(t *testing.T) {
 // is spent, and has to vanish for a machine reader.
 func TestRefreshAnnouncesAutoSelectedAgentOnStderr(t *testing.T) {
 	clearAgentHarnessEnv(t)
+	installFakeSeedAgentBinaries(t)
+	logDir := t.TempDir()
+	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
 	repoDir := seedFixtureRepo(t)
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
@@ -550,7 +553,7 @@ func TestRefreshAnnouncesAutoSelectedAgentOnStderr(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"refresh", "--entire-binary", "entire-test"})
+	cmd.SetArgs([]string{"refresh", "--agent", "auto", "--entire-binary", "entire-test"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("refresh: %v\n%s", err, stderr.String())
 	}
@@ -559,6 +562,11 @@ func TestRefreshAnnouncesAutoSelectedAgentOnStderr(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "auto-selected") {
 		t.Fatalf("the announcement landed on stdout, where a piped reader parses results: %q", stdout.String())
+	}
+	for _, phase := range []string{"quick", "deep"} {
+		if _, err := os.Stat(filepath.Join(logDir, "codex-"+phase+".json")); err != nil {
+			t.Fatalf("explicit --agent auto did not run the fake %s phase: %v", phase, err)
+		}
 	}
 }
 
@@ -674,6 +682,8 @@ func TestAnnounceResolvedAgentNamesTheModel(t *testing.T) {
 // reach the line a user actually reads.
 func TestRefreshAnnouncesPinnedModel(t *testing.T) {
 	clearAgentHarnessEnv(t)
+	installFakeSeedAgentBinaries(t)
+	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", t.TempDir())
 	repoDir := seedFixtureRepo(t)
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
@@ -695,7 +705,7 @@ func TestRefreshAnnouncesPinnedModel(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"refresh", "--entire-binary", "entire-test", "--seed-model", "haiku"})
+	cmd.SetArgs([]string{"refresh", "--agent", "auto", "--entire-binary", "entire-test", "--seed-model", "haiku"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("refresh: %v\n%s", err, stderr.String())
 	}

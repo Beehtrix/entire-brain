@@ -29,10 +29,14 @@ func TestDefaultRefreshAgentHonorsNoEgressMode(t *testing.T) {
 }
 
 func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
+	clearAgentHarnessEnv(t)
 	repoDir := seedFixtureRepo(t)
 	dataDir := filepath.Join(t.TempDir(), "data")
 	stateDir := filepath.Join(t.TempDir(), "state")
 	runner := seedFixtureRunner(repoDir)
+	// Installed agents must not make ordinary refresh opt into synthesis.
+	runner.responses[fakeCommandKey("codex", "--version")] = fakeCommandResponse{stdout: "codex 1.0\n"}
+	runner.responses[fakeCommandKey("claude", "--version")] = fakeCommandResponse{stdout: "claude 1.0\n"}
 	addRefreshSemanticFixture(runner, repoDir)
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1MainRef)] = fakeCommandResponse{err: os.ErrNotExist}
 	runner.responses[fakeCommandKey("git", "ls-tree", "-r", "--name-only", v1OriginRef)] = fakeCommandResponse{err: os.ErrNotExist}
@@ -55,6 +59,11 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	out, err := execute(t, cmd, "refresh", "--entire-binary", "entire-test")
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
+	}
+	for _, call := range runner.calls {
+		if call.name == "codex" || call.name == "claude" {
+			t.Fatalf("default refresh must not probe or run agents: %+v", call)
+		}
 	}
 	for _, want := range []string{
 		"refresh: export sessions",
@@ -151,12 +160,12 @@ func TestRefreshHelpShowsSimplifiedFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("refresh help: %v", err)
 	}
-	for _, want := range []string{"--agent", "--force", "--output", "--worktree"} {
+	for _, want := range []string{"--force", "--output", "--worktree"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("refresh help missing %q:\n%s", want, out)
 		}
 	}
-	for _, hidden := range []string{"--history-index", "--force-seed", "--semantic", "--graph-binary"} {
+	for _, hidden := range []string{"--agent", "seed", "--history-index", "--force-seed", "--semantic", "--graph-binary"} {
 		if strings.Contains(out, hidden) {
 			t.Fatalf("refresh help exposed hidden flag %q:\n%s", hidden, out)
 		}

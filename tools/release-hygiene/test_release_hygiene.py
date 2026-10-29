@@ -340,6 +340,18 @@ class InstallerExplainsReleaseLookupFailures(unittest.TestCase):
             429, '{"message":"You have exceeded a secondary rate limit."}', {})
         self._assert_names_the_rate_limit(result)
 
+    def test_secondary_limit_waits_for_retry_after_not_the_primary_reset(self) -> None:
+        """A secondary limit can leave the primary quota untouched. Its
+        x-ratelimit-reset then describes the primary quota, and the time to
+        wait is retry-after."""
+        import time
+        result = self._run_lookup(
+            403, '{"message":"You have exceeded a secondary rate limit."}',
+            {"retry-after": "120", "x-ratelimit-remaining": "41",
+             "x-ratelimit-reset": str(int(time.time()) + 50 * 60)})
+        self._assert_names_the_rate_limit(result)
+        self.assertIn("resets in about 2 minute", result.stderr)
+
     def test_other_http_errors_report_their_status(self) -> None:
         result = self._run_lookup(502, "<html>Bad Gateway</html>", {})
         self.assertNotEqual(result.returncode, 0)

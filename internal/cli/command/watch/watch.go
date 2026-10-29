@@ -63,16 +63,21 @@ type Flags struct {
 // Cursor persists across restarts so the daemon never re-refreshes unchanged state and never
 // re-runs the gated agent work within --distill-every after a restart.
 type Cursor struct {
-	PendingSeed      bool      `json:"pending_seed,omitempty"`
-	PendingDistill   bool      `json:"pending_distill,omitempty"`
-	LastFingerprint  string    `json:"last_fingerprint"`
-	LastRefreshAt    time.Time `json:"last_refresh_at,omitempty"`
-	LastAgentSpendAt time.Time `json:"last_agent_spend_at,omitempty"`
-	// ConsolidationRepairs counts CONSECUTIVE full refreshes that ran early
-	// because the short-term delta failed. It is the backoff state for
-	// watchRepairWait: a single failure repairs promptly, a persistent one
+	PendingSeed    bool `json:"pending_seed,omitempty"`
+	PendingDistill bool `json:"pending_distill,omitempty"`
+	// LastFingerprint tracks the input already queued for agent work, even
+	// when the deterministic refresh is deferred. PendingRefresh keeps that
+	// unfinished refresh eligible without requeueing completed agent steps.
+	LastFingerprint      string    `json:"last_fingerprint"`
+	LastRefreshAt        time.Time `json:"last_refresh_at,omitempty"`
+	LastAgentSpendAt     time.Time `json:"last_agent_spend_at,omitempty"`
+	PendingRefresh       bool      `json:"pending_refresh,omitempty"`
+	LastRefreshAttemptAt time.Time `json:"last_refresh_attempt_at,omitempty"`
+	// ConsolidationRepairs counts CONSECUTIVE full refresh attempts triggered
+	// by a failed short-term delta, including dirty-tree deferrals. It is the
+	// backoff state for watchRepairWait: a single failure repairs promptly, a persistent one
 	// settles back to the normal consolidation cadence instead of firing the
-	// heavy refresh every tick. Reset to 0 by the first healthy delta.
+	// heavy refresh every tick. Reset by a refresh attempt with a healthy delta.
 	ConsolidationRepairs int       `json:"consolidation_repairs,omitempty"`
 	LastFactsSyncAt      time.Time `json:"last_facts_sync_at,omitempty"`
 }
@@ -350,7 +355,7 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	}
 	defer runFactsSync()
 	fp := steps.Fingerprint(ctx)
-	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
+	changed := fp != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() || cursor.PendingRefresh
 	if !changed && !(cursor.PendingSeed && w.SeedAgent != "none" || cursor.PendingDistill && w.Distill) {
 		fmt.Fprintln(out, "[watch] no change; nothing to do")
 		return
@@ -369,7 +374,32 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 	// completeness is at risk, and a successful consolidation clears the
 	// overlay, so it cannot repeat the way a failing delta can. The first ever
 	// refresh always runs.
-	if changed && w.ConsolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
+	refreshDue := changed
+	if cursor.PendingRefresh && !cursor.LastRefreshAttemptAt.IsZero() && !bufferFull {
+		// A dirty-tree refusal must survive a restart or a stash (neither
+		// changes the fingerprint), but must not replay the heavy refresh on
+		// every tick. Keep its attempt clock separate from last success.
+		wait := w.ConsolidateEvery
+		if wait <= 0 {
+			wait = w.Interval
+		}
+		if wait <= 0 {
+			wait = time.Minute
+		}
+		// Pending work obeys the same urgent repair policy as ordinary
+		// consolidation: a full buffer bypasses the wait, while failed deltas
+		// retry promptly and back off if refresh keeps being refused.
+		if !deltaHealthy && w.ConsolidateEvery > 0 {
+			wait = watchRepairWait(w, cursor.ConsolidationRepairs)
+		}
+		if since := steps.Now().UTC().Sub(cursor.LastRefreshAttemptAt); since < wait {
+			fmt.Fprintf(out, "[watch] refresh still pending after uncommitted worktree; retry due in %s\n", (wait - since).Round(time.Second))
+			// Only the heavy refresh is waiting. Previously queued agent work
+			// still gets its own interval/budget check below, as on the first
+			// dirty tick, without advancing the refresh attempt clock.
+			refreshDue = false
+		}
+	} else if changed && w.ConsolidateEvery > 0 && !cursor.LastRefreshAt.IsZero() && !bufferFull {
 		wait := w.ConsolidateEvery
 		state := "short-term memory is current"
 		if !deltaHealthy {
@@ -382,17 +412,21 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 			return
 		}
 	}
-	if changed {
+	refresh := refreshUnchanged
+	if refreshDue {
+		refresh = refreshSucceeded
 		if err := steps.Refresh(ctx); err != nil {
 			// A refusal to index an uncommitted worktree is not a failure: it
 			// is the expected answer while someone is working, and it recurs
 			// every tick until they commit. Treating it as a failure aborted
-			// the tick and left the cursor where it was, so the watcher made no
-			// progress at all for the whole time the tree stayed dirty
-			// (issue #327). Everything else still aborts, because an
+			// the tick and prevented other background work while the tree stayed
+			// dirty (issue #327). Retain the unfinished refresh independently of
+			// agent work, and never record this refusal as a successful refresh.
+			// Everything else still aborts, because an
 			// unrefreshed brain must not have tokens spent against it.
 			if strings.Contains(err.Error(), brainstore.DirtyWorktreeCode+":") {
-				fmt.Fprintf(out, "[watch] code index skipped (uncommitted worktree); continuing\n")
+				refresh = refreshDeferred
+				fmt.Fprintln(out, "[watch] refresh deferred (uncommitted worktree); will retry; continuing with background work")
 			} else {
 				fmt.Fprintf(out, "[watch] refresh failed (skipping agent work this tick): %v\n", err)
 				return
@@ -400,12 +434,12 @@ func Tick(ctx context.Context, out io.Writer, w Flags, cursorPath string, steps 
 		}
 	}
 	runFactsSync()
-	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.Now().UTC(), !deltaHealthy)
+	reserved, reason, err := reserveWatchAgentSpend(cursorPath, fp, w, agentCalls, steps.Now().UTC(), !deltaHealthy, refresh)
 	if err != nil {
 		fmt.Fprintf(out, "[watch] cursor update failed (skipping agent work this tick): %v\n", err)
 		return
 	}
-	if changed {
+	if refresh == refreshSucceeded {
 		fmt.Fprintln(out, "[watch] refreshed (deterministic, no agent tokens)")
 	}
 
@@ -570,22 +604,35 @@ func watchRepairWait(w Flags, repairs int) time.Duration {
 	return wait
 }
 
-// reserveWatchAgentSpend advances the refresh cursor after a successful full
-// refresh and decides whether the gated token work may run. repair reports
+type refreshOutcome uint8
+
+const (
+	refreshUnchanged refreshOutcome = iota
+	refreshSucceeded
+	refreshDeferred
+)
+
+// reserveWatchAgentSpend records the refresh outcome and decides whether gated
+// token work may run. A deferred refresh advances the observed fingerprint for
+// agent work but retains PendingRefresh and the previous success time. repair reports
 // whether THIS refresh ran early because the short-term delta failed; it drives
-// the watchRepairWait backoff and is cleared by the first healthy delta.
-func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls *int, now time.Time, repair bool) (bool, string, error) {
+// the watchRepairWait backoff and is cleared by a refresh with a healthy delta.
+func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls *int, now time.Time, repair bool, refresh refreshOutcome) (bool, string, error) {
 	var cursor Cursor
 	var reserved bool
 	var reason string
 	err := withWatchCursorLock(cursorPath, func() error {
 		cursor = LoadCursor(cursorPath)
-		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero()
-		if changed {
+		changed := fingerprint != cursor.LastFingerprint || cursor.LastRefreshAt.IsZero() && !cursor.PendingRefresh
+		refreshAttempted := refresh != refreshUnchanged
+		if refreshAttempted && changed {
 			cursor.PendingSeed = cursor.PendingSeed || w.SeedAgent != "none"
 			cursor.PendingDistill = cursor.PendingDistill || w.Distill
 			cursor.LastFingerprint = fingerprint
-			cursor.LastRefreshAt = now
+		}
+		if refreshAttempted {
+			cursor.LastRefreshAttemptAt = now
+			cursor.PendingRefresh = refresh == refreshDeferred
 			if repair {
 				if cursor.ConsolidationRepairs < watchRepairBackoffMax {
 					cursor.ConsolidationRepairs++
@@ -594,8 +641,12 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls 
 				cursor.ConsolidationRepairs = 0
 			}
 		}
-		if !w.agentWorkEnabled() {
-			if changed {
+		if refresh == refreshSucceeded {
+			cursor.LastRefreshAt = now
+		}
+		if !(cursor.PendingSeed && w.SeedAgent != "none" || cursor.PendingDistill && w.Distill) {
+			reason = "no pending agent work"
+			if refreshAttempted {
 				return SaveCursor(cursorPath, cursor)
 			}
 			return nil
@@ -603,7 +654,7 @@ func reserveWatchAgentSpend(cursorPath, fingerprint string, w Flags, agentCalls 
 		ok, skipReason := watchShouldSpend(w, cursor, *agentCalls, now)
 		if !ok {
 			reason = skipReason
-			if changed {
+			if refreshAttempted {
 				return SaveCursor(cursorPath, cursor)
 			}
 			return nil

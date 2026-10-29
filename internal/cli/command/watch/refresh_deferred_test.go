@@ -119,3 +119,99 @@ func TestWatchDirtyRefreshRetriesAreBoundedWithoutRepeatingAgentWork(t *testing.
 		})
 	}
 }
+
+func TestWatchDeferredRefreshPreservesUrgentRepair(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		after time.Duration
+		stats historystore.ShortTermStats
+		err   error
+	}{
+		{name: "buffer_full", after: time.Minute, stats: historystore.ShortTermStats{Truncated: true}},
+		{name: "delta_error", after: 5 * time.Minute, err: errors.New("delta failed")},
+		{name: "partial_delta", after: 5 * time.Minute, stats: historystore.ShortTermStats{Failed: 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+			path := filepath.Join(t.TempDir(), "watch.json")
+			refreshes, agentCalls := 0, 0
+			urgent := false
+			steps := Steps{
+				Now:         func() time.Time { return now },
+				Fingerprint: func(context.Context) string { return "same-head" },
+				Delta: func(context.Context) (historystore.ShortTermStats, error) {
+					if urgent {
+						return tc.stats, tc.err
+					}
+					return historystore.ShortTermStats{}, nil
+				},
+				Refresh: func(context.Context) error {
+					refreshes++
+					if refreshes == 1 {
+						return errors.New(brainstore.DirtyWorktreeCode + ": uncommitted edits")
+					}
+					return nil
+				},
+			}
+			var out bytes.Buffer
+			Tick(context.Background(), &out, DefaultFlags(), path, steps, &agentCalls)
+			urgent = true
+			now = now.Add(tc.after)
+			Tick(context.Background(), &out, DefaultFlags(), path, steps, &agentCalls)
+			if c := LoadCursor(path); refreshes != 2 || c.PendingRefresh || !c.LastRefreshAt.Equal(now) {
+				t.Fatalf("urgent repair waited for normal consolidation: refreshes=%d cursor=%+v output=%s", refreshes, c, out.String())
+			}
+			if agentCalls != 0 {
+				t.Fatal("repair spent agent budget")
+			}
+		})
+	}
+}
+
+func TestWatchDeferredRefreshRepairBacksOffWhileStillDirty(t *testing.T) {
+	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
+	path := filepath.Join(t.TempDir(), "watch.json")
+	flags := DefaultFlags()
+	refreshes, agentCalls := 0, 0
+	deltaFails := false
+	steps := Steps{
+		Now:         func() time.Time { return now },
+		Fingerprint: func(context.Context) string { return "same-head" },
+		Delta: func(context.Context) (historystore.ShortTermStats, error) {
+			if deltaFails {
+				return historystore.ShortTermStats{}, errors.New("delta failed")
+			}
+			return historystore.ShortTermStats{}, nil
+		},
+		Refresh: func(context.Context) error {
+			refreshes++
+			return errors.New(brainstore.DirtyWorktreeCode + ": uncommitted edits")
+		},
+	}
+	var out bytes.Buffer
+	tick := func() { Tick(context.Background(), &out, flags, path, steps, &agentCalls) }
+	tick()
+	deltaFails = true
+	for i := 1; i <= 20; i++ {
+		now = now.Add(flags.Interval)
+		tick()
+		if i == 1 && refreshes != 2 {
+			t.Errorf("first failed delta must repair on the next tick: refreshes=%d", refreshes)
+		}
+		if i == 2 && refreshes != 2 {
+			t.Errorf("repeated dirty repair must back off: refreshes=%d", refreshes)
+		}
+	}
+	if refreshes < 3 || refreshes > 7 {
+		t.Fatalf("persistent failure must retry without refreshing every tick: refreshes=%d output=%s", refreshes, out.String())
+	}
+	if c := LoadCursor(path); !c.PendingRefresh || !c.LastRefreshAt.IsZero() || c.ConsolidationRepairs == 0 {
+		t.Fatalf("deferred repair lost pending state, claimed success, or lost backoff: %+v", c)
+	}
+	deltaFails = false
+	now = now.Add(flags.ConsolidateEvery)
+	tick()
+	if c := LoadCursor(path); c.ConsolidationRepairs != 0 || !c.PendingRefresh {
+		t.Fatalf("healthy delta must clear repair backoff while retaining dirty refresh: %+v", c)
+	}
+}

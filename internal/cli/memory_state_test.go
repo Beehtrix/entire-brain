@@ -14,6 +14,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 var errMemoryReceiptOutput = errors.New("memory receipt output failed")
@@ -57,7 +58,7 @@ func TestMemoryReconcileCommandReceiptDryRunIdempotenceAndOutputFailure(t *testi
 	opts, brainDir := memoryAdminCommandFixture(t)
 	addSession := func(sessionID string) {
 		t.Helper()
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -221,12 +222,12 @@ func TestMemoryNotifyIgnoresWorkerOriginBeforeRepoResolution(t *testing.T) {
 func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 	environ := []string{
 		"PATH=/bin",
-		envRepoRoot + "=/repo/a",
+		base.EnvRepoRoot + "=/repo/a",
 		memoryWorkerOriginEnv + "=0",
-		envRepoRoot + "=/repo/stale",
+		base.EnvRepoRoot + "=/repo/stale",
 	}
 	got := memoryWorkerChildEnvironment(environ, "/repo/b")
-	wantValues := map[string]string{envRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
+	wantValues := map[string]string{base.EnvRepoRoot: "/repo/b", memoryWorkerOriginEnv: "1"}
 	counts := map[string]int{}
 	values := map[string]string{}
 	for _, entry := range got {
@@ -253,38 +254,6 @@ func TestMemoryWorkerChildEnvironmentReplacesRepositoryRouting(t *testing.T) {
 	}
 }
 
-func TestMemoryStartupNudgeIsSilentAndSkipsAbsentBrain(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 8, 9, 12, 30, 0, 0, time.UTC)
-	opts := Options{Version: "test", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	oldLaunch := memoryWorkerLaunch
-	defer func() { memoryWorkerLaunch = oldLaunch }()
-	launches := 0
-	memoryWorkerLaunch = func(string) error { launches++; return nil }
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 0 {
-		t.Fatal("startup must not create or launch for an absent Brain")
-	}
-	storage, err := repoStoragePaths(context.Background(), runner, env, repoDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
-		t.Fatal(err)
-	}
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 1 {
-		t.Fatalf("existing Brain startup launches = %d, want 1", launches)
-	}
-	t.Setenv(memoryWorkerOriginEnv, "1")
-	nudgeMemoryAtStartup(context.Background(), opts)
-	if launches != 1 {
-		t.Fatal("worker-origin startup recursively launched another worker")
-	}
-}
-
 func TestMemoryWorkerPrepassFailurePreservesProgressAndSchedulesRetry(t *testing.T) {
 	repoDir := t.TempDir()
 	env := semanticTestEnv(t, repoDir)
@@ -295,7 +264,7 @@ func TestMemoryWorkerPrepassFailurePreservesProgressAndSchedulesRetry(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	pending := memoryJob{Kind: memoryJobKindProjection, RepoKey: storage.Key, SessionID: "already-exported", SessionRef: "conversation-session:already-exported", InputDigest: "sha256:already-exported", Trigger: "startup", State: memoryJobStatePending, CreatedAt: now, AvailableAt: now}
@@ -342,7 +311,7 @@ func TestDelayedMemoryWorkerClaimsSchedulerBeforeSleeping(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key}); err != nil {
 		t.Fatal(err)
 	}
 	coordinator, err := acquireMemoryCoordinator(storage.BrainDir, now, "test")
@@ -374,7 +343,7 @@ func TestReconcileMemoryAndLaunchPreservesDurableWorkOnLaunchFailure(t *testing.
 		t.Fatal(err)
 	}
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		RepoKey:       storage.Key,
 		Sources: &brainSources{Sessions: &sessionSourceManifest{
 			DefaultBranch: "main",
@@ -661,7 +630,7 @@ func TestMemoryJobIssuesAreIsolatedAndNeverOverwritten(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _, _ := shortTermFixture(t)
 			now := time.Date(2026, 8, 9, 14, 0, 0, 0, time.UTC)
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1098,7 +1067,7 @@ func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 	brainDir, _, _ := shortTermFixture(t)
 	now := time.Date(2026, 8, 9, 17, 0, 0, 0, time.UTC)
 	_ = runMemoryProjectionLaneTest(t, brainDir, now)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1126,7 +1095,7 @@ func TestMemoryMissingProjectionReceiptReactivatesCompletedJob(t *testing.T) {
 func TestMemoryUnreadableSessionIsInvalidWithoutBlockingPeers(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
 	now := time.Date(2026, 8, 9, 17, 30, 0, 0, time.UTC)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1286,11 +1255,11 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 	exactComplete := newMemoryCancelCommand(opts)
 	exactComplete.SilenceErrors, exactComplete.SilenceUsage = true, true
 	out, err = execute(t, exactComplete, jobs[3].JobID, "--json")
-	if err == nil || !strings.Contains(err.Error(), memoryErrCancelTooLate) {
+	if err == nil || !strings.Contains(err.Error(), brainstore.CancelTooLateCode) {
 		t.Fatalf("completed exact cancel error=%v out=%s", err, out)
 	}
 	var failure memoryOperationReceipt
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "cancel" || failure.ErrorCode != memoryErrCancelTooLate || failure.FinishedAt.IsZero() || len(failure.JobIDs) != 1 {
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "cancel" || failure.ErrorCode != brainstore.CancelTooLateCode || failure.FinishedAt.IsZero() || len(failure.JobIDs) != 1 {
 		t.Fatalf("completed exact cancel receipt=%+v decode=%v\n%s", failure, decodeErr, out)
 	}
 	missingRetry := newMemoryRetryCommand(opts)
@@ -1300,7 +1269,7 @@ func TestMemoryJobAdministrationSelectors(t *testing.T) {
 		t.Fatalf("missing retry error=%v out=%s", err, out)
 	}
 	failure = memoryOperationReceipt{}
-	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "retry" || failure.ErrorCode != memoryErrSourceStale || failure.FinishedAt.IsZero() {
+	if decodeErr := json.Unmarshal([]byte(out), &failure); decodeErr != nil || failure.Operation != "retry" || failure.ErrorCode != brainstore.SourceStaleCode || failure.FinishedAt.IsZero() {
 		t.Fatalf("missing retry receipt=%+v decode=%v\n%s", failure, decodeErr, out)
 	}
 }
@@ -1478,11 +1447,11 @@ func TestMemoryCancelRaceReportsTooLateAndRemovesMarker(t *testing.T) {
 	}
 	unlock()
 	cancelErr := <-done
-	if cancelErr == nil || !strings.Contains(cancelErr.Error(), memoryErrCancelTooLate) {
+	if cancelErr == nil || !strings.Contains(cancelErr.Error(), brainstore.CancelTooLateCode) {
 		t.Fatalf("cancel race error = %v", cancelErr)
 	}
-	if code := memoryErrorCode(cancelErr); code != memoryErrCancelTooLate {
-		t.Fatalf("cancel race stable code = %q, want %q", code, memoryErrCancelTooLate)
+	if code := brainstore.MemoryErrorCode(cancelErr); code != brainstore.CancelTooLateCode {
+		t.Fatalf("cancel race stable code = %q, want %q", code, brainstore.CancelTooLateCode)
 	}
 	if request, err := loadMemoryCancellationRequest(brainDir, job.JobID); err != nil || request != nil {
 		t.Fatalf("stale marker after too-late race: request=%+v err=%v", request, err)
@@ -1678,7 +1647,7 @@ func TestMemoryReconcileWorkerAndReceipts(t *testing.T) {
 			t.Fatalf("job not complete: %+v", job)
 		}
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

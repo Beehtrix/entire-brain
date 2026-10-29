@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
@@ -83,10 +85,10 @@ func TestCheckpointDetailSurvivesTheHostUpdateBanner(t *testing.T) {
 func TestHostCLIJSONStillRejectsALeadingNonJSONPrefix(t *testing.T) {
 	t.Parallel()
 	var target []checkpointListEntry
-	if err := decodeHostCLIJSON([]byte("Update available!\n[]\n"), &target); err == nil {
+	if err := base.DecodeHostCLIJSON([]byte("Update available!\n[]\n"), &target); err == nil {
 		t.Fatal("leading non-JSON output must still be an error, not an empty inventory")
 	}
-	if err := decodeHostCLIJSON(nil, &target); err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
+	if err := base.DecodeHostCLIJSON(nil, &target); err == nil || !strings.Contains(err.Error(), "unexpected end of JSON input") {
 		t.Fatalf("empty stdout must keep its old message, got %v", err)
 	}
 }
@@ -303,6 +305,36 @@ func TestLiveStateIgnoresTheHostsOwnLogFile(t *testing.T) {
 	}
 }
 
+// TestLiveStateIgnoresSetupAuthoredWiringFiles: setup itself writes the agent
+// wiring — AGENTS.md / CLAUDE.md pointer blocks and the PreToolUse entry in
+// .claude/settings.json — AFTER the user's last commit, so on a first run the
+// very files setup just authored made live.Dirty true, graded the seed axis
+// "dirty-unindexed", and a successful onboarding ended on "freshness:
+// degraded" (the release smoke's leg 1 trips on exactly this). The membership
+// rule is entireAuthoredGatePaths': Entire's own installer writes these, so
+// they are config, not source the index is missing.
+func TestLiveStateIgnoresSetupAuthoredWiringFiles(t *testing.T) {
+	t.Parallel()
+	repoDir := t.TempDir()
+	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{
+		fakeCommandKey("git", "rev-parse", "HEAD"):                              {stdout: "5cc739747766aaa4202a6f82641ba611a386e0a9\n"},
+		fakeCommandKey("git", "branch", "--show-current"):                       {stdout: "main\n"},
+		fakeCommandKey("git", "status", "--porcelain", "--untracked-files=all"): {stdout: "?? AGENTS.md\n?? CLAUDE.md\n M .claude/settings.json\n"},
+		fakeCommandKey("git", "diff-index", "-M", "--shortstat", "HEAD"):        {stdout: " 1 file changed\n"},
+	}}
+
+	live, err := brainLiveStateReport(context.Background(), runner, repoDir, nil)
+	if err != nil {
+		t.Fatalf("brainLiveStateReport: %v", err)
+	}
+	if live.Dirty {
+		t.Fatalf("setup's own wiring files must not make the tree dirty; unstaged=%v untracked=%v", live.Unstaged, live.Untracked)
+	}
+	if len(live.Untracked) != 0 || len(live.Unstaged) != 0 {
+		t.Fatalf("authored wiring paths must not be reported as changes: unstaged=%v untracked=%v", live.Unstaged, live.Untracked)
+	}
+}
+
 // TestLiveStateStillReportsRealChanges keeps the filter honest: it removes what
 // the brain already ignores and nothing else.
 func TestLiveStateStillReportsRealChanges(t *testing.T) {
@@ -351,7 +383,7 @@ func TestSetupRefusesANonGitDirectory(t *testing.T) {
 	if rec.installCalls != 0 {
 		t.Fatalf("a non-repository must never get a background watcher, installs=%d", rec.installCalls)
 	}
-	if _, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace); err == nil {
+	if _, err := workspace.DefaultStore(f.env).LoadManifest(setupDefaultWorkspace); err == nil {
 		t.Fatal("a non-repository must never be registered into a workspace")
 	}
 }
@@ -525,15 +557,15 @@ func TestRegistrationStillHappensWithoutTheNoRegisterKnob(t *testing.T) {
 func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	runner := &fakeCommandRunner{responses: map[string]fakeCommandResponse{}}
-	if err := workspaceStore(env).WriteManifest(workspace.Manifest{
+	if err := workspace.DefaultStore(env).WriteManifest(workspace.Manifest{
 		SchemaVersion: workspace.SchemaVersion,
 		Name:          "ws",
 	}); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
-	w := defaultWatchOptions()
-	w.once = true
-	w.distillMaxSessions = setupDefaultBackfillBudget
+	w := watch.DefaultFlags()
+	w.Once = true
+	w.DistillMaxSessions = setupDefaultBackfillBudget
 	out := &bytes.Buffer{}
 	agentCalls := 0
 	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", &agentCalls, time.Now, func(io.Writer, string, *int) {}); err != nil {
@@ -592,7 +624,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 func TestSetupNamesTheRemedyForADirtyWorktree(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{brainComponentSeed, brainComponentSemantic} {
-		component := newSetupComponent(name, errors.New(dirtyWorktreeErrorCode+": refusing to index uncommitted content without --worktree"), base.SetupBrainBinaryName)
+		component := newSetupComponent(name, errors.New(brainstore.DirtyWorktreeCode+": refusing to index uncommitted content without --worktree"), base.SetupBrainBinaryName)
 		hint := component.Hint
 		if hint == "" {
 			t.Fatalf("%s: a dirty worktree must carry a remedy; the refusal names --worktree, which setup does not accept", name)

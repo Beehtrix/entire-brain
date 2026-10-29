@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -57,7 +59,7 @@ func newMemoryCommand(opts Options) *cobra.Command {
 // but holding it for the WHOLE wait froze the Brain: nextMemoryWorkerDelay
 // returns the time until the earliest pending job, a backed-off retry puts that
 // nearly two hours out, and for that whole window every watch tick, session hook
-// and MCP nudge got `already_active` and did nothing. A long wait is now served
+// and nudge got `already_active` and did nothing. A long wait is now served
 // WITHOUT the lease and only its last minute with it, so one backed-off job can
 // no longer block unrelated work.
 //
@@ -141,7 +143,7 @@ func launchDetachedSelf(repoDir string, args ...string) error {
 	// the Go-side handle but the process stays this process's child at the OS
 	// level, and the Go runtime installs no SIGCHLD reaper, so every launch
 	// left a <defunct> entry for the parent's whole lifetime. A long-lived
-	// `entire brain watch` or MCP server launches one worker per tick with changes
+	// `entire brain watch` launches one worker per tick with changes
 	// and accumulated a PID each time, up to RLIMIT_NPROC. Waiting in a
 	// goroutine keeps the launch non-blocking and does not tie the child's
 	// lifetime to ours: if this process exits first, the child is reparented
@@ -161,7 +163,7 @@ var memoryAbstractCancellationPollInterval = 5 * time.Second
 // queue. Windows environment keys are case-insensitive.
 func memoryWorkerChildEnvironment(environ []string, repoDir string) []string {
 	replacements := []struct{ key, value string }{
-		{key: envRepoRoot, value: repoDir},
+		{key: base.EnvRepoRoot, value: repoDir},
 		{key: memoryWorkerOriginEnv, value: "1"},
 	}
 	out := make([]string, 0, len(environ)+len(replacements))
@@ -243,28 +245,6 @@ func reconcileMemoryAndLaunch(ctx context.Context, opts Options, repoDir, trigge
 	return created, "", nil
 }
 
-func nudgeMemoryAtStartup(ctx context.Context, opts Options) {
-	if memoryWorkerOrigin() {
-		return
-	}
-	target := agentSurfaceTarget(opts, nil)
-	repoDir, local, err := base.ResolveLocalTargetRepoDir(ctx, opts.Runner, target)
-	if err != nil || !local {
-		return
-	}
-	storage, err := repoStoragePaths(ctx, opts.Runner, opts.Env, repoDir)
-	if err != nil {
-		return
-	}
-	if _, err := os.Stat(filepath.Join(storage.BrainDir, exportManifestFileName)); err != nil {
-		return
-	}
-	// Process start is non-blocking and the worker owns reconciliation. Do not
-	// hash transcripts on the MCP startup path; the launched worker performs the
-	// bounded prepass and precomputes reconciliation outside its write lock.
-	_ = memoryWorkerLaunch(repoDir)
-}
-
 func newMemoryNotifyCommand(opts Options) *cobra.Command {
 	var event, session, branch, repoKey string
 	var jsonOut bool
@@ -275,7 +255,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if memoryWorkerOrigin() {
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"ignored": true, "reason": "worker_origin"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "ignored memory notification from worker origin")
 				return nil
@@ -308,7 +288,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 					fmt.Fprintf(cmd.ErrOrStderr(), "push work launch failed (daemon tick will reconcile): %v\n", err)
 				}
 				if jsonOut {
-					return writeJSON(cmd, map[string]any{"dispatched": "push"})
+					return cmdutil.WriteJSON(cmd, map[string]any{"dispatched": "push"})
 				}
 				fmt.Fprintln(cmd.OutOrStdout(), "dispatched push upload")
 				return nil
@@ -322,7 +302,7 @@ func newMemoryNotifyCommand(opts Options) *cobra.Command {
 				if warning != "" {
 					payload["warning"] = warning
 				}
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			fmt.Fprintf(cmd.OutOrStdout(), "recorded %s hint for session %s (generation %d)\n", hint.LastEvent, hint.SessionID, hint.Generation)
 			if warning != "" {
@@ -367,7 +347,7 @@ func memoryManifestIdentity(manifest *exportManifest) (string, error) {
 }
 
 func prepareMemoryReconcileSnapshot(ctx context.Context, brainDir string) (*memoryReconcileSnapshot, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
@@ -421,11 +401,11 @@ func reconcileMemoryJobsForAdmin(ctx context.Context, brainDir, trigger string, 
 		} else {
 			err = brainstore.WithBrainWriteLock(brainDir, apply)
 		}
-		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return created, err
 		}
 	}
-	return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
+	return 0, fmt.Errorf("%s: manifest changed during reconciliation", brainstore.SourceStaleCode)
 }
 
 func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot) (created int, err error) {
@@ -433,7 +413,7 @@ func reconcileMemoryJobsLocked(brainDir, trigger string, now time.Time, snapshot
 }
 
 func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, snapshot *memoryReconcileSnapshot, dryRun bool, receipt *memoryOperationReceipt) (created int, err error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -442,7 +422,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 		return 0, err
 	}
 	if snapshot == nil || identity != snapshot.manifestIdentity {
-		return 0, fmt.Errorf("%s: manifest changed during reconciliation", memoryErrSourceStale)
+		return 0, fmt.Errorf("%s: manifest changed during reconciliation", brainstore.SourceStaleCode)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
@@ -596,7 +576,7 @@ func reconcileMemoryJobsLockedDetailed(brainDir, trigger string, now time.Time, 
 		}
 		preparedDigest, ok := snapshot.digests[rel]
 		if !ok {
-			return created, fmt.Errorf("%s: transcript set changed during reconciliation", memoryErrSourceStale)
+			return created, fmt.Errorf("%s: transcript set changed during reconciliation", brainstore.SourceStaleCode)
 		}
 		digest, digestErr := preparedDigest.digest, preparedDigest.err
 		if digestErr != nil {
@@ -688,7 +668,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err := rejectAutomaticAbstractReconciliationForGlobalNoEgress(brainDir); err != nil {
 		return 0, err
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}
@@ -699,7 +679,7 @@ func reconcileAbstractJobsLocked(brainDir, trigger string, now time.Time) (creat
 	if err != nil {
 		return 0, nil // deterministic projection is not current yet
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return 0, err
 	}
@@ -814,7 +794,7 @@ func memoryHintConsumable(hint memoryLifecycleHint, scopes int, satisfied bool) 
 
 func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *memoryReconcileSnapshot) (memoryWorkerStats, error) {
 	var stats memoryWorkerStats
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return stats, err
 	}
@@ -823,7 +803,7 @@ func maintainMemoryWorkerStateLocked(brainDir string, now time.Time, snapshot *m
 		return stats, err
 	}
 	if snapshot == nil || identity != snapshot.manifestIdentity {
-		return stats, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
+		return stats, fmt.Errorf("%s: manifest changed during maintenance", brainstore.SourceStaleCode)
 	}
 	var source *historySourceManifest
 	if manifest.Sources != nil {
@@ -915,11 +895,11 @@ func runMemoryMaintenance(brainDir string, now time.Time) (memoryWorkerStats, er
 			stats, applyErr = maintainMemoryWorkerStateLocked(brainDir, now, snapshot)
 			return applyErr
 		})
-		if err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+		if err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 			return stats, err
 		}
 	}
-	return memoryWorkerStats{}, fmt.Errorf("%s: manifest changed during maintenance", memoryErrSourceStale)
+	return memoryWorkerStats{}, fmt.Errorf("%s: manifest changed during maintenance", brainstore.SourceStaleCode)
 }
 
 // runMemoryProjectionLane performs source scanning outside the Brain write
@@ -1085,7 +1065,7 @@ func runMemoryProjectionLaneWithClock(ctx context.Context, brainDir string, cloc
 			published = publishErr == nil
 		}
 		settledAt := memoryClockNow(clock)
-		manifest, manifestErr := loadBrainManifest(brainDir)
+		manifest, manifestErr := bmanifest.Load(brainDir)
 		var receipts projectionState
 		if published && manifestErr == nil && manifest.Sources != nil {
 			receipts, _ = loadProjectionState(brainDir, manifest.Sources.History)
@@ -1476,15 +1456,15 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			// Checked after the unleased wait so a worker that went to sleep
 			// before `stop` still wakes into the pause, without touching
 			// coordinator state. No relaunch is scheduled: the durable hints
-			// remain for the next launch after `start` (a hook, MCP start or watch
+			// remain for the next launch after `start` (a hook or watch
 			// pass) to drain.
-			if backgroundPaused(opts.Env) {
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+			if base.BackgroundPaused(opts.Env) {
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			coordinator, err := acquireMemoryCoordinator(storage.BrainDir, opts.Now().UTC(), opts.Version)
 			if err != nil {
 				if strings.Contains(err.Error(), "memory_worker_active") {
-					return writeJSON(cmd, memoryWorkerStats{AlreadyActive: true})
+					return cmdutil.WriteJSON(cmd, memoryWorkerStats{AlreadyActive: true})
 				}
 				return err
 			}
@@ -1526,9 +1506,9 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 				}
 			}
 			// Again after the leased tail: a `stop` during it must still win.
-			if backgroundPaused(opts.Env) {
+			if base.BackgroundPaused(opts.Env) {
 				outcome = "cancelled"
-				return writeJSON(cmd, memoryWorkerStats{Paused: true})
+				return cmdutil.WriteJSON(cmd, memoryWorkerStats{Paused: true})
 			}
 			var stats memoryWorkerStats
 			var prepassRetry *time.Duration
@@ -1607,7 +1587,7 @@ func newMemoryWorkerCommand(opts Options) *cobra.Command {
 			for _, issue := range coordinator.healthIssuesSnapshot() {
 				stats.addHealthIssue(issue)
 			}
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		},
 	}
 	cmd.Flags().BoolVar(&once, "once", false, "Run one pass and exit")
@@ -1712,7 +1692,7 @@ func newMemoryStatusCommand(opts Options) *cobra.Command {
 				}
 			}
 			if jsonOut {
-				return writeJSON(cmd, payload)
+				return cmdutil.WriteJSON(cmd, payload)
 			}
 			return writeMemoryStatusText(cmd, payload)
 		},
@@ -1736,7 +1716,7 @@ func writeMemoryStatusText(cmd *cobra.Command, payload map[string]any) error {
 	if err := decoder.Decode(&normalized); err != nil {
 		return fmt.Errorf("normalize memory status for text rendering: %w", err)
 	}
-	return writeText(cmd, func(out io.Writer) {
+	return cmdutil.WriteText(cmd, func(out io.Writer) {
 		renderMemoryStatusMap(out, normalized, 0)
 	})
 }
@@ -1851,9 +1831,9 @@ func newMemoryJobsCommand(opts Options) *cobra.Command {
 				jobs = []memoryJob{}
 			}
 			if jsonOut {
-				return writeJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
+				return cmdutil.WriteJSON(cmd, map[string]any{"jobs": jobs, "state_issues": inventory.Issues, "inventory_entries_observed": inventory.EntriesObserved, "inventory_entries_scanned": inventory.EntriesScanned, "inventory_truncated": inventory.Truncated, "inventory_scan_complete": inventory.ScanComplete, "inventory_degraded": inventory.Degraded})
 			}
-			return writeText(cmd, func(out io.Writer) {
+			return cmdutil.WriteText(cmd, func(out io.Writer) {
 				for _, job := range jobs {
 					errorCode := ""
 					if job.Error != nil {
@@ -1915,9 +1895,9 @@ func memoryJobsForSelector(brainDir, jobID, sessionRef string) ([]memoryJob, err
 	}
 	if len(selected) == 0 {
 		if jobID != "" {
-			return nil, fmt.Errorf("%s: job %s not found", memoryErrSourceStale, jobID)
+			return nil, fmt.Errorf("%s: job %s not found", brainstore.SourceStaleCode, jobID)
 		}
-		return nil, fmt.Errorf("%s: no jobs found for session-ref %s", memoryErrSourceStale, sessionRef)
+		return nil, fmt.Errorf("%s: no jobs found for session-ref %s", brainstore.SourceStaleCode, sessionRef)
 	}
 	return selected, nil
 }
@@ -1948,7 +1928,7 @@ func requestRunningMemoryJobCancellationVerified(brainDir string, observed memor
 			if err := removeMemoryCancellationRequest(brainDir, observed.JobID); err != nil {
 				return err
 			}
-			return fmt.Errorf("%s: job %s already crossed its commit boundary", memoryErrCancelTooLate, observed.JobID)
+			return fmt.Errorf("%s: job %s already crossed its commit boundary", brainstore.CancelTooLateCode, observed.JobID)
 		}
 		_, err = requestMemoryJobCancellation(brainDir, current, now)
 		return err
@@ -2033,7 +2013,7 @@ func newMemoryRetryCommand(opts Options) *cobra.Command {
 					}
 				}
 				if eligible == 0 {
-					return fmt.Errorf("%s: no retryable_error, invalid, or already-pending jobs matched", memoryErrSourceStale)
+					return fmt.Errorf("%s: no retryable_error, invalid, or already-pending jobs matched", brainstore.SourceStaleCode)
 				}
 				return nil
 			}
@@ -2103,7 +2083,7 @@ func newMemoryCancelCommand(opts Options) *cobra.Command {
 					receipt.Artifacts = append(receipt.Artifacts, memoryReceiptArtifact{
 						Path: memoryJobRel(jobs[0].JobID), PriorState: memoryJobStateComplete, NewState: memoryJobStateComplete,
 					})
-					return fmt.Errorf("%s: job %s already completed", memoryErrCancelTooLate, jobs[0].JobID)
+					return fmt.Errorf("%s: job %s already completed", brainstore.CancelTooLateCode, jobs[0].JobID)
 				}
 				for _, job := range jobs {
 					switch job.State {

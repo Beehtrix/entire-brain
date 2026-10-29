@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,7 +49,7 @@ func TestInspectRawTextFailsClosedOnUnreadableManifest(t *testing.T) {
 	}
 
 	// An unparseable manifest must FAIL the scan, not scan without a guard.
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	report, err = inspectBrainRawText(brainDir, "all", privacyCanary, 50)
@@ -73,7 +77,7 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 	if expr := historyFTSMatchExpr("cursor"); expr == "" {
 		t.Fatal("fixture query must be indexable")
 	}
-	results, err := retrieveConversation(brainDir, "cursor", 5, modeLexical, retrievalOptions{})
+	results, err := retrieveConversation(brainDir, "cursor", 5, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatalf("unfiltered conversation query must not fail: %v", err)
 	}
@@ -81,7 +85,7 @@ func TestConversationQuerySurvivesUnavailableFTS(t *testing.T) {
 		t.Fatal("unfiltered conversation query returned nothing")
 	}
 	// The degraded error is reserved for a genuine filtered-scan overflow.
-	if _, err := retrieveConversation(brainDir, "a", 5, modeLexical, retrievalOptions{}); err != nil {
+	if _, err := retrieveConversation(brainDir, "a", 5, retrieval.ModeLexical, retrievalOptions{}); err != nil {
 		if strings.Contains(err.Error(), "filter scan exceeded") {
 			t.Fatalf("stopword-only query reported a filter-scan overflow: %v", err)
 		}
@@ -112,7 +116,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 		PluginStateDir:  t.TempDir(),
 		PluginCacheDir:  t.TempDir(),
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,11 +128,11 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	physical := repoStorageForKey(dirs, physicalKey)
+	physical := base.RepoStorageForKey(dirs, physicalKey)
 	if err := os.MkdirAll(physical.BrainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(physical.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(physical.BrainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,14 +148,14 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 
 	// Both spellings populated is a refusal, never a silent pick.
 	lexicalKey := localRepoStorageKeyForSpelling(logicalRepoDir)
-	lexical := repoStorageForKey(dirs, lexicalKey)
+	lexical := base.RepoStorageForKey(dirs, lexicalKey)
 	if lexicalKey == physicalKey {
 		t.Skip("platform collapsed the two spellings; nothing to disambiguate")
 	}
 	if err := os.MkdirAll(lexical.BrainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(lexical.BrainDir, exportManifestFileName), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(lexical.BrainDir, bmanifest.FileName), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var conflict *localRepoIdentityConflictError
@@ -168,7 +172,7 @@ func TestLocalRepoPhysicalSpellingRecoversOneBrain(t *testing.T) {
 func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 	brainDir := t.TempDir()
 	now := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
-	manifest := exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now, RepoKey: "test/empty", DefaultBranch: "main"}
+	manifest := exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now, RepoKey: "test/empty", DefaultBranch: "main"}
 	if err := writeBrainManifestAndReadme(brainDir, manifest); err != nil {
 		t.Fatal(err)
 	}
@@ -205,27 +209,27 @@ func TestHistoryInventoryReportsMissingSessionsRootAsEmpty(t *testing.T) {
 // line is reachable on any existing brain.
 func TestPatternRunHistoryRepairsCorruptLog(t *testing.T) {
 	brainDir := t.TempDir()
-	full := filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))
+	full := filepath.Join(brainDir, filepath.FromSlash(patterncore.RunsRelPath))
 	if err := os.MkdirAll(filepath.Dir(full), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(full, []byte(`{"at":"2026-08-01T00:00:00Z","indexer_version":1}`+"\n"+`{"at":"2026-08-0`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadPatternRunsChecked(brainDir); err == nil {
+	if _, err := patterncore.LoadRunsChecked(brainDir); err == nil {
 		t.Fatal("a truncated line must still read as corrupt")
 	}
-	if err := appendPatternRun(brainDir, patternRun{At: "2026-08-09T00:00:00Z", IndexerVersion: patternIndexerVersion}); err != nil {
+	if err := patterncore.AppendRun(brainDir, patterncore.Run{At: "2026-08-09T00:00:00Z", IndexerVersion: patterncore.IndexerVersion}); err != nil {
 		t.Fatalf("refresh must be able to repair a corrupt run log: %v", err)
 	}
-	runs, err := loadPatternRunsChecked(brainDir)
+	runs, err := patterncore.LoadRunsChecked(brainDir)
 	if err != nil {
 		t.Fatalf("run log still unreadable after repair: %v", err)
 	}
 	if len(runs) != 1 || runs[0].At != "2026-08-09T00:00:00Z" {
 		t.Fatalf("repaired log = %+v", runs)
 	}
-	if _, ok, err := lastPatternRunChecked(brainDir); err != nil || !ok {
+	if _, ok, err := patterncore.LastRunChecked(brainDir); err != nil || !ok {
 		t.Fatalf("patterns status must work after repair: ok=%v err=%v", ok, err)
 	}
 }
@@ -298,13 +302,13 @@ func TestAbstractWindowTurnFitsEncodedCeiling(t *testing.T) {
 }
 
 // TestAbstractEgressIssueAlwaysCarriesACode locks the taxonomy contract. Several
-// call sites pass memoryErrorCode(readErr) on branches reachable with a nil
+// call sites pass brainstore.MemoryErrorCode(readErr) on branches reachable with a nil
 // error, and memoryReadOnlyHealth's recordIssue silently DROPS an empty-coded
 // issue without counting it as hidden, so the finding vanished from the reported
 // issues array while the state still read corrupt.
 func TestAbstractEgressIssueAlwaysCarriesACode(t *testing.T) {
 	var inventory abstractEgressInventory
-	inventory.issue("history/work/v1/abstract-egress/x.json", memoryErrorCode(nil))
+	inventory.issue("history/work/v1/abstract-egress/x.json", brainstore.MemoryErrorCode(nil))
 	if len(inventory.Issues) != 1 {
 		t.Fatalf("issue not recorded: %+v", inventory.Issues)
 	}
@@ -434,7 +438,7 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 		Branch: "main", Origin: "distilled", Status: factStatusActive, CreatedAt: now, UpdatedAt: now,
 		Provenance: []factAnchor{{Transcript: "sessions/main/20260802T000000Z_secret.jsonl"}},
 	}
-	if err := writeFacts(brainDir, "main", []factRecord{orphan}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{orphan}); err != nil {
 		t.Fatal(err)
 	}
 	pre, _, err := getUnifiedBatch("", brainDir, "main", []string{orphan.ID})
@@ -457,7 +461,7 @@ func TestExcludedFactBlocksByTranscriptPathOnQueryAndGet(t *testing.T) {
 			t.Fatalf("excluded session's fact served by get: %+v", r)
 		}
 	}
-	results, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, modeLexical, retrievalOptions{})
+	results, err := retrieveUnifiedWithOptions("", brainDir, "main", privacyCanary, 10, retrieval.ModeLexical, retrievalOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +500,7 @@ func TestDistillCachePurgeUsesTheCheckedLoader(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unreadable distill cache must fail the purge, not be silently skipped")
 	}
-	if code := memoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
+	if code := brainstore.MemoryErrorCode(err); code != brainstore.UnsupportedVersionCode {
 		t.Fatalf("purge error = %v (code %q), want the unsupported-version taxonomy code", err, code)
 	}
 }
@@ -548,7 +552,7 @@ func TestBriefRawHistorySingleScanHonorsExclusionGuard(t *testing.T) {
 
 	// The guard is manifest-derived, so an unreadable manifest must fail the
 	// scan rather than scan unguarded.
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), []byte("{"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if matches, err := brainBriefRawHistoryMatchesSingleScan(brainDir, privacyCanary, nil, 20); err == nil {
@@ -724,10 +728,10 @@ func TestDeletedTranscriptReportsStaleNotUnreadable(t *testing.T) {
 		t.Fatalf("deleted transcript = %v, want the stale classification", err)
 	}
 	result := conversationGetResult(brainDir, record)
-	if !hasCaveatKind(result, retrievalCaveatConversationSourceStale) {
+	if !hasCaveatKind(result, retrieval.CaveatConversationSourceStale) {
 		t.Fatalf("deleted transcript caveats = %+v, want stale", result.Caveats)
 	}
-	if hasCaveatKind(result, retrievalCaveatConversationSourceUnreadable) {
+	if hasCaveatKind(result, retrieval.CaveatConversationSourceUnreadable) {
 		t.Fatalf("deleted transcript reported unreadable: %+v", result.Caveats)
 	}
 }

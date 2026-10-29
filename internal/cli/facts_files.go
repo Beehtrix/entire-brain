@@ -10,13 +10,14 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
 // Facts as plain files.
 //
 // A brain's durable facts live in an internal store, reachable through `recall`
-// and the MCP tools and nowhere else. That is fine until you want to do the
+// and nowhere else. That is fine until you want to do the
 // obvious thing — grep them, read one in an editor, diff two branches, paste a
 // decision into a review — and discover that the only way in is a program.
 //
@@ -453,7 +454,7 @@ func newFactsFilesCommand(opts Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			facts, err := loadFacts(brainDir, resolvedBranch)
+			facts, err := factstore.Load(brainDir, resolvedBranch)
 			if err != nil {
 				return err
 			}

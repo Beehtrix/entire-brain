@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -43,12 +45,12 @@ func planTranscriptCacheSweep(ctx context.Context, runner CommandRunner, brainDi
 			_ = inventory.Close()
 		}
 	}()
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, err
 	}
 	sessions := historySessionByTranscriptPath(manifest)
-	if _, err := loadSessionReadGuard(brainDir, manifest); err != nil {
+	if _, err := bmanifest.LoadSessionReadGuard(brainDir, manifest); err != nil {
 		return nil, err
 	}
 	store := newTranscriptStore(runner, brainDir)
@@ -162,7 +164,7 @@ func sweepTranscriptCache(ctx context.Context, inventory *historySessionInventor
 	unchanged := inventory.sameMembership(current)
 	_ = current.Close()
 	if !unchanged {
-		return fmt.Errorf("%s: transcript cache changed before migration sweep", memoryErrSourceStale)
+		return fmt.Errorf("%s: transcript cache changed before migration sweep", brainstore.SourceStaleCode)
 	}
 	if err := inventory.validateAll(ctx); err != nil {
 		return err

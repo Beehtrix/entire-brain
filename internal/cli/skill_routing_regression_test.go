@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +20,7 @@ func TestRootCommandPatternsSkillsFormRoutesAcceptedKnowledgeSources(t *testing.
 	newCorpusAtDir(t, brainDir)
 	lessonID, conventionID := seedRoutingKnowledge(t, brainDir)
 
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +65,7 @@ func TestRootCommandPatternsSkillsFormRejectsMissingProposalAndAgentNoneWithoutW
 	newCorpusAtDir(t, brainDir)
 	lessonID, _ := seedRoutingKnowledge(t, brainDir)
 
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +142,7 @@ func isolateSkillFormHome(t *testing.T) {
 
 func assertNoSkillFormWrites(t *testing.T, brainDir, repoDir string) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patternsSkillMemoryPath))); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.SkillMemoryPath))); !os.IsNotExist(err) {
 		t.Fatalf("rejected form persisted skill memory: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(repoDir, ".agents", "skills")); !os.IsNotExist(err) {
@@ -158,7 +160,7 @@ func seedRoutingKnowledge(t *testing.T, brainDir string) (string, string) {
 		{ID: "fact:pinned", Kind: "convention", Branch: "main", Status: "active", Text: "radar source files are hash-pinned", Locus: []string{"mcp.go"}},
 		{ID: "fact:audit", Kind: "gotcha", Branch: "main", Status: "active", Text: "audit also diffs committed reports", Locus: []string{"reports/"}},
 	})
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

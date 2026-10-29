@@ -168,8 +168,7 @@ invariant, a gotcha that cost you time - RECORD it before finishing:
 
 Categories are architecture, constraints, preferences, project and workflow.
 Omitting --path classifies the memory for you and requires a supported coding
-agent on PATH; pass --path when none is guaranteed. Over MCP the same write is
-the brain_remember tool, which requires path. Retrieve with recall and
+agent on PATH; pass --path when none is guaranteed. Retrieve with recall and
 re-check anchors with verify. A memory you author has no source anchor, so verify
 reports it unverifiable-here - that is expected, not a failure.
 
@@ -212,8 +211,8 @@ func guideFor(active map[string]bool, mode Mode) string {
 // activation that produces it ("<mode>:<products>").
 //
 // Exported because the guards that hold these texts to what the binary
-// actually ships -- the registered MCP tools, the registered commands -- have
-// to live in a package that can see both, and internal/cli imports this one.
+// actually ships -- the registered commands -- have to live in a package that
+// can see both, and internal/cli imports this one.
 // Checking only the exported BrainGuide/CombinedGuide/GraphGuide would leave
 // the strict variants, which are a separate copy of the same prose, unguarded.
 func AllGuides() map[string]string {

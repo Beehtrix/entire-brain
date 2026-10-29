@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/spf13/cobra"
 )
@@ -87,17 +87,6 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 	// The cwd launch, with $PWD spelling the symlinked ancestor exactly as a
 	// shell that cd'd through it would.
 	t.Chdir(logical)
-	cwdOpts := Options{Version: "test", Env: env, Runner: runner}
-	printedRoot := mcpConfigRepoRoot(context.Background(), cwdOpts)
-	if printedRoot == "" {
-		t.Fatal("--print-config emitted no binding for a repository")
-	}
-	if resolved, err := filepath.EvalSymlinks(printedRoot); err != nil || resolved != printedRoot {
-		t.Fatalf("--print-config emitted the unresolved spelling %q (resolves to %q, err %v); "+
-			"a config launch would then key a different brain than a cwd launch",
-			printedRoot, resolved, err)
-	}
-
 	cwdRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, ".")
 	if err != nil || !local {
 		t.Fatalf("resolve cwd target: %v (local=%v)", err, local)
@@ -107,8 +96,8 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 		t.Fatalf("cwd launch storage: %v", err)
 	}
 
-	// The config-file launch, bound to the printed root.
-	configRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, printedRoot)
+	// A launch bound to the resolved physical root.
+	configRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, physical)
 	if err != nil || !local {
 		t.Fatalf("resolve bound target: %v (local=%v)", err, local)
 	}
@@ -121,8 +110,8 @@ func TestConfigLaunchAndCwdLaunchShareOneBrain(t *testing.T) {
 		t.Fatalf("one repository, two brains:\n config launch: %+v\n    cwd launch: %+v", configStorage, cwdStorage)
 	}
 
-	// And an explicitly supplied LOGICAL root -- a hand-written MCP entry, or a
-	// host that passes the path the user typed -- lands on the same store.
+	// And an explicitly supplied LOGICAL root -- a host that passes the path
+	// the user typed -- lands on the same store.
 	logicalRepoDir, local, err := base.ResolveLocalTargetRepoDir(context.Background(), runner, logical)
 	if err != nil || !local {
 		t.Fatalf("resolve logical target: %v (local=%v)", err, local)
@@ -204,12 +193,12 @@ func conflictedRepoFixture(t *testing.T) (env EntireEnv, logical string, canonic
 	t.Helper()
 	physical, logical := symlinkedRepoFixture(t)
 	env = repoIdentityTestEnv(t)
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
-	canonical = repoStorageForKey(dirs, testLocalRepoStorageKey(t, physical))
-	legacy = repoStorageForKey(dirs, localRepoStorageKeyForSpelling(logical))
+	canonical = base.RepoStorageForKey(dirs, testLocalRepoStorageKey(t, physical))
+	legacy = base.RepoStorageForKey(dirs, localRepoStorageKeyForSpelling(logical))
 	if canonical.Key == legacy.Key {
 		t.Skip("platform collapsed the two spellings; there is no conflict to build")
 	}
@@ -288,7 +277,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 	listCmd := &cobra.Command{}
 	var listed strings.Builder
 	listCmd.SetOut(&listed)
-	if err := runRepoIdentity(context.Background(), listCmd, opts, repoIdentityOptions{}, logical); err != nil {
+	if err := repoidentity.Run(context.Background(), listCmd, repoIdentityConfig(opts), repoidentity.RunOptions{}, logical); err != nil {
 		t.Fatalf("repo-identity must not be blocked by the conflict it repairs: %v", err)
 	}
 	for _, key := range []string{canonical.Key, legacy.Key} {
@@ -303,7 +292,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 	keepCmd := &cobra.Command{}
 	var kept strings.Builder
 	keepCmd.SetOut(&kept)
-	if err := runRepoIdentity(context.Background(), keepCmd, opts, repoIdentityOptions{keep: legacy.Key}, logical); err != nil {
+	if err := repoidentity.Run(context.Background(), keepCmd, repoIdentityConfig(opts), repoidentity.RunOptions{Keep: legacy.Key}, logical); err != nil {
 		t.Fatalf("repo-identity --keep: %v", err)
 	}
 
@@ -331,7 +320,7 @@ func TestRepoIdentityResolvesTheConflictWithoutDeleting(t *testing.T) {
 
 	// Nothing was deleted: the history the caller did NOT pick is still on disk
 	// under a dated name, so a wrong choice is undone with mv.
-	suffix := repoIdentityConflictSuffix(opts.Now())
+	suffix := repoidentity.ConflictSuffix(opts.Now())
 	retired, err := os.ReadFile(filepath.Join(canonical.BrainDir+suffix, "which-history"))
 	if err != nil {
 		t.Fatalf("the store that was not kept must be MOVED, not deleted: %v", err)
@@ -367,7 +356,7 @@ func TestRepoIdentityRefusesAKeyThatIsNotAStore(t *testing.T) {
 	opts := Options{Version: "test", Env: env, Runner: repoIdentityFixtureRunner(physical)}
 	cmd := &cobra.Command{}
 	cmd.SetOut(&strings.Builder{})
-	err = runRepoIdentity(context.Background(), cmd, opts, repoIdentityOptions{keep: "local/not-a-real-key"}, logical)
+	err = repoidentity.Run(context.Background(), cmd, repoIdentityConfig(opts), repoidentity.RunOptions{Keep: "local/not-a-real-key"}, logical)
 	if err == nil {
 		t.Fatal("--keep with an unknown key must be refused")
 	}
@@ -380,73 +369,5 @@ func TestRepoIdentityRefusesAKeyThatIsNotAStore(t *testing.T) {
 		if _, statErr := os.Stat(storage.BrainDir); statErr != nil {
 			t.Fatalf("a refused --keep must move nothing; %s: %v", storage.Key, statErr)
 		}
-	}
-}
-
-// TestMCPDeleteProjectIsNotBlockedByTheIdentityConflict is the MCP half of the
-// recovery.
-//
-// brain_delete_project resolved its target through the same refusal as every
-// other tool, so the one call capable of clearing a duplicate store was blocked
-// by the duplicate store. With no CLI in reach, an agent holding only the MCP
-// surface had no recovery at all.
-//
-// A delete has nothing to disambiguate -- both stores ARE this repository -- so
-// it erases them all, and the repository works again afterwards.
-func TestMCPDeleteProjectIsNotBlockedByTheIdentityConflict(t *testing.T) {
-	env, logical, canonical, legacy := conflictedRepoFixture(t)
-	physical, err := canonicalLocalRepoRoot(logical)
-	if err != nil {
-		t.Fatalf("canonical root: %v", err)
-	}
-	env.RepoRoot = logical
-	opts := Options{Version: "test", Env: env, Runner: repoIdentityFixtureRunner(physical)}
-
-	// The conflict really is in force for ordinary tools.
-	if _, _, err := mcpBoundRepoStorage(context.Background(), opts); err == nil {
-		t.Fatal("fixture did not produce an identity conflict")
-	}
-
-	cmd := &cobra.Command{}
-	var out strings.Builder
-	cmd.SetOut(&out)
-	if err := runMCPDeleteProject(context.Background(), cmd, opts, ""); err != nil {
-		t.Fatalf("brain_delete_project must not be blocked by the conflict it can resolve: %v", err)
-	}
-	for _, storage := range []repoStorage{canonical, legacy} {
-		if _, err := os.Stat(storage.BrainDir); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("store %s survived the delete: %v", storage.Key, err)
-		}
-		// Both halves, not just the brain. repoStorageContainsState counts the
-		// head store too, so a brain erased with its head left behind is still
-		// a second identity and the conflict outlives the delete.
-		if _, err := os.Stat(filepath.Dir(storage.HeadPath)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("head store for %s survived the delete: %v", storage.Key, err)
-		}
-	}
-
-	var payload struct {
-		DeletedRepoKey string   `json:"deleted_repo_key"`
-		AlsoDeleted    []string `json:"also_deleted_repo_keys"`
-	}
-	if err := json.Unmarshal([]byte(out.String()), &payload); err != nil {
-		t.Fatalf("decode delete result %q: %v", out.String(), err)
-	}
-	reported := append([]string{payload.DeletedRepoKey}, payload.AlsoDeleted...)
-	for _, key := range []string{canonical.Key, legacy.Key} {
-		var named bool
-		for _, got := range reported {
-			if got == key {
-				named = true
-			}
-		}
-		if !named {
-			t.Fatalf("the delete erased %q without reporting it: %+v", key, payload)
-		}
-	}
-
-	// The repository is usable through MCP again.
-	if _, _, err := mcpBoundRepoStorage(context.Background(), opts); err != nil {
-		t.Fatalf("the conflict survived the delete that was supposed to end it: %v", err)
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,12 +38,12 @@ func TestPatternSymbolLinksRebuildCapsAndDropsStaleSemanticEvidence(t *testing.T
 	if err := runSemanticIndex(context.Background(), &cobra.Command{}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repo); err != nil {
 		t.Fatal(err)
 	}
-	dir, err := brainDirForKey(env, "gh/example/repo")
+	dir, err := base.BrainDirForKey(env, "gh/example/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	descriptor := runner.graphStoreFixtures[repo+"\x00full"]
-	source := graphStoreSource(descriptor, dir)
+	source := semstore.GraphStoreSource(descriptor, dir)
 	db, err := sql.Open(sqlitedriver.Name, filepath.Join(t.TempDir(), "corpus.sqlite"))
 	if err != nil {
 		t.Fatal(err)

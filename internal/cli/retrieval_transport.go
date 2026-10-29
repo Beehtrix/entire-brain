@@ -2,28 +2,18 @@ package cli
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	"github.com/entireio/entire-brain/internal/cli/internal/retrieval"
 	"io"
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
-
-// retrievalTransportExtras is the already-bounded, optional material carried
-// beside ranked rows. The final response budget is still measured against the
-// complete serialized shape: these fields, query/branch, indentation, and an
-// MCP tool-result envelope all count.
-type retrievalTransportExtras struct {
-	AbstractPreviews          []sessionAbstractPreview
-	AbstractPreviewsTruncated bool
-	Hints                     retrievalTaskHints
-	Related                   []relatedPatternRef
-	BlindSpot                 string
-}
 
 // beforeRetrievalResponsePrivacyRecheck is a deterministic race seam for
 // tests. Production leaves it as a no-op. It runs after ranking and immediately
@@ -108,6 +98,17 @@ func acquireRetrievalPrivacyPolicies(policies []retrievalPrivacyPolicy) (func(),
 	return brainstore.AcquireRetrievalPrivacyPolicies(policies, requirePrivacyDerivedRead)
 }
 
+// commitVizRetrievalResponse is the viz HTTP transport's final privacy
+// boundary: it binds the cli race seams and the locked-policy write around the
+// buffered response commit (injected as viz.Deps.CommitRetrievalResponse).
+func commitVizRetrievalResponse(policies []retrievalPrivacyPolicy, write func() error) error {
+	beforeRetrievalResponsePrivacyEmissionCheck()
+	return withLockedRetrievalPrivacyPolicies(policies, func() error {
+		beforeRetrievalResponseWrite()
+		return write()
+	})
+}
+
 // revalidateRetrievalResponsePrivacy closes the ranking-to-write window. A
 // tombstone that appears after ranking either makes the authoritative derived
 // state dirty (and fails the response closed) or is fully cleaned and reaches
@@ -121,11 +122,11 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	if !allowed {
 		return nil, "", fmt.Errorf("%s: retrieval state changed after ranking; retry after excluded-session cleanup verifies clean", brainstore.PrivacyDirtyCode)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return nil, "", err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return nil, "", err
 	}
@@ -156,7 +157,7 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 	}
 	kept := make([]unifiedResult, 0, len(results))
 	for _, result := range results {
-		if guard.BlocksSession(result.SessionID) || guardBlocksRecord(guard, historyRecord{Path: result.Path}) {
+		if guard.BlocksSession(result.SessionID) || historystore.GuardBlocksRecord(guard, historyRecord{Path: result.Path}) {
 			continue
 		}
 		if result.SessionRef != "" && !allowedRefs[result.SessionRef] {
@@ -182,30 +183,6 @@ func revalidateRetrievalResponsePrivacy(brainDir string, results []unifiedResult
 		}
 	}
 	return kept, guard.PolicyIdentity, nil
-}
-
-func jsonOutputBytes(value any) ([]byte, error) {
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	return append(data, '\n'), nil
-}
-
-// retrievalSerializedSize measures the bytes that this invocation will
-// actually hand to its consumer. MCP carries the indented JSON document as an
-// escaped text item, so measuring only the inner rows undercounts quotes,
-// backslashes, newlines, and the content envelope.
-func retrievalSerializedSize(ctx context.Context, payload map[string]any, surface string) (int, error) {
-	inner, err := jsonOutputBytes(payload)
-	if err != nil {
-		return 0, err
-	}
-	if !strings.HasPrefix(surface, "mcp:") {
-		return len(inner), nil
-	}
-	toolResult := map[string]any{"content": []map[string]any{{"type": "text", "text": string(inner)}}}
-	return mcpToolResultTransportSize(ctx, toolResult)
 }
 
 func filterAbstractPreviewsForRows(previews []sessionAbstractPreview, rows []compactUnifiedResult) ([]sessionAbstractPreview, bool) {
@@ -336,11 +313,11 @@ func smallestTrimStepsThatFit(maxSteps int, sizeAt func(int) (int, error)) (int,
 }
 
 // boundedRetrievalJSONPayload removes optional extras, then whole tail rows,
-// until the exact CLI or MCP serialization fits. The response_truncated
-// marker is present during every truncated size check, so the marker itself
-// can never push the emitted document over budget.
-func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, results []unifiedResult, extras retrievalTransportExtras, surface string) (map[string]any, error) {
-	allRows := compactUnifiedResults(results, query)
+// until the exact serialization fits. The response_truncated marker is
+// present during every truncated size check, so the marker itself can never
+// push the emitted document over budget.
+func boundedRetrievalJSONPayload(query, branch string, results []unifiedResult, extras retrievalTransportExtras) (map[string]any, error) {
+	allRows := retrieval.CompactResults(results, query)
 	extras = cloneRetrievalTransportExtras(extras)
 	extrasSteps := countRetrievalExtrasTrims(extras)
 	build := func(steps int) map[string]any {
@@ -352,7 +329,11 @@ func boundedRetrievalJSONPayload(ctx context.Context, query, branch string, resu
 		return buildRetrievalJSONPayload(query, branch, rows, ex, steps > 0)
 	}
 	sizeAt := func(steps int) (int, error) {
-		return retrievalSerializedSize(ctx, build(steps), surface)
+		data, err := cmdutil.JSONOutputBytes(build(steps))
+		if err != nil {
+			return 0, err
+		}
+		return len(data), nil
 	}
 	if size, err := sizeAt(0); err != nil {
 		return nil, err
@@ -387,8 +368,8 @@ func renderRetrievalRowsText(out io.Writer, results []unifiedResult, qualify ret
 		if result.VerificationRequired {
 			label += " verify"
 		}
-		fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, qualify(result.ID), unifiedResultLocation(result), ex)
-		printRetrievalCaveats(out, result)
+		fmt.Fprintf(out, "[%s] %s  %s\n    %s\n", label, qualify(result.ID), retrieval.ResultLocation(result), ex)
+		retrieval.PrintResultCaveats(out, result)
 		if len(result.Concepts) == 0 {
 			continue
 		}
@@ -411,7 +392,7 @@ func renderRetrievalRowsText(out io.Writer, results []unifiedResult, qualify ret
 }
 
 func filteredAbstractPreviewsForResults(previews []sessionAbstractPreview, results []unifiedResult) ([]sessionAbstractPreview, bool) {
-	rows := compactUnifiedResults(results, "")
+	rows := retrieval.CompactResults(results, "")
 	return filterAbstractPreviewsForRows(previews, rows)
 }
 
@@ -480,6 +461,21 @@ func boundedSingleRepoRetrievalText(query string, results []unifiedResult, extra
 		return nil, fmt.Errorf("retrieval text envelope exceeds %d bytes without any result rows", conversationConceptResponseMaxBytes)
 	}
 	return render(steps), nil
+}
+
+// boundedRetrievalResponseBytes renders the budget-bounded multi-concept
+// response in either output mode; the extracted retrieve commands inject it as
+// Deps.BoundedResponseBytes, keeping the trim/assembly machinery in cli with
+// the transport layer.
+func boundedRetrievalResponseBytes(query, branch string, results []unifiedResult, extras retrievalTransportExtras, jsonOut bool) ([]byte, error) {
+	if jsonOut {
+		payload, err := boundedRetrievalJSONPayload(query, branch, results, extras)
+		if err != nil {
+			return nil, err
+		}
+		return cmdutil.JSONOutputBytes(payload)
+	}
+	return boundedSingleRepoRetrievalText(query, results, extras)
 }
 
 func qualifyWorkspaceAddressableID(repoKey, workspaceName, id string) string {
@@ -684,7 +680,7 @@ func boundedWorkspaceRetrievalJSONPayload(workspaceName, query string, groups []
 		return payload
 	}
 	sizeAt := func(steps int) (int, error) {
-		data, err := jsonOutputBytes(build(steps))
+		data, err := cmdutil.JSONOutputBytes(build(steps))
 		if err != nil {
 			return 0, err
 		}

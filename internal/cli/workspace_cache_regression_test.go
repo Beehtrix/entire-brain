@@ -2,16 +2,18 @@ package cli
 
 import (
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"testing"
 	"time"
 
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
 func TestRemovedMemberCannotRemainInGraph(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	m := workspace.Manifest{Name: "audit", Repos: []workspace.Repo{{RepoKey: "local/a"}, {RepoKey: "local/b"}}}
-	if e := workspaceStore(env).WriteManifest(m); e != nil {
+	if e := workspace.DefaultStore(env).WriteManifest(m); e != nil {
 		t.Fatal(e)
 	}
 	edge := workspace.CrossEdge{FromRepo: "local/a", ToRepo: "local/b", Type: "CALLS", RelationKind: "cross_repo_route_call", Endpoint: "removed-canary", FromSymbol: workspace.SymbolRef{ID: "a"}, ToSymbol: workspace.SymbolRef{ID: "b"}}
@@ -21,7 +23,7 @@ func TestRemovedMemberCannotRemainInGraph(t *testing.T) {
 	if _, e := execute(t, newWorkspaceRemoveCommand(Options{Env: env}), "audit", "local/b"); e != nil {
 		t.Fatal(e)
 	}
-	after, e := workspaceStore(env).LoadManifest("audit")
+	after, e := workspace.DefaultStore(env).LoadManifest("audit")
 	if e != nil || len(after.Repos) != 1 {
 		t.Fatalf("remove failed: %v %v", after, e)
 	}
@@ -67,7 +69,7 @@ func workspaceGraphTestGeneration(t *testing.T, env EntireEnv, manifest workspac
 func TestWorkspaceGraphRejectsChangedMemberGeneration(t *testing.T) {
 	env := semanticTestEnv(t, t.TempDir())
 	m := workspace.Manifest{Name: "generations", Repos: []workspace.Repo{{RepoKey: "local/a"}, {RepoKey: "local/b"}}}
-	if err := workspaceStore(env).WriteManifest(m); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(m); err != nil {
 		t.Fatal(err)
 	}
 	edge := workspace.CrossEdge{FromRepo: "local/a", ToRepo: "local/b", Endpoint: "canary", Type: "CALLS", FromSymbol: workspace.SymbolRef{ID: "a"}, ToSymbol: workspace.SymbolRef{ID: "b"}}
@@ -78,11 +80,11 @@ func TestWorkspaceGraphRejectsChangedMemberGeneration(t *testing.T) {
 	if got, err := retrieveWorkspaceGraphCrossEdges(env, m.Name, "canary", 10); err != nil || len(got) != 1 {
 		t.Fatalf("fresh cache missing: %+v %v", got, err)
 	}
-	dir, err := brainDirForKey(env, "local/a")
+	dir, err := base.BrainDirForKey(env, "local/a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(dir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: time.Now()}); err != nil {
+	if err := writeBrainManifestAndReadme(dir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
 	// A concurrent builder can publish its old snapshot after the source changes.

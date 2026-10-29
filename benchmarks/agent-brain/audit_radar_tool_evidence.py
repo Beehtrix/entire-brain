@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Audit retained deterministic MCP / Regression Radar tool evidence.
+"""Audit retained deterministic Regression Radar tool evidence.
 
 This is deliberately separate from agent A/B proof. It answers a narrower
-release-readiness question: do the local MCP tools and Radar detector pass their
-contract tests, including QMD-inspired retrieval, location-only redaction, deletion
-opt-in, workspace Radar, and server-side tool-result logging?
+release-readiness question: do the Radar detector and retrieval verbs pass their
+contract tests, including QMD-inspired retrieval, location-only redaction,
+deletion opt-in, and workspace Radar?
 """
 
 from __future__ import annotations
@@ -18,6 +18,8 @@ import sys
 from typing import Any
 
 
+# Legacy identifier: the local MCP surface was removed, but this scope id is
+# pinned by audit_release_matrix.py and retained release-matrix evidence.
 CLAIM_SCOPE = "mcp_radar_tool_contract"
 
 RADAR_TOOL_SOURCE_PATHS = [
@@ -29,13 +31,20 @@ RADAR_TOOL_SOURCE_PATHS = [
     "internal/cli/regression.go",
     "internal/cli/regression_test.go",
     "internal/cli/regression_unix_test.go",
-    "internal/cli/mcp.go",
-    "internal/cli/mcp_test.go",
     "internal/cli/workspace.go",
     "internal/cli/workspace_test.go",
 ]
 
 REQUIRED_TESTS = [
+    "TestUnifiedRetrievalCommandDefaultsMatchDocumentedContract",
+    "TestQMDOutputFormatAlias",
+    "TestQMDAliasesAcrossRetrievalVerbs",
+    "TestQMDBranchOverrideAcrossRetrievalVerbs",
+    "TestQMDLimitAliasesAndPrecedence",
+    "TestQMDHelpContractsForRetrievalVerbs",
+    "TestQMDTopLevelHelpListsRetrievalVerbs",
+    "TestQMDFormatCLIOverridesJSONAndReportsMissingIDs",
+    "TestQMDUnsupportedFormatRejectedAcrossRetrievalVerbs",
     "TestRegressionDetectsChangedOperand",
     "TestRegressionChangedOperandReportsMissingHintedFileDespiteIntactPeer",
     "TestRegressionChangedOperandReportsEachRegressedHintedFile",
@@ -52,37 +61,6 @@ REQUIRED_TESTS = [
     "TestRegressionAssignmentDeletionReportsOneMissingLocusInsideSameFunction",
     "TestRegressionDedupeRankPrefersBoostedCallDeletion",
     "TestRegressionScanHistoryClosesFilesDuringLargeWalk",
-    "TestMCPInitializeAndToolsList",
-    "TestMCPToolsListIncludesRegressions",
-    "TestMCPToolsListIncludesQMDRetrievalSurface",
-    "TestMCPToolsListAdvertisesCompactStatusAndDetails",
-    "TestMCPToolSchemasRejectAdditionalProperties",
-    "TestMCPToolSchemasMatchArgumentValidator",
-    "TestMCPToolRequiredArgumentsAreEnforced",
-    "TestMCPQMDRetrievalSchemasExposeBranchAndNonEmptyMultiGet",
-    "TestMCPRejectsInvalidBooleanArguments",
-    "TestMCPRejectsInvalidStringAndUnknownArguments",
-    "TestMCPDebugLogIncludesToolCallNameAndSafeArgsOnly",
-    "TestMCPDebugLogIncludesSuccessfulWorkspaceRadarResult",
-    "TestMCPDebugLogDoesNotTreatNotificationsAsExecutedTools",
-    "TestMCPDebugLogReviewToolsRedactAndLogSuccess",
-    "TestMCPBrainRegressionsTool",
-    "TestMCPBrainRegressionsDeletionLocationOnlyKeepsAllAssignmentSites",
-    "TestMCPBrainReviewTool",
-    "TestMCPBrainWorkspaceReviewTool",
-    "TestMCPBrainWorkspaceRegressionsDeletionLocationOnlyAndReviewRedaction",
-    "TestMCPBrainWorkspaceToolRequiresWorkspace",
-    "TestMCPInitializeEchoesClientProtocolVersion",
-    "TestMCPInitializeSupportsJSONLineFraming",
-    "TestMCPBrainQueryToolUsesLocalSemanticJSON",
-    "TestMCPQMDRetrievalToolsUseLocalFacts",
-    "TestMCPBrainContextImpactAndChangesToolsUseLocalSemanticJSON",
-    "TestMCPBrainBriefAndQueryToolsUseIndexedHistory",
-    "TestMCPToolCallRejectsInvalidIntegerArguments",
-    "TestMCPToolCallRejectsInvalidDepth",
-    "TestMCPRecoversFromMalformedJSONLineFrame",
-    "TestMCPRejectsOversizedAndNegativeFrames",
-    "TestMCPBrainStaleUsesEnvRepoRoot",
     "TestWorkspaceRegressionsAggregatesAndToleratesMissingBrain",
     "TestWorkspaceRegressionsDeletionLocationOnlyReportsRelatedLoci",
     "TestWorkspaceRegressionsSkipsUnsafeRepo",
@@ -311,7 +289,7 @@ def audit_manifest(
 
 def render_markdown(report: dict[str, Any]) -> str:
     lines = [
-        "# MCP/Radar Tool Evidence Audit",
+        "# Radar Tool Evidence Audit",
         "",
         f"- Status: **{'PASS' if report['ok'] else 'FAIL'}**",
         f"- Claim scope: **{report.get('claim_scope') or ''}**",

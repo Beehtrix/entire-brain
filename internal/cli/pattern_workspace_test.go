@@ -48,11 +48,11 @@ func seedMemberCorpus(t *testing.T, brainDir, repoKey, intentSig string, count i
 
 func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, err := brainDirForKey(env, "gh/acme/a")
+	aDir, err := base.BrainDirForKey(env, "gh/acme/a")
 	if err != nil {
 		t.Fatal(err)
 	}
-	bDir, err := brainDirForKey(env, "gh/acme/b")
+	bDir, err := base.BrainDirForKey(env, "gh/acme/b")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +74,11 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 		t.Fatalf("expected 2 member corpora, got %d (warnings: %v)", counts.WithCorpus, counts.Warnings)
 	}
 
-	wsDir, err := workspaceStore(env).Dir("plat")
+	wsDir, err := workspace.DefaultStore(env).Dir("plat")
 	if err != nil {
 		t.Fatal(err)
 	}
-	views, _, ok := loadCorpusPatternViews(wsDir)
+	views, _, ok := patterncore.LoadCorpusPatternViews(wsDir)
 	if !ok {
 		t.Fatal("expected a workspace corpus")
 	}
@@ -113,12 +113,12 @@ func TestWorkspaceCorpusAggregatesSharedTask(t *testing.T) {
 
 func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
-	if err := workspaceStore(env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
@@ -126,8 +126,8 @@ func TestWorkspaceGetAggregatePatternID(t *testing.T) {
 	}
 
 	// The id `workspace patterns` prints (scope=workspace).
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	wdb, err := openPatternCorpusMutableDB(wsDir)
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+	wdb, err := patterntest.OpenCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,8 +186,8 @@ func TestSplitWorkspaceIDPattern(t *testing.T) {
 // contributing to a cross-repo aggregate.
 func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
@@ -196,13 +196,13 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
 	if !workspaceHasDeploy(t, wsDir) {
 		t.Fatal("control: shared deploy:release should aggregate to the workspace")
 	}
 
 	// Reject the dossier in member A → only B contributes → below the 2-repo floor.
-	adb, err := openPatternCorpusMutableDB(aDir)
+	adb, err := patterntest.OpenCorpusMutableDB(aDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestWorkspaceAggregationExcludesRejectedMemberPatterns(t *testing.T) {
 
 func workspaceHasDeploy(t *testing.T, wsDir string) bool {
 	t.Helper()
-	views, _, ok, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, ok, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,16 +244,16 @@ func workspaceHasDeploy(t *testing.T, wsDir string) bool {
 // stale verdict cannot join onto a newly-rebuilt pattern with the same stable id.
 func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
+	aDir, _ := base.BrainDirForKey(env, "gh/acme/a")
+	bDir, _ := base.BrainDirForKey(env, "gh/acme/b")
 	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
 	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
 	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	db, err := openPatternCorpusMutableDB(wsDir)
+	wsDir, _ := workspace.DefaultStore(env).Dir("plat")
+	db, err := patterntest.OpenCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,11 +271,11 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	}
 	db.Close()
 
-	// Rebuild must drop the stale verdict (else loadCorpusPatternViews suppresses it).
+	// Rebuild must drop the stale verdict (else patterncore.LoadCorpusPatternViews suppresses it).
 	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	db2, err := openPatternCorpusMutableDB(wsDir)
+	db2, err := patterntest.OpenCorpusMutableDB(wsDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	if themes != 0 {
 		t.Errorf("workspace rebuild must clear stray themes, got %d", themes)
 	}
-	views, _, _ := loadCorpusPatternViews(wsDir)
+	views, _, _ := patterncore.LoadCorpusPatternViews(wsDir)
 	found := false
 	for _, v := range views {
 		if v.ID == pid {
@@ -302,58 +302,5 @@ func TestWorkspaceRebuildClearsStaleVerifierCache(t *testing.T) {
 	}
 	if !found {
 		t.Error("the rebuilt workspace pattern must not be suppressed by a stale verdict")
-	}
-}
-
-// DV5: the workspace build must materialize workspace_repo synapses and record a
-// run, mirroring the repo corpus build.
-func TestWorkspaceCorpusSynapsesAndRun(t *testing.T) {
-	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	bDir, _ := brainDirForKey(env, "gh/acme/b")
-	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
-	seedMemberCorpus(t, bDir, "gh/acme/b", "deploy:release", 4, "mise build", "mise deploy")
-	manifest := workspace.Manifest{Name: "plat", Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/b"}}}
-	if _, err := buildWorkspacePatternCorpus(env, manifest, time.Now()); err != nil {
-		t.Fatal(err)
-	}
-	wsDir, _ := workspaceStore(env).Dir("plat")
-	db, err := openPatternCorpusMutableDB(wsDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	var wsRepoEdges int
-	db.QueryRow(`SELECT COUNT(*) FROM synapses WHERE kind='workspace_repo'`).Scan(&wsRepoEdges)
-	if wsRepoEdges == 0 {
-		t.Error("expected workspace_repo synapses materialized from the per-repo breakdown")
-	}
-	if run, ok := lastPatternRun(wsDir); !ok || run.Patterns == 0 {
-		t.Errorf("expected a workspace run record with patterns, got ok=%v run=%+v", ok, run)
-	}
-}
-
-func TestWorkspaceCorpusHandlesMissingMember(t *testing.T) {
-	env := EntireEnv{PluginDataDir: t.TempDir()}
-	aDir, _ := brainDirForKey(env, "gh/acme/a")
-	seedMemberCorpus(t, aDir, "gh/acme/a", "deploy:release", 4, "mise build", "mise deploy")
-	// gh/acme/missing has no corpus on disk.
-	manifest := workspace.Manifest{
-		Name:  "plat",
-		Repos: []workspace.Repo{{RepoKey: "gh/acme/a"}, {RepoKey: "gh/acme/missing"}},
-	}
-	counts, err := buildWorkspacePatternCorpus(env, manifest, time.Now())
-	if err != nil {
-		t.Fatalf("missing member must not fail the build: %v", err)
-	}
-	if counts.WithCorpus != 1 {
-		t.Errorf("expected 1 member with corpus, got %d", counts.WithCorpus)
-	}
-	if len(counts.Warnings) == 0 {
-		t.Error("expected a warning for the missing member corpus")
-	}
-	// Only one repo has the task -> nothing reaches the workspace level.
-	if counts.Patterns != 0 {
-		t.Errorf("a single-repo pattern must not promote to workspace, got %d", counts.Patterns)
 	}
 }

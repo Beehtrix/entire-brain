@@ -320,7 +320,7 @@ note "route:  $graph_route"
 note "source: $graph_root"
 (cd "$graph_root" && sh scripts/install-local.sh)
 
-say 'entire-brain (store and MCP tools)'
+say 'entire-brain (store and CLI tools)'
 note "source: $brain_root"
 (cd "$brain_root" && sh scripts/install-local.sh)
 
@@ -366,6 +366,5 @@ Then:
   - what was built:   entire brain status
   - what this is:     entire brain overview
   - context a task:   entire brain brief "<task>"
-  - MCP (stdio):      entire brain mcp
   - re-run checks:    entire brain doctor
 DONE

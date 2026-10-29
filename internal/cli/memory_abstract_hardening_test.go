@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestLongAbstractRejectsMaliciousSynthesisCitations(t *testing.T) {
@@ -139,7 +140,7 @@ func TestAbstractResolverCompletenessOrdering(t *testing.T) {
 	}
 	delete(resolver.inventory.ByDigest, digest)
 	resolver.inventory.BySessionRef[view.Ref] = []string{"sha256:" + strings.Repeat("a", 64)}
-	resolver.inventory.Issues = []memoryStateIssue{{Kind: "abstract", Code: memoryErrQueryTooBroad}}
+	resolver.inventory.Issues = []memoryStateIssue{{Kind: "abstract", Code: brainstore.QueryTooBroadCode}}
 	if status, exposed := resolver.status(view); status != abstractStatusDegraded || exposed != nil {
 		t.Fatalf("incomplete stale inference status=%s exposed=%+v", status, exposed)
 	}
@@ -151,7 +152,7 @@ func TestAbstractResolverCarriesAffectedJobIssue(t *testing.T) {
 	if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "fake"}}); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestAbstractResolverPreservesCorruptAndUnsupportedJobCodes(t *testing.T) {
 			if err := saveMemoryConfig(brainDir, memoryConfig{SchemaVersion: memoryConfigSchemaVersion, Abstracts: memoryAbstractsConfig{Enabled: true, Provider: "fake"}}); err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -316,7 +317,7 @@ func TestConcurrentManualGenerationUsesOneDurableJobAndProviderCall(t *testing.T
 	if !equalMemoryAbstractJobOverride(concurrent.AbstractOverride, &override) {
 		t.Fatalf("running provider selection changed: %+v", concurrent.AbstractOverride)
 	}
-	if _, created, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "claude-code", Model: "other"}, now.Add(2*time.Second)); err == nil || !strings.Contains(err.Error(), memoryErrLockBusy) || created {
+	if _, created, err := enqueueManualAbstractJob(brainDir, view.Ref, memoryAbstractJobOverride{Provider: "claude-code", Model: "other"}, now.Add(2*time.Second)); err == nil || !strings.Contains(err.Error(), brainstore.LockBusyCode) || created {
 		t.Fatalf("different concurrent provider selection created=%v err=%v, want typed conflict", created, err)
 	}
 	close(provider.release)
@@ -349,7 +350,7 @@ func TestManualGenerationIsNotStrandedBehindAutomaticDrainShare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +379,7 @@ func TestManualGenerationIsNotStrandedBehindAutomaticDrainShare(t *testing.T) {
 
 func TestDisablingAbstractsCancelsOnlyAutomaticWork(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +492,7 @@ func TestConfigureAbstractsReturnsValidatedMutationReceipt(t *testing.T) {
 	if repeated, repeatedState, repeatedErr := loadMemoryConfigChecked(storage.BrainDir); repeatedErr != nil || repeatedState != memoryConfigCurrent || repeated != stored {
 		t.Fatalf("idempotent configure changed selection=%+v state=%s err=%v", repeated, repeatedState, repeatedErr)
 	}
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -618,7 +619,7 @@ func TestAbstractEgressReceiptAtomicallyReplacesPerSession(t *testing.T) {
 
 func TestStaleAbstractEgressReconciliationUsesDurableJobTruth(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -716,7 +717,7 @@ func TestLegacyAbstractEgressReceiptIsMigrationRequiredAndPurgeable(t *testing.T
 	if len(inventory.Migrations) != 1 || len(inventory.Issues) != 0 || !inventory.Receipts[0].Legacy {
 		t.Fatalf("legacy inventory=%+v", inventory)
 	}
-	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), memoryErrMigrationRequired) || len(receipts) != 1 {
+	if receipts, err := loadAbstractEgressReceiptsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.MigrationRequiredCode) || len(receipts) != 1 {
 		t.Fatalf("checked receipts=%+v err=%v", receipts, err)
 	}
 	files, err := abstractEgressReceiptsForSessionRefsChecked(brainDir, map[string]bool{ref: true})
@@ -939,7 +940,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			brainDir, _ := writeSessionNavigationFixture(t)
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -963,7 +964,7 @@ func TestAbstractPrivacyCleanupNeverFollowsExternalSymlinks(t *testing.T) {
 
 func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 	brainDir, _ := writeSessionNavigationFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -987,10 +988,10 @@ func TestAbstractPrivacyCleanupRefusesRacedReplacementAtUnlink(t *testing.T) {
 	if err := os.WriteFile(replacement, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldLstat := memoryStateLstat
-	defer func() { memoryStateLstat = oldLstat }()
+	oldLstat := brainstore.MemoryStateLstat
+	defer func() { brainstore.MemoryStateLstat = oldLstat }()
 	observations := 0
-	memoryStateLstat = func(path string) (os.FileInfo, error) {
+	brainstore.MemoryStateLstat = func(path string) (os.FileInfo, error) {
 		if path == target {
 			observations++
 			if observations == 3 {

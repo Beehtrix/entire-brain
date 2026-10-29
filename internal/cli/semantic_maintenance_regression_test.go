@@ -5,6 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +32,7 @@ func buildSemanticMaintenanceFixture(t *testing.T) (string, EntireEnv, *fakeComm
 
 func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	sentinel := filepath.Join(brainDir, "unrelated-state.json")
 	if err := os.WriteFile(sentinel, []byte("keep me"), 0o600); err != nil {
 		t.Fatal(err)
@@ -40,7 +43,7 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 	if err := runSemanticReset(context.Background(), resetCmd, opts, semanticResetOptions{force: true, semanticOnly: true}, repo); err != nil {
 		t.Fatalf("semantic-only reset: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, semanticDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(brainDir, semstore.DirName)); !os.IsNotExist(err) {
 		t.Fatalf("semantic artifacts remain: %v", err)
 	}
 	if got, err := os.ReadFile(sentinel); err != nil || string(got) != "keep me" {
@@ -53,22 +56,22 @@ func TestSemanticResetOnlyRemovesSemanticState(t *testing.T) {
 
 func TestSemanticResetRequiresForceBeforeTouchingState(t *testing.T) {
 	repo, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	_ = mustSemanticSource(t, env)
 	err := runSemanticReset(context.Background(), &cobra.Command{Use: "reset"}, opts, semanticResetOptions{semanticOnly: true}, repo)
 	if err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("reset without force error = %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(brainDir, exportManifestFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(brainDir, bmanifest.FileName)); err != nil {
 		t.Fatalf("state changed before force validation: %v", err)
 	}
 }
 
 func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testing.T) {
 	_, env, _, opts := buildSemanticMaintenanceFixture(t)
-	brainDir := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	_ = mustSemanticSource(t, env)
-	before, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	before, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +86,7 @@ func TestSemanticBundleImportRejectsMalformedArchiveBeforeBrainMutation(t *testi
 		(!strings.Contains(err.Error(), "invalid tar") && !strings.Contains(err.Error(), "unexpected EOF") && !strings.Contains(err.Error(), "archive/tar")) {
 		t.Fatalf("malformed archive diagnostic = %v", err)
 	}
-	if got, readErr := os.ReadFile(filepath.Join(brainDir, exportManifestFileName)); readErr != nil || !bytes.Equal(got, before) {
+	if got, readErr := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName)); readErr != nil || !bytes.Equal(got, before) {
 		t.Fatalf("failed import changed active snapshot: %v", readErr)
 	}
 }

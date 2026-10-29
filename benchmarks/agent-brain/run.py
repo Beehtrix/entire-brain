@@ -10558,6 +10558,13 @@ def cmd_run(args: argparse.Namespace) -> int:
     else:
         runners = [parse_runner_spec(x.strip()) for x in args.agents.split(",") if x.strip()]
     conditions = [x.strip() for x in args.conditions.split(",") if x.strip()]
+    removed_mcp = sorted(set(conditions) & MCP_CONDITIONS)
+    if removed_mcp:
+        raise SystemExit(
+            "conditions not runnable: "
+            + ", ".join(removed_mcp)
+            + " require `entire brain mcp`, which was removed; retained mcp_* evidence stays comparable, new runs must use a CLI condition"
+        )
     pricing = load_pricing(args)
     assert_confirmatory_retry_policy(pricing, getattr(args, "agent_retries", 0))
     schedule = build_schedule(

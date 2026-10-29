@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // transcript_store.go is COR-2128's single direct-transcript read path.
@@ -63,7 +64,7 @@ type transcriptStore struct {
 	repoDir string
 
 	// snapMu guards the memoized snapshot. The store outlives its first caller
-	// (a long-lived MCP server shares it for the process), so memoization must
+	// (a long-lived watch loop shares it for the process), so memoization must
 	// not freeze the first attempt's outcome:
 	//
 	//   - a failure caused by the caller's context is never recorded;
@@ -99,7 +100,7 @@ type transcriptManifestStamp struct {
 const transcriptResolveRetryInterval = time.Minute
 
 func (s *transcriptStore) currentManifestStamp() transcriptManifestStamp {
-	info, err := os.Stat(filepath.Join(s.brainDir, exportManifestFileName))
+	info, err := os.Stat(filepath.Join(s.brainDir, bmanifest.FileName))
 	if err != nil {
 		return transcriptManifestStamp{}
 	}
@@ -115,7 +116,7 @@ func newTranscriptStore(runner CommandRunner, brainDir string) *transcriptStore 
 
 // transcriptStores shares resolution for legacy direct-read helpers. Stores
 // revalidate manifest identity and privacy policy across calls, including
-// calls made by long-lived MCP processes.
+// calls made by long-lived processes.
 var transcriptStores sync.Map
 
 func transcriptStoreFor(brainDir string) *transcriptStore {
@@ -137,7 +138,7 @@ func (s *transcriptStore) storageMode() (bool, error) {
 	if s.storageKnown && stamp == s.storageStamp {
 		return s.checkpointStorage, nil
 	}
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return false, err
 	}
@@ -152,7 +153,7 @@ func (s *transcriptStore) storageMode() (bool, error) {
 // file read; only tombstoned brains pay the manifest read that maps sessions
 // to paths (the same two-step every guarded surface uses — see retrieve.go).
 func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
-	guard, err := loadSessionReadGuard(s.brainDir, nil)
+	guard, err := bmanifest.LoadSessionReadGuard(s.brainDir, nil)
 	if err != nil {
 		// Fail closed: an unreadable tombstone file must not open purged
 		// transcripts back up.
@@ -161,11 +162,11 @@ func (s *transcriptStore) guardNow() (sessionReadGuard, error) {
 	if guard.Empty() {
 		return guard, nil
 	}
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: tombstones present but manifest unreadable: %w", err)
 	}
-	guard, err = loadSessionReadGuard(s.brainDir, manifest)
+	guard, err = bmanifest.LoadSessionReadGuard(s.brainDir, manifest)
 	if err != nil {
 		return sessionReadGuard{}, fmt.Errorf("transcript store: %w", err)
 	}
@@ -221,7 +222,7 @@ func (s *transcriptStore) lookupLocation(ctx context.Context, rel string) (trans
 }
 
 func (s *transcriptStore) resolveSnapshot(ctx context.Context) error {
-	manifest, err := loadBrainManifest(s.brainDir)
+	manifest, err := bmanifest.Load(s.brainDir)
 	if err != nil {
 		return fmt.Errorf("transcript store: %w", err)
 	}
@@ -400,7 +401,7 @@ func (s *transcriptStore) Open(ctx context.Context, rel string) (io.Reader, func
 }
 
 // classifyTranscriptReadError labels size refusals with the error code
-// consumers degrade on (history treats memoryErrInputTooLarge as skippable),
+// consumers degrade on (history treats brainstore.InputTooLargeCode as skippable),
 // identically for the file and checkpoint-blob branches.
 //
 // It wraps errHistoryTranscriptTooLarge rather than formatting the code as a

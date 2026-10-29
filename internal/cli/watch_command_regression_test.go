@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 )
 
@@ -44,6 +46,22 @@ func watchCommandFixture(t *testing.T) (Options, string, repoStorage, *[]string)
 	return opts, repoDir, storage, &memoryWorkerLaunches
 }
 
+// readWatchCursor mirrors the watch package's test helper: these root-routed
+// tests stay in cli, and the watch package's in-package helper cannot be
+// shared without an import cycle through its internal tests.
+func readWatchCursor(t *testing.T, path string) watch.Cursor {
+	t.Helper()
+	var c watch.Cursor
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read cursor: %v", err)
+	}
+	if err := json.Unmarshal(data, &c); err != nil {
+		t.Fatalf("parse cursor: %v", err)
+	}
+	return c
+}
+
 func assertMemoryWorkerLaunches(t *testing.T, launches []string, repoDir string, want int) {
 	t.Helper()
 	if len(launches) != want {
@@ -56,7 +74,7 @@ func assertMemoryWorkerLaunches(t *testing.T, launches []string, repoDir string,
 	}
 }
 
-func assertWatchDefaultDidNotSpend(t *testing.T, cursor watchCursor, output string) {
+func assertWatchDefaultDidNotSpend(t *testing.T, cursor watch.Cursor, output string) {
 	t.Helper()
 	if cursor.LastRefreshAt.IsZero() || cursor.LastFingerprint == "" {
 		t.Fatalf("deterministic refresh was not persisted: %+v", cursor)
@@ -100,7 +118,7 @@ func TestWorkspaceWatchCommandOnceUsesMemberCursorWithoutAgent(t *testing.T) {
 		Name:          "watch-fixture",
 		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	cursorPath := filepath.Join(filepath.Dir(storage.HeadPath), "watch.json")
@@ -123,7 +141,7 @@ func TestSupervisedWorkspaceWatchOnceReadsPlanAndRefreshes(t *testing.T) {
 		Name:          "supervised-fixture",
 		Repos:         []workspace.Repo{{RepoKey: storage.Key, LocalPathHint: repoDir}},
 	}
-	if err := workspaceStore(opts.Env).WriteManifest(manifest); err != nil {
+	if err := workspace.DefaultStore(opts.Env).WriteManifest(manifest); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := recordSetupWatchPlan(opts.Env, "test-daemon", setupWatchPlanEntry{Workspace: manifest.Name, Interval: "1h"}); err != nil {

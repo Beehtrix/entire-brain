@@ -1,6 +1,7 @@
 package cli
 
 import (
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"strings"
 	"testing"
 	"time"
@@ -112,11 +113,11 @@ func TestPatternRunRecorded(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	run, ok := lastPatternRun(brainDir)
+	run, ok := patterncore.LastRun(brainDir)
 	if !ok {
 		t.Fatal("expected a recorded run after build")
 	}
-	if run.Episodes == 0 || run.Commits != 3 || run.IndexerVersion != patternIndexerVersion {
+	if run.Episodes == 0 || run.Commits != 3 || run.IndexerVersion != patterncore.IndexerVersion {
 		t.Errorf("run snapshot wrong: %+v", run)
 	}
 
@@ -136,7 +137,7 @@ func TestPatternRunRecorded(t *testing.T) {
 	if com2 := patterntest.CorpusCount(t, db2, "episode_commits"); com2 != com1 {
 		t.Errorf("commits duplicated on rebuild: %d -> %d", com1, com2)
 	}
-	if runs := loadPatternRuns(brainDir); len(runs) != 2 {
+	if runs := patterncore.LoadRuns(brainDir); len(runs) != 2 {
 		t.Errorf("expected 2 run records after 2 builds, got %d", len(runs))
 	}
 }

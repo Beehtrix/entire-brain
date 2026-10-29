@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -19,8 +21,8 @@ func TestSemanticRefreshIdentityWithUnchangedTree(t *testing.T) {
 	if err := runSemanticIndex(ctx, &cobra.Command{}, opts, semanticIndexOptions{graphBinary: "entire"}, repo); err != nil {
 		t.Fatal(err)
 	}
-	brain := filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "example", "repo")
-	manifest, err := loadBrainManifest(brain)
+	brain := filepath.Join(env.PluginDataDir, base.RepoStoreDirName, "gh", "example", "repo")
+	manifest, err := bmanifest.Load(brain)
 	if err != nil {
 		t.Fatal(err)
 	}

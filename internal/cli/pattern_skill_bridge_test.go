@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"os"
 	"testing"
 	"time"
@@ -23,7 +25,7 @@ func findDeployCand(t *testing.T, cands []taskCandidate) *taskCandidate {
 
 func TestCorpusTaskCandidatesAdapter(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	cands, ok := loadCorpusTaskCandidates(brainDir)
+	cands, ok := patterncore.LoadCorpusTaskCandidates(brainDir)
 	if !ok {
 		t.Fatal("expected corpus-backed task candidates")
 	}
@@ -42,7 +44,7 @@ func TestCorpusTaskCandidatesAdapter(t *testing.T) {
 func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
 	repoDir := t.TempDir()
-	cands, _ := loadCorpusTaskCandidates(brainDir)
+	cands, _ := patterncore.LoadCorpusTaskCandidates(brainDir)
 	cand := findDeployCand(t, cands)
 
 	run := func(ctx context.Context, dir string, args []string, input []byte, timeout time.Duration) (string, error) {
@@ -57,17 +59,17 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 
 	// Recorded under the corpus pattern id.
-	mem := skillMemoryByPatternID(mustLoadSkillMemory(brainDir))
+	mem := patterncore.SkillMemoryByPatternID(mustLoadSkillMemory(brainDir))
 	rec, ok := mem[cand.ID]
 	if !ok {
 		t.Fatalf("skill-memory not recorded under corpus id %s", cand.ID)
 	}
-	if rec.Status != skillStatusActive || len(rec.Installs) == 0 {
+	if rec.Status != patterncore.SkillStatusActive || len(rec.Installs) == 0 {
 		t.Errorf("unexpected record: %+v", rec)
 	}
 
 	// Lifecycle agrees with the V2 listing: the formed skill is current (suppressed).
-	views, _, _ := loadCorpusPatternViews(brainDir)
+	views, _, _ := patterncore.LoadCorpusPatternViews(brainDir)
 	var view *patternView
 	for i := range views {
 		if views[i].ID == cand.ID {
@@ -77,7 +79,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	if view == nil {
 		t.Fatal("formed pattern missing from corpus listing")
 	}
-	if !evaluateSkillMemory(rec, view).suppressInListing() {
+	if !patterncore.EvaluateSkillMemory(rec, view).SuppressInListing() {
 		t.Error("a freshly-formed, unchanged skill should be suppressed (current) in the listing")
 	}
 
@@ -87,11 +89,11 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 	}
 
 	// Hand-edit detection: mutate the installed file → edited.
-	editPath := expandHomePath(rec.Installs[0].Path)
+	editPath := patterncore.ExpandHomePath(rec.Installs[0].Path)
 	if err := os.WriteFile(editPath, []byte("hand edited"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if sub := evaluateSkillMemory(rec, view).Sub; sub != skillSubEdited {
+	if sub := patterncore.EvaluateSkillMemory(rec, view).Sub; sub != patterncore.SkillSubEdited {
 		t.Errorf("hand-edited skill should report edited, got %q", sub)
 	}
 }
@@ -101,7 +103,7 @@ func TestSkillFormUnderCorpusIDAndLifecycle(t *testing.T) {
 // a proposal; only an accepted deep dossier makes it formable.
 func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,13 +160,13 @@ func TestSkillProposalsRequireAcceptedDeepDossier(t *testing.T) {
 
 func TestSkillFilterDeclinedAndReconsider(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	cands, _ := loadCorpusTaskCandidates(brainDir)
+	cands, _ := patterncore.LoadCorpusTaskCandidates(brainDir)
 	cand := findDeployCand(t, cands)
 
 	// Declined + unchanged evidence → suppressed from the listing.
-	matchingFP := patternEvidenceFingerprint(taskView(*cand))
+	matchingFP := patterncore.PatternEvidenceFingerprint(taskView(*cand))
 	if err := recordSkillDecision(brainDir, skillMemoryRecord{
-		PatternID: cand.ID, Status: skillStatusDeclined, Fingerprint: matchingFP,
+		PatternID: cand.ID, Status: patterncore.SkillStatusDeclined, Fingerprint: matchingFP,
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)
@@ -178,7 +180,7 @@ func TestSkillFilterDeclinedAndReconsider(t *testing.T) {
 
 	// Declined but evidence materially changed → reconsider (stays visible).
 	if err := recordSkillDecision(brainDir, skillMemoryRecord{
-		PatternID: cand.ID, Status: skillStatusDeclined, Fingerprint: "sha256:stale-different",
+		PatternID: cand.ID, Status: patterncore.SkillStatusDeclined, Fingerprint: "sha256:stale-different",
 		CreatedAt: time.Now(), UpdatedAt: time.Now(),
 	}); err != nil {
 		t.Fatal(err)

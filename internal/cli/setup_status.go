@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"io"
 	"os"
 	"os/exec"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
 )
 
@@ -93,8 +96,8 @@ type brainStatusOnboarding struct {
 	//
 	// This is the product's worst failure mode and it is SILENT -- setup
 	// succeeds, every source reads healthy, and the brain is simply never
-	// consulted. These fields are for the text renderer; JSON and MCP receive
-	// the same diagnostic through the status report's existing warnings field.
+	// consulted. These fields are for the text renderer; JSON receives the
+	// same diagnostic through the status report's existing warnings field.
 	AgentsUnwired bool `json:"-"`
 	// AgentsMissing names what is absent, so the line can say which half.
 	AgentsMissing []string `json:"-"`
@@ -108,7 +111,7 @@ type brainStatusOnboarding struct {
 // re-run from re-spending on it.
 func factsBackfillStatusForBrain(brainDir string) factsBackfillStatus {
 	status := factsBackfillStatus{}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil || manifest == nil || manifest.Sources == nil || manifest.Sources.Sessions == nil {
 		return status
 	}
@@ -164,7 +167,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Facts.LogPath = state.LogPath
 		onboarding.Facts.Running = onboarding.Facts.Pending() > 0 && backfillRunning(storage.BrainDir, state.PID)
 	}
-	if cursor := loadWatchCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
+	if cursor := watch.LoadCursor(filepath.Join(stateDir, "watch.json")); !cursor.LastRefreshAt.IsZero() {
 		onboarding.LastTickAt = cursor.LastRefreshAt
 	}
 	var watchPlanErr error
@@ -178,7 +181,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 		onboarding.Daemon.Detail = strings.TrimSpace(onboarding.Daemon.Detail + "; watch plan unavailable: " + watchPlanErr.Error())
 	}
 	onboarding.Components = instantPhaseComponents(manifest, readSetupInstantRecord(stateDir), componentRunTimes(storage.BrainDir))
-	onboarding.Paused = backgroundPaused(opts.Env)
+	onboarding.Paused = clibase.BackgroundPaused(opts.Env)
 	return onboarding
 }
 
@@ -202,7 +205,7 @@ func buildBrainOnboardingStatus(ctx context.Context, opts Options, storage repoS
 // behaviour, which errs toward still reporting the failure.
 func componentRunTimes(brainDir string) map[string]time.Time {
 	runs := map[string]time.Time{}
-	if run, ok, err := lastPatternRunChecked(brainDir); err == nil && ok {
+	if run, ok, err := patterncore.LastRunChecked(brainDir); err == nil && ok {
 		if at, parseErr := time.Parse(time.RFC3339, run.At); parseErr == nil {
 			runs[brainComponentPatterns] = at.UTC()
 		}

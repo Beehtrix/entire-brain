@@ -54,7 +54,7 @@ type SessionTombstoneFileState struct {
 }
 
 // SessionTombstoneLoadError keeps privacy failures machine-classifiable on
-// every CLI/MCP serving and derivation boundary. Its Error prefix is also the
+// every serving and derivation boundary. Its Error prefix is also the
 // repository's established JSON command-error contract.
 type SessionTombstoneLoadError struct {
 	Code    string

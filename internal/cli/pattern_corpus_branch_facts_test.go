@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +19,7 @@ import (
 
 func patternCorpusIndexedSHAs(t *testing.T, brainDir string) map[string]string {
 	t.Helper()
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatalf("open corpus: %v", err)
 	}
@@ -53,7 +55,7 @@ func twoBranchCorpusFixture(t *testing.T, now time.Time) string {
 
 func seedBranchFact(t *testing.T, brainDir, branch, id string, now time.Time) {
 	t.Helper()
-	if err := writeFacts(brainDir, branch, []factRecord{{
+	if err := factstore.Write(brainDir, branch, []factRecord{{
 		ID: id, Paths: []string{"preferences.style.x"}, Text: "The user prefers table-driven tests.",
 		Branch: branch, Origin: "distilled", Status: "active", UpdatedAt: now,
 	}}); err != nil {

@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 const (
@@ -217,7 +218,7 @@ func (c *memoryCoordinator) startHeartbeat(interval time.Duration, clock memoryC
 }
 
 func loadMemoryCoordinatorState(brainDir string) (memoryCoordinatorState, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryCoordinatorStateRel, "coordinator state", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryCoordinatorStateRel, "coordinator state", base.MaxManifestBytes)
 	if err != nil {
 		return memoryCoordinatorState{}, err
 	}
@@ -301,13 +302,13 @@ func appendMemoryWorkerLog(brainDir string, now time.Time, event, owner string) 
 
 func appendMemoryWorkerLogLine(brainDir string, now time.Time, event, owner, suffix string) error {
 	var previous []byte
-	if data, present, err := readMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes+1); err == nil && present {
+	if data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes+1); err == nil && present {
 		previous = data
 		if len(previous) > memoryWorkerLogMaxBytes {
 			previous = nil
 		}
 		if len(previous) > memoryWorkerLogMaxBytes/2 {
-			if archived, archivedPresent, err := readMemoryStateFile(brainDir, memoryWorkerLogArchiveRel, "worker log archive", memoryWorkerLogMaxBytes); err == nil && archivedPresent {
+			if archived, archivedPresent, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogArchiveRel, "worker log archive", memoryWorkerLogMaxBytes); err == nil && archivedPresent {
 				if err := brainstore.WriteBrainRelativeFileAtomic(brainDir, memoryWorkerLogArchive2Rel, archived, 0o600); err != nil {
 					return err
 				}
@@ -330,7 +331,7 @@ func appendMemoryWorkerLogLine(brainDir string, now time.Time, event, owner, suf
 }
 
 func memoryWorkerLogHealth(brainDir string) (map[string]any, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogRel, "worker log", memoryWorkerLogMaxBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -351,7 +352,7 @@ func memoryWorkerLogHealth(brainDir string) (map[string]any, error) {
 			}
 		}
 	}
-	if archived, present, err := readMemoryStateFile(brainDir, memoryWorkerLogArchiveRel, "worker log archive", memoryWorkerLogMaxBytes); err != nil {
+	if archived, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogArchiveRel, "worker log archive", memoryWorkerLogMaxBytes); err != nil {
 		return nil, err
 	} else if present {
 		health["rotated"] = true
@@ -359,7 +360,7 @@ func memoryWorkerLogHealth(brainDir string) (map[string]any, error) {
 	} else {
 		health["rotated"] = false
 	}
-	if archived, present, err := readMemoryStateFile(brainDir, memoryWorkerLogArchive2Rel, "oldest worker log archive", memoryWorkerLogMaxBytes); err != nil {
+	if archived, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryWorkerLogArchive2Rel, "oldest worker log archive", memoryWorkerLogMaxBytes); err != nil {
 		return nil, err
 	} else if present {
 		health["rotated_files"] = 2
@@ -394,7 +395,7 @@ func writeMemoryCancellationRequest(brainDir string, job memoryJob, now time.Tim
 }
 
 func loadMemoryCancellationRequest(brainDir, jobID string) (*memoryCancellationRequest, error) {
-	data, present, err := readMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, memoryCancellationRel(jobID), "cancellation request", base.MaxManifestBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +428,7 @@ func removeMemoryCancellationRequest(brainDir, jobID string) error {
 }
 
 func pruneMemoryJobsLocked(brainDir string, jobs []memoryJob, now time.Time) (int, error) {
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		return 0, err
 	}

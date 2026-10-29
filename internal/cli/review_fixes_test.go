@@ -3,6 +3,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +19,7 @@ import (
 // Skill creation path.
 
 func TestPatternsCommandHasNoFormSubcommand(t *testing.T) {
-	cmd := newPatternsCommand(Options{})
+	cmd := patternscmd.New(patternsCmdConfig(Options{}))
 	names := map[string]bool{}
 	for _, c := range cmd.Commands() {
 		names[c.Name()] = true
@@ -119,7 +122,7 @@ func TestFormPreviewWritesNothing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo, ".agents", "skills", "ship-it", "SKILL.md")); !os.IsNotExist(err) {
 		t.Error("preview must not write skill files")
 	}
-	recs, err := loadBrainSkillMemory(store)
+	recs, err := patterncore.LoadBrainSkillMemory(store)
 	if err != nil {
 		t.Fatalf("preview memory load: %v", err)
 	}
@@ -153,8 +156,8 @@ func TestFormYesWritesAndRecords(t *testing.T) {
 	if _, err := os.Stat(skillPath); err != nil {
 		t.Fatalf("--yes should write the skill file: %v", err)
 	}
-	recs, _ := loadBrainSkillMemory(store)
-	if len(recs) != 1 || recs[0].PatternID != "task:x" || recs[0].Status != skillStatusActive {
+	recs, _ := patterncore.LoadBrainSkillMemory(store)
+	if len(recs) != 1 || recs[0].PatternID != "task:x" || recs[0].Status != patterncore.SkillStatusActive {
 		t.Fatalf("--yes should record skill memory: %+v", recs)
 	}
 	// Existing file requires --force.
@@ -187,7 +190,7 @@ func TestFormRejectsNotASkill(t *testing.T) {
 	if !strings.Contains(out.String(), "not a skill") {
 		t.Errorf("expected not-a-skill message, got: %s", out.String())
 	}
-	recs, err := loadBrainSkillMemory(store)
+	recs, err := patterncore.LoadBrainSkillMemory(store)
 	if err != nil {
 		t.Fatalf("NOT_A_SKILL memory load: %v", err)
 	}
@@ -280,7 +283,7 @@ func TestCandidateEval(t *testing.T) {
 
 func TestWorkspaceSkillsListJSONRedacts(t *testing.T) {
 	env := EntireEnv{PluginDataDir: t.TempDir()}
-	wsDir, err := workspaceStore(env).Dir("platform")
+	wsDir, err := workspace.DefaultStore(env).Dir("platform")
 	if err != nil {
 		t.Fatal(err)
 	}

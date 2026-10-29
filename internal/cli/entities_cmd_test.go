@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/entities"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/entityindex"
 )
 
@@ -185,7 +186,7 @@ func entityFixtureGitFallback(name string, args []string) (fakeCommandResponse, 
 func (f *entityIndexFixture) writeSessionManifest(t *testing.T) {
 	t.Helper()
 	manifest := exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		GeneratedAt:   time.Date(2026, 7, 3, 0, 0, 0, 0, time.UTC),
 		DefaultBranch: "main",
 		Sessions: []exportSession{{
@@ -196,7 +197,7 @@ func (f *entityIndexFixture) writeSessionManifest(t *testing.T) {
 			TranscriptPath:   "sessions/s.jsonl",
 		}},
 	}
-	if err := writeJSONFile(filepath.Join(f.storage.BrainDir, exportManifestFileName), manifest); err != nil {
+	if err := writeJSONFile(filepath.Join(f.storage.BrainDir, bmanifest.FileName), manifest); err != nil {
 		t.Fatalf("write manifest: %v", err)
 	}
 }
@@ -662,58 +663,6 @@ func TestEntityProvenanceFallsBackWhenUnresolvable(t *testing.T) {
 	records = []factRecord{{Text: "unrelated", Locus: []string{"nothinghere"}, Provenance: []factAnchor{fallback}}}
 	if got := entities.ApplyProvenance(records, resolver); got[0].Provenance[0] != fallback {
 		t.Fatalf("an unresolvable locus changed the anchor: %+v", got[0].Provenance[0])
-	}
-}
-
-// TestBrainEntityHistoryMCPToolIsExposedAndAnswers locks the agent surface:
-// the tool is declared, its arguments validate, and it answers from the same
-// query path as the CLI.
-func TestBrainEntityHistoryMCPToolIsExposedAndAnswers(t *testing.T) {
-	fixture := newEntityIndexFixture(t)
-	fixture.writeSessionManifest(t)
-	fixture.run(t, "entities", "backfill", "--json")
-
-	declared := false
-	for _, tool := range mcpToolDefinitions() {
-		if tool["name"] == "brain_entity_history" {
-			declared = true
-			if _, ok := tool["inputSchema"].(map[string]any); !ok {
-				t.Fatal("brain_entity_history has no input schema")
-			}
-		}
-	}
-	if !declared {
-		t.Fatal("brain_entity_history is not in the MCP tool surface")
-	}
-	if err := validateMCPToolArguments("brain_entity_history", map[string]any{"query": "ChargeCard", "limit": 5, "branch": "main"}); err != nil {
-		t.Fatalf("valid arguments rejected: %v", err)
-	}
-	if err := validateMCPToolArguments("brain_entity_history", map[string]any{"query": "x", "bogus": 1}); err == nil {
-		t.Fatal("an unknown argument was accepted")
-	}
-
-	raw, err := json.Marshal(map[string]any{"name": "brain_entity_history", "arguments": map[string]any{"query": "ChargeCard"}})
-	if err != nil {
-		t.Fatalf("marshal call: %v", err)
-	}
-	response, err := handleMCPToolCall(context.Background(), fixture.opts, raw)
-	if err != nil {
-		t.Fatalf("tool call: %v", err)
-	}
-	content, _ := response["content"].([]map[string]any)
-	if len(content) == 0 {
-		t.Fatalf("empty tool response: %+v", response)
-	}
-	text, _ := content[0]["text"].(string)
-	var result entities.HistoryResult
-	if err := json.Unmarshal([]byte(text), &result); err != nil {
-		t.Fatalf("tool output is not the history contract: %v\n%s", err, text)
-	}
-	if len(result.Matches) != 1 || result.Matches[0].Name != "ChargeCard" {
-		t.Fatalf("tool matches = %+v", result.Matches)
-	}
-	if len(result.Matches[0].Occurrences) != 2 {
-		t.Fatalf("tool occurrences = %+v", result.Matches[0].Occurrences)
 	}
 }
 

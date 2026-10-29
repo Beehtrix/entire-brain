@@ -15,6 +15,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 // memory_state.go is the durable work record: content-free lifecycle hint
@@ -87,14 +88,14 @@ func writeMemoryHint(brainDir, repoKey, sessionID, branch, event string, now tim
 	if strings.TrimSpace(sessionID) == "" {
 		return memoryLifecycleHint{}, fmt.Errorf("a non-empty session id is required; sessions without one are discovered by reconciliation")
 	}
-	if manifest, err := loadBrainManifest(brainDir); err != nil {
+	if manifest, err := bmanifest.Load(brainDir); err != nil {
 		return memoryLifecycleHint{}, err
 	} else if strings.TrimSpace(manifest.RepoKey) != "" && repoKey != manifest.RepoKey {
 		return memoryLifecycleHint{}, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
 	}
 	rel := memoryHintRel(repoKey, sessionID, branch)
 	hint := memoryLifecycleHint{SchemaVersion: memoryHintSchemaVersion, RepoKey: repoKey, SessionID: sessionID, Branch: branch}
-	if data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes); err == nil && present {
+	if data, present, err := brainstore.ReadMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes); err == nil && present {
 		var prev memoryLifecycleHint
 		if err := json.Unmarshal(data, &prev); err != nil {
 			return memoryLifecycleHint{}, fmt.Errorf("memory_state_corrupt: lifecycle hint cannot be parsed")
@@ -135,36 +136,6 @@ func appendMemoryStateIssue(issues []memoryStateIssue, issue memoryStateIssue) [
 	return issues
 }
 
-func memoryErrorCode(err error) string {
-	if err == nil {
-		return ""
-	}
-	message := err.Error()
-	for _, code := range []string{
-		memoryErrSessionInventory,
-		brainstore.StateUnsafeCode,
-		brainstore.UnsupportedVersionCode,
-		memoryErrMigrationRequired,
-		memoryErrSourceStale,
-		memoryErrCancelTooLate,
-		memoryErrCancelled,
-		memoryErrLockBusy,
-		memoryErrQueryTooBroad,
-		memoryErrInputTooLarge,
-		memoryErrPrivacyExcluded,
-		brainstore.PrivacyDirtyCode,
-		brainstore.PrivacyBusyCode,
-		memoryErrIdentityAmbiguous,
-		memoryErrProviderUnavail,
-		brainstore.StateCorruptCode,
-	} {
-		if strings.Contains(message, code) {
-			return code
-		}
-	}
-	return brainstore.StateCorruptCode
-}
-
 type memoryStateLoadError struct {
 	Issues []memoryStateIssue
 }
@@ -184,7 +155,7 @@ func memoryStateSeverityRank(code string) int {
 		return 0
 	case brainstore.StateCorruptCode:
 		return 1
-	case memoryErrMigrationRequired:
+	case brainstore.MigrationRequiredCode:
 		return 2
 	case brainstore.UnsupportedVersionCode:
 		return 3
@@ -226,16 +197,16 @@ type memoryHintInventory struct {
 }
 
 func loadMemoryHintInventory(brainDir string) memoryHintInventory {
-	directory, err := readMemoryStateDirectory(brainDir, memoryHintsDirRel, "hint directory", memoryStateInventoryMaxEntries)
+	directory, err := brainstore.ReadMemoryStateDirectory(brainDir, memoryHintsDirRel, "hint directory", brainstore.MemoryStateInventoryMaxEntries)
 	inventory := memoryHintInventory{EntriesObserved: directory.Total, Truncated: directory.Truncated, Degraded: directory.Degraded}
 	if err != nil {
-		inventory.Issues = []memoryStateIssue{{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: memoryErrorCode(err)}}
+		inventory.Issues = []memoryStateIssue{{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: brainstore.MemoryErrorCode(err)}}
 		return inventory
 	}
 	if directory.Truncated {
 		inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint_directory", File: filepath.Base(memoryHintsDirRel), Code: brainstore.StateUnsafeCode})
 	}
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	expectedRepoKey := ""
 	if manifestErr == nil {
 		expectedRepoKey = manifest.RepoKey
@@ -259,10 +230,10 @@ func loadMemoryHintInventory(brainDir string) memoryHintInventory {
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryHintsDirRel, entry.Name()))
-		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "lifecycle hint", base.MaxManifestBytes, info)
+		data, present, err := brainstore.ReadMemoryStateFileRefreshed(brainDir, rel, "lifecycle hint", base.MaxManifestBytes, info)
 		if err != nil || !present {
 			inventory.Degraded = true
-			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: memoryErrorCode(err)})
+			inventory.Issues = appendMemoryStateIssue(inventory.Issues, memoryStateIssue{Kind: "hint", File: entry.Name(), Code: brainstore.MemoryErrorCode(err)})
 			continue
 		}
 		var hint memoryLifecycleHint
@@ -305,12 +276,12 @@ func removeMemoryHint(brainDir string, hint memoryLifecycleHint) error {
 }
 
 func removeMemoryHintIfCurrent(brainDir string, hint memoryLifecycleHint) (bool, error) {
-	if manifest, err := loadBrainManifest(brainDir); err == nil && strings.TrimSpace(manifest.RepoKey) != "" && hint.RepoKey != manifest.RepoKey {
+	if manifest, err := bmanifest.Load(brainDir); err == nil && strings.TrimSpace(manifest.RepoKey) != "" && hint.RepoKey != manifest.RepoKey {
 		return false, fmt.Errorf("%s: lifecycle hint repository identity does not match this Brain", brainstore.StateUnsafeCode)
 	}
 	rel := memoryHintRel(hint.RepoKey, hint.SessionID, hint.Branch)
 	full := filepath.Join(brainDir, filepath.FromSlash(rel))
-	data, present, err := readMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, rel, "lifecycle hint", base.MaxManifestBytes)
 	if err != nil {
 		return false, err
 	}
@@ -525,14 +496,14 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 		ScanComplete:       true,
 	}
 	dirRel := filepath.FromSlash(memoryJobsDirRel)
-	directory, err := readMemoryStateDirectory(brainDir, filepath.ToSlash(dirRel), "job directory", memoryStateInventoryMaxEntries)
+	directory, err := brainstore.ReadMemoryStateDirectory(brainDir, filepath.ToSlash(dirRel), "job directory", brainstore.MemoryStateInventoryMaxEntries)
 	if err != nil {
 		// Nothing was enumerated at all, so this is the LEAST complete scan
 		// there is. Returning with the initialised ScanComplete = true made
 		// `memory jobs --json` report an empty queue as fully observed and
 		// suppressed the "bounded partial inventory" warning.
 		inventory.ScanComplete = false
-		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: memoryErrorCode(err)})
+		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: brainstore.MemoryErrorCode(err)})
 		return inventory
 	}
 	inventory.EntriesObserved = directory.Total
@@ -543,7 +514,7 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 		inventory.recordIssue(memoryStateIssue{Kind: "job_directory", File: filepath.Base(memoryJobsDirRel), Code: brainstore.StateUnsafeCode})
 	}
 	entries := directory.Entries
-	manifest, manifestErr := loadBrainManifest(brainDir)
+	manifest, manifestErr := bmanifest.Load(brainDir)
 	expectedRepoKey := ""
 	if manifestErr == nil {
 		expectedRepoKey = strings.TrimSpace(manifest.RepoKey)
@@ -568,13 +539,13 @@ func loadMemoryJobInventoryPage(brainDir string, maxAccepted int, accept func(me
 			continue
 		}
 		rel := filepath.ToSlash(filepath.Join(memoryJobsDirRel, entry.Name()))
-		if err := rejectBrainRootPathSymlinks(brainDir, filepath.FromSlash(rel)); err != nil {
+		if err := base.RejectBrainRootPathSymlinks(brainDir, filepath.FromSlash(rel)); err != nil {
 			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.StateUnsafeCode})
 			continue
 		}
-		data, present, err := readMemoryStateFileRefreshed(brainDir, rel, "memory job", base.MaxManifestBytes, info)
+		data, present, err := brainstore.ReadMemoryStateFileRefreshed(brainDir, rel, "memory job", base.MaxManifestBytes, info)
 		if err != nil || !present {
-			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: memoryErrorCode(err)})
+			inventory.recordIssue(memoryStateIssue{Kind: "job", File: entry.Name(), Code: brainstore.MemoryErrorCode(err)})
 			continue
 		}
 		var header struct {
@@ -927,7 +898,7 @@ func validMemoryJobErrorCode(code string) bool {
 
 func requestMemoryJobCancellation(brainDir string, job memoryJob, now time.Time) (memoryJob, error) {
 	if job.State != memoryJobStateRunning {
-		return job, errors.New(memoryErrCancelTooLate + ": job is no longer running")
+		return job, errors.New(brainstore.CancelTooLateCode + ": job is no longer running")
 	}
 	job.CancelRequestedAt = &now
 	return job, writeMemoryCancellationRequest(brainDir, job, now)

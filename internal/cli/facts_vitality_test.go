@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/spf13/cobra"
 )
 
@@ -45,7 +47,7 @@ func vitalityTestFact(text, branch string, now time.Time) factRecord {
 		Paths:     paths,
 		Text:      text,
 		Branch:    branch,
-		Origin:    factOriginAuthored,
+		Origin:    factstore.OriginAuthored,
 		Status:    factStatusActive,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -77,7 +79,7 @@ func vitalitySidecarBytes(t *testing.T, brainDir, branch string) []byte {
 func TestVitalityRecallRecordsServeReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The retrieval cache invalidates on manifest change.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -159,7 +161,7 @@ func TestVitalityRecallNoHitSkipsHeadLookupAndReceipt(t *testing.T) {
 func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Unified retrieval merges facts history docs with RRF.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -214,7 +216,7 @@ func TestVitalityRetrieveGetAndStatusSurfaces(t *testing.T) {
 func TestVitalityBriefRecordsServeReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Verification requires the media playback capstone suite.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	// brief consults facts only when the manifest declares the source.
@@ -247,7 +249,7 @@ func TestVitalityBriefRecordsServeReceipts(t *testing.T) {
 func TestVitalityHookSurfacesRecordReceipts(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("internal/cli/distill_cmd.go owns the distill flag surface.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -289,7 +291,7 @@ func TestVitalityFailedEmissionDoesNotRecordReceipt(t *testing.T) {
 			t.Run(surface+"/"+mode, func(t *testing.T) {
 				f := newVerifyFixture(t)
 				fact := vitalityTestFact("internal/cli/distill_cmd.go owns retrieval cache invalidation.", "main", f.now)
-				if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+				if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 					t.Fatalf("write facts: %v", err)
 				}
 				var args []string
@@ -348,7 +350,7 @@ func TestWriteTextStreamsAndShortCircuitsOnFailure(t *testing.T) {
 	w := &chunkFailWriter{failAfter: 5}
 	cmd := &cobra.Command{}
 	cmd.SetOut(w)
-	err := writeText(cmd, func(out io.Writer) {
+	err := cmdutil.WriteText(cmd, func(out io.Writer) {
 		fmt.Fprint(out, "aaa") // 3 bytes, accepted
 		fmt.Fprint(out, "bbb") // total now 6 -> subsequent writes fail
 		fmt.Fprint(out, "ccc") // dropped by the sticky writer
@@ -361,51 +363,6 @@ func TestWriteTextStreamsAndShortCircuitsOnFailure(t *testing.T) {
 	// body (and emit nothing at all once a later write fails).
 	if len(w.writes) != 2 || w.writes[0] != "aaa" || w.writes[1] != "bbb" {
 		t.Fatalf("writeText did not stream incrementally: %#v", w.writes)
-	}
-}
-
-func TestVitalityMCPSurfacesRecordReceipts(t *testing.T) {
-	repoDir := t.TempDir()
-	env := semanticTestEnv(t, repoDir)
-	runner := semanticFixtureRunner(repoDir, semanticFixtureSnapshot("1.0"))
-	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
-	opts := Options{Version: "test-version", Env: env, Runner: runner, Now: func() time.Time { return now }}
-	storage, err := repoStoragePaths((&cobra.Command{}).Context(), runner, env, repoDir)
-	if err != nil {
-		t.Fatalf("storage: %v", err)
-	}
-	branch := "feature/mcp"
-	fact := vitalityTestFact("qmd retrieval alpha contract", branch, now)
-	if err := writeFacts(storage.BrainDir, branch, []factRecord{fact}); err != nil {
-		t.Fatalf("write facts: %v", err)
-	}
-
-	input := frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_search","arguments":{"query":"qmd retrieval alpha","limit":1,"branch":%q}}}`, branch)) +
-		frameMCP(fmt.Sprintf(`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"brain_get","arguments":{"id":%q,"branch":%q}}}`, fact.ID, branch))
-	var out bytes.Buffer
-	if err := runMCP((&cobra.Command{}).Context(), strings.NewReader(input), &out, opts); err != nil {
-		t.Fatalf("mcp: %v", err)
-	}
-	for i, response := range readMCPResponses(t, out.String()) {
-		if response["error"] != nil {
-			t.Fatalf("response %d returned error: %+v", i+1, response)
-		}
-	}
-
-	rollup := vitalityViewOrFatal(t, storage.BrainDir, branch)
-	entry := rollup.Facts[fact.ID]
-	if entry == nil || entry.Served != 2 {
-		t.Fatalf("mcp receipts = %+v", entry)
-	}
-	if entry.Surfaces["mcp:brain_search"] != 1 || entry.Surfaces["mcp:brain_get"] != 1 {
-		t.Fatalf("mcp surfaces = %+v", entry.Surfaces)
-	}
-	if entry.LastHead != "aaa111" {
-		t.Fatalf("mcp head = %q", entry.LastHead)
-	}
-	sidecar := string(vitalitySidecarBytes(t, storage.BrainDir, branch))
-	if strings.Contains(sidecar, "qmd retrieval alpha\"") || strings.Contains(sidecar, `"task":"`) {
-		t.Fatalf("raw query text persisted:\n%s", sidecar)
 	}
 }
 
@@ -684,7 +641,7 @@ func TestVitalityAppendPreservesAbsorbedMarkerAcrossTornTail(t *testing.T) {
 func TestVitalityCorruptLogAndRollupDegrade(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("The corrupt sidecar must not break recall.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 
@@ -826,7 +783,7 @@ func TestVitalityViewDoesNotBypassSymlinkedLockDirectory(t *testing.T) {
 func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 	f := newVerifyFixture(t)
 	fact := vitalityTestFact("Reads survive an unwritable vitality sidecar.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	// A directory where the log should be makes every append fail.
@@ -856,7 +813,7 @@ func TestVitalityUnwritableSidecarPreservesReads(t *testing.T) {
 func TestVitalityMissingFactReceiptsAreFlagged(t *testing.T) {
 	f := newVerifyFixture(t)
 	kept := vitalityTestFact("This fact still exists.", "main", f.now)
-	if err := writeFacts(f.brainDir, "main", []factRecord{kept}); err != nil {
+	if err := factstore.Write(f.brainDir, "main", []factRecord{kept}); err != nil {
 		t.Fatalf("write facts: %v", err)
 	}
 	events := []vitalityEvent{

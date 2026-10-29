@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -9,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // factsAvailabilityFixture builds a brain that really holds one authored fact
@@ -35,13 +36,13 @@ func factsAvailabilityFixture(t *testing.T) (Options, string, string) {
 		Paths:      []string{"project.tooling.stack"},
 		Text:       "the alpha subsystem stores checkpoints in postgres",
 		Branch:     "feature",
-		Origin:     factOriginAuthored,
+		Origin:     factstore.OriginAuthored,
 		Status:     factStatusActive,
 		Provenance: []factAnchor{{SessionID: "session-1"}},
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}}
-	if err := writeFacts(storage.BrainDir, "feature", facts); err != nil {
+	if err := factstore.Write(storage.BrainDir, "feature", facts); err != nil {
 		t.Fatal(err)
 	}
 	if err := updateFactSourceManifest(storage.BrainDir, now); err != nil {
@@ -52,14 +53,14 @@ func factsAvailabilityFixture(t *testing.T) (Options, string, string) {
 
 func removeFactStore(t *testing.T, brainDir, branch string) {
 	t.Helper()
-	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(factsFileRelPath(branch)))); err != nil {
+	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(factstore.FileRelPath(branch)))); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // TestStatusReportsDeclaredFactBranchWithMissingStore is the honesty contract:
 // the manifest's fact counts are a claim about branches, not about files.
-// loadFacts reads an absent store as an empty branch, so when the store is gone
+// factstore.Load reads an absent store as an empty branch, so when the store is gone
 // status/brain_status keep reporting "facts: 1 across 1 branch(es)" while every
 // recall surface returns nothing. The caller must be told.
 func TestStatusReportsDeclaredFactBranchWithMissingStore(t *testing.T) {
@@ -105,28 +106,8 @@ func TestStatusReportsDeclaredFactBranchWithMissingStore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("status: %v\n%s", err, statusOut)
 	}
-	if !strings.Contains(statusOut, factsFileName) {
+	if !strings.Contains(statusOut, factstore.FileName) {
 		t.Fatalf("status output does not report the missing fact store:\n%s", statusOut)
-	}
-
-	// The MCP tool result is the surface an agent actually reads.
-	var mcpOut bytes.Buffer
-	input := frameMCP(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"brain_status","arguments":{}}}`)
-	if err := runMCP(context.Background(), strings.NewReader(input), &mcpOut, opts); err != nil {
-		t.Fatalf("MCP brain_status: %v", err)
-	}
-	responses := readMCPResponses(t, mcpOut.String())
-	if len(responses) != 1 {
-		t.Fatalf("MCP responses = %d", len(responses))
-	}
-	payload := mcpTextJSONPayload(t, responses[0])
-	mcpFacts, _ := payload["facts"].(map[string]any)
-	if mcpFacts == nil {
-		t.Fatalf("MCP brain_status dropped the facts section: %#v", payload)
-	}
-	branches, _ := mcpFacts["missing_branches"].([]any)
-	if len(branches) != 1 || branches[0] != "feature" {
-		t.Fatalf("MCP brain_status facts.missing_branches = %#v, want [feature]", mcpFacts["missing_branches"])
 	}
 }
 
@@ -152,7 +133,7 @@ func TestBrainBriefWarnsWhenFactStoreIsMissing(t *testing.T) {
 	if strings.Contains(degraded, "fact-1") {
 		t.Fatalf("degraded brief still carried the fact:\n%s", degraded)
 	}
-	if !strings.Contains(degraded, factsFileName) {
+	if !strings.Contains(degraded, factstore.FileName) {
 		t.Fatalf("brief reported a present facts source that contributed nothing, with no warning:\n%s", degraded)
 	}
 }

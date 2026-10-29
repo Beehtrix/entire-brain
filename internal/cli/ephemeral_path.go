@@ -12,9 +12,8 @@ import (
 //
 // A plugin binary reached through a symlink into a temp directory works
 // perfectly until the directory is reaped, and then every `entire brain`
-// command fails with something that reads like a server problem. The
-// documented symptom for the MCP surface is CONNECTION_CLOSED, which sends
-// people looking at the server rather than at a path that no longer exists.
+// command fails with something that reads like a server problem rather than
+// a path that no longer exists.
 //
 // Observed on a real machine: the installed plugin resolved, through a
 // symlink, into a session scratch directory. It ran fine, and was one cache

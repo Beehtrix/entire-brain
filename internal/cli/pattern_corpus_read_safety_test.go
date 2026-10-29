@@ -57,7 +57,7 @@ func TestPatternCorpusReadRejectsExternalSymlinkWithoutTouchingTarget(t *testing
 	if err := patterncore.ValidateCorpusReadSafety(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("surface safety gate error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
-	if _, _, _, err := loadCorpusPatternViewsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
+	if _, _, _, err := patterncore.LoadCorpusPatternViewsChecked(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 		t.Fatalf("checked pattern loader error = %v, want %s", err, brainstore.StateUnsafeCode)
 	}
 	if allowed, err := privacyDerivedReadGate(brainDir); err == nil || allowed || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
@@ -155,30 +155,5 @@ func TestPatternDerivedOutputRejectsLateCorpusAliasWithoutBytes(t *testing.T) {
 	}
 	if external.Len() != 0 {
 		t.Fatalf("late corpus alias leaked %d bytes: %q", external.Len(), external.String())
-	}
-}
-
-func TestPatternDerivedMCPOutputRejectsLateCorpusAliasWithoutFrameBytes(t *testing.T) {
-	brainDir := promotableCorpusDir(t, time.Now().UTC())
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy.RequireDerivedClean = true
-	installLatePatternCorpusAlias(t, brainDir)
-
-	privacyState := &mcpResponsePrivacyState{}
-	out := &mcpToolOutputBuffer{privacy: privacyState}
-	cmd := &cobra.Command{Use: "pattern-mcp-output-test"}
-	cmd.SetOut(out)
-	err = bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{policy}, func() error {
-		_, err := fmt.Fprint(cmd.OutOrStdout(), "private pattern MCP frame\n")
-		return err
-	})
-	if err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
-		t.Fatalf("late MCP corpus alias error = %v, want %s", err, brainstore.StateUnsafeCode)
-	}
-	if out.Len() != 0 || privacyState.unlock != nil {
-		t.Fatalf("late corpus alias retained/leaked MCP output: bytes=%q lock=%v", out.String(), privacyState.unlock != nil)
 	}
 }

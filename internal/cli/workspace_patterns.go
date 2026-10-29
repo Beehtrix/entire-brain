@@ -3,12 +3,15 @@ package cli
 import (
 	"context"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"math"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/spf13/cobra"
@@ -28,7 +31,7 @@ import (
 // Workspace pattern files live under the workspace dir, a sibling of repos/.
 
 func newWorkspacePatternsCommand(opts Options) *cobra.Command {
-	var list patternsListOptions
+	var list patternscmd.ListOptions
 	cmd := &cobra.Command{
 		Use:   "patterns <workspace>",
 		Short: "Inspect and rebuild cross-repo patterns for a workspace",
@@ -40,10 +43,10 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 			return runWorkspacePatternsList(cmd.Context(), cmd, opts, args[0], list)
 		},
 	}
-	cmd.Flags().BoolVar(&list.asJSON, "json", false, "Emit patterns as JSON")
-	cmd.Flags().IntVar(&list.limit, "limit", 20, "Maximum number of patterns to show")
-	cmd.Flags().StringVar(&list.typ, "type", "", "Filter by type: task|procedure|risk|practice")
-	cmd.Flags().StringVar(&list.scope, "scope", "", "Filter by scope: workspace")
+	cmd.Flags().BoolVar(&list.AsJSON, "json", false, "Emit patterns as JSON")
+	cmd.Flags().IntVar(&list.Limit, "limit", 20, "Maximum number of patterns to show")
+	cmd.Flags().StringVar(&list.Type, "type", "", "Filter by type: task|procedure|risk|practice")
+	cmd.Flags().StringVar(&list.Scope, "scope", "", "Filter by scope: workspace")
 
 	refresh := &cobra.Command{
 		Use:   "refresh <workspace>",
@@ -89,7 +92,7 @@ func newWorkspacePatternsCommand(opts Options) *cobra.Command {
 }
 
 func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Options, name, agent, model, effort string, asJSON bool) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -108,12 +111,12 @@ func runWorkspacePatternsVerify(ctx context.Context, cmd *cobra.Command, opts Op
 		return fmt.Errorf("workspace family judgment requires an agent (codex or claude-code); none found on PATH")
 	}
 	return runPrivacyLinearizedPatternMutation(cmd, privacyPolicies, func() error {
-		stats, err := proposeWorkspaceFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
+		stats, err := patterncore.ProposeFamilies(ctx, opts.Env, manifest, ".", resolved, model, effort, defaultDistillAgentRunner(resolved), opts.Now().UTC())
 		if err != nil {
 			return err
 		}
 		if asJSON {
-			return writeJSON(cmd, stats)
+			return cmdutil.WriteJSON(cmd, stats)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "workspace %s verify: %d family proposal(s) — %d accepted, %d cached, %d dropped\n",
 			name, stats.Considered, stats.Verified, stats.Cached, stats.Failed)
@@ -178,16 +181,16 @@ func loadMemberPatterns(opts Options, manifest workspace.Manifest) (memberPatter
 	repos := append([]workspace.Repo(nil), manifest.Repos...)
 	sort.Slice(repos, func(i, j int) bool { return repos[i].RepoKey < repos[j].RepoKey })
 	for _, repo := range repos {
-		brainDir, err := brainDirForKey(opts.Env, repo.RepoKey)
+		brainDir, err := clibase.BrainDirForKey(opts.Env, repo.RepoKey)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: %v", repo.RepoKey, err))
 			continue
 		}
-		procs, err := loadBrainProcedures(brainDir)
+		procs, err := patterncore.LoadBrainProcedures(brainDir)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: procedures: %v", repo.RepoKey, err))
 		}
-		pracs, err := loadBrainPractices(brainDir)
+		pracs, err := patterncore.LoadBrainPractices(brainDir)
 		if err != nil {
 			m.warnings = append(m.warnings, fmt.Sprintf("%s: practices: %v", repo.RepoKey, err))
 		}
@@ -323,7 +326,7 @@ func buildWorkspacePractices(byRepo map[string][]practiceRecord, repoOrder []str
 }
 
 func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforcementCounts) float64 {
-	breadth := repoBreadthScore(repos, memberCount)
+	breadth := patterncore.RepoBreadthScore(repos, memberCount)
 	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+20))
 	reinfScore := 0.5
 	if support > 0 {
@@ -333,20 +336,10 @@ func workspaceProcedureStrength(repos, memberCount, support int, reinf reinforce
 }
 
 func workspacePracticeStrength(kind string, repos, memberCount, support int) float64 {
-	kindScore := clibase.Clamp01(float64(factKindPriority[kind]) / 6.0)
-	breadth := repoBreadthScore(repos, memberCount)
+	kindScore := clibase.Clamp01(float64(factstore.KindPriority[kind]) / 6.0)
+	breadth := patterncore.RepoBreadthScore(repos, memberCount)
 	supportScore := clibase.Clamp01(math.Log2(1+float64(support)) / math.Log2(1+10))
 	return 0.40*kindScore + 0.35*breadth + 0.25*supportScore
-}
-
-// repoBreadthScore is the fraction of OTHER members that also share the pattern:
-// shared by all members -> 1.0, shared by 2 of many -> low.
-func repoBreadthScore(repos, memberCount int) float64 {
-	denom := memberCount - 1
-	if denom < 1 {
-		denom = 1
-	}
-	return clibase.Clamp01(float64(repos-1) / float64(denom))
 }
 
 func addReinf(a, b reinforcementCounts) reinforcementCounts {
@@ -403,27 +396,27 @@ func sortPatternsByStrength[T any](items []T, key func(i int) (float64, int, str
 }
 
 func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
 	// Refresh IS the documented recovery for an interrupted corpus publication,
 	// so it must clear the marker before the derived-read gate below fails
 	// closed on it.
-	if err := recoverWorkspacePatternCorpusPublication(opts.Env, manifest); err != nil {
+	if err := patterncore.RecoverWorkspaceCorpusPublication(opts.Env, manifest); err != nil {
 		return err
 	}
 	privacyPolicies, err := captureWorkspaceDerivedReadPolicies(opts.Env, manifest)
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	var (
 		members memberPatterns
-		counts  workspaceCorpusCounts
+		counts  patterncore.WorkspaceCorpusCounts
 	)
 	// Member reads and every aggregate artifact write share one policy-locked
 	// snapshot. A concurrent tombstone either waits until this generation is
@@ -435,7 +428,7 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 			return lockedErr
 		}
 		// Primary V2 source: aggregate member corpora into the workspace corpus.
-		counts, lockedErr = buildWorkspacePatternCorpusLocked(opts.Env, manifest, opts.Now().UTC())
+		counts, lockedErr = patterncore.BuildWorkspaceCorpusLocked(opts.Env, manifest, opts.Now().UTC())
 		if lockedErr != nil {
 			return lockedErr
 		}
@@ -468,8 +461,8 @@ func runWorkspacePatternsRefresh(ctx context.Context, cmd *cobra.Command, opts O
 	return nil
 }
 
-func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternsListOptions) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, list patternscmd.ListOptions) error {
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -477,14 +470,14 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	views, _, corpusBacked, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, corpusBacked, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -496,21 +489,21 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 	}
 	filtered := views[:0:0]
 	for _, v := range views {
-		if list.typ != "" && v.Type != list.typ {
+		if list.Type != "" && v.Type != list.Type {
 			continue
 		}
-		if list.scope != "" && v.Scope != list.scope {
+		if list.Scope != "" && v.Scope != list.Scope {
 			continue
 		}
 		filtered = append(filtered, v)
 	}
 	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].Strength > filtered[j].Strength })
-	if list.limit > 0 && len(filtered) > list.limit {
-		filtered = filtered[:list.limit]
+	if list.Limit > 0 && len(filtered) > list.Limit {
+		filtered = filtered[:list.Limit]
 	}
 	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
-		if list.asJSON {
-			return writeJSON(cmd, filtered)
+		if list.AsJSON {
+			return cmdutil.WriteJSON(cmd, filtered)
 		}
 		out := cmd.OutOrStdout()
 		if len(filtered) == 0 {
@@ -518,14 +511,14 @@ func runWorkspacePatternsList(ctx context.Context, cmd *cobra.Command, opts Opti
 			return nil
 		}
 		for _, v := range filtered {
-			renderPatternView(out, v)
+			patterncore.RenderPatternView(out, v)
 		}
 		return nil
 	})
 }
 
 func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Options, name string) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -533,18 +526,18 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	procs, err := loadBrainProcedures(wsDir)
+	procs, err := patterncore.LoadBrainProcedures(wsDir)
 	if err != nil {
 		return err
 	}
-	pracs, err := loadBrainPractices(wsDir)
+	pracs, err := patterncore.LoadBrainPractices(wsDir)
 	if err != nil {
 		return err
 	}
@@ -552,11 +545,11 @@ func runWorkspacePatternsStatus(ctx context.Context, cmd *cobra.Command, opts Op
 	if err != nil {
 		return err
 	}
-	views, _, corpusPresent, err := loadCorpusPatternViewsChecked(wsDir)
+	views, _, corpusPresent, err := patterncore.LoadCorpusPatternViewsChecked(wsDir)
 	if err != nil {
 		return err
 	}
-	lastRun, hasLastRun, err := lastPatternRunChecked(wsDir)
+	lastRun, hasLastRun, err := patterncore.LastRunChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -677,7 +670,7 @@ func buildWorkspaceTaskCandidates(byRepo map[string][]taskCandidate, repoOrder [
 // verified semantic groupings, not the raw exact-aggregated rows. Run
 // `workspace patterns verify` to produce them.
 func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Options, name string, asJSON bool, limit int) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -688,14 +681,14 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 			return err
 		}
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
 	if err := patterncore.ValidateCorpusReadSafety(wsDir); err != nil {
 		return err
 	}
-	families, err := loadAcceptedWorkspaceFamiliesChecked(wsDir)
+	families, err := patterncore.AcceptedFamiliesChecked(wsDir)
 	if err != nil {
 		return err
 	}
@@ -704,7 +697,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 	}
 	return bufferRetrievalCommandOutput(cmd, privacyPolicies, func() error {
 		if asJSON {
-			return writeJSON(cmd, families)
+			return cmdutil.WriteJSON(cmd, families)
 		}
 		out := cmd.OutOrStdout()
 		if len(families) == 0 {
@@ -725,7 +718,7 @@ func runWorkspaceSkillsList(ctx context.Context, cmd *cobra.Command, opts Option
 }
 
 func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Options, name string, s skillFormOptions) error {
-	manifest, err := workspaceStore(opts.Env).LoadManifest(name)
+	manifest, err := workspace.DefaultStore(opts.Env).LoadManifest(name)
 	if err != nil {
 		return err
 	}
@@ -733,7 +726,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 	if err != nil {
 		return err
 	}
-	wsDir, err := workspaceStore(opts.Env).Dir(name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(name)
 	if err != nil {
 		return err
 	}
@@ -751,7 +744,7 @@ func runWorkspaceSkillsForm(ctx context.Context, cmd *cobra.Command, opts Option
 		// Resolve the accepted source only after every member policy/lock is
 		// pinned. Workspace verification uses the same locks, so a concurrent
 		// family replacement cannot leave synthesis using a stale dossier.
-		fam, ok, err := getAcceptedWorkspaceFamilyChecked(wsDir, s.taskID)
+		fam, ok, err := patterncore.AcceptedFamilyByIDChecked(wsDir, s.taskID)
 		if err != nil {
 			return err
 		}

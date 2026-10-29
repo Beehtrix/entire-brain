@@ -56,8 +56,7 @@ invariant, a gotcha that cost you time - RECORD it before finishing:
 
 Categories are architecture, constraints, preferences, project and workflow.
 Omitting --path classifies the memory for you and requires a supported coding
-agent on PATH; pass --path when none is guaranteed. Over MCP the same write is
-the brain_remember tool, which requires path. Retrieve with recall and
+agent on PATH; pass --path when none is guaranteed. Retrieve with recall and
 re-check anchors with verify. A memory you author has no source anchor, so verify
 reports it unverifiable-here - that is expected, not a failure.
 

@@ -5,11 +5,15 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
+
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 )
 
 // install_ux_test.go covers two defects a first-time user hits, both reported
@@ -235,7 +239,7 @@ func TestDirtyWorktreeRefusalKeepsMachinePrefix(t *testing.T) {
 	if err == nil {
 		t.Fatal("dirtyWorktreeRefusal returned no error")
 	}
-	if !strings.HasPrefix(err.Error(), dirtyWorktreeErrorCode+":") {
+	if !strings.HasPrefix(err.Error(), brainstore.DirtyWorktreeCode+":") {
 		t.Fatalf("refusal lost its machine-readable prefix: %q", err.Error())
 	}
 	if !setupIsDirtyWorktree(err.Error()) {
@@ -286,7 +290,7 @@ func TestSeedRefusalNamesOffendingPaths(t *testing.T) {
 	if err == nil {
 		t.Fatal("dirty seed refresh succeeded")
 	}
-	for _, want := range []string{dirtyWorktreeErrorCode + ":", "README.md", "src/index.ts", "--worktree", "commit or stash"} {
+	for _, want := range []string{brainstore.DirtyWorktreeCode + ":", "README.md", "src/index.ts", "--worktree", "commit or stash"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("seed refusal does not mention %q: %v", want, err)
 		}
@@ -392,7 +396,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 			t.Fatalf("component did not build after agent wiring (%q missing):\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, dirtyWorktreeErrorCode) {
+	if strings.Contains(out, brainstore.DirtyWorktreeCode) {
 		t.Fatalf("Entire's own install files still read as uncommitted content:\n%s", out)
 	}
 }
@@ -420,6 +424,31 @@ func clearAgentHarnessEnv(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_ENTRYPOINT", "")
 	t.Setenv("ENTIRE_BRAIN_NO_EGRESS", "")
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "")
+}
+
+// isolateRealAgentBinaries guards full-command tests that resolve an agent.
+// Agent RESOLUTION goes through the fake CommandRunner, but the seed synthesis
+// phases execute the resolved agent as a real subprocess (deliberately: agents
+// are real programs, not runner calls). On a developer machine with codex
+// installed, a fixture refresh therefore silently ran the REAL agent — about a
+// minute per test, with real agent-side spend — while CI never saw it because
+// no agent is installed there. Shimming the agent binaries to fail immediately
+// pins every machine to the CI behavior: the synthesis phase fails fast and
+// refresh continues without it.
+func isolateRealAgentBinaries(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		// The Windows runners install no agent, and a POSIX shell shim would
+		// not execute there; absent binaries already fail the phase instantly.
+		return
+	}
+	dir := t.TempDir()
+	for _, name := range []string{"codex", "claude"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // TestDefaultRefreshAgentPrefersDetectedHarness is the reported defect: a user
@@ -529,6 +558,7 @@ func TestResolveRefreshAgentAnnouncesChoice(t *testing.T) {
 // is spent, and has to vanish for a machine reader.
 func TestRefreshAnnouncesAutoSelectedAgentOnStderr(t *testing.T) {
 	clearAgentHarnessEnv(t)
+	isolateRealAgentBinaries(t)
 	installFakeSeedAgentBinaries(t)
 	logDir := t.TempDir()
 	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", logDir)
@@ -682,6 +712,7 @@ func TestAnnounceResolvedAgentNamesTheModel(t *testing.T) {
 // reach the line a user actually reads.
 func TestRefreshAnnouncesPinnedModel(t *testing.T) {
 	clearAgentHarnessEnv(t)
+	isolateRealAgentBinaries(t)
 	installFakeSeedAgentBinaries(t)
 	t.Setenv("FAKE_SEED_AGENT_LOG_DIR", t.TempDir())
 	repoDir := seedFixtureRepo(t)
@@ -772,7 +803,7 @@ func TestSetupWatchPlanEntryCarriesTheResolvedAgent(t *testing.T) {
 // survives any reorder of the resolver.
 func TestWatchDistillAgentDefaultsToAuto(t *testing.T) {
 	t.Parallel()
-	if got := defaultWatchOptions().distillAgent; got != "auto" {
+	if got := watch.DefaultFlags().DistillAgent; got != "auto" {
 		t.Fatalf("watch distill agent default = %q, want auto (a hardcoded vendor here bypasses defaultRefreshAgent entirely)", got)
 	}
 }

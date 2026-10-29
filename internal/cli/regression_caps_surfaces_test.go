@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/command/brainreview"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +41,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	runner := semanticFixtureRunner(repo, semanticFixtureSnapshot("1.0"))
 	opts := Options{Version: "test", Env: env, Runner: runner, Now: time.Now}
 	opts.Env.RepoRoot = repo
-	brainDir, err := brainDirForKey(env, key)
+	brainDir, err := base.BrainDirForKey(env, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +55,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	}
 	// The fake status resolver uses a fixed repo key. Mirror the brain there.
 	statusKey := "gh/example/repo"
-	statusBrain, err := brainDirForKey(env, statusKey)
+	statusBrain, err := base.BrainDirForKey(env, statusKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +71,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 	var out bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&out)
-	if err := runBrainReview(context.Background(), cmd, opts, regressionDetectorOptions{limit: 20, json: true}, "fix scopeBaseRef"); err != nil {
+	if err := brainreview.RunBrainReview(context.Background(), cmd, brainReviewConfig(opts), regressionDetectorOptions{Limit: 20, JSON: true}, "fix scopeBaseRef"); err != nil {
 		t.Fatal(err)
 	}
 	var report reviewReport
@@ -86,7 +88,7 @@ func testCappedHistoryReviewSurfaces(t *testing.T, regressed bool) {
 			continue
 		}
 		out.Reset()
-		ro := regressionDetectorOptions{limit: 20, json: regressed}
+		ro := regressionDetectorOptions{Limit: 20, JSON: regressed}
 		var err error
 		if review {
 			err = runWorkspaceReviewManifest(cmd, opts, ro, manifest, "fix scopeBaseRef", nil)

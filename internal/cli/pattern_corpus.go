@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 )
@@ -54,7 +57,6 @@ const (
 	// Bump when the parser/extractor output changes in a way that requires
 	// re-indexing already-indexed sessions. v2: Phase 2 enrichment (exit codes,
 	// files, meta-hits, fact links).
-	patternIndexerVersion = 9
 )
 
 func requirePatternCorpusAvailable(brainDir string) error {
@@ -66,7 +68,7 @@ func requirePatternCorpusAvailable(brainDir string) error {
 		return err
 	}
 	if !present {
-		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`", memoryErrSourceStale)
+		return fmt.Errorf("%s: pattern corpus is unavailable; run `"+base.BrainInvocation(os.LookupEnv, "patterns refresh")+"`", brainstore.SourceStaleCode)
 	}
 	return nil
 }
@@ -93,7 +95,7 @@ func (g patternCorpusGraphContext) source(brainDir string, manifest *exportManif
 	if err := validateSemanticProviderRepoKey(g.Context, g.Options.Runner, g.RepoDir, storage.Key, d.Header.RepoKey, "", g.Binary); err != nil {
 		return nil
 	}
-	return graphStoreSource(d, brainDir)
+	return semstore.GraphStoreSource(d, brainDir)
 }
 
 // buildPatternCorpus (re)indexes the brain's sessions into patterns/corpus.sqlite.
@@ -111,14 +113,14 @@ func buildPatternCorpus(brainDir string, now time.Time, graph ...patternCorpusGr
 }
 
 func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCorpusGraphContext) error {
-	if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
+	if err := patterncore.RecoverCorpusPublicationLocked(brainDir, patterncore.DecodeCorpusPublication); err != nil {
 		return err
 	}
 	manifest, err := loadPatternCorpusManifest(brainDir)
 	if err != nil {
 		return err
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		return err
 	}
@@ -149,7 +151,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 
 	// Indexer-version bump forces a full re-index (parser/extractor changed).
-	if stored := patterncore.CorpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patternIndexerVersion) {
+	if stored := patterncore.CorpusMeta(db, "pattern_indexer_version"); stored != strconv.Itoa(patterncore.IndexerVersion) {
 		if _, err := db.Exec(`DELETE FROM episodes`); err != nil { // cascades children
 			return err
 		}
@@ -169,7 +171,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	// Session tombstones (Phase 4): excluded sessions and duplicate manifest
 	// entries that alias an excluded transcript never enter the corpus; dropping
 	// them from the present set prunes previously indexed rows below.
-	sessions = guardExportSessions(guard, sessions)
+	sessions = bmanifest.GuardSessions(guard, sessions)
 	// Optional enrichment source: durable facts, branch-scoped. Missing is
 	// empty, but corrupt/unsafe state fails closed and tombstoned-only facts are
 	// filtered before they can be linked back into a rebuilt corpus.
@@ -178,7 +180,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		return err
 	}
 	for branch, facts := range factsByBranch {
-		factsByBranch[branch] = guardFactRecords(guard, facts)
+		factsByBranch[branch] = factstore.GuardRecords(guard, facts)
 	}
 
 	// Fact enrichment is an input independent of transcript identity. A changed
@@ -290,7 +292,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	if err := classifyEpisodeShapes(db, now); err != nil {
 		return err
 	}
-	if err := buildSynapses(db, now); err != nil {
+	if err := patterncore.BuildSynapses(db, now); err != nil {
 		return err
 	}
 	_, finalPolicy, err := brainstore.LoadSessionTombstonesChecked(brainDir)
@@ -323,7 +325,7 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}
 	if err := setCorpusMeta(db, map[string]string{
 		"schema_version":          strconv.Itoa(patternCorpusSchemaVersion),
-		"pattern_indexer_version": strconv.Itoa(patternIndexerVersion),
+		"pattern_indexer_version": strconv.Itoa(patterncore.IndexerVersion),
 		"facts_fingerprint":       factFingerprint,
 		"privacy_policy_identity": guard.PolicyIdentity,
 		"repo_key":                repoKey,
@@ -337,18 +339,18 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 	}); err != nil {
 		return err
 	}
-	run, err := patternRunFromStaging(db, now)
+	run, err := patterncore.RunFromStaging(db, now)
 	if err != nil {
 		return err
 	}
-	if err := patterncore.FinalizeCorpusStagingLocked(brainDir, path, db, decodePatternCorpusPublication); err != nil {
+	if err := patterncore.FinalizeCorpusStagingLocked(brainDir, path, db, patterncore.DecodeCorpusPublication); err != nil {
 		return err
 	}
 	closed = true
 	// Operational run history describes only successfully published corpora.
 	// A failed staging build or commit must leave both the old corpus and its
 	// last-run report intact.
-	_ = appendPatternRun(brainDir, run)
+	_ = patterncore.AppendRun(brainDir, run)
 	return nil
 }
 
@@ -356,7 +358,7 @@ func loadPatternCorpusManifest(brainDir string) (*exportManifest, error) {
 	// Derivation must use the same header-first, strict version classifier as
 	// every other Brain-manifest consumer. In particular, never partially decode
 	// or normalize a vNext document into the current schema before rebuilding.
-	return loadBrainManifest(brainDir)
+	return bmanifest.Load(brainDir)
 }
 
 // Source anchors in both document and JSONL transcripts use physical lines.
@@ -379,7 +381,7 @@ func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha string
 	if err != nil {
 		return false
 	}
-	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patternIndexerVersion
+	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion
 }
 
 func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
@@ -504,7 +506,7 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 	if _, err := tx.Exec(`INSERT INTO indexed_sessions
 		(id, repo_key, session_id, checkpoint_id, transcript_path, branch, author_name, agent, created_at, size, mtime_unix_nano, content_sha, parser_version, episodes)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		id, repoKey, s.SessionID, s.LatestCheckpoint, filepath.ToSlash(rel), s.Branch, author, s.Agent, createdAt, size, mtime, sha, patternIndexerVersion, episodeCount,
+		id, repoKey, s.SessionID, s.LatestCheckpoint, filepath.ToSlash(rel), s.Branch, author, s.Agent, createdAt, size, mtime, sha, patterncore.IndexerVersion, episodeCount,
 	); err != nil {
 		return err
 	}

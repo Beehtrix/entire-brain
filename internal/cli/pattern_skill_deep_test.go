@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"strings"
 	"testing"
 	"time"
@@ -66,7 +67,7 @@ func TestDeepSkillEvidenceFromDossier(t *testing.T) {
 // shallow evidence — the form must require deep verification first.
 func TestAcceptedDeepDossierLoadsAndDrivesSynthesis(t *testing.T) {
 	brainDir := promotableCorpusDir(t, time.Now())
-	db, err := openPatternCorpusMutableDB(brainDir)
+	db, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +84,7 @@ func TestAcceptedDeepDossierLoadsAndDrivesSynthesis(t *testing.T) {
 
 	// With an accepted deep dossier, the dossier-driven synthesis runs and the
 	// agent receives the dossier (not shallow snippets).
-	db2, err := openPatternCorpusMutableDB(brainDir)
+	db2, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

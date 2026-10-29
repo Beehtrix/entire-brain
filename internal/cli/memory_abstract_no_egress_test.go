@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,11 +31,11 @@ func TestHostedAbstractsFailClosedUnderGlobalNoEgressBeforeSideEffects(t *testin
 		cmd := newMemoryConfigureCommand(opts)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		out, err := execute(t, cmd, "abstracts", "--enable", "--provider", "codex", "--allow-hosted-egress", "--json")
-		if err == nil || !strings.Contains(err.Error(), "no_egress") || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
+		if err == nil || !strings.Contains(err.Error(), "no_egress") || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
 			t.Fatalf("hosted configure error=%v\n%s", err, out)
 		}
 		var receipt memoryOperationReceipt
-		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != "configure_abstracts" || receipt.ErrorCode != memoryErrProviderUnavail || receipt.FinishedAt.IsZero() {
+		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != "configure_abstracts" || receipt.ErrorCode != brainstore.ProviderUnavailCode || receipt.FinishedAt.IsZero() {
 			t.Fatalf("configure failure receipt=%+v decode=%v\n%s", receipt, decodeErr, out)
 		}
 		if _, state, loadErr := loadMemoryConfigChecked(brainDir); loadErr != nil || state != memoryConfigAbsent {
@@ -50,11 +52,11 @@ func TestHostedAbstractsFailClosedUnderGlobalNoEgressBeforeSideEffects(t *testin
 		cmd := newMemoryAbstractCommand(opts)
 		cmd.SilenceErrors, cmd.SilenceUsage = true, true
 		out, err := execute(t, cmd, ref, "--provider", "codex", "--model", "hosted-test", "--allow-hosted-egress", "--json")
-		if err == nil || !strings.Contains(err.Error(), "no_egress") || !strings.Contains(err.Error(), memoryErrProviderUnavail) {
+		if err == nil || !strings.Contains(err.Error(), "no_egress") || !strings.Contains(err.Error(), brainstore.ProviderUnavailCode) {
 			t.Fatalf("hosted manual enqueue error=%v\n%s", err, out)
 		}
 		var receipt memoryOperationReceipt
-		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != "abstract_generate" || receipt.ErrorCode != memoryErrProviderUnavail || receipt.FinishedAt.IsZero() {
+		if decodeErr := json.Unmarshal([]byte(out), &receipt); decodeErr != nil || receipt.Operation != "abstract_generate" || receipt.ErrorCode != brainstore.ProviderUnavailCode || receipt.FinishedAt.IsZero() {
 			t.Fatalf("manual failure receipt=%+v decode=%v\n%s", receipt, decodeErr, out)
 		}
 		if jobs := loadMemoryJobs(brainDir); len(jobs) != 0 {
@@ -129,7 +131,7 @@ func TestGlobalNoEgressRefusesHostedAbstractJobBeforeClaimWrites(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			manifest, err := loadBrainManifest(brainDir)
+			manifest, err := bmanifest.Load(brainDir)
 			if err != nil {
 				t.Fatal(err)
 			}

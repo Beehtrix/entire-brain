@@ -15,7 +15,7 @@ import (
 // authorized cleanup into an unlink of unclassified state.
 func removeCheckedMemoryStateFile(brainDir, rel, label string, maxBytes int64, validate func([]byte) error) error {
 	return removeCheckedMemoryStateFileValidated(brainDir, rel, label, func(before os.FileInfo) (bool, error) {
-		data, present, err := readMemoryStateFileExpected(brainDir, rel, label, maxBytes, before)
+		data, present, err := brainstore.ReadMemoryStateFileExpected(brainDir, rel, label, maxBytes, before)
 		if err != nil || !present {
 			return present, err
 		}
@@ -29,7 +29,7 @@ func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate
 		return fmt.Errorf("%s: %s has an unsafe path: %w", brainstore.StateUnsafeCode, label, err)
 	}
 	path := filepath.Join(brainDir, clean)
-	before, err := memoryStateLstat(path)
+	before, err := brainstore.MemoryStateLstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -43,7 +43,7 @@ func removeCheckedMemoryStateFileValidated(brainDir, rel, label string, validate
 	if !present {
 		return nil
 	}
-	after, err := memoryStateLstat(path)
+	after, err := brainstore.MemoryStateLstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

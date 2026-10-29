@@ -3,6 +3,9 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -60,7 +63,7 @@ func TestRunFactsEvalWithExpander(t *testing.T) {
 	p := normalizeFactPaths([]string{"architecture.data.flow"})
 	// Fact text shares no words with the task, but does with the expansion.
 	f := factRecord{ID: factRecordID("the mirror ref reconciliation", p), Paths: p, Text: "the mirror ref reconciliation", Branch: "main", Status: factStatusActive, UpdatedAt: now}
-	if err := writeFacts(brainDir, "main", []factRecord{f}); err != nil {
+	if err := factstore.Write(brainDir, "main", []factRecord{f}); err != nil {
 		t.Fatal(err)
 	}
 	tasks := []evalTask{{ID: "t1", Task: "fix the sync bug", Branch: "main", Relevant: []string{f.ID}, LabelSource: evalLabelSourceHuman}}
@@ -168,10 +171,10 @@ func TestRecallExpandOllamaUsesLoopbackRunner(t *testing.T) {
 		Status:    factStatusActive,
 		UpdatedAt: now,
 	}
-	if err := writeFacts(storage.BrainDir, "main", []factRecord{fact}); err != nil {
+	if err := factstore.Write(storage.BrainDir, "main", []factRecord{fact}); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: brainManifestSchemaVersion, GeneratedAt: now}); err != nil {
+	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{SchemaVersion: bmanifest.SchemaVersion, GeneratedAt: now}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,7 +204,7 @@ func TestRecallExpandOllamaUsesLoopbackRunner(t *testing.T) {
 			t.Fatalf("recall must use loopback HTTP runner, not PATH ollama binary: %+v", call)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")); err != nil {
 		t.Fatalf("brain dir missing: %v", err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
@@ -38,9 +39,9 @@ func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed: %v\n%s", err, out)
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -62,7 +63,7 @@ func TestSeedWritesExpectedBrainBaseline(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(brainDir, seedDirName, seedDocsDirName, "README.md")); err != nil {
 		t.Fatalf("copied readme missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, repoStoreDirName, "gh", "example", "repo", seedCursorFileName)); err != nil {
+	if _, err := os.Stat(filepath.Join(stateDir, base.RepoStoreDirName, "gh", "example", "repo", seedCursorFileName)); err != nil {
 		t.Fatalf("seed cursor missing: %v", err)
 	}
 	indexData, err := os.ReadFile(filepath.Join(brainDir, seedDirName, "file-index.json"))
@@ -161,9 +162,9 @@ func TestSeedSkipsSymlinkedRepoInputs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed: %v\n%s", err, out)
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -381,7 +382,7 @@ func TestSeedWorktreeIncludesSelectedUntrackedDocs(t *testing.T) {
 		t.Fatalf("seed --worktree: %v", err)
 	}
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(outputDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(outputDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}

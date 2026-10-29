@@ -19,14 +19,14 @@ func TestWorkspaceRefreshAndRemoveUseTheMembershipLock(t *testing.T) {
 	f := newSetupTestFixture(t)
 	const workspace = "locked"
 	for _, key := range []string{"local/a", "local/b"} {
-		if _, err := workspaceStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: key}); err != nil {
+		if _, err := workspacelib.DefaultStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: key}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	assertBlocked := func(name string, run func() error) {
 		t.Helper()
-		lock, err := workspaceStore(f.env).AcquireManifestLock(workspace)
+		lock, err := workspacelib.DefaultStore(f.env).AcquireManifestLock(workspace)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -67,17 +67,17 @@ func TestWorkspaceRefreshAndRemoveUseTheMembershipLock(t *testing.T) {
 func TestWorkspaceRefreshMergePreservesConcurrentMembership(t *testing.T) {
 	f := newSetupTestFixture(t)
 	const workspace = "refresh-merge"
-	if _, err := workspaceStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: "local/a"}); err != nil {
+	if _, err := workspacelib.DefaultStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: "local/a"}); err != nil {
 		t.Fatal(err)
 	}
 	computed := []workspacelib.RepoFreshness{{RepoKey: "local/a", State: "fresh"}}
-	if _, err := workspaceStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: "local/b"}); err != nil {
+	if _, err := workspacelib.DefaultStore(f.env).AddRepoLocked(workspace, workspacelib.Repo{RepoKey: "local/b"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := workspaceStore(f.env).MergeRefreshResult(workspace, computed, setupTestNow); err != nil {
+	if err := workspacelib.DefaultStore(f.env).MergeRefreshResult(workspace, computed, setupTestNow); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := workspaceStore(f.env).LoadManifest(workspace)
+	manifest, err := workspacelib.DefaultStore(f.env).LoadManifest(workspace)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +108,7 @@ func TestConcurrentWorkspaceAddsAllPersist(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			_, err := workspaceStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspacelib.Repo{
+			_, err := workspacelib.DefaultStore(f.env).AddRepoLocked(setupDefaultWorkspace, workspacelib.Repo{
 				RepoKey:       fmt.Sprintf("local/repo-%02d", i),
 				LocalPathHint: fmt.Sprintf("/tmp/repo-%02d", i),
 			})
@@ -124,7 +124,7 @@ func TestConcurrentWorkspaceAddsAllPersist(t *testing.T) {
 		}
 	}
 
-	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
+	manifest, err := workspacelib.DefaultStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestConcurrentSetupRegistrationsAllPersist(t *testing.T) {
 		t.Fatalf("every setup must report its repo registered, got %d", registered)
 	}
 
-	manifest, err := workspaceStore(f.env).LoadManifest(setupDefaultWorkspace)
+	manifest, err := workspacelib.DefaultStore(f.env).LoadManifest(setupDefaultWorkspace)
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -197,21 +197,21 @@ func TestWorkspaceAddReportsCreatedAndAlready(t *testing.T) {
 	f := newSetupTestFixture(t)
 	repo := workspacelib.Repo{RepoKey: "local/demo", LocalPathHint: "/tmp/demo"}
 
-	first, err := workspaceStore(f.env).AddRepoLocked("fresh", repo)
+	first, err := workspacelib.DefaultStore(f.env).AddRepoLocked("fresh", repo)
 	if err != nil {
 		t.Fatalf("first add: %v", err)
 	}
 	if !first.Created || first.Already {
 		t.Fatalf("the first add creates the workspace: %+v", first)
 	}
-	second, err := workspaceStore(f.env).AddRepoLocked("fresh", repo)
+	second, err := workspacelib.DefaultStore(f.env).AddRepoLocked("fresh", repo)
 	if err != nil {
 		t.Fatalf("second add: %v", err)
 	}
 	if second.Created || !second.Already {
 		t.Fatalf("re-adding the same repo is a no-op membership-wise: %+v", second)
 	}
-	manifest, err := workspaceStore(f.env).LoadManifest("fresh")
+	manifest, err := workspacelib.DefaultStore(f.env).LoadManifest("fresh")
 	if err != nil {
 		t.Fatalf("load workspace: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestWorkspaceAddReportsCreatedAndAlready(t *testing.T) {
 	}
 	// The lock file lives beside the workspace directory, where whole-workspace
 	// removal can hold it without deleting the open file.
-	dir, err := workspaceStore(f.env).Dir("fresh")
+	dir, err := workspacelib.DefaultStore(f.env).Dir("fresh")
 	if err != nil {
 		t.Fatalf("workspace dir: %v", err)
 	}

@@ -10,6 +10,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 	"github.com/entireio/entire-brain/internal/tui"
 )
 
@@ -535,7 +537,7 @@ func statusMemoriesValue(render *tui.Renderer, report brainStatusReport) string 
 			parts = append(parts, groupDigits(f.Facts)+" declared")
 		case f.Integrity == nil || f.Integrity.OK():
 			parts = append(parts, groupDigits(f.Facts))
-		case f.Integrity.Mode == factStoreDefectUnreadable:
+		case f.Integrity.Mode == factstore.DefectUnreadable:
 			// A store that would not parse yielded no count at all, so "0
 			// readable" would be a measurement nobody took. Say what is true:
 			// it could not be read.
@@ -648,7 +650,7 @@ func statusWarningLines(render *tui.Renderer, report brainStatusReport, brainCmd
 		if f.Integrity != nil {
 			warning = f.Integrity.Warning()
 		} else if len(f.MissingBranches) > 0 {
-			warning = missingFactStoreWarning(f.MissingBranches)
+			warning = factstore.MissingStoreWarning(f.MissingBranches)
 		}
 		if warning != "" {
 			lines = append(lines, "  "+render.Paint(theme.Bad, "! "+warning))
@@ -710,7 +712,7 @@ func renderBrainStatusShort(out io.Writer, render *tui.Renderer, report brainSta
 	fmt.Fprintf(out, "%s %s%s%s\n", statusDot(render, health),
 		render.Bold(render.Paint(render.Theme().Accent, "Brain")),
 		statusSep(render),
-		render.Bold(valueOrUnset(report.Repo.Key)))
+		render.Bold(cmdutil.ValueOrUnset(report.Repo.Key)))
 	fmt.Fprintln(out)
 
 	if value := statusMemoriesValue(render, report); value != "" {

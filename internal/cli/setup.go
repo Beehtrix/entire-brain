@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"io/fs"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/agentsetup"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
@@ -84,10 +86,10 @@ const (
 // failed by setup is the component the reader then finds as failed there.
 const (
 	brainComponentSessions       = "sessions"
-	brainComponentSeed           = "seed"
-	brainComponentDocs           = "docs"
+	brainComponentSeed           = string(brainstore.DeclaredIndexSeed)
+	brainComponentDocs           = string(brainstore.DeclaredIndexDocs)
 	brainComponentSemantic       = "semantic"
-	brainComponentHistory        = "history"
+	brainComponentHistory        = string(brainstore.DeclaredIndexHistory)
 	brainComponentHistoryVectors = "history-vectors"
 	brainComponentBranches       = "branches"
 	brainComponentFacts          = "facts"
@@ -99,10 +101,10 @@ const (
 // setupComponentLabels name each component the way the setup lines say it.
 var setupComponentLabels = map[string]string{
 	brainComponentSessions:       "session export",
-	brainComponentSeed:           "seed baseline",
-	brainComponentDocs:           "doc index",
+	brainComponentSeed:           brainstore.DeclaredIndexSeed.Label(),
+	brainComponentDocs:           brainstore.DeclaredIndexDocs.Label(),
 	brainComponentSemantic:       "code index",
-	brainComponentHistory:        "history index",
+	brainComponentHistory:        brainstore.DeclaredIndexHistory.Label(),
 	brainComponentHistoryVectors: "history vectors",
 	brainComponentBranches:       "branch overlays",
 	brainComponentFacts:          "fact reclassification",
@@ -316,7 +318,7 @@ func setupIsRepoKeyMismatch(detail string) bool {
 // (seed.go and semantic.go), not their prose, so rewording either message
 // cannot silently drop the hint.
 func setupIsDirtyWorktree(detail string) bool {
-	return strings.Contains(detail, dirtyWorktreeErrorCode+":")
+	return strings.Contains(detail, brainstore.DirtyWorktreeCode+":")
 }
 
 // setupIsNoReadableSessions matches the export failure raised when nothing is
@@ -530,15 +532,15 @@ type setupCommandOptions struct {
 }
 
 func defaultSetupOptions() setupCommandOptions {
-	watch := defaultWatchOptions()
+	watchDefaults := watch.DefaultFlags()
 	return setupCommandOptions{
 		workspace:      setupDefaultWorkspace,
 		daemonName:     daemonDefaultName,
 		agent:          "auto",
 		effort:         setupBackfillDefaultEffort,
 		backfillBudget: setupDefaultBackfillBudget,
-		interval:       watch.interval,
-		distillEvery:   watch.distillEvery,
+		interval:       watchDefaults.Interval,
+		distillEvery:   watchDefaults.DistillEvery,
 	}
 }
 
@@ -1026,7 +1028,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 			setupui.RenderTerse(cmd.OutOrStdout(), rend, terse)
 		}
 		if setupOpts.json {
-			if err := writeJSON(cmd, report); err != nil {
+			if err := cmdutil.WriteJSON(cmd, report); err != nil {
 				return err
 			}
 		}
@@ -1232,7 +1234,7 @@ func runSetup(ctx context.Context, cmd *cobra.Command, opts Options, setupOpts s
 	}
 
 	if setupOpts.json {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 	}
@@ -1313,7 +1315,7 @@ func runSetupUninstall(ctx context.Context, cmd *cobra.Command, opts Options, se
 	}
 	report.Daemon = daemonState{Manager: plan.Manager, Label: plan.Label, UnitPath: plan.UnitPath, Detail: "uninstalled"}
 	if setupOpts.json {
-		return writeJSON(cmd, report)
+		return cmdutil.WriteJSON(cmd, report)
 	}
 	if !before.Installed {
 		fmt.Fprintf(out, "setup: no watcher was installed (%s)\n", plan.Label)
@@ -1470,7 +1472,7 @@ func runSetupBackfill(ctx context.Context, phase *setupui.PhaseRun, ui *setupSin
 
 	// The conditions that make a spend IMPOSSIBLE come before the gate, so a
 	// --yes in a paused brain reports the truth instead of claiming it spent.
-	if backgroundPaused(opts.Env) {
+	if base.BackgroundPaused(opts.Env) {
 		return setupBackfillSkippedBecause(phase, "background work paused",
 			"not distilled: background work is paused "+dash+" run `"+base.SetupBrainCommand(brainCmd)+" start`, then re-run setup"+counter,
 			setupui.ConsentReasonPaused)
@@ -1716,12 +1718,12 @@ func setupChildEnv(env EntireEnv, repoDir string) []string {
 }
 
 func setupPluginEnv(env EntireEnv, repoDir string) map[string]string {
-	values := map[string]string{envRepoRoot: repoDir}
+	values := map[string]string{base.EnvRepoRoot: repoDir}
 	for key, value := range map[string]string{
-		envPluginConfigDir: env.PluginConfigDir,
-		envPluginDataDir:   env.PluginDataDir,
-		envPluginStateDir:  env.PluginStateDir,
-		envPluginCacheDir:  env.PluginCacheDir,
+		base.EnvPluginConfigDir: env.PluginConfigDir,
+		base.EnvPluginDataDir:   env.PluginDataDir,
+		base.EnvPluginStateDir:  env.PluginStateDir,
+		base.EnvPluginCacheDir:  env.PluginCacheDir,
 	} {
 		if strings.TrimSpace(value) != "" {
 			values[key] = value
@@ -1757,7 +1759,7 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve home directory: %w", err)
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return daemonPlan{}, fmt.Errorf("resolve plugin state dir: %w", err)
 	}
@@ -1769,7 +1771,7 @@ func brainWatchDaemonPlanFor(goos string, opts Options, setupOpts setupCommandOp
 		LogPath:    filepath.Join(dirs.State, "logs", setupDaemonLogFile),
 		Env:        daemonEnv(opts.Env),
 	}
-	plan, err := planBrainWatchDaemon(goos, home, os.Getenv(xdgConfigHome), os.Getenv(envDaemonUnitDir), spec)
+	plan, err := planBrainWatchDaemon(goos, home, os.Getenv(base.XDGConfigHome), os.Getenv(envDaemonUnitDir), spec)
 	if err != nil {
 		return daemonPlan{}, err
 	}
@@ -1819,10 +1821,10 @@ func brainWatchDaemonArgs(setupCommandOptions) []string {
 func daemonEnv(env EntireEnv) map[string]string {
 	values := map[string]string{}
 	for key, value := range map[string]string{
-		envPluginConfigDir: env.PluginConfigDir,
-		envPluginDataDir:   env.PluginDataDir,
-		envPluginStateDir:  env.PluginStateDir,
-		envPluginCacheDir:  env.PluginCacheDir,
+		base.EnvPluginConfigDir: env.PluginConfigDir,
+		base.EnvPluginDataDir:   env.PluginDataDir,
+		base.EnvPluginStateDir:  env.PluginStateDir,
+		base.EnvPluginCacheDir:  env.PluginCacheDir,
 	} {
 		if strings.TrimSpace(value) != "" {
 			values[key] = value
@@ -1853,7 +1855,7 @@ func daemonEnv(env EntireEnv) map[string]string {
 // of the two registrations.
 func registerRepoInWorkspace(_ context.Context, _ *cobra.Command, opts Options, name, repoDir, repoKey string) (setupWorkspaceState, error) {
 	state := setupWorkspaceState{Name: name, RepoKey: repoKey}
-	result, err := workspaceStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
+	result, err := workspace.DefaultStore(opts.Env).AddRepoLocked(name, workspace.Repo{RepoKey: repoKey, LocalPathHint: repoDir})
 	if err != nil {
 		return state, err
 	}

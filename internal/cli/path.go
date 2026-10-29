@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -72,7 +73,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 	if pathOpts.ensure {
 		slugForHost = repoDomainSlug
 	}
-	dirs, err := resolvePluginDirs(opts.Env)
+	dirs, err := base.ResolvePluginDirs(opts.Env)
 	if err != nil {
 		return err
 	}
@@ -89,7 +90,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if !ok {
 			return err
 		}
-		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		brainDir, dirErr := base.BrainDirForKey(opts.Env, key)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -108,7 +109,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		if err := checkPathTargetIsAddressable(ctx, opts, storage, repoDir); err != nil {
 			return err
 		}
-		if pathOpts.ensure && !brainExportExists(storage.BrainDir) {
+		if pathOpts.ensure && !bmanifest.Exists(storage.BrainDir) {
 			if err := pathOpts.validateForEnsure(); err != nil {
 				return err
 			}
@@ -133,7 +134,7 @@ func runPath(ctx context.Context, cmd *cobra.Command, opts Options, pathOpts pat
 		// answer to the same reserved-segment and symlink refusals. A path this
 		// helper refuses is one no other verb will read or write, so printing it
 		// hands the caller a location the tool does not honour.
-		brainDir, dirErr := brainDirForKey(opts.Env, key)
+		brainDir, dirErr := base.BrainDirForKey(opts.Env, key)
 		if dirErr != nil {
 			return dirErr
 		}
@@ -196,7 +197,7 @@ func looksLikeWindowsDriveTargetPath(target string) bool {
 	if !looksLikeWindowsDrivePath(target) {
 		return false
 	}
-	if match := repoRemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
+	if match := base.RemoteSCPRegex.FindStringSubmatch(target); len(match) == 3 && !looksLikeWindowsDriveRemotePath(target, match[2]) {
 		return false
 	}
 	return true
@@ -330,11 +331,6 @@ func nameDegenerateRepoFailure(ctx context.Context, runner CommandRunner, repoDi
 	return fmt.Errorf("this repository has no commits yet: %s\n"+
 		"%[2]s pins every source it builds to a commit, and an unborn branch has none.\n"+
 		"make at least one commit, then run `%[2]s refresh` again", repoDir, brainCmd)
-}
-
-func brainExportExists(brainDir string) bool {
-	info, err := os.Stat(filepath.Join(brainDir, exportManifestFileName))
-	return err == nil && !info.IsDir()
 }
 
 func runPathRefresh(ctx context.Context, opts Options, pathOpts pathCommandOptions, repoDir string) error {

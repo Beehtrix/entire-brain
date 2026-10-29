@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
+	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,7 +179,7 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 	if err := buildPatternCorpus(brainDir, now); err != nil {
 		t.Fatal(err)
 	}
-	beforeDB, err := openPatternCorpusMutableDB(brainDir)
+	beforeDB, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +188,7 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = beforeDB.Close()
-	beforeRuns := len(loadPatternRuns(brainDir))
+	beforeRuns := len(patterncore.LoadRuns(brainDir))
 
 	transcript := filepath.Join(brainDir, "sessions", "main", "s1.jsonl")
 	f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0)
@@ -207,7 +209,7 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 		t.Fatalf("build error = %v, want injected failure", err)
 	}
 
-	afterDB, err := openPatternCorpusMutableDB(brainDir)
+	afterDB, err := patterntest.OpenCorpusMutableDB(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +221,7 @@ func TestPatternCorpusFailedStagingPublishPreservesLiveCorpus(t *testing.T) {
 	if afterSHA != beforeSHA {
 		t.Fatalf("failed staged publication changed live corpus: before=%s after=%s", beforeSHA, afterSHA)
 	}
-	if got := len(loadPatternRuns(brainDir)); got != beforeRuns {
+	if got := len(patterncore.LoadRuns(brainDir)); got != beforeRuns {
 		t.Fatalf("failed publication appended a run record: before=%d after=%d", beforeRuns, got)
 	}
 	entries, err := os.ReadDir(filepath.Join(brainDir, "patterns"))
@@ -285,7 +287,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				}
 				return nil
 			}
-			err := patterncore.PublishCorpusLocked(brainDir, stage, decodePatternCorpusPublication)
+			err := patterncore.PublishCorpusLocked(brainDir, stage, patterncore.DecodeCorpusPublication)
 			patterncore.CorpusPublishBoundary = original
 			if !errors.Is(err, injected) {
 				t.Fatalf("publish error = %v, want injected boundary %s", err, tc.step)
@@ -325,7 +327,7 @@ func TestPatternCorpusPublicationCrashBoundariesAreOldNewOrFailClosed(t *testing
 				if _, err := patterncore.OpenCorpusReadDB(brainDir); err == nil || !strings.Contains(err.Error(), brainstore.StateUnsafeCode) {
 					t.Fatalf("marked corpus read error = %v, want %s", err, brainstore.StateUnsafeCode)
 				}
-				if err := patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication); err != nil {
+				if err := patterncore.RecoverCorpusPublicationLocked(brainDir, patterncore.DecodeCorpusPublication); err != nil {
 					t.Fatalf("recover %s: %v", tc.step, err)
 				}
 				if got := patternCorpusPublicationTestGeneration(t, brainDir); got != "new" {
@@ -351,7 +353,7 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 		run  func(string) error
 	}{
 		{name: "recover", run: func(brainDir string) error {
-			return patterncore.RecoverCorpusPublicationLocked(brainDir, decodePatternCorpusPublication)
+			return patterncore.RecoverCorpusPublicationLocked(brainDir, patterncore.DecodeCorpusPublication)
 		}},
 		{name: "build", run: func(brainDir string) error {
 			return buildPatternCorpus(brainDir, now.Add(time.Minute))
@@ -366,7 +368,7 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 			}
 			patternsDir := filepath.Join(brainDir, "patterns")
 			corpusPath := filepath.Join(patternsDir, "corpus.sqlite")
-			runsPath := filepath.Join(brainDir, filepath.FromSlash(patternRunsRelPath))
+			runsPath := filepath.Join(brainDir, filepath.FromSlash(patterncore.RunsRelPath))
 			corpusBefore, err := os.ReadFile(corpusPath)
 			if err != nil {
 				t.Fatal(err)
@@ -392,9 +394,9 @@ func TestPatternCorpusForwardPublicationMarkerPreservesRecoveryAndBuildState(t *
 			}
 
 			err = action.run(brainDir)
-			var typed *patternCorpusPublicationLoadError
+			var typed *patterncore.PublicationLoadError
 			if !errors.As(err, &typed) || typed.Code != brainstore.UnsupportedVersionCode ||
-				typed.State != patternCorpusPublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
+				typed.State != patterncore.PublicationUnsupported || typed.Version != patterncore.CorpusPublicationVersion+1 {
 				t.Fatalf("error = %v typed=%+v, want typed unsupported vNext", err, typed)
 			}
 			for path, want := range map[string][]byte{
@@ -510,8 +512,8 @@ func TestPatternCorpusTranscriptReadRejectsSymlink(t *testing.T) {
 		t.Skipf("symlink fixture unavailable: %v", err)
 	}
 	err := buildPatternCorpus(brainDir, now)
-	if err == nil || !strings.Contains(err.Error(), memoryErrSessionInventory) {
-		t.Fatalf("symlinked pattern transcript error = %v, want %s", err, memoryErrSessionInventory)
+	if err == nil || !strings.Contains(err.Error(), brainstore.SessionInventoryCode) {
+		t.Fatalf("symlinked pattern transcript error = %v, want %s", err, brainstore.SessionInventoryCode)
 	}
 	if _, statErr := os.Stat(filepath.Join(brainDir, filepath.FromSlash(patterncore.CorpusPath))); !os.IsNotExist(statErr) {
 		t.Fatalf("unsafe transcript published a corpus: %v", statErr)
@@ -533,13 +535,13 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	beforeRuns := len(loadPatternRuns(brainDir))
+	beforeRuns := len(patterncore.LoadRuns(brainDir))
 	if err := os.Remove(filepath.Join(brainDir, filepath.FromSlash(rel))); err != nil {
 		t.Fatal(err)
 	}
 	err = buildPatternCorpus(brainDir, now.Add(time.Minute))
-	if err == nil || !strings.Contains(err.Error(), memoryErrSessionInventory) {
-		t.Fatalf("missing manifest transcript error = %v, want %s", err, memoryErrSessionInventory)
+	if err == nil || !strings.Contains(err.Error(), brainstore.SessionInventoryCode) {
+		t.Fatalf("missing manifest transcript error = %v, want %s", err, brainstore.SessionInventoryCode)
 	}
 	afterCorpus, err := os.ReadFile(corpusPath)
 	if err != nil {
@@ -548,7 +550,7 @@ func TestPatternCorpusMissingManifestTranscriptRefusesPartialPublication(t *test
 	if !bytes.Equal(afterCorpus, beforeCorpus) {
 		t.Fatal("missing source published a partial replacement corpus")
 	}
-	if got := len(loadPatternRuns(brainDir)); got != beforeRuns {
+	if got := len(patterncore.LoadRuns(brainDir)); got != beforeRuns {
 		t.Fatalf("refused partial build appended run history: before=%d after=%d", beforeRuns, got)
 	}
 }
@@ -567,8 +569,8 @@ func TestPatternCorpusBuildRejectsNewerManifestWithoutMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
-	vNext := []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"must_survive\":true}}\n", brainManifestSchemaVersion+1))
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
+	vNext := []byte(fmt.Sprintf("{\"schema_version\":%d,\"future\":{\"must_survive\":true}}\n", bmanifest.SchemaVersion+1))
 	if err := os.WriteFile(manifestPath, vNext, 0o600); err != nil {
 		t.Fatal(err)
 	}

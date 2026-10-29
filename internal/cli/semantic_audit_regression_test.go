@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"reflect"
 	"strings"
 	"testing"
@@ -18,11 +20,11 @@ func TestSemanticAuditReadsGraphCoverage(t *testing.T) {
 	if err := runSemanticIndex(context.Background(), &cobra.Command{Use: "index"}, Options{Env: env, Runner: runner, Now: time.Now}, semanticIndexOptions{graphBinary: "entire"}, repoDir); err != nil {
 		t.Fatal(err)
 	}
-	brainDir, err := brainDirForKey(env, "gh/example/repo")
+	brainDir, err := base.BrainDirForKey(env, "gh/example/repo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	source := *graphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], brainDir)
+	source := *semstore.GraphStoreSource(runner.graphStoreFixtures[repoDir+"\x00full"], brainDir)
 	freshness := staleReport{Axes: map[string]staleAxis{"store": {State: "ok"}, "snapshot": {State: "ok"}}}
 	store, err := semanticAuditStoreCoverage(brainDir, &source, freshness)
 	if err != nil {

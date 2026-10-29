@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/entireio/entire-brain/internal/cli/internal/patterntest"
 	"github.com/entireio/entire-brain/internal/cli/internal/sqlitedriver"
 	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
@@ -85,7 +86,7 @@ func TestPatternCorpusIdempotentAndExtracts(t *testing.T) {
 		return patterncore.WithCorpusMutationLocked(brainDir, func(staged *sql.DB) error {
 			_, err := staged.Exec(`UPDATE meta SET value='0' WHERE key='pattern_indexer_version'`)
 			return err
-		}, decodePatternCorpusPublication)
+		}, patterncore.DecodeCorpusPublication)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestPatternCorpusPrunesDeletedSession(t *testing.T) {
 	}
 
 	// Drop s2 from the manifest and rebuild → its rows are pruned.
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,7 @@
 # Recall threat model: prompt injection and secret retention
 
 Scope: the conversational-memory and history recall surfaces (CLI retrieval
-verbs, MCP tools, brief, bundles/publish, logs, and the derived stores), per
+verbs, brief, bundles/publish, logs, and the derived stores), per
 Phase 4 deliverable 7 of the conversational-memory plan. This documents what
 the code enforces today, where the boundaries are, and the residual risks with
 their tracking state. It is a living document: change the code, change this.
@@ -15,7 +15,7 @@ their tracking state. It is a living document: change the code, change this.
   exchange projections), FTS stores, vector stores, scan caches, pattern
   episodes/corpus, durable facts, distill caches.
 - **Published artifacts**: brain bundles (semantic snapshots, overlays, facts).
-- **Receipts and logs**: serve receipts, watch output, MCP debug log.
+- **Receipts and logs**: serve receipts, watch output.
 
 ## Adversary channels and enforced boundaries
 
@@ -29,7 +29,7 @@ Enforced:
 
 - Every conversation result carries `verification_required: true` plus a
   machine-readable `historical_conversation` caveat on every surface (CLI
-  JSON, MCP JSON, text rendering) stating recalled content is quoted data,
+  JSON and text rendering) stating recalled content is quoted data,
   never instructions. The canary test proves an instruction-like string is
   returned only inside this wrapper.
 - Tool and skill descriptions never instruct an agent to obey recalled
@@ -83,8 +83,7 @@ Enforced:
 - Vector stores hold embeddings of session text; embedding inversion is a
   known class of partial-content recovery, so purge deletes the store files
   rather than reasoning about per-row deletion.
-- Serve receipts and diagnostics do not log query or conversation bodies; the
-  MCP debug log records tool names and a safe-args allowlist only.
+- Serve receipts and diagnostics do not log query or conversation bodies.
 
 Residual (tracked):
 
@@ -106,36 +105,7 @@ Residual (tracked):
   exclude or purge) exists for age-based policy; anything finer stays
   per-session and explicit.
 
-### 3. Malicious or compromised MCP client
-
-Enforced:
-
-- Tool arguments never choose an executable or a filesystem path: the graph
-  binary comes from the trusted server environment; index paths are
-  normalized against the bound repo root with containment re-checked on the
-  resolved path; `brain_get` resolves transcript paths from the trusted index
-  only, with canonical-path validation, a `sessions/` containment check, and
-  symlink-component rejection.
-- Tool arguments never reach another repository's brain: `brain_delete_project`
-  refuses a `repo_key` other than the bound repo's (`confirm=true` is not a
-  defence — the same injected agent supplies it), `brain_list_projects` returns
-  only the bound project instead of enumerating every local repo's key, path,
-  and counts, and the `brain_workspace_*` fan-out refuses a workspace the bound
-  repository is not a member of (membership is what stops an agent in repo A
-  reaching an unrelated repo B), or one whose repos live outside the bound
-  repository's parent directory — sibling checkouts under a common parent stay
-  in scope, since that is the layout every real workspace has. Each is opt-out
-  via
-  `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, and each applies to the MCP surface only:
-  the `entire brain ...` CLI stays cross-repo because the operator there is a
-  human, not a deputy acting on injected instructions.
-- Argument names are validated against each tool's declared schema (single
-  source of truth); input frames, transcript reads (streamed for line
-  transcripts, bounded for document form), parser lines, and per-exchange
-  result bytes are bounded; one malformed frame answers with a parse error
-  instead of killing the server; handler panics are recovered per request.
-
-### 4. Hostile repository content
+### 3. Hostile repository content
 
 Seed/docs/semantic layers index repo content that may itself be hostile.
 Historical documents carry their own `historical_document` caveat; the
@@ -149,14 +119,9 @@ hostile content cannot exfiltrate via the embedder channel.
 
 1. No retrieval surface returns conversation content without
    `verification_required` + the historical-evidence caveat.
-2. MCP clients cannot choose an executable. Repository indexing paths are scoped
-   by `ENTIRE_BRAIN_MCP_ALLOW_ANY_PATH`; trace ingestion accepts a local path and
-   is not covered by that indexing boundary. Project listing and deletion require
-   a bound repository, and workspace tools require a validated snapshot whose
-   members include the bound repository and match checkouts under its parent.
-   Unbound servers refuse these project and workspace operations unless the
-   operator sets `ENTIRE_BRAIN_MCP_ALLOW_CROSS_REPO`, which disables their scope
-   checks.
+2. Retrieval arguments never choose an executable: the graph binary comes
+   from the trusted environment, and transcript paths resolve from the trusted
+   index only, with canonical-path validation and symlink-component rejection.
 3. Publish/bundle output never contains transcripts, history records, or
    conversation text.
 4. Tombstones are honored before every derived build AND consulted at every

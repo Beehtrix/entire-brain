@@ -704,7 +704,7 @@ const (
 // having to tell it — which means no unit bytes change and no installed daemon
 // is restarted to gain rotation.
 func daemonLogPath(env EntireEnv) (string, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return "", err
 	}

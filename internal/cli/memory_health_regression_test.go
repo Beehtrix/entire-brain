@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func TestMemoryVectorHealthReportsPersistedStatesWithoutMutation(t *testing.T) {
 			if got["state"] != tc.want || got["schema_state"] != "current" || got["model_id"] != "test-model" || got["pending"] != tc.pending {
 				t.Fatalf("health=%+v want state=%s", got, tc.want)
 			}
-			if tc.want == "stale" && got["error_code"] != memoryErrSourceStale || tc.want == "degraded" && got["error_code"] != tc.code {
+			if tc.want == "stale" && got["error_code"] != brainstore.SourceStaleCode || tc.want == "degraded" && got["error_code"] != tc.code {
 				t.Fatalf("missing failure reason: %+v", got)
 			}
 			if privacyTreeDigest(t, dir) != before {

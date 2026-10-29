@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -142,54 +143,6 @@ func TestManualAbstractOutputRejectsLateExclusionWithoutBytes(t *testing.T) {
 	}
 }
 
-func TestManualAbstractMCPOutputHoldsPrivacyLockThroughOuterFrame(t *testing.T) {
-	brainDir, _ := writeSessionNavigationFixture(t)
-	policy, err := brainstore.CaptureRetrievalPrivacyPolicy(brainDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	policy.RequireDerivedClean = true
-	privacyState := &mcpResponsePrivacyState{}
-	out := &mcpToolOutputBuffer{privacy: privacyState}
-	cmd := &cobra.Command{Use: "abstract-test"}
-	cmd.SetOut(out)
-	if err := bufferRetrievalCommandOutput(cmd, []retrievalPrivacyPolicy{policy}, func() error {
-		_, err := fmt.Fprint(cmd.OutOrStdout(), "private abstract\n")
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if privacyState.unlock == nil {
-		t.Fatal("MCP output did not retain the privacy lock for the outer frame")
-	}
-
-	purgeStarted := make(chan struct{})
-	purgeDone := make(chan error, 1)
-	go func() {
-		close(purgeStarted)
-		purgeDone <- brainstore.WithBrainPrivacySideEffectLock(brainDir, func() error {
-			return brainstore.WithBrainWriteLock(brainDir, func() error {
-				stones := brainstore.EmptySessionTombstones()
-				stones.Excluded["nav-sess"] = sessionTombstone{At: time.Now().UTC(), Reason: "MCP race"}
-				return brainstore.SaveSessionTombstones(brainDir, stones)
-			})
-		})
-	}()
-	<-purgeStarted
-	select {
-	case err := <-purgeDone:
-		t.Fatalf("purge crossed the MCP outer-frame boundary: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-	privacyState.release()
-	if err := <-purgeDone; err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != "private abstract\n" {
-		t.Fatalf("buffered MCP output = %q", out.String())
-	}
-}
-
 func TestPrivacySideEffectLockHasStableBoundedContentionFailure(t *testing.T) {
 	brainDir := t.TempDir()
 	unlock, err := brainstore.AcquireBrainPrivacySideEffectLock(brainDir)
@@ -198,7 +151,7 @@ func TestPrivacySideEffectLockHasStableBoundedContentionFailure(t *testing.T) {
 	}
 	defer unlock()
 	_, err = brainstore.AcquireBrainPrivacySideEffectLockTimeout(brainDir, 20*time.Millisecond)
-	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) || memoryErrorCode(err) != brainstore.PrivacyBusyCode {
+	if err == nil || !strings.Contains(err.Error(), brainstore.PrivacyBusyCode) || brainstore.MemoryErrorCode(err) != brainstore.PrivacyBusyCode {
 		t.Fatalf("contended privacy lock error = %v", err)
 	}
 }
@@ -347,7 +300,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 		t.Fatal(err)
 	}
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		manifest, err := loadBrainManifest(brainDir)
+		manifest, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}
@@ -389,7 +342,7 @@ func TestRetentionRecomputesPlanAfterWaitingForProviderSideEffect(t *testing.T) 
 
 func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.T) {
 	brainDir := writePrivacyFixture(t)
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -397,7 +350,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	guard, err := loadSessionReadGuard(brainDir, manifest)
+	guard, err := bmanifest.LoadSessionReadGuard(brainDir, manifest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +410,7 @@ func TestPrivacyCleanupRetryUsesDurableRefsAfterManifestDropsSession(t *testing.
 	// A later refresh drops the session from the manifest before the user
 	// retries. Only the durable transaction can now identify its abstract artifacts.
 	if err := brainstore.WithBrainWriteLock(brainDir, func() error {
-		current, err := loadBrainManifest(brainDir)
+		current, err := bmanifest.Load(brainDir)
 		if err != nil {
 			return err
 		}

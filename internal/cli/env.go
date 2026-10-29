@@ -16,120 +16,10 @@ import (
 	"strings"
 
 	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
-	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
 
-const (
-	envCLIVersion      = "ENTIRE_CLI_VERSION"
-	envRepoRoot        = "ENTIRE_REPO_ROOT"
-	envPluginConfigDir = "ENTIRE_PLUGIN_CONFIG_DIR"
-	envPluginDataDir   = "ENTIRE_PLUGIN_DATA_DIR"
-	envPluginStateDir  = "ENTIRE_PLUGIN_STATE_DIR"
-	envPluginCacheDir  = "ENTIRE_PLUGIN_CACHE_DIR"
-
-	xdgConfigHome = "XDG_CONFIG_HOME"
-	xdgDataHome   = "XDG_DATA_HOME"
-	xdgStateHome  = "XDG_STATE_HOME"
-	xdgCacheHome  = "XDG_CACHE_HOME"
-
-	xdgRootDir        = "entire"
-	repoStoreDirName  = "repos"
-	brainHeadFileName = "head.json"
-
-	// pluginDataName is this plugin's namespace under the host's plugin data
-	// root. The host dispatches the brain with ENTIRE_PLUGIN_DATA_DIR set to
-	// <xdg_data>/entire/plugins/data/brain; run standalone (dev), we mirror that
-	// suffix so the binary targets the real brain store, not a shadow one.
-	pluginDataName = "brain"
-)
-
 var repoKeyUnsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-var repoRemoteSCPRegex = regexp.MustCompile(`^(?:[^@]+@)?([^:/]+):(.+)$`)
-var knownRepoDomainSlugs = map[string]string{
-	"github.com":    "gh",
-	"gitlab.com":    "gl",
-	"bitbucket.org": "bb",
-	"entire.io":     "et",
-	"tangled.org":   "tg",
-	"code.storage":  "cs",
-}
-
-func EnvFromOS() EntireEnv {
-	return EntireEnv{
-		CLIVersion: os.Getenv(envCLIVersion),
-		// Keep the host-supplied spelling. Storage identity canonicalization is
-		// intentionally local to repoStoragePaths; retaining an ambient hidden
-		// alias here would leak repo A into per-repo Options copies for repo B.
-		RepoRoot:        os.Getenv(envRepoRoot),
-		PluginConfigDir: os.Getenv(envPluginConfigDir),
-		PluginDataDir:   os.Getenv(envPluginDataDir),
-		PluginStateDir:  os.Getenv(envPluginStateDir),
-		PluginCacheDir:  os.Getenv(envPluginCacheDir),
-	}
-}
-
-type pluginDirs struct {
-	Config string
-	Data   string
-	State  string
-	Cache  string
-}
-
-func resolvePluginDirs(env EntireEnv) (pluginDirs, error) {
-	configDir, err := resolveXDGDir(env.PluginConfigDir, envPluginConfigDir, xdgConfigHome, filepath.Join(".config", xdgRootDir))
-	if err != nil {
-		return pluginDirs{}, fmt.Errorf("resolve plugin config dir: %w", err)
-	}
-	dataDir, err := resolveXDGDir(env.PluginDataDir, envPluginDataDir, xdgDataHome, filepath.Join(".local", "share", xdgRootDir))
-	if err != nil {
-		return pluginDirs{}, fmt.Errorf("resolve plugin data dir: %w", err)
-	}
-	if env.PluginDataDir == "" {
-		// No host-supplied data dir (standalone/dev run). Mirror the host's
-		// plugin-data layout — <xdg_data>/entire/plugins/data/brain — so the brain
-		// resolves to the same store the installed plugin uses rather than a shadow
-		// XDG store. Only the data dir is namespaced; the host leaves config/state/
-		// cache unset, so their XDG fallbacks already match.
-		dataDir = filepath.Join(dataDir, "plugins", "data", pluginDataName)
-	}
-	stateDir, err := resolveXDGDir(env.PluginStateDir, envPluginStateDir, xdgStateHome, filepath.Join(".local", "state", xdgRootDir))
-	if err != nil {
-		return pluginDirs{}, fmt.Errorf("resolve plugin state dir: %w", err)
-	}
-	cacheDir, err := resolveXDGDir(env.PluginCacheDir, envPluginCacheDir, xdgCacheHome, filepath.Join(".cache", xdgRootDir))
-	if err != nil {
-		return pluginDirs{}, fmt.Errorf("resolve plugin cache dir: %w", err)
-	}
-	return pluginDirs{
-		Config: configDir,
-		Data:   dataDir,
-		State:  stateDir,
-		Cache:  cacheDir,
-	}, nil
-}
-
-func resolveXDGDir(pluginDir, pluginEnv, xdgEnv, homeFallback string) (string, error) {
-	if pluginDir != "" {
-		if !filepath.IsAbs(pluginDir) {
-			return "", fmt.Errorf("%s must be absolute, got %q", pluginEnv, pluginDir)
-		}
-		return pluginDir, nil
-	}
-	if xdg := os.Getenv(xdgEnv); xdg != "" {
-		if filepath.IsAbs(xdg) {
-			return filepath.Join(xdg, xdgRootDir), nil
-		}
-		// XDG says relative paths are invalid; ignore and fall back to HOME.
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, homeFallback), nil
-}
-
-const localRepoIdentityConflictCode = "repo_identity_conflict"
 
 // localRepoIdentityConflictError refuses to guess when an upgrade finds state
 // under both the canonical root identity and the exact pre-upgrade lexical
@@ -152,7 +42,7 @@ func (e *localRepoIdentityConflictError) Error() string {
 		"%s: state exists for canonical local repo key %q and pre-upgrade alias key %q; "+
 			"run `%s repo-identity` to see both stores, then `%s repo-identity --keep <repo-key>` "+
 			"to keep one and move the other aside (canonical brain: %s; legacy brain: %s)",
-		localRepoIdentityConflictCode,
+		clibase.RepoIdentityConflictCode,
 		e.Canonical.Key,
 		e.Legacy.Key,
 		clibase.SetupCommandPrefix(os.LookupEnv),
@@ -238,7 +128,7 @@ func resolveRepoStorageSet(ctx context.Context, runner CommandRunner, env Entire
 }
 
 func resolveRepoStorageSetWithSlug(ctx context.Context, runner CommandRunner, env EntireEnv, repoDir string, slugForHost func(string, string) (string, error)) (repoStorageSet, error) {
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := clibase.ResolvePluginDirs(env)
 	if err != nil {
 		return repoStorageSet{}, err
 	}
@@ -246,9 +136,9 @@ func resolveRepoStorageSetWithSlug(ctx context.Context, runner CommandRunner, en
 	if err != nil {
 		return repoStorageSet{}, err
 	}
-	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
-	canonical := repoStorageForKey(dirs, identity.Key)
-	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(canonical.Key)); err != nil {
+	brainRoot := filepath.Join(dirs.Data, clibase.RepoStoreDirName)
+	canonical := clibase.RepoStorageForKey(dirs, identity.Key)
+	if err := clibase.RejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(canonical.Key)); err != nil {
 		return repoStorageSet{}, err
 	}
 	set := repoStorageSet{Canonical: canonical, Local: identity.Local}
@@ -263,8 +153,8 @@ func resolveRepoStorageSetWithSlug(ctx context.Context, runner CommandRunner, en
 		set.Populated = append(set.Populated, canonical)
 	}
 	for _, key := range identity.AlternateKeys {
-		alternate := repoStorageForKey(dirs, key)
-		if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(alternate.Key)); err != nil {
+		alternate := clibase.RepoStorageForKey(dirs, key)
+		if err := clibase.RejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(alternate.Key)); err != nil {
 			return repoStorageSet{}, err
 		}
 		exists, err := repoStorageContainsState(alternate)
@@ -296,14 +186,6 @@ func repoStoragePaths(ctx context.Context, runner CommandRunner, env EntireEnv, 
 	return set.Active(), nil
 }
 
-func repoStorageForKey(dirs pluginDirs, key string) repoStorage {
-	return repoStorage{
-		Key:      key,
-		BrainDir: filepath.Join(dirs.Data, repoStoreDirName, filepath.FromSlash(key)),
-		HeadPath: filepath.Join(dirs.State, repoStoreDirName, filepath.FromSlash(key), brainHeadFileName),
-	}
-}
-
 func repoStorageContainsState(storage repoStorage) (bool, error) {
 	for _, path := range []string{storage.BrainDir, storage.HeadPath} {
 		_, err := os.Lstat(path)
@@ -317,59 +199,6 @@ func repoStorageContainsState(storage repoStorage) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// rejectReservedRepoKeySegment refuses a repo key whose first segment is
-// reserved in the repo keyspace.
-//
-// "workspaces" is reserved: older builds stored workspace manifests at
-// repos/workspaces/<name> (since relocated to a sibling of repos/), and a host
-// slug or hand-edited DomainSlugs entry claiming the segment would collide with
-// any legacy data still awaiting migration.
-//
-// This lives in one function because it is a property of the KEY, not of any one
-// consumer of it. It used to be inline in brainDirForKey only, which left the two
-// places that build a store path without that helper — `brain path`, and
-// headPathForKey — accepting a key every other command refuses.
-func rejectReservedRepoKeySegment(key string) error {
-	if first, _, _ := strings.Cut(key, "/"); first == workspace.DirName {
-		return fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
-	}
-	return nil
-}
-
-func brainDirForKey(env EntireEnv, key string) (string, error) {
-	if err := rejectReservedRepoKeySegment(key); err != nil {
-		return "", err
-	}
-	dirs, err := resolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	brainRoot := filepath.Join(dirs.Data, repoStoreDirName)
-	if err := rejectBrainRootPathSymlinks(brainRoot, filepath.FromSlash(key)); err != nil {
-		return "", err
-	}
-	return filepath.Join(brainRoot, filepath.FromSlash(key)), nil
-}
-
-func headPathForKey(env EntireEnv, key string) (string, error) {
-	// Same guards as brainDirForKey. The head path is built from the same
-	// untrusted key and joined onto the same per-key directory, so accepting a
-	// key here that brainDirForKey refuses would put the two halves of a repo's
-	// storage under different rules.
-	if err := rejectReservedRepoKeySegment(key); err != nil {
-		return "", err
-	}
-	dirs, err := resolvePluginDirs(env)
-	if err != nil {
-		return "", err
-	}
-	headRoot := filepath.Join(dirs.State, repoStoreDirName)
-	if err := rejectBrainRootPathSymlinks(headRoot, filepath.FromSlash(key)); err != nil {
-		return "", err
-	}
-	return filepath.Join(headRoot, filepath.FromSlash(key), brainHeadFileName), nil
 }
 
 func repoStorageKey(ctx context.Context, runner CommandRunner, configDir, repoDir string) (string, error) {
@@ -538,8 +367,8 @@ func repoKeyFromRemoteWithSlug(configDir, remote string, slugForHost func(string
 			return "", false, nil
 		}
 		key := strings.Join(components, "/")
-		if components[0] == workspace.DirName {
-			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", workspace.DirName, key)
+		if components[0] == clibase.WorkspacesDirName {
+			return "", true, fmt.Errorf("repo key uses the reserved %q segment: %s", clibase.WorkspacesDirName, key)
 		}
 		return key, true, nil
 	}
@@ -560,7 +389,7 @@ func repoKeyFromRemoteWithSlug(configDir, remote string, slugForHost func(string
 	// case brainDirForKey's reserved-segment refusal exists for. Catching it here
 	// reports the config that produced the key rather than failing later in
 	// whichever consumer happens to build a path first.
-	if err := rejectReservedRepoKeySegment(key); err != nil {
+	if err := clibase.RejectReservedRepoKeySegment(key); err != nil {
 		return "", true, err
 	}
 	return key, true, nil
@@ -577,7 +406,7 @@ func parseRepoRemote(remote string) (string, []string, bool) {
 	if parsed, ok := parseURLRemote(remote); ok {
 		host = parsed.host
 		path = parsed.path
-	} else if match := repoRemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
+	} else if match := clibase.RemoteSCPRegex.FindStringSubmatch(remote); len(match) == 3 {
 		if looksLikeWindowsDriveRemotePath(remote, match[2]) {
 			return "", nil, false
 		}
@@ -642,7 +471,7 @@ func normalizeRepoPath(path string) []string {
 }
 
 func repoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 
@@ -709,17 +538,10 @@ func localRepoKey(repoDir string) string {
 	return base + "-" + hex.EncodeToString(sum[:])[:12]
 }
 
-func valueOrUnset(value string) string {
-	if value == "" {
-		return "<unset>"
-	}
-	return value
-}
-
 // lookupRepoDomainSlug reads an established binding without allocating one or
 // quarantining malformed configuration. A getter must not redefine identity.
 func lookupRepoDomainSlug(configDir, host string) (string, error) {
-	if slug, ok := knownRepoDomainSlugs[host]; ok {
+	if slug, ok := clibase.KnownRepoDomainSlugs[host]; ok {
 		return slug, nil
 	}
 	path, err := config.Path(configDir)

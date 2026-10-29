@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 )
 
 func TestHistorySessionInventoryDeterministic(t *testing.T) {
@@ -71,7 +72,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 		t.Skip("creating symlinks requires privileges on many Windows builders")
 	}
 	brainDir, _, now := historyProjectionFixture(t)
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +87,8 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 		t.Fatal(err)
 	}
 	_, err = writeBrainHistoryIndexAndSource(brainDir, now.Add(time.Minute), nil)
-	if !errors.Is(err, errHistorySessionInventoryDegraded) || memoryErrorCode(err) != memoryErrSessionInventory {
-		t.Fatalf("projection error = %v, code=%q", err, memoryErrorCode(err))
+	if !errors.Is(err, errHistorySessionInventoryDegraded) || brainstore.MemoryErrorCode(err) != brainstore.SessionInventoryCode {
+		t.Fatalf("projection error = %v, code=%q", err, brainstore.MemoryErrorCode(err))
 	}
 	after, readErr := os.ReadFile(manifestPath)
 	if readErr != nil {
@@ -106,7 +107,7 @@ func TestHistoryProjectionRejectsExternalTranscriptSymlinkWithoutPublication(t *
 
 func TestHistoryProjectionRejectsLeafSwapWithoutPublication(t *testing.T) {
 	brainDir, rel, now := historyProjectionFixture(t)
-	manifestPath := filepath.Join(brainDir, exportManifestFileName)
+	manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 	before, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatal(err)
@@ -159,7 +160,7 @@ func TestHistoryProjectionRejectsLeafSwapWithoutPublication(t *testing.T) {
 func TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay(t *testing.T) {
 	t.Run("full projection", func(t *testing.T) {
 		brainDir, _, now := historyProjectionFixture(t)
-		manifestPath := filepath.Join(brainDir, exportManifestFileName)
+		manifestPath := filepath.Join(brainDir, bmanifest.FileName)
 		before, err := os.ReadFile(manifestPath)
 		if err != nil {
 			t.Fatal(err)
@@ -168,8 +169,8 @@ func TestHistorySessionInventoryCeilingPreservesProjectionAndOverlay(t *testing.
 		historySessionInventoryMaxEntries = 1
 		t.Cleanup(func() { historySessionInventoryMaxEntries = oldLimit })
 		_, err = writeBrainHistoryIndexAndSource(brainDir, now.Add(time.Minute), nil)
-		if !errors.Is(err, errHistorySessionInventoryDegraded) || memoryErrorCode(err) != memoryErrSessionInventory {
-			t.Fatalf("ceiling error = %v, code=%q", err, memoryErrorCode(err))
+		if !errors.Is(err, errHistorySessionInventoryDegraded) || brainstore.MemoryErrorCode(err) != brainstore.SessionInventoryCode {
+			t.Fatalf("ceiling error = %v, code=%q", err, brainstore.MemoryErrorCode(err))
 		}
 		after, readErr := os.ReadFile(manifestPath)
 		if readErr != nil || !bytes.Equal(after, before) {
@@ -229,7 +230,7 @@ func TestShortTermDeltaMembershipRacePreservesOverlay(t *testing.T) {
 				_, buildErr := buildHistoryShortTermLocked(brainDir, time.Now().UTC())
 				return buildErr
 			})
-			if !landed || err == nil || !strings.Contains(err.Error(), memoryErrSourceStale) {
+			if !landed || err == nil || !strings.Contains(err.Error(), brainstore.SourceStaleCode) {
 				t.Fatalf("landed=%v delta error=%v", landed, err)
 			}
 			after, readErr := os.ReadFile(overlayPath)

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"slices"
@@ -71,7 +72,6 @@ func TestRootWithoutCommandShowsHelp(t *testing.T) {
 		"status",
 		"refresh",
 		"inspect",
-		"mcp",
 		"version",
 		"workspace",
 	} {
@@ -267,7 +267,7 @@ func TestInitAgentsTombstone(t *testing.T) {
 	// brainInvocation renders the host-dispatched spelling ("entire brain
 	// setup") only when the plugin dispatcher's env var is set; pin that mode
 	// so the assertions below don't depend on ambient environment.
-	t.Setenv(envCLIVersion, "0.3.0")
+	t.Setenv(base.EnvCLIVersion, "0.3.0")
 
 	for _, args := range [][]string{
 		{"init-agents"},
@@ -320,10 +320,10 @@ func TestRefreshExposesBuildStageSubcommands(t *testing.T) {
 
 func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
-	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
-	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
-	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
+	t.Setenv(base.XDGConfigHome, filepath.Join(xdg, "config"))
+	t.Setenv(base.XDGDataHome, filepath.Join(xdg, "data"))
+	t.Setenv(base.XDGStateHome, filepath.Join(xdg, "state"))
+	t.Setenv(base.XDGCacheHome, filepath.Join(xdg, "cache"))
 
 	// This test is about the PATHS doctor resolves, not about its exit code:
 	// see doctorReportText. A runner with no `entire` on PATH makes doctor
@@ -340,7 +340,7 @@ func TestDoctorUsesXDGFallbacks(t *testing.T) {
 	for _, want := range []string{
 		"ENTIRE_PLUGIN_DATA_DIR=<unset>",
 		"plugin config dir: ok (" + filepath.Join(xdg, "config", "entire"),
-		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName),
+		"plugin data dir: ok (" + filepath.Join(xdg, "data", "entire", "plugins", "data", base.PluginDataName),
 		"plugin state dir: ok (" + filepath.Join(xdg, "state", "entire"),
 		"plugin cache dir: ok (" + filepath.Join(xdg, "cache", "entire"),
 	} {
@@ -453,7 +453,7 @@ func TestConfigInitAndShow(t *testing.T) {
 			t.Fatalf("directories.%s = %v, want %q", dir.key, dirs[dir.key], dir.want)
 		}
 	}
-	if want := filepath.Join(env.PluginDataDir, repoStoreDirName); report["brain_store"] != want {
+	if want := filepath.Join(env.PluginDataDir, base.RepoStoreDirName); report["brain_store"] != want {
 		t.Fatalf("brain_store = %v, want %q", report["brain_store"], want)
 	}
 	if report["repo_root"] != env.RepoRoot {
@@ -466,9 +466,6 @@ func TestConfigInitAndShow(t *testing.T) {
 	if report["no_egress"] != false {
 		t.Fatalf("no_egress = %v, want false", report["no_egress"])
 	}
-	if report["mcp_graph_binary"] != "entire" {
-		t.Fatalf("mcp_graph_binary = %v, want the default %q", report["mcp_graph_binary"], "entire")
-	}
 }
 
 // Every field `config show` prints must track the thing it names, or the report
@@ -476,7 +473,6 @@ func TestConfigInitAndShow(t *testing.T) {
 func TestConfigShowTracksLiveConfiguration(t *testing.T) {
 	env := configShowTestEnv(t)
 	t.Setenv("ENTIRE_BRAIN_LOCAL_ONLY", "1")
-	t.Setenv("ENTIRE_BRAIN_GRAPH_BINARY", "/opt/entire/bin/entire")
 
 	// No `config init`: the file is genuinely absent, and the report must say so
 	// rather than presenting defaults as if they were written.
@@ -495,10 +491,6 @@ func TestConfigShowTracksLiveConfiguration(t *testing.T) {
 	if report["no_egress"] != true {
 		t.Fatalf("no_egress = %v under ENTIRE_BRAIN_LOCAL_ONLY=1, want true", report["no_egress"])
 	}
-	if report["mcp_graph_binary"] != "/opt/entire/bin/entire" {
-		t.Fatalf("mcp_graph_binary = %v, want the ENTIRE_BRAIN_GRAPH_BINARY override", report["mcp_graph_binary"])
-	}
-
 	// A persisted host slug is the one real setting brain.json carries, and it
 	// is what a reader debugging a repo key needs to see.
 	if _, err := config.Update(env.PluginConfigDir, func(cfg *config.Config) error {

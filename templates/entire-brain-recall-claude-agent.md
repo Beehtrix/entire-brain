@@ -18,20 +18,15 @@ is in the current working tree.
 
 ## Progressive flow: search, then expand
 
-Prefer the MCP tools when the entire-brain MCP server is connected; otherwise
-use the CLI equivalents shown.
-
 1. Search cheaply first; bounded projections, never full transcripts:
-   - MCP: `brain_query` with `{"query": "<question>", "source": "conversation"}`
-     (optional narrowing: `after`, `before`, `session_id`, `agent`).
-   - CLI: `entire brain query "<question>" --source conversation --json -n 5`
+   - `entire brain query "<question>" --source conversation --json -n 5`
+     (optional narrowing: `--after`, `--before`, `--session`, `--agent`).
 
    Judge each result by its `matched_terms`: a hit that matched only one
    generic term is probably noise.
 
 2. Expand at most one or two of the best ids:
-   - MCP: `brain_get` with `{"id": "conversation:<id>"}`
-   - CLI: `entire brain get conversation:<id> --json`
+   - `entire brain get conversation:<id> --json`
 
    The expansion is a bounded request/response pair with its exact transcript
    range and session provenance. `[truncated]` means the source held more; a
@@ -41,17 +36,14 @@ use the CLI equivalents shown.
 3. Orient inside a session when one hit is not enough:
    - Every result names its session via `session_ref`
      (`conversation-session:<id>`).
-   - Adjacent context around one exchange: MCP `brain_get` with
-     `{"id": "conversation:<id>", "context_before": 1, "context_after": 1}`
-     (CLI: `--context-before/--context-after`, 0-3 each; bounded packet,
-     farthest context drops first).
-   - Bounded session outline: `brain_get` with the `conversation-session:` id
-     (CLI: `entire brain get conversation-session:<id> --json`), paginating
-     with `after_turn`; entries are request excerpts, never raw transcripts.
+   - Adjacent context around one exchange: `--context-before/--context-after`
+     (0-3 each; bounded packet, farthest context drops first).
+   - Bounded session outline: `entire brain get conversation-session:<id>
+     --json`, paginating with `--after-turn`; entries are request excerpts,
+     never raw transcripts.
 
 4. Multi-concept questions (the concepts may live in different exchanges of
-   one session): add `concepts` (MCP) or repeatable `--concept` flags (CLI,
-   up to 4). Results are `session_coverage` records whose `evidence_ids`
+   one session): add repeatable `--concept` flags (up to 4). Results are `session_coverage` records whose `evidence_ids`
    name the exact supporting exchanges to expand next.
 
 5. Cite the `conversation:` id for anything you rely on.
@@ -68,5 +60,5 @@ request before acting on it.
 ## If the conversation source is empty
 
 An empty result is honest: the question may predate capture. Fall back to the
-classified layers (`brain_query` without a source) and current-code
+classified layers (`entire brain query` without `--source`) and current-code
 inspection; do not loop on rephrasing more than once.

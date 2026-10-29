@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"io"
 	"strconv"
 	"strings"
@@ -23,7 +25,7 @@ func newPrepassBackoffBrain(t *testing.T, now time.Time) (Options, repoStorage) 
 		t.Fatal(err)
 	}
 	if err := writeBrainManifestAndReadme(storage.BrainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion, RepoKey: storage.Key,
+		SchemaVersion: bmanifest.SchemaVersion, RepoKey: storage.Key,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -155,12 +157,12 @@ func TestFailedPrepassRecordsADegradedOutcomeAndSurfacesIt(t *testing.T) {
 	if !ok {
 		t.Fatalf("no coordinator health section: %+v", health.Payload)
 	}
-	if code, _ := coordinator["error_code"].(string); code != memoryErrWorkerDegraded {
+	if code, _ := coordinator["error_code"].(string); code != brainstore.WorkerDegradedCode {
 		t.Fatalf("coordinator health hides the degraded pass: %+v", coordinator)
 	}
 	found := false
 	for _, issue := range health.Issues {
-		if issue.Code == memoryErrWorkerDegraded {
+		if issue.Code == brainstore.WorkerDegradedCode {
 			found = true
 		}
 	}

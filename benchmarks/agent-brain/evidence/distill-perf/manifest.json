@@ -1,10 +1,10 @@
 {
   "schema": 1,
   "target": {
-    "repo": "github.com/ashtom/entire-brain",
-    "repo_key": "gh/ashtom/entire-brain",
-    "source_head": "1ad903e105246276063f5f98262012b4d3c898a8",
-    "brain_manifest_sha256": "sha256:e393b5df6022cffe45003cfa5be379dcca9ef249ee89e0a96454c30be8b8192b",
+    "repo": "github.com/entireio/entire-brain",
+    "repo_key": "gh/entireio/entire-brain",
+    "source_head": "a038c23348db44d8c89309934cfbf231bba6da37",
+    "brain_manifest_sha256": "sha256:c0686bd725385e321ca1412f7f4ff5e3b705f87e99371a8052ba65bed606a0ee",
     "claim_scope": "current-repo local command-agent distill extraction scheduling speedup"
   },
   "cache_state": "force_recomputed_each_run",
@@ -12,15 +12,15 @@
   "serial_run": "jobs-1.json",
   "parallel_run": "jobs-4.json",
   "artifact_sha256": {
-    "dry_run": "sha256:9da907c73b2d9315be66b299f4378f08b34e2d6202169af5ed2582712678db80",
-    "serial_run": "sha256:b2b4e0bbb332a249e5a23c4a9089d4197c0688fc7a0980b57c7f0eaa719fed75",
-    "parallel_run": "sha256:2de6d08af2b6cd4de7d3adc32b089cc9302fc1d16c1f9b63f46468b1ec363327"
+    "dry_run": "sha256:08110ae2374dc3bcc199895bd6563bfbdd3b6c239a447de0e6d45ae094e4a239",
+    "serial_run": "sha256:40313ffc2454af9e7c141839886fdae712c1e36a46be21c0a1f34db5d570b54c",
+    "parallel_run": "sha256:0bef98bb76cd0868cf7319ac6e25cec0ec2fa8cc60d6ed2c5f29f53511a12c0e"
   },
   "source_sha256": {
-    "internal/cli/distill.go": "sha256:0870c540cb88f8b332a2185a4fa86a4038d329bf3d24d5701c8fa480b63219c8",
-    "internal/cli/distill_cmd.go": "sha256:233ba0e6594b825c01fb7c104d408d1ca376135d89c5193c617bbb3f3e677c53",
-    "internal/cli/distill_test.go": "sha256:20297dbedc81bd3295a2f885f9d760a217c0d716b6eb4981b95462ab56aa9a71",
-    "internal/cli/distill_cmd_test.go": "sha256:26aa44c626f5f8b4f7ef0e9ed5d186000a90f3808098b1cc56a6229e8fd358f5",
+    "internal/cli/distill.go": "sha256:56d1a80bd954b73ef59ccbf9f4cbc60e830147e31edb3d6b291a371f216e1352",
+    "internal/cli/distill_cmd.go": "sha256:f6955c0ec75a4dee310e3277f6aba087fc29f902b4be0e62e491cd398009cdbf",
+    "internal/cli/distill_test.go": "sha256:2ae2d746dbf0f8d1f7677be03c1ba9a630efc11dff958167f016a76415cd5ad5",
+    "internal/cli/distill_cmd_test.go": "sha256:5b252265a86055dcb8d5bc25bdd0159452ddb53ef55bbc1ea4df6b7f36dc0cfa",
     "benchmarks/agent-brain/audit_distill_perf.py": "sha256:6c4407791e83642db0c35c12a6e079fe4f78f8626105ca76a815fa1bc2ca560d",
     "benchmarks/agent-brain/evidence/distill-perf/local-command-agent.py": "sha256:a7bd42a7de1b482b79c3a757034714eee0b77826ad500e6e82806577f2a611ba"
   },
@@ -83,8 +83,8 @@
   },
   "local_ollama_contract": {
     "artifact": "go-test-internal-cli-ollama-distill.jsonl",
-    "sha256": "sha256:6eb9aec7ed098fcbfab19655305a0e1592097d290d2423489c57e45c45197db4",
-    "source_head": "1ad903e105246276063f5f98262012b4d3c898a8",
+    "sha256": "sha256:fc12ae31f0c5ecb0b2993209ed00327ae39623158551116facd9a0d6eb7f7d94",
+    "source_head": "a038c23348db44d8c89309934cfbf231bba6da37",
     "source_paths": [
       "internal/cli/distill.go",
       "internal/cli/distill_cmd.go",

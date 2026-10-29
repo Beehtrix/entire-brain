@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"io"
 	"os"
 	"path/filepath"
@@ -150,7 +151,7 @@ type doctorReport struct {
 // repo-scoped command does closes that loop.
 func doctorRepoRoot(ctx context.Context, opts Options) (root, source string) {
 	if configured := strings.TrimSpace(opts.Env.RepoRoot); configured != "" {
-		return configured, envRepoRoot
+		return configured, base.EnvRepoRoot
 	}
 	wd, err := os.Getwd()
 	if err != nil {
@@ -334,7 +335,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 		"ENTIRE_PLUGIN_STATE_DIR":  env.PluginStateDir,
 		"ENTIRE_PLUGIN_CACHE_DIR":  env.PluginCacheDir,
 	}}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := base.ResolvePluginDirs(env)
 	if err != nil {
 		return err
 	}
@@ -365,7 +366,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 			Name:   "repo",
 			State:  "warn",
 			Scope:  doctorScopeEnvironment,
-			Detail: "no repository in scope: " + envRepoRoot + " is unset and the working directory is not inside a git work tree; run doctor from inside the repository, or set " + envRepoRoot,
+			Detail: "no repository in scope: " + base.EnvRepoRoot + " is unset and the working directory is not inside a git work tree; run doctor from inside the repository, or set " + base.EnvRepoRoot,
 		})
 	case opts.Runner == nil:
 		report.Checks = append(report.Checks, doctorCheckResult{
@@ -427,7 +428,7 @@ func runDoctor(cmd *cobra.Command, opts Options, jsonOut, verbose bool, failOn s
 		}
 	}
 	if jsonOut {
-		if err := writeJSON(cmd, report); err != nil {
+		if err := cmdutil.WriteJSON(cmd, report); err != nil {
 			return err
 		}
 		return doctorGateResult(report, failOn)
@@ -459,9 +460,9 @@ const doctorActionableDetailBudget = 160
 // resolved repository, and every finding at full detail, passing or not.
 func renderDoctorVerbose(out io.Writer, report doctorReport) {
 	for _, key := range []string{"ENTIRE_CLI_VERSION", "ENTIRE_REPO_ROOT", "ENTIRE_PLUGIN_CONFIG_DIR", "ENTIRE_PLUGIN_DATA_DIR", "ENTIRE_PLUGIN_STATE_DIR", "ENTIRE_PLUGIN_CACHE_DIR"} {
-		fmt.Fprintf(out, "%s=%s\n", key, valueOrUnset(report.Env[key]))
+		fmt.Fprintf(out, "%s=%s\n", key, cmdutil.ValueOrUnset(report.Env[key]))
 	}
-	if report.RepoRoot != "" && report.RepoRootSource != envRepoRoot {
+	if report.RepoRoot != "" && report.RepoRootSource != base.EnvRepoRoot {
 		fmt.Fprintf(out, "repo root: %s (inferred from %s)\n", report.RepoRoot, report.RepoRootSource)
 	}
 	for _, dir := range report.Dirs {
@@ -790,7 +791,7 @@ func doctorSemanticProviderAhead(detail string) bool {
 // less informative copy of the same news to stderr.
 func doctorGateResult(report doctorReport, failOn string) error {
 	if err := doctorGateFailure(report, failOn); err != nil {
-		return renderedCommandError{err: err}
+		return renderedCommandError{Err: err}
 	}
 	return nil
 }

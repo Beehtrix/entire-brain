@@ -8,6 +8,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 type hostedFactsBinding struct {
@@ -16,7 +17,7 @@ type hostedFactsBinding struct {
 }
 
 func hostedFactsBindingPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), "hosted-target.json"))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), "hosted-target.json"))
 }
 
 func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
@@ -35,7 +36,7 @@ func writeHostedFactsBinding(brainDir, branch, repoID, baseURL string) error {
 // corrupt); an absent marker is (zero, false, nil).
 func readHostedFactsBinding(brainDir, branch string) (hostedFactsBinding, bool, error) {
 	var binding hostedFactsBinding
-	data, present, err := readMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", base.DefaultMaxReadBytes)
+	data, present, err := brainstore.ReadMemoryStateFile(brainDir, hostedFactsBindingPath(branch), "hosted fact binding", base.DefaultMaxReadBytes)
 	if err != nil || !present {
 		return binding, false, err
 	}

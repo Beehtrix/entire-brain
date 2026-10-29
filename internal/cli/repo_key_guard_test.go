@@ -1,12 +1,12 @@
 package cli
 
 import (
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/config"
 )
 
@@ -24,7 +24,7 @@ func reserveWorkspacesSlug(t *testing.T, configDir, host string) {
 		if cfg.DomainSlugs == nil {
 			cfg.DomainSlugs = make(map[string]string)
 		}
-		cfg.DomainSlugs[host] = workspace.DirName
+		cfg.DomainSlugs[host] = base.WorkspacesDirName
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -43,7 +43,7 @@ func TestRepoKeyFromRemoteRefusesReservedSegment(t *testing.T) {
 	if err == nil {
 		t.Fatalf("repoKeyFromRemote minted reserved key %q (ok=%v)", key, ok)
 	}
-	if !strings.Contains(err.Error(), workspace.DirName) {
+	if !strings.Contains(err.Error(), base.WorkspacesDirName) {
 		t.Fatalf("error does not name the reserved segment: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestPathRefusesReservedRepoKeySegment(t *testing.T) {
 	if err == nil {
 		t.Fatalf("path printed a reserved store location: %q", out)
 	}
-	if strings.Contains(out, filepath.Join(dataDir, repoStoreDirName, workspace.DirName)) {
+	if strings.Contains(out, filepath.Join(dataDir, base.RepoStoreDirName, base.WorkspacesDirName)) {
 		t.Fatalf("path leaked the reserved location before failing: %q", out)
 	}
 }
@@ -98,7 +98,7 @@ func TestPathRefusesSymlinkedStoreRoot(t *testing.T) {
 	if err := os.MkdirAll(elsewhere, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(elsewhere, filepath.Join(dataDir, repoStoreDirName)); err != nil {
+	if err := os.Symlink(elsewhere, filepath.Join(dataDir, base.RepoStoreDirName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,33 +132,33 @@ func TestHeadPathForKeyAppliesTheSameGuardsAsBrainDirForKey(t *testing.T) {
 		PluginCacheDir:  filepath.Join(t.TempDir(), "cache"),
 	}
 
-	if head, err := headPathForKey(env, workspace.DirName+"/acme/repo"); err == nil {
+	if head, err := base.HeadPathForKey(env, base.WorkspacesDirName+"/acme/repo"); err == nil {
 		t.Fatalf("headPathForKey accepted a reserved repo key: %s", head)
 	}
 	// Traversal out of the head store, with the store root already on disk.
 	// The absent-root case is covered separately in path_guard_dotdot_test.go.
-	if err := os.MkdirAll(filepath.Join(stateDir, repoStoreDirName), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(stateDir, base.RepoStoreDirName), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if head, err := headPathForKey(env, ".."); err == nil {
+	if head, err := base.HeadPathForKey(env, ".."); err == nil {
 		t.Fatalf("headPathForKey resolved %q to %s, outside the head store", "..", head)
 	}
 
 	// A symlinked component must be refused, exactly as brainDirForKey refuses it.
-	linked := filepath.Join(stateDir, repoStoreDirName, "linked")
+	linked := filepath.Join(stateDir, base.RepoStoreDirName, "linked")
 	if err := os.Symlink(t.TempDir(), linked); err != nil {
 		t.Fatal(err)
 	}
-	if head, err := headPathForKey(env, "linked/acme/repo"); err == nil {
+	if head, err := base.HeadPathForKey(env, "linked/acme/repo"); err == nil {
 		t.Fatalf("headPathForKey followed a symlinked component to %s", head)
 	}
 
 	// A legitimate key must still resolve, under the head store root.
-	head, err := headPathForKey(env, "gh/entireio/cli")
+	head, err := base.HeadPathForKey(env, "gh/entireio/cli")
 	if err != nil {
 		t.Fatalf("legitimate key rejected: %v", err)
 	}
-	want := filepath.Join(stateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName)
+	want := filepath.Join(stateDir, base.RepoStoreDirName, "gh", "entireio", "cli", base.BrainHeadFileName)
 	if head != want {
 		t.Fatalf("head path = %s, want %s", head, want)
 	}

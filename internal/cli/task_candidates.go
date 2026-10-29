@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
+	patterncore "github.com/entireio/entire-brain/internal/cli/patterns"
 	"math"
 	"os"
 	"sort"
@@ -55,34 +57,10 @@ func nonTaskSignature(sig string) bool {
 	return nonTaskLeadWords[head]
 }
 
-// taskProcedure is a command shape (n-gram) that co-occurs within a task's
-// episodes, with its corpus specificity — the "non-obvious operational evidence"
-// that distinguishes a real task from a generic one.
-type taskProcedure struct {
-	Commands    []string `json:"commands"`
-	Count       int      `json:"count"`
-	Specificity float64  `json:"specificity"`
-}
-
-type taskCandidate struct {
-	ID              string              `json:"id"`
-	RepoKey         string              `json:"repo_key,omitempty"`
-	IntentSignature string              `json:"intent_signature"`
-	Label           string              `json:"label"`
-	Support         int                 `json:"support"`
-	WithCommands    int                 `json:"with_commands"`
-	Reinforcement   reinforcementCounts `json:"reinforcement"`
-	Commands        []string            `json:"commands,omitempty"`
-	Procedures      []taskProcedure     `json:"procedures,omitempty"`     // co-occurring procedure evidence
-	MatchingFacts   []string            `json:"matching_facts,omitempty"` // repo-specific durable facts
-	SampleIntents   []string            `json:"sample_intents,omitempty"`
-	Examples        []episodeAnchor     `json:"examples,omitempty"`
-	Workspace       string              `json:"workspace,omitempty"`      // workspace scope
-	Repos           int                 `json:"repos,omitempty"`          // workspace scope
-	RepoBreakdown   []patternRepoStat   `json:"repo_breakdown,omitempty"` // workspace scope
-	Strength        float64             `json:"strength"`
-	StrengthLabel   string              `json:"strength_label"`
-}
+type (
+	taskProcedure = patterncore.TaskProcedure
+	taskCandidate = patterncore.TaskCandidate
+)
 
 func taskCandidateID(repoKey, signature string) string {
 	sum := sha256.Sum256([]byte(repoKey + "\x00" + signature))
@@ -295,7 +273,7 @@ func matchFactsToTask(facts []factRecord, label string, cmdFreq map[string]int) 
 
 // loadAllActiveFacts flattens active facts across every branch, deduped by id.
 func loadAllActiveFacts(brainDir string) []factRecord {
-	byBranch, err := loadAllFactBranches(brainDir)
+	byBranch, err := factstore.LoadAllBranches(brainDir)
 	if err != nil {
 		return nil
 	}
@@ -406,7 +384,7 @@ func writeBrainTasksFile(outputDir string, tasks []taskCandidate) error {
 }
 
 func loadBrainTasks(brainDir string) ([]taskCandidate, error) {
-	content, err := readBrainRelativeStateFile(brainDir, patternsTasksPath)
+	content, err := brainstore.ReadBrainRelativeStateFile(brainDir, patternsTasksPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil

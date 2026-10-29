@@ -22,7 +22,6 @@ Start with [Contributing](../CONTRIBUTING.md) for workflow and checks; use the
 | **Brief** | A bounded, task-shaped packet combining retained knowledge, code locations, likely tests, and status signals. A starting point for investigation, not proof of current behavior. |
 | **Freshness** | Status of whether an indexed source still matches its inputs. |
 | **Workspace** | A named manifest of member repo keys and optional local path hints, plus derived cross-repo context. Member brains remain separate stores. |
-| **MCP** | Model Context Protocol: exposes Brain's tool contracts to agent clients, using stdio by default. It is a consumption surface, not a new capture source. |
 | **Hooks** | Integration callbacks. Entire's capture hooks produce evidence; separately configured Brain harness hooks deliver relevant facts or trigger session-end processing. |
 
 ## From inputs to answers
@@ -36,7 +35,7 @@ External memory exports --import----^
                                       |
                      local per-repo brain + source manifest
                                       |
-                     CLI / MCP / configured Brain hooks
+                     CLI / configured Brain hooks
 ```
 
 ### 1. Capture belongs to Entire; projection belongs to Brain
@@ -76,7 +75,7 @@ requirements, and privacy/egress controls; see the
 
 [Storage resolution](../internal/cli/env.go) puts each repository brain under
 plugin data `repos/<repo-key>`, separate from configuration, transient state, and
-caches. CLI retrieval and MCP tools consume these local layers; a brief combines
+caches. CLI retrieval consumes these local layers; a brief combines
 selected knowledge with semantic navigation rather than treating the code graph
 as the text corpus.
 

@@ -240,8 +240,7 @@ func runEntitiesBackfill(ctx context.Context, cmd *cobra.Command, opts Config, b
 	return nil
 }
 
-// HistoryResult is the JSON contract of `entities history` and of the
-// brain_entity_history MCP tool.
+// HistoryResult is the JSON contract of `entities history`.
 type HistoryResult struct {
 	Query     string                `json:"query"`
 	Branch    string                `json:"branch,omitempty"`
@@ -313,9 +312,7 @@ func RunHistory(ctx context.Context, cmd *cobra.Command, opts Config, query, bra
 	return nil
 }
 
-// History is the single query path behind `entities history` and the
-// brain_entity_history MCP tool, so the CLI and the agent surface can never
-// answer the same question differently.
+// History is the single query path behind `entities history`.
 func History(ctx context.Context, opts Config, repoDir, query, branch string, limit int) (HistoryResult, error) {
 	if limit <= 0 {
 		limit = defaultEntitiesLimit

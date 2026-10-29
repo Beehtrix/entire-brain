@@ -17,6 +17,7 @@ import (
 
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/factstore"
 )
 
 // facts_vitality.go is the Phase 1 slice of the memory-lifecycle plan's
@@ -117,11 +118,11 @@ func newVitalityRollup() vitalityRollup {
 }
 
 func factsVitalityLogRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsVitalityLogFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityLogFileName))
 }
 
 func factsVitalityRollupRelPath(branch string) string {
-	return filepath.ToSlash(filepath.Join(factsBranchRelDir(branch), factsVitalityRollupFileName))
+	return filepath.ToSlash(filepath.Join(factstore.BranchRelDir(branch), factsVitalityRollupFileName))
 }
 
 // vitalityTaskHash hashes the task/query text that drove a serve. Only this
@@ -305,7 +306,7 @@ func recordServedFactsWithLockTimeout(errW io.Writer, at time.Time, brainDir, br
 }
 
 // vitalityNow is the receipt clock: opts.Now when injected (tests, root
-// command), the wall clock otherwise. Nil-safe because hook/MCP commands are
+// command), the wall clock otherwise. Nil-safe because hook commands are
 // sometimes constructed with a bare Options in tests.
 func vitalityNow(opts Options) time.Time {
 	if opts.Now != nil {
@@ -336,18 +337,8 @@ func factRecordIDs(facts []factRecord) []string {
 	return ids
 }
 
-// unifiedFactIDs extracts the fact-layer ids from unified retrieval results.
-// Only source "fact" is a served fact; review groups, history, and docs carry
-// no per-fact vitality.
-func unifiedFactIDs(results []unifiedResult) []string {
-	var ids []string
-	for _, r := range results {
-		if r.Source == "fact" {
-			ids = append(ids, r.ID)
-		}
-	}
-	return ids
-}
+// unifiedFactIDs moved to internal/cli/command/retrieve with its only callers
+// (retrieve.Run/retrieve.RunGet).
 
 func loadVitalityRollup(brainDir, branch string) (vitalityRollup, error) {
 	path := filepath.Join(brainDir, filepath.FromSlash(factsVitalityRollupRelPath(branch)))

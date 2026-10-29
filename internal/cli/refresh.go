@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/entireio/entire-brain/internal/cli/internal/semstore"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,8 +13,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"github.com/spf13/cobra"
 )
 
@@ -42,8 +46,8 @@ type refreshCommandOptions struct {
 	// component observes outcomes without changing failure policy.
 	component func(name string, err error)
 	// skipTranscriptSweep keeps the destructive transcript cache sweep out of
-	// unattended orchestration (the watch daemon's tick, the session-end hook,
-	// MCP's brain_refresh): nobody is watching those paths' stderr to learn
+	// unattended orchestration (the watch daemon's tick, the session-end
+	// hook): nobody is watching those paths' stderr to learn
 	// that files were deleted. User-invoked `entire brain refresh` and `entire
 	// brain path --ensure` leave this false and still sweep.
 	skipTranscriptSweep bool
@@ -151,7 +155,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		if err != nil {
 			return fmt.Errorf("resolve output directory: %w", err)
 		}
-		manifest, _ := loadBrainManifest(outputDir)
+		manifest, _ := bmanifest.Load(outputDir)
 		if err := checkLegacyBrainLayout(outputDir, manifest); err != nil {
 			return err
 		}
@@ -197,7 +201,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Manifest parse errors retain their existing handling below (including
 	// --force repair); leftover directories still identify an old layout.
 	if !outputExplicit {
-		manifestBeforeRefresh, _ := loadBrainManifest(brainDir)
+		manifestBeforeRefresh, _ := bmanifest.Load(brainDir)
 		if err := checkLegacyBrainLayout(brainDir, manifestBeforeRefresh); err != nil {
 			return err
 		}
@@ -248,7 +252,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		progress.Skip("export sessions")
 	}
 
-	manifest, _ := loadBrainManifest(brainDir)
+	manifest, _ := bmanifest.Load(brainDir)
 	needSeed := outputExplicit || refreshOpts.seed.force
 	// A failed freshness probe is a seed-stage failure, not permission to rebuild.
 	var seedProbeErr error
@@ -310,7 +314,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// Seed may have updated the manifest before a later best-effort step
 		// failed. History freshness must use the state now on disk in either
 		// outcome, not the snapshot loaded before seed ran.
-		manifest, _ = loadBrainManifest(brainDir)
+		manifest, _ = bmanifest.Load(brainDir)
 		if seedErr != nil {
 			seedTask.Finish(seedErr)
 			if reportStageAndShouldAbort(brainComponentSeed, seedErr) {
@@ -346,7 +350,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		} else {
 			historyTask.Update(refreshHistoryLabel(historySource))
 			historyTask.Finish(nil)
-			manifest, _ = loadBrainManifest(brainDir)
+			manifest, _ = bmanifest.Load(brainDir)
 			reportStageAndShouldAbort(brainComponentHistory, nil)
 		}
 	} else if refreshOpts.historyIndex {
@@ -379,7 +383,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 			docTask.Update(docLabel)
 			docTask.Finish(nil)
-			manifest, _ = loadBrainManifest(brainDir)
+			manifest, _ = bmanifest.Load(brainDir)
 			reportStageAndShouldAbort(brainComponentDocs, nil)
 		}
 	} else {
@@ -455,7 +459,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 						noteDegradedStage(cmd.ErrOrStderr(), brainComponentSemantic, err)
 					}
 				} else {
-					manifest, _ = loadBrainManifest(brainDir)
+					manifest, _ = bmanifest.Load(brainDir)
 					semanticTask.Update(refreshSemanticLabel(existingSemanticSource(manifest)))
 					semanticTask.Finish(nil)
 					reportStageAndShouldAbort(brainComponentSemantic, nil)
@@ -485,7 +489,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Backfill deterministic fact kinds/locus when a fact store exists, so a kind
 	// distilled before kind-storage (or otherwise left empty) is repaired here
 	// rather than needing a manual `facts reclassify`. No agent, no tokens.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	if manifest != nil && manifest.Sources != nil && manifest.Sources.Facts != nil {
 		finishReclass := progress.Step("reclassify facts")
 		if _, err := reclassifyAllFactBranches(brainDir, opts.Now().UTC()); err != nil {
@@ -501,7 +505,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Pattern layer (episodes -> tasks/procedures/practices). Deterministic and
 	// token-free, so it is part of the normal refresh — the user never has to
 	// discover a second build command. Rebuilt when sessions changed or --force.
-	manifest, _ = loadBrainManifest(brainDir)
+	manifest, _ = bmanifest.Load(brainDir)
 	if !refreshOpts.skipSessions && manifest != nil && manifest.Sources != nil && manifest.Sources.Sessions != nil {
 		finishPatterns := progress.Step("pattern layer")
 		if _, err := refreshPatternLayer(brainDir, refreshOpts.force, opts.Now().UTC()); err != nil {
@@ -525,7 +529,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		printAroundLiveLine(cmd.OutOrStdout(), "%s\n", refreshWorktreeSemanticSkipNote(base.SetupCommandPrefix(os.LookupEnv)))
 	}
 	// The refresh completed; anything watching this brain can now re-read it.
-	notifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, WebhookBrainRefreshed, opts.Now())
+	webhook.NotifyBrainWebhook(ctx, cmd.ErrOrStderr(), opts, webhook.WebhookBrainRefreshed, opts.Now())
 	printAroundLiveLine(cmd.OutOrStdout(), "refreshed brain: %s\n", brainDir)
 	if refreshOpts.statusAfter && !outputExplicit {
 		statusCmd := &cobra.Command{Use: "status"}
@@ -554,18 +558,18 @@ func historyIndexCurrent(brainDir string, manifest *exportManifest) bool {
 	}
 	history := manifest.Sources.History
 	if history.IndexPath == "" || history.SessionsFingerprint == "" || history.IndexBytes <= 0 ||
-		!validHistorySHA256(history.IndexSHA256) || !validHistorySHA256(history.RecordsFingerprint) ||
-		!validHistorySHA256(history.TranscriptsFingerprint) {
+		!historystore.ValidSHA256(history.IndexSHA256) || !historystore.ValidSHA256(history.RecordsFingerprint) ||
+		!historystore.ValidSHA256(history.TranscriptsFingerprint) {
 		return false
 	}
 	if history.SessionsFingerprint != sessionSourceFingerprint(manifest.Sources.Sessions) {
 		return false
 	}
-	clean, err := validateHistoryIndexPath(history.IndexPath)
+	clean, err := historystore.ValidateIndexPath(history.IndexPath)
 	if err != nil {
 		return false
 	}
-	if err := rejectSymlinkPathComponents(brainDir, clean); err != nil {
+	if err := base.RejectSymlinkPathComponents(brainDir, clean); err != nil {
 		return false
 	}
 	indexPath := filepath.Join(brainDir, clean)
@@ -774,7 +778,7 @@ func semanticRefreshNeeded(ctx context.Context, opts Options, brainDir, repoDir 
 	// supported-major minor is non-fatal, so it rides this identity-warning
 	// return rather than aborting the refresh.
 	var identityWarning string
-	if skew := semanticSchemaMinorSkewWarning(descriptor.Header.SchemaVersion); skew != nil {
+	if skew := semstore.SchemaMinorSkewWarning(descriptor.Header.SchemaVersion); skew != nil {
 		identityWarning = skew.Detail
 	}
 	if manifest == nil || manifest.Sources == nil || manifest.Sources.Semantic == nil || manifest.Sources.Semantic.StoreOwner != "graph" {
@@ -932,7 +936,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	defer unlock()
-	manifest, err := loadBrainManifest(storage.BrainDir)
+	manifest, err := bmanifest.Load(storage.BrainDir)
 	if err != nil {
 		return err
 	}
@@ -942,12 +946,12 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 	defaultBranch, _ := detectDefaultBranch(ctx, opts.Runner, repoDir)
 	defaultHead := ""
 	if defaultBranch != "" {
-		defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+defaultBranch)))
+		defaultHead = strings.TrimSpace(string(base.GitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+defaultBranch)))
 		if defaultHead == "" {
-			defaultHead = strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
+			defaultHead = strings.TrimSpace(string(base.GitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/remotes/origin/"+defaultBranch)))
 		}
 	}
-	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)", "refs/heads")
+	stdout, _, err := opts.Runner.Run(ctx, repoDir, "git", "for-each-ref", "--format=%(refname:short)%00%(committerdate:unix)%00%(objectname)", "refs/heads")
 	if err != nil {
 		return fmt.Errorf("list local branches for semantic refresh: %w", err)
 	}
@@ -968,8 +972,8 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\x00", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(line, "\x00", 3)
+		if len(parts) != 3 {
 			continue
 		}
 		branch := strings.TrimSpace(parts[0])
@@ -984,7 +988,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
 		}
-		head := strings.TrimSpace(string(runGitOutput(ctx, opts.Runner, repoDir, "rev-parse", "refs/heads/"+branch)))
+		head := strings.TrimSpace(parts[2])
 		if head == "" || head == defaultHead {
 			report.Branches = append(report.Branches, branchRefresh{Branch: branch, State: "skipped", Reason: "no_branch_delta"})
 			continue
@@ -1000,7 +1004,7 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 		return err
 	}
 	data = append(data, '\n')
-	rel := filepath.Join(semanticDirName, "overlays", "all-branches.json")
+	rel := filepath.Join(semstore.DirName, "overlays", "all-branches.json")
 	if err := base.RejectExistingSymlinkPathComponents(storage.BrainDir, rel); err != nil {
 		return err
 	}
@@ -1011,9 +1015,9 @@ func runSemanticRefreshAllBranches(ctx context.Context, opts Options, refreshOpt
 }
 
 func seedNeededForBrain(manifest *exportManifest) bool {
-	// Seed freshness is independent of checkpoint/session availability. MCP's
-	// default refresh intentionally omits sessions, so using an empty session
-	// list as a seed-missing signal rebuilt an otherwise current seed every time.
+	// Seed freshness is independent of checkpoint/session availability: a
+	// refresh may intentionally omit sessions, so an empty session list is no
+	// seed-missing signal (it rebuilt an otherwise current seed every time).
 	return manifest == nil || manifest.Sources == nil || manifest.Sources.Seed == nil
 }
 

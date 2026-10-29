@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	clibase "github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/cmdutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,63 +14,6 @@ import (
 
 	"github.com/entireio/entire-brain/internal/config"
 )
-
-func TestEnvFromOS(t *testing.T) {
-	t.Setenv(envCLIVersion, "cli-test")
-	t.Setenv(envRepoRoot, "/tmp/repo")
-	t.Setenv(envPluginConfigDir, "/tmp/config")
-	t.Setenv(envPluginDataDir, "/tmp/data")
-	t.Setenv(envPluginStateDir, "/tmp/state")
-	t.Setenv(envPluginCacheDir, "/tmp/cache")
-
-	env := EnvFromOS()
-	if env.CLIVersion != "cli-test" {
-		t.Fatalf("CLIVersion = %q", env.CLIVersion)
-	}
-	if env.RepoRoot != "/tmp/repo" {
-		t.Fatalf("RepoRoot = %q", env.RepoRoot)
-	}
-	if env.PluginConfigDir != "/tmp/config" {
-		t.Fatalf("PluginConfigDir = %q", env.PluginConfigDir)
-	}
-	if env.PluginDataDir != "/tmp/data" {
-		t.Fatalf("PluginDataDir = %q", env.PluginDataDir)
-	}
-	if env.PluginStateDir != "/tmp/state" {
-		t.Fatalf("PluginStateDir = %q", env.PluginStateDir)
-	}
-	if env.PluginCacheDir != "/tmp/cache" {
-		t.Fatalf("PluginCacheDir = %q", env.PluginCacheDir)
-	}
-}
-
-func TestResolvePluginDirsUsesXDGDefaultsUnderEntireRoot(t *testing.T) {
-	xdg := t.TempDir()
-	t.Setenv(xdgConfigHome, filepath.Join(xdg, "config"))
-	t.Setenv(xdgDataHome, filepath.Join(xdg, "data"))
-	t.Setenv(xdgStateHome, filepath.Join(xdg, "state"))
-	t.Setenv(xdgCacheHome, filepath.Join(xdg, "cache"))
-
-	dirs, err := resolvePluginDirs(EntireEnv{})
-	if err != nil {
-		t.Fatalf("resolve plugin dirs: %v", err)
-	}
-	if dirs.Config != filepath.Join(xdg, "config", "entire") {
-		t.Fatalf("Config = %q", dirs.Config)
-	}
-	// Data mirrors the host's plugin-data namespace so a standalone/dev run hits
-	// the real brain store; config/state/cache stay at the bare XDG root (the host
-	// leaves those env vars unset too).
-	if dirs.Data != filepath.Join(xdg, "data", "entire", "plugins", "data", pluginDataName) {
-		t.Fatalf("Data = %q", dirs.Data)
-	}
-	if dirs.State != filepath.Join(xdg, "state", "entire") {
-		t.Fatalf("State = %q", dirs.State)
-	}
-	if dirs.Cache != filepath.Join(xdg, "cache", "entire") {
-		t.Fatalf("Cache = %q", dirs.Cache)
-	}
-}
 
 func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	base := t.TempDir()
@@ -90,10 +35,10 @@ func TestRepoStoragePathsUseKnownOriginDomain(t *testing.T) {
 	if storage.Key != "gh/entireio/cli" {
 		t.Fatalf("key = %q", storage.Key)
 	}
-	if storage.BrainDir != filepath.Join(env.PluginDataDir, repoStoreDirName, "gh", "entireio", "cli") {
+	if storage.BrainDir != filepath.Join(env.PluginDataDir, clibase.RepoStoreDirName, "gh", "entireio", "cli") {
 		t.Fatalf("brain dir = %q", storage.BrainDir)
 	}
-	if storage.HeadPath != filepath.Join(env.PluginStateDir, repoStoreDirName, "gh", "entireio", "cli", brainHeadFileName) {
+	if storage.HeadPath != filepath.Join(env.PluginStateDir, clibase.RepoStoreDirName, "gh", "entireio", "cli", clibase.BrainHeadFileName) {
 		t.Fatalf("head path = %q", storage.HeadPath)
 	}
 }
@@ -426,7 +371,7 @@ func TestRepoStoragePathsAdoptsPreFixLexicalStore(t *testing.T) {
 				PluginDataDir:   t.TempDir(),
 				PluginStateDir:  t.TempDir(),
 			}
-			dirs, err := resolvePluginDirs(env)
+			dirs, err := clibase.ResolvePluginDirs(env)
 			if err != nil {
 				t.Fatalf("plugin dirs: %v", err)
 			}
@@ -436,7 +381,7 @@ func TestRepoStoragePathsAdoptsPreFixLexicalStore(t *testing.T) {
 			if err != nil {
 				t.Fatalf("pre-fix root: %v", err)
 			}
-			established := repoStorageForKey(dirs, localRepoStorageKeyForSpelling(preFixRoot))
+			established := clibase.RepoStorageForKey(dirs, localRepoStorageKeyForSpelling(preFixRoot))
 			if err := os.MkdirAll(established.BrainDir, 0o700); err != nil {
 				t.Fatalf("create pre-fix brain: %v", err)
 			}
@@ -532,14 +477,14 @@ func TestRepoStoragePathsCanonicalIdentityUpgradeCompatibility(t *testing.T) {
 				PluginDataDir:   t.TempDir(),
 				PluginStateDir:  t.TempDir(),
 			}
-			dirs, err := resolvePluginDirs(env)
+			dirs, err := clibase.ResolvePluginDirs(env)
 			if err != nil {
 				t.Fatalf("plugin dirs: %v", err)
 			}
 			canonicalKey := testLocalRepoStorageKey(t, repoDir)
 			legacyKey := localRepoStorageKeyForSpelling(alias)
-			canonical := repoStorageForKey(dirs, canonicalKey)
-			legacy := repoStorageForKey(dirs, legacyKey)
+			canonical := clibase.RepoStorageForKey(dirs, canonicalKey)
+			legacy := clibase.RepoStorageForKey(dirs, legacyKey)
 			if tc.canonicalData {
 				if err := os.MkdirAll(canonical.BrainDir, 0o700); err != nil {
 					t.Fatalf("create canonical brain: %v", err)
@@ -569,8 +514,8 @@ func TestRepoStoragePathsCanonicalIdentityUpgradeCompatibility(t *testing.T) {
 				if !errors.As(err, &conflict) {
 					t.Fatalf("error = %v, want typed identity conflict", err)
 				}
-				if commandErrorCode(err) != localRepoIdentityConflictCode {
-					t.Fatalf("error code = %q, want %q", commandErrorCode(err), localRepoIdentityConflictCode)
+				if cmdutil.CommandErrorCode(err) != clibase.RepoIdentityConflictCode {
+					t.Fatalf("error code = %q, want %q", cmdutil.CommandErrorCode(err), clibase.RepoIdentityConflictCode)
 				}
 				if conflict.Canonical.Key != canonicalKey || conflict.Legacy.Key != legacyKey {
 					t.Fatalf("conflict = %+v, want canonical %q legacy %q", conflict, canonicalKey, legacyKey)
@@ -606,12 +551,12 @@ func TestRepoStoragePathsRemoteSymlinkBypassesLocalLegacyState(t *testing.T) {
 		PluginDataDir:   t.TempDir(),
 		PluginStateDir:  t.TempDir(),
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := clibase.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
 	legacyKey := localRepoStorageKeyForSpelling(alias)
-	legacy := repoStorageForKey(dirs, legacyKey)
+	legacy := clibase.RepoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy local brain: %v", err)
 	}
@@ -623,7 +568,7 @@ func TestRepoStoragePathsRemoteSymlinkBypassesLocalLegacyState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("remote storage: %v", err)
 	}
-	want := repoStorageForKey(dirs, "gh/entireio/cli")
+	want := clibase.RepoStorageForKey(dirs, "gh/entireio/cli")
 	if got != want {
 		t.Fatalf("remote storage = %+v, want %+v", got, want)
 	}
@@ -642,21 +587,21 @@ func TestEnvFromOSKeepsLexicalAliasForStorageCompatibility(t *testing.T) {
 	configDir := t.TempDir()
 	dataDir := t.TempDir()
 	stateDir := t.TempDir()
-	t.Setenv(envRepoRoot, alias)
-	t.Setenv(envPluginConfigDir, configDir)
-	t.Setenv(envPluginDataDir, dataDir)
-	t.Setenv(envPluginStateDir, stateDir)
+	t.Setenv(clibase.EnvRepoRoot, alias)
+	t.Setenv(clibase.EnvPluginConfigDir, configDir)
+	t.Setenv(clibase.EnvPluginDataDir, dataDir)
+	t.Setenv(clibase.EnvPluginStateDir, stateDir)
 
-	env := EnvFromOS()
+	env := clibase.EnvFromOS()
 	if env.RepoRoot != alias {
 		t.Fatalf("lexical RepoRoot = %q, want %q", env.RepoRoot, alias)
 	}
-	dirs, err := resolvePluginDirs(env)
+	dirs, err := clibase.ResolvePluginDirs(env)
 	if err != nil {
 		t.Fatalf("plugin dirs: %v", err)
 	}
 	legacyKey := localRepoStorageKeyForSpelling(alias)
-	legacy := repoStorageForKey(dirs, legacyKey)
+	legacy := clibase.RepoStorageForKey(dirs, legacyKey)
 	if err := os.MkdirAll(legacy.BrainDir, 0o700); err != nil {
 		t.Fatalf("create legacy brain: %v", err)
 	}

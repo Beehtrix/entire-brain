@@ -2,6 +2,8 @@ package cli
 
 import (
 	"database/sql"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,13 +19,13 @@ func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
 		rel  string
 		want string
 	}{
-		{name: "procedures", rel: patternsProceduresPath, want: "parse procedure line"},
-		{name: "practices", rel: patternsPracticesPath, want: "parse practice line"},
-		{name: "runs", rel: patternRunsRelPath, want: "parse pattern run history"},
+		{name: "procedures", rel: patterncore.ProceduresPath, want: "parse procedure line"},
+		{name: "practices", rel: patterncore.PracticesPath, want: "parse practice line"},
+		{name: "runs", rel: patterncore.RunsRelPath, want: "parse pattern run history"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, manifest := workspaceCommandFixture(t)
-			wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+			wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -47,7 +49,7 @@ func TestWorkspacePatternStatusRejectsMalformedLegacyState(t *testing.T) {
 
 func TestWorkspacePatternStatusCountsMembersWithLegacyPatterns(t *testing.T) {
 	opts, env, manifest := workspaceCommandFixture(t)
-	memberDir, err := brainDirForKey(env, manifest.Repos[0].RepoKey)
+	memberDir, err := base.BrainDirForKey(env, manifest.Repos[0].RepoKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,12 +68,12 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 		rel  string
 		want string
 	}{
-		{name: "procedures", rel: patternsProceduresPath, want: "write procedures"},
-		{name: "practices", rel: patternsPracticesPath, want: "write practices"},
+		{name: "procedures", rel: patterncore.ProceduresPath, want: "write procedures"},
+		{name: "practices", rel: patterncore.PracticesPath, want: "write practices"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts, _, manifest := workspaceCommandFixture(t)
-			wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+			wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -105,7 +107,7 @@ func TestWorkspacePatternRefreshWriteFailuresPreserveUnrelatedState(t *testing.T
 func TestWorkspaceSkillFormRejectsUnreadableFamilyTableBeforeProvider(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	opts, _, manifest := workspaceCommandFixture(t)
-	wsDir, err := workspaceStore(opts.Env).Dir(manifest.Name)
+	wsDir, err := workspace.DefaultStore(opts.Env).Dir(manifest.Name)
 	if err != nil {
 		t.Fatal(err)
 	}

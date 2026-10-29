@@ -89,7 +89,7 @@ In scope:
   without the operator opting in
 - Escaping the plugin data directory on read or write
 - Redaction failures on the documented secret classes above
-- Privilege escalation through the watcher, the MCP server, or the installer
+- Privilege escalation through the watcher or the installer
 
 Out of scope:
 

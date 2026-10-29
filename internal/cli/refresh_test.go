@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/entireio/entire-brain/internal/cli/internal/base"
 	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
+	"github.com/entireio/entire-brain/internal/cli/internal/historystore"
+	bmanifest "github.com/entireio/entire-brain/internal/cli/internal/manifest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,9 +86,9 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 			t.Fatalf("refresh output missing %q:\n%s", want, out)
 		}
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	var manifest exportManifest
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read manifest: %v", err)
 	}
@@ -246,7 +249,7 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 		t.Fatalf("create history dir: %v", err)
 	}
 	indexData := []byte(`{"records":[]}`)
-	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historyIndexPath)), indexData, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, filepath.FromSlash(historystore.IndexPath)), indexData, 0o600); err != nil {
 		t.Fatalf("write history index: %v", err)
 	}
 	sessionPath := filepath.Join(brainDir, filepath.FromSlash(sessionSource.Sessions[0].TranscriptPath))
@@ -263,10 +266,10 @@ func TestHistoryIndexCurrentUsesSessionFingerprint(t *testing.T) {
 	manifest := &exportManifest{Sources: &brainSources{
 		Sessions: sessionSource,
 		History: &historySourceManifest{
-			IndexPath:              historyIndexPath,
+			IndexPath:              historystore.IndexPath,
 			IndexBytes:             int64(len(indexData)),
-			IndexSHA256:            historyIndexBytesFingerprint(indexData),
-			RecordsFingerprint:     historyRecordsFingerprint(nil),
+			IndexSHA256:            historystore.IndexBytesFingerprint(indexData),
+			RecordsFingerprint:     historystore.RecordsFingerprint(nil),
 			SessionsFingerprint:    sessionSourceFingerprint(sessionSource),
 			TranscriptsFingerprint: historyTranscriptFilesFingerprint(files),
 		},
@@ -324,7 +327,7 @@ func newHistoryFreshnessFixture(t *testing.T, transcript []byte) historyFreshnes
 		}},
 	}
 	if err := writeBrainManifestAndReadme(brainDir, exportManifest{
-		SchemaVersion: brainManifestSchemaVersion,
+		SchemaVersion: bmanifest.SchemaVersion,
 		Sources:       &brainSources{Sessions: sessionSource},
 	}); err != nil {
 		t.Fatalf("write manifest: %v", err)
@@ -332,7 +335,7 @@ func newHistoryFreshnessFixture(t *testing.T, transcript []byte) historyFreshnes
 	if _, err := writeBrainHistoryIndexAndSource(brainDir, time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC), nil); err != nil {
 		t.Fatalf("build history: %v", err)
 	}
-	manifest, err := loadBrainManifest(brainDir)
+	manifest, err := bmanifest.Load(brainDir)
 	if err != nil {
 		t.Fatalf("load manifest: %v", err)
 	}
@@ -365,14 +368,14 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 1, 0, time.UTC), nil); err != nil {
 		t.Fatalf("rebuild history: %v", err)
 	}
-	rebuiltManifest, err := loadBrainManifest(fixture.brainDir)
+	rebuiltManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load rebuilt manifest: %v", err)
 	}
 	if !historyIndexCurrent(fixture.brainDir, rebuiltManifest) {
 		t.Fatal("rebuilt history index should be current")
 	}
-	rebuilt, err := loadBrainHistoryIndex(fixture.brainDir, rebuiltManifest.Sources.History)
+	rebuilt, err := historystore.LoadIndex(fixture.brainDir, rebuiltManifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load rebuilt history: %v", err)
 	}
@@ -388,11 +391,11 @@ func TestHistoryIndexCurrentRejectsSamePathTranscriptMutation(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
 		t.Fatalf("rebuild corrupted history: %v", err)
 	}
-	corruptManifest, err := loadBrainManifest(fixture.brainDir)
+	corruptManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load corrupted-source manifest: %v", err)
 	}
-	corruptIndex, err := loadBrainHistoryIndex(fixture.brainDir, corruptManifest.Sources.History)
+	corruptIndex, err := historystore.LoadIndex(fixture.brainDir, corruptManifest.Sources.History)
 	if err != nil {
 		t.Fatalf("load corrupted-source history: %v", err)
 	}
@@ -451,7 +454,7 @@ func TestHistoryIndexRejectsTranscriptSymlinkWithoutFollowingIt(t *testing.T) {
 	if _, err := writeBrainHistoryIndexAndSource(fixture.brainDir, time.Date(2026, 7, 17, 12, 0, 2, 0, time.UTC), nil); err != nil {
 		t.Fatalf("publish safe index after removing the symlink: %v", err)
 	}
-	stableManifest, err := loadBrainManifest(fixture.brainDir)
+	stableManifest, err := bmanifest.Load(fixture.brainDir)
 	if err != nil {
 		t.Fatalf("load safe manifest: %v", err)
 	}
@@ -624,7 +627,7 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("path --ensure: %v\n%s", err, out)
 	}
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if out != brainDir+"\n" {
 		t.Fatalf("path output = %q, want %q", out, brainDir+"\n")
 	}
@@ -647,13 +650,13 @@ func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
 	runner := seedFixtureRunner(repoDir)
 	addRefreshSemanticFixture(runner, repoDir)
 
-	brainDir := filepath.Join(dataDir, repoStoreDirName, "gh", "example", "repo")
+	brainDir := filepath.Join(dataDir, base.RepoStoreDirName, "gh", "example", "repo")
 	if err := os.MkdirAll(brainDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	// A manifest from a build that knew a field this one has since retired.
 	skewed := []byte(`{"schema_version":3,"repo_key":"gh/example/repo","retired_field":0}` + "\n")
-	if err := os.WriteFile(filepath.Join(brainDir, exportManifestFileName), skewed, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(brainDir, bmanifest.FileName), skewed, 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -688,14 +691,14 @@ func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {
 		t.Fatalf("discard ran after the export, so the export hit the write guard first:\n%s", out)
 	}
 
-	data, err := os.ReadFile(filepath.Join(brainDir, exportManifestFileName))
+	data, err := os.ReadFile(filepath.Join(brainDir, bmanifest.FileName))
 	if err != nil {
 		t.Fatalf("read rebuilt manifest: %v", err)
 	}
 	if strings.Contains(string(data), "retired_field") {
 		t.Fatalf("manifest was not rebuilt; it still carries the retired field:\n%s", data)
 	}
-	if _, err := loadBrainManifestForReplace(brainDir); err != nil {
+	if _, err := bmanifest.LoadForReplace(brainDir); err != nil {
 		t.Fatalf("the rebuilt manifest must be writable by this build: %v", err)
 	}
 }

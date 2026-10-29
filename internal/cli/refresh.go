@@ -74,13 +74,13 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	}
 	cmd.Flags().StringVarP(&refreshOpts.outputDir, "output", "o", defaultExportDir, "Output directory for the brain (default: persistent brain directory)")
 	cmd.Flags().BoolVar(&refreshOpts.force, "force", false, "Force a full refresh; overwrite explicit output when used with --output")
-	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", "auto", "Agent synthesis mode for seed: auto, none, codex, claude-code, or command")
+	cmd.Flags().StringVar(&refreshOpts.seed.agent, "agent", refreshOpts.seed.agent, "Opt-in repository summaries (spends tokens): auto, none, codex, claude-code, or command")
 	cmd.Flags().IntVar(&refreshOpts.checkpointLimit, "checkpoint-limit", defaultCheckpointLimit, "Maximum checkpoints to inspect")
 	cmd.Flags().StringVar(&refreshOpts.entireBinary, "entire-binary", "entire", "Entire CLI binary to invoke")
 	cmd.Flags().BoolVar(&refreshOpts.rawTranscript, "raw", false, "Export raw agent transcripts instead of normalized compact transcripts")
 	cmd.Flags().StringVar(&refreshOpts.scope, "scope", exportScopeAll, "Checkpoint discovery scope: all or branch")
 	cmd.Flags().BoolVar(&refreshOpts.seed.force, "force-seed", false, "Force seed refresh")
-	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh seed and docs from the current worktree")
+	cmd.Flags().BoolVar(&refreshOpts.seed.worktree, "worktree", false, "Refresh repository context and docs from the current worktree")
 	cmd.Flags().StringArrayVar(&refreshOpts.seed.agentCommand, "agent-command", nil, "Agent command argv for --agent command")
 	cmd.Flags().StringVar(&refreshOpts.seed.model, "seed-model", "", "Override the agent model for seed synthesis (e.g. a fast/cheap model)")
 	cmd.Flags().StringVar(&refreshOpts.seed.effort, "seed-effort", "", "Override the reasoning effort for seed synthesis (e.g. low)")
@@ -95,7 +95,7 @@ func newRefreshCommand(opts Options) *cobra.Command {
 	cmd.Flags().StringVar(&refreshOpts.graphBinary, "graph-binary", "entire", "Entire CLI binary that exposes `graph` provider commands")
 	cmd.Flags().BoolVar(&refreshOpts.allBranches, "all-branches", false, "Refresh recent local branch overlays without fetching remotes")
 	cmd.Flags().BoolVar(&refreshOpts.forceAllBranches, "force-all-branches", false, "Allow all local branches instead of the bounded recent-branch default")
-	for _, name := range []string{"checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
+	for _, name := range []string{"agent", "checkpoint-limit", "entire-binary", "raw", "scope", "force-seed", "agent-command", "seed-model", "seed-effort", "semantic", "semantic-worktree", "history-index", "graph-binary", "all-branches", "force-all-branches"} {
 		_ = cmd.Flags().MarkHidden(name)
 	}
 	// Individual refresh stages, runnable on their own: `refresh` does all of
@@ -123,7 +123,7 @@ func defaultRefreshCommandOptions() refreshCommandOptions {
 			maxFileBytes:       defaultSeedMaxFileBytes,
 			maxFiles:           defaultSeedMaxFiles,
 			format:             "markdown+json",
-			agent:              "auto",
+			agent:              "none",
 			agentQuickTimeout:  2 * time.Minute,
 			agentDeepTimeout:   10 * time.Minute,
 			agentTimeoutAction: "keep-quick",

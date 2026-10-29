@@ -124,9 +124,10 @@ func newSeedCommand(opts Options) *cobra.Command {
 		agentMaxInputBytes: defaultAgentMaxInput,
 	}
 	cmd := &cobra.Command{
-		Use:   "seed [path]",
-		Short: "Seed a brain from repository docs and code structure",
-		Args:  cobra.MaximumNArgs(1),
+		Use:    "seed [path]",
+		Short:  "Rebuild repository context from docs and code structure",
+		Hidden: true,
+		Args:   cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			target := "."
 			if opts.Env.RepoRoot != "" {

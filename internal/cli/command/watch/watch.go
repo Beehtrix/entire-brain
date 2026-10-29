@@ -139,14 +139,15 @@ func BindFlags(cmd *cobra.Command, w *Flags) {
 	cmd.Flags().DurationVar(&w.ConsolidateEvery, "consolidate-every", w.ConsolidateEvery, "Minimum interval between full consolidations (heavy refresh); the per-tick short-term delta covers freshness in between. 0 = consolidate on every change; a full short-term buffer always consolidates")
 	cmd.Flags().BoolVar(&w.Once, "once", false, "Run a single pass and exit (no daemon loop)")
 	cmd.Flags().BoolVar(&w.Distill, "distill", false, "Run distill (SPENDS TOKENS) when new sessions land — gated by --distill-every + --budget")
-	cmd.Flags().DurationVar(&w.DistillEvery, "distill-every", w.DistillEvery, "Minimum interval between gated agent runs (distill and/or seed synthesis)")
+	cmd.Flags().DurationVar(&w.DistillEvery, "distill-every", w.DistillEvery, "Minimum interval between gated agent runs")
 	cmd.Flags().StringVar(&w.DistillAgent, "agent", w.DistillAgent, "Agent for the distill step (used only with --distill)")
 	cmd.Flags().IntVar(&w.DistillJobs, "jobs", w.DistillJobs, "Parallel distill extraction jobs when --distill is enabled; reconciliation and writes remain deterministic")
 	cmd.Flags().IntVar(&w.DistillMaxSessions, "max-sessions", w.DistillMaxSessions, "Cap how many not-yet-distilled sessions ONE gated distill pass processes (0 = no cap). --distill-every bounds how often the daemon spends; this bounds how much each spend costs")
 	cmd.Flags().StringVar(&w.SeedAgent, "seed-agent", w.SeedAgent, "Agent for gated seed synthesis (SPENDS TOKENS); none = deterministic seed only. Bounded by --distill-every + --budget, NOT per-change")
-	cmd.Flags().StringVar(&w.Model, "model", "", "Fast/cheap model for the gated agent steps (distill/seed)")
+	_ = cmd.Flags().MarkHidden("seed-agent")
+	cmd.Flags().StringVar(&w.Model, "model", "", "Fast/cheap model for the gated agent steps")
 	cmd.Flags().StringVar(&w.Effort, "effort", "", "Reasoning effort for the gated agent steps (codex --config model_reasoning_effort=, claude --effort)")
-	cmd.Flags().IntVar(&w.Budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS (distill + seed); 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
+	cmd.Flags().IntVar(&w.Budget, "budget", 0, "Cap on gated agent runs for the LIFE OF THIS PROCESS; 0 = unlimited. It never resets, so on a long-lived daemon --budget 1 means one run EVER, not one per window — the durable per-window guard is --distill-every + the persisted cursor. Use it only for a bounded foreground run.")
 }
 
 // New builds the `watch` command.

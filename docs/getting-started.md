@@ -362,14 +362,15 @@ no watcher. Use it when you want the brain and nothing else, or when scripting:
 ```sh
 cd /path/to/your/repo
 
-entire brain refresh --agent none
+entire brain refresh
 entire brain status
 ```
 
 `refresh` exports captured sessions, builds the local history and doc indexes,
 asks `entire graph` for a semantic snapshot, and stores the derived brain under
-Entire's plugin data directory. `--agent none` keeps this build deterministic and
-token-free, with no hosted-model calls.
+Entire's plugin data directory. Refresh is deterministic and token-free by
+default, with no hosted-model calls. Agent-generated repository summaries require
+an explicit `--agent` option.
 
 The semantic snapshot is built from committed state, so run `refresh` on a clean
 checkout. On a dirty worktree the semantic step can be skipped or refused; index
@@ -387,11 +388,11 @@ cannot be verified. To build a brain from sessions, history, docs, and facts
 without the provider, disable the semantic step:
 
 ```sh
-entire brain refresh --agent none --semantic=false
+entire brain refresh --semantic=false
 ```
 
 Install the Graph-based `entire-graph` from source (or from a matching release tag
-once available), then re-run `entire brain refresh --agent none` to add the
+once available), then re-run `entire brain refresh` to add the
 semantic code graph.
 
 ### Exploring a repository you don't have locally
@@ -620,7 +621,7 @@ Humans or automation should keep the brain fresh:
 
 ```sh
 entire brain status
-entire brain refresh --agent none
+entire brain refresh
 entire brain watch
 ```
 

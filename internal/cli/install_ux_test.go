@@ -389,7 +389,7 @@ func TestRefreshBuildsBothComponentsAfterInitAgents(t *testing.T) {
 	}
 	// Component outcomes, not the exit code: both stages have to BUILD.
 	for _, want := range []string{
-		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
+		"refresh: repository context: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 	} {
 		if !strings.Contains(out, want) {

@@ -397,7 +397,7 @@ which every one of the eight instant components builds:
 
 ```
 Brain ready in 3.6s
-  instant     + session export  + seed baseline  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
+  instant     + session export  + repository context  + history index  + doc index  + semantic index  + pattern layer  + entity index  + memory coordinator  (3.6s)
 ```
 
 `Brain ready (degraded)` still exists, and when you do see it, read it as
@@ -408,7 +408,7 @@ actually produces it is a machine with no `entire graph` provider
 or a checkpoint inventory Entire cannot read (`x session export`).
 
 The uncommitted worktree above is the one case that does NOT: it refuses both
-`seed baseline` and `semantic index`, which are the two sources a query reads,
+`repository context` and `semantic index`, which are the two sources a query reads,
 so the headline is `Brain set up, but not queryable` and names what is missing.
 The exit code is still 0 and everything else setup built is kept.
 

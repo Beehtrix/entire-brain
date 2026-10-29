@@ -40,7 +40,7 @@ func TestPersistedStateDecodersRouteThroughTheSharedDecoder(t *testing.T) {
 	// decoder, the durable-facts store, and the history-store, semantic-store,
 	// doc-store and retrieval-engine read layers sank there (COR-2268) and
 	// must stay under this guard rather than escape it by moving.
-	for _, dir := range []string{".", "internal/manifest", "internal/factstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval", "patterns", "command/patternscmd"} {
+	for _, dir := range []string{".", "internal/manifest", "internal/factstore", "internal/historystore", "internal/semstore", "internal/docstore", "internal/retrieval", "patterns", "command/patternscmd", "command/watch"} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			t.Fatal(err)

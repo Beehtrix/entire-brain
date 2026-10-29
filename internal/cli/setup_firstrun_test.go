@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/internal/base"
+	"github.com/entireio/entire-brain/internal/cli/internal/brainstore"
 	"github.com/entireio/entire-brain/internal/cli/workspace"
 	"github.com/entireio/entire-brain/internal/providerdetail"
 	"github.com/spf13/cobra"
@@ -561,9 +563,9 @@ func TestWatchBannerNamesTheCapThatBinds(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write workspace: %v", err)
 	}
-	w := defaultWatchOptions()
-	w.once = true
-	w.distillMaxSessions = setupDefaultBackfillBudget
+	w := watch.DefaultFlags()
+	w.Once = true
+	w.DistillMaxSessions = setupDefaultBackfillBudget
 	out := &bytes.Buffer{}
 	agentCalls := 0
 	if err := workspaceWatchLoop(context.Background(), out, Options{Env: env, Runner: runner, Now: time.Now}, w, "ws", &agentCalls, time.Now, func(io.Writer, string, *int) {}); err != nil {
@@ -622,7 +624,7 @@ func TestStatusReportsEveryComponentSetupReported(t *testing.T) {
 func TestSetupNamesTheRemedyForADirtyWorktree(t *testing.T) {
 	t.Parallel()
 	for _, name := range []string{brainComponentSeed, brainComponentSemantic} {
-		component := newSetupComponent(name, errors.New(dirtyWorktreeErrorCode+": refusing to index uncommitted content without --worktree"), base.SetupBrainBinaryName)
+		component := newSetupComponent(name, errors.New(brainstore.DirtyWorktreeCode+": refusing to index uncommitted content without --worktree"), base.SetupBrainBinaryName)
 		hint := component.Hint
 		if hint == "" {
 			t.Fatalf("%s: a dirty worktree must carry a remedy; the refusal names --worktree, which setup does not accept", name)

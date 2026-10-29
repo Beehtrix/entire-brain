@@ -5,6 +5,45 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Removed
+
+- `entire brain publish` and the brain-bundle wire package (`internal/brainwire`).
+  The `/brain/artifacts` endpoint publish posted to was never deployed — the
+  server exists only in unmerged entire-api PRs — so the command failed for
+  every host, and its github.com-only client gate dead-ended Entire-native
+  users with a misleading refusal (COR-2290). Memories travel the per-fact
+  wire: `entire brain memories sync` on a connected repo works for any host
+  and is the manual push path. Invoking `publish` now fails with a tombstone
+  naming that replacement, following the `init-agents` precedent. The https
+  floor and malformed-URL fences moved from publish to the memories-sync
+  surface, which shares the same hosted-target resolution.
+
+### Fixed
+
+- The conversation and history parsers now read the compact transcript
+  dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
+  content blocks at the record's top level, no `message` wrapper). A default
+  (compact) export previously produced zero conversation exchanges — no
+  searchable exchanges, no user-prompt history records — until the user
+  re-exported with `refresh sessions --raw` (COR-2289).
+
+  Upgrading rebuilds the history index once: the scan cache version is bumped
+  so caches filled by the pre-compact scanner — which recorded none of those
+  records — are discarded instead of reused. No re-export is needed; the next
+  `refresh` rescans the transcripts already on disk, and stored memories,
+  their anchors and their ids are unaffected.
+
+- `verify` no longer byte-compares transcripts in checkpoint-backed brains,
+  where the transcript it just read came out of the checkpoint store itself —
+  the comparison re-resolved the transcript flavor through an all-or-nothing
+  switch, so one session without a compact transcript anywhere in the store
+  marked every session-anchored memory "stale: exported transcript differs
+  from local checkpoint transcript" on each default (compact) refresh
+  (COR-2289). Brains with materialized transcript files (standalone bundles,
+  pre-0.4.0 brains) keep the comparison in the manifest's declared flavor and
+  report "unverifiable here" instead of a false stale when the local store
+  can no longer resolve that flavor.
+
 ## [0.4.0] - 2026-10-27
 
 ### Removed

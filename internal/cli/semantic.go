@@ -1612,7 +1612,7 @@ func worktreeStatusPathList(status []byte) []string {
 // instead — so a reader could clear one offending file, hit the second gate,
 // and still be told only "--worktree".
 //
-// The dirtyWorktreeErrorCode+":" prefix is a MACHINE CONTRACT and is preserved
+// The brainstore.DirtyWorktreeCode+":" prefix is a MACHINE CONTRACT and is preserved
 // exactly: setupIsDirtyWorktree (setup.go) matches on it to attach the hint,
 // and watch's recovery path keys on it to continue instead of dying. The prose
 // after the prefix is free to change; the prefix is not.
@@ -1671,7 +1671,7 @@ func dirtyWorktreeRefusal(verb string, paths []string) error {
 	// or two hundred -- which decides which of the three ways out they want.
 	message := fmt.Sprintf(
 		"%s: refusing to %s uncommitted content without --worktree; commit or stash them, list them in .brainignore to keep them out of the brain, or pass --worktree to %s them as they are",
-		dirtyWorktreeErrorCode, verb, verb)
+		brainstore.DirtyWorktreeCode, verb, verb)
 	if len(paths) > 0 {
 		shown := paths
 		extra := 0

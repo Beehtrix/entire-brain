@@ -30,12 +30,12 @@ import (
 	"github.com/entireio/entire-brain/internal/cli/command/hook"
 	"github.com/entireio/entire-brain/internal/cli/command/patternscmd"
 	"github.com/entireio/entire-brain/internal/cli/command/pause"
-	"github.com/entireio/entire-brain/internal/cli/command/publish"
 	"github.com/entireio/entire-brain/internal/cli/command/repoidentity"
 	"github.com/entireio/entire-brain/internal/cli/command/retrieve"
 	"github.com/entireio/entire-brain/internal/cli/command/stats"
 	"github.com/entireio/entire-brain/internal/cli/command/version"
 	"github.com/entireio/entire-brain/internal/cli/command/viz"
+	"github.com/entireio/entire-brain/internal/cli/command/watch"
 	"github.com/entireio/entire-brain/internal/cli/command/webhook"
 	"github.com/entireio/entire-brain/internal/cli/entities"
 	"github.com/spf13/cobra"
@@ -157,7 +157,7 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	addGrouped("maintain", stats.New(statsConfig(opts)))
 	addGrouped("operations", docs.New(opts))
 	addGrouped("operations", newRefreshCommand(opts))
-	addGrouped("operations", newWatchCommand(opts))
+	addGrouped("operations", watch.New(watchConfig(opts)))
 	addHidden(daemonreregister.New(daemonReregisterConfig(opts)))
 	addGrouped("operations", pause.NewStop(opts))
 	addGrouped("operations", pause.NewStart(opts))
@@ -165,7 +165,6 @@ retrieval, verification, and evaluation surfaces for agents.`,
 
 	addGrouped("share", newWorkspaceCommand(opts))
 	addGrouped("share", newSemanticBundleCommand(opts))
-	addGrouped("share", publish.New(publishConfig(opts)))
 
 	addGrouped("misc", newPathCommand(opts))
 	addGrouped("operations", repoidentity.New(repoIdentityConfig(opts)))
@@ -193,6 +192,12 @@ retrieval, verification, and evaluation surfaces for agents.`,
 	// scripts calling the old name fail with a pointer to the replacement
 	// instead of cobra's generic "unknown command".
 	addHidden(newInitAgentsTombstoneCommand())
+
+	// Tombstone: `publish` was removed (the brain-bundle endpoint it posted
+	// to was never deployed; memories travel the per-fact wire). Hidden so
+	// old invocations fail with a pointer to `memories sync` instead of
+	// cobra's generic "unknown command".
+	addHidden(newPublishTombstoneCommand())
 
 	cmd.SetHelpCommandGroupID("misc")
 	setRootUsage(cmd, helpCommands)

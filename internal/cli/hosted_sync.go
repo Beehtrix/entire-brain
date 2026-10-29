@@ -106,7 +106,7 @@ func hostedFactsSyncAndPull(ctx context.Context, errW io.Writer, opts Options, r
 		fmt.Fprintf(errW, "hosted sync: skipped: %v\n", err)
 		return hostedSyncOutcome{}, nil
 	}
-	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token}
+	srv := &factsync.HTTPServer{BaseURL: baseURL, Token: token, Version: opts.Version}
 
 	rebound := false
 	for {

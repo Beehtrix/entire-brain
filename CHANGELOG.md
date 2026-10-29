@@ -20,6 +20,12 @@ All notable changes to `entire-brain` are recorded here. The format follows
 
 ### Fixed
 
+- `recall --evidence` no longer returns harness-injected `<system-reminder>`
+  text as `role: "user"` evidence. A user-role string or text block that holds
+  only `<system-reminder>` blocks is now skipped like system-role records
+  already were; user text that merely starts with markup is still returned,
+  and assistant text is unchanged (#565).
+
 - The conversation and history parsers now read the compact transcript
   dialect the Entire CLI stores per checkpoint (Entire Transcript Format:
   content blocks at the record's top level, no `message` wrapper). A default

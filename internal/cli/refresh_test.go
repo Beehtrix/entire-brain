@@ -70,8 +70,8 @@ func TestRefreshSeedsWhenExportFindsNoSessions(t *testing.T) {
 	}
 	for _, want := range []string{
 		"refresh: export sessions",
-		"refresh: export sessions: unavailable, using seed baseline done",
-		"refresh: seed baseline: 3 documents, 2 entrypoints, 4 commands done",
+		"refresh: export sessions: unavailable, using repository context done",
+		"refresh: repository context: 3 documents, 2 entrypoints, 4 commands done",
 		"refresh: history index: 0 records, 0 decisions, 0 tool calls done",
 		"refresh: code index: 1 symbol, 1 relation, 1 file done",
 		"refreshed brain:",
@@ -640,7 +640,7 @@ func TestPathMaterializesSeedWhenExportUnavailable(t *testing.T) {
 // export runs, because the export is itself a manifest writer.
 //
 // Doing it afterwards let the export hit the guard and fail first; refresh then
-// reported "unavailable, using seed baseline", masking the real cause and
+// reported "unavailable, using repository context", masking the real cause and
 // throwing away the sessions it had just gathered. The assertion is the order of
 // the two lines in the output, which is exactly what regressed.
 func TestRefreshForceDiscardsUnrewritableManifestBeforeExport(t *testing.T) {

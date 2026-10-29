@@ -192,7 +192,7 @@ func setupShortBuildLabel(label string) string {
 	}
 	for _, step := range []struct{ prefix, label string }{
 		{"export sessions", "reading past AI sessions"},
-		{"seed baseline", "scanning repository files"},
+		{setupComponentLabel(brainComponentSeed), "scanning repository files"},
 		{"history index", "indexing session history"},
 		{"doc index", "indexing documentation"},
 		{"code index", "indexing code"},

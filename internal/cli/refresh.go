@@ -209,7 +209,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 	// Before any stage writes, not after: a manifest carrying another build's
 	// fields is readable but no writer will replace it, and the session export
 	// below is a writer. Discarding it afterwards let the export fail first, and
-	// refresh then reported "unavailable, using seed baseline" -- masking the
+	// refresh then reported "unavailable, using repository context" -- masking the
 	// real cause and throwing away the sessions it had just gathered. An
 	// explicit --force is the operator asking for the rebuild, so clear the way
 	// for it here. An explicit --output has already had its directory removed.
@@ -302,14 +302,14 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 		// One line: this is a parenthesised progress note, and a named repository
 		// condition carries its remedy on the lines after the first, which the
 		// terminal error still prints in full.
-		progress.Skip("seed baseline: freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
+		progress.Skip(setupComponentLabel(brainComponentSeed) + ": freshness unknown (" + firstErrorLine(seedProbeErr) + ")")
 		if reportStageAndShouldAbort(brainComponentSeed, seedProbeErr) {
 			return seedProbeErr
 		}
 	case needSeed:
-		seedTask := progress.Begin("seed baseline")
+		seedTask := progress.Begin(setupComponentLabel(brainComponentSeed))
 		seedErr := runRefreshSeedPhase(ctx, opts, refreshOpts.seed, repoDir, brainDir, outputExplicit, func(phase string) {
-			seedTask.Update("seed baseline: " + phase)
+			seedTask.Update(setupComponentLabel(brainComponentSeed) + ": " + phase)
 		})
 		// Seed may have updated the manifest before a later best-effort step
 		// failed. History freshness must use the state now on disk in either
@@ -470,7 +470,7 @@ func runRefresh(ctx context.Context, cmd *cobra.Command, opts Options, refreshOp
 			}
 		}
 	} else if refreshOpts.semanticWorktreeSkip {
-		progress.Skip("code index: skipped, --worktree refreshes seed and docs only")
+		progress.Skip("code index: skipped, --worktree refreshes repository context and docs only")
 	} else {
 		progress.Skip("code index")
 	}
@@ -647,7 +647,7 @@ func pluralUnit(unit string, count int) string {
 // the uncommitted content instead of resolving it) does, so the remedy is git's
 // — the same two verbs setupDirtyWorktreeHint names on `status` and `setup`.
 func refreshWorktreeSemanticSkipNote(brainCmd string) string {
-	return "note: code index not rebuilt -- --worktree refreshes seed and docs only;" +
+	return "note: code index not rebuilt -- --worktree refreshes repository context and docs only;" +
 		" commit or stash the working tree, then run `" + brainCmd + " refresh` to index it"
 }
 
@@ -670,7 +670,7 @@ func noteDegradedStage(w io.Writer, component string, err error) {
 }
 
 // refreshExportDegradedLabel is the one progress line a tolerated session
-// export leaves behind. "unavailable, using seed baseline" describes what the
+// export leaves behind. "unavailable, using repository context" describes what the
 // brain fell back ON, which answers nothing when the fallback did not run —
 // and on a machine with no Entire CLI it never does after the first refresh.
 // The absent host CLI is named instead, because that is the only one of the
@@ -679,20 +679,21 @@ func noteDegradedStage(w io.Writer, component string, err error) {
 func refreshExportDegradedLabel(hostCLIAbsent, seeded bool) string {
 	switch {
 	case hostCLIAbsent && seeded:
-		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH; using seed baseline"
+		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH; using " + setupComponentLabel(brainComponentSeed)
 	case hostCLIAbsent:
 		return "export sessions: skipped, `" + entireBinaryName + "` is not on PATH"
 	default:
-		return "export sessions: unavailable, using seed baseline"
+		return "export sessions: unavailable, using " + setupComponentLabel(brainComponentSeed)
 	}
 }
 
 func refreshSeedLabel(manifest *exportManifest) string {
 	seed := existingSeedSource(manifest)
+	label := setupComponentLabel(brainComponentSeed)
 	if seed == nil {
-		return "seed baseline"
+		return label
 	}
-	return fmt.Sprintf("seed baseline: %s, %s, %s",
+	return fmt.Sprintf("%s: %s, %s, %s", label,
 		pluralCount(len(seed.Documents), "document"),
 		pluralCount(len(seed.Entrypoints), "entrypoint"),
 		pluralCount(len(seed.Commands), "command"))
@@ -1028,7 +1029,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	seed := manifest.Sources.Seed
 	head, err := base.GitScalar(ctx, opts.Runner, repoDir, "rev-parse", "HEAD")
 	if err != nil {
-		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for seed refresh: %w", err))
+		return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("resolve HEAD for repository context refresh: %w", err))
 	}
 	if seed.Commit != head {
 		return true, nil
@@ -1036,7 +1037,7 @@ func seedRefreshNeeded(ctx context.Context, opts Options, repoDir string, manife
 	if worktree {
 		hash, err := worktreeFingerprint(ctx, opts.Runner, repoDir)
 		if err != nil {
-			return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for seed refresh: %w", err))
+			return false, nameDegenerateRepoFailure(ctx, opts.Runner, repoDir, fmt.Errorf("fingerprint worktree for repository context refresh: %w", err))
 		}
 		return seed.WorktreeMode != "worktree" || seed.WorktreeHash != hash, nil
 	}

@@ -432,7 +432,7 @@ func renderBrainOnboardingStatus(out io.Writer, onboarding *brainStatusOnboardin
 		parts := make([]string, 0, len(onboarding.Components))
 		failed := false
 		for _, component := range onboarding.Components {
-			parts = append(parts, component.Name+"="+component.State)
+			parts = append(parts, brainSourceDisplayName(component.Name)+"="+component.State)
 			failed = failed || component.State == "failed"
 		}
 		fmt.Fprintf(out, "  instant: %s\n", strings.Join(parts, " "))

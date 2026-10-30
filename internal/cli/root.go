@@ -80,7 +80,7 @@ func NewRootCommand(opts Options) *cobra.Command {
 		SilenceErrors: true,
 		Long: `entire-brain is an external-command plugin for the Entire CLI.
 
-It builds a local, inspectable repository brain from retained sessions, seed
+It builds a local, inspectable repository brain from retained sessions, repository
 context, docs, history, code-index records, and durable memories, then exposes
 retrieval, verification, and evaluation surfaces for agents.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

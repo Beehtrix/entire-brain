@@ -24,6 +24,14 @@ var CorpusSchema = []string{
 		parser_version INTEGER NOT NULL,
 		episodes INTEGER NOT NULL DEFAULT 0
 	)`,
+	// What a session was indexed from besides its transcript: the files its
+	// checkpoint touched, as a fingerprint. A session indexed before this
+	// table existed has no row, so it is re-indexed once.
+	`CREATE TABLE IF NOT EXISTS indexed_session_inputs (
+		id TEXT PRIMARY KEY,
+		files_touched_sha TEXT NOT NULL,
+		FOREIGN KEY (id) REFERENCES indexed_sessions(id) ON DELETE CASCADE
+	)`,
 	`CREATE TABLE IF NOT EXISTS episodes (
 		id TEXT PRIMARY KEY,
 		episode_key TEXT NOT NULL UNIQUE,

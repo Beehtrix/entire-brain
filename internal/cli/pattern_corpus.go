@@ -256,10 +256,11 @@ func buildPatternCorpusLocked(brainDir string, now time.Time, graph ...patternCo
 		if err != nil {
 			return err
 		}
-		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha, s.LatestCheckpoint) {
+		touchedSHA := filesTouchedFingerprint(s.FilesTouched)
+		if factsFresh && corpusSessionUnchanged(db, id, size, mtime, sha, touchedSHA) {
 			continue
 		}
-		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, factsByBranch); err != nil {
+		if err := indexSessionIntoCorpus(db, repoKey, s, id, rel, content, size, mtime, sha, touchedSHA, factsByBranch); err != nil {
 			return err
 		}
 		onPatternCorpusSessionIndexed(id)
@@ -363,24 +364,41 @@ func patternTranscriptEndLine(content string) int {
 
 // corpusSessionUnchanged reports whether a session's stored episodes are
 // still what indexing it now would give. Besides the transcript and the
-// indexer version, that covers the checkpoint the session was exported from:
-// a later checkpoint can carry other files_touched for the same transcript,
-// and a compact codex session's FileChange root comes from them.
-func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha, checkpointID string) bool {
+// indexer version, that covers the files the session's checkpoint touched
+// (filesTouchedFingerprint): a compact codex session's FileChange root comes
+// from them. Which checkpoint they came from does not matter, so a later
+// checkpoint that touched the same files leaves the session as it is.
+func corpusSessionUnchanged(db *sql.DB, id string, size, mtime int64, sha, filesTouchedSHA string) bool {
 	var (
-		gotSize, gotMtime  int64
-		gotSha, checkpoint string
-		parser             int
+		gotSize, gotMtime int64
+		gotSha, touched   string
+		parser            int
 	)
-	err := db.QueryRow(`SELECT size, mtime_unix_nano, content_sha, parser_version, COALESCE(checkpoint_id, '') FROM indexed_sessions WHERE id = ?`, id).
-		Scan(&gotSize, &gotMtime, &gotSha, &parser, &checkpoint)
+	err := db.QueryRow(`SELECT s.size, s.mtime_unix_nano, s.content_sha, s.parser_version, i.files_touched_sha
+		FROM indexed_sessions s JOIN indexed_session_inputs i ON i.id = s.id WHERE s.id = ?`, id).
+		Scan(&gotSize, &gotMtime, &gotSha, &parser, &touched)
 	if err != nil {
 		return false
 	}
-	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion && checkpoint == checkpointID
+	return gotSize == size && gotMtime == mtime && gotSha == sha && parser == patterncore.IndexerVersion && touched == filesTouchedSHA
 }
 
-func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha string, factsByBranch map[string][]factRecord) error {
+// filesTouchedFingerprint identifies a checkpoint's files_touched whatever
+// their order or repeats.
+func filesTouchedFingerprint(files []string) string {
+	set := map[string]bool{}
+	for _, f := range files {
+		set[strings.TrimSpace(f)] = true
+	}
+	sorted := make([]string, 0, len(set))
+	for f := range set {
+		sorted = append(sorted, f)
+	}
+	sort.Strings(sorted)
+	return base.HexSHA(strings.Join(sorted, "\x00"))
+}
+
+func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel string, content []byte, size, mtime int64, sha, filesTouchedSHA string, factsByBranch map[string][]factRecord) error {
 	segments := transcriptEpisodeSegments(string(content))
 
 	tx, err := db.Begin()
@@ -509,6 +527,9 @@ func indexSessionIntoCorpus(db *sql.DB, repoKey string, s exportSession, id, rel
 		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		id, repoKey, s.SessionID, s.LatestCheckpoint, filepath.ToSlash(rel), s.Branch, author, s.Agent, createdAt, size, mtime, sha, patterncore.IndexerVersion, episodeCount,
 	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO indexed_session_inputs (id, files_touched_sha) VALUES (?, ?)`, id, filesTouchedSHA); err != nil {
 		return err
 	}
 	return tx.Commit()

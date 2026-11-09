@@ -176,7 +176,8 @@ Indexing and idempotency requirements:
 
 - Store a parser/indexer version on every indexed session.
 - Store per-session fingerprints based on transcript identity and content,
-  plus the checkpoint the session was exported from.
+  plus the files the session's checkpoint touched (`files_touched`, in any
+  order). Which checkpoint they came from is not part of it.
 - Re-indexing an unchanged session must skip it.
 - Re-indexing a changed session must delete and replace all derived rows for
   that session in one transaction.
@@ -250,6 +251,12 @@ CREATE TABLE indexed_sessions (
   content_sha TEXT NOT NULL,
   parser_version INTEGER NOT NULL,
   episodes INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE indexed_session_inputs (
+  id TEXT PRIMARY KEY,                 -- indexed_sessions.id
+  files_touched_sha TEXT NOT NULL,     -- sorted, deduplicated files_touched
+  FOREIGN KEY (id) REFERENCES indexed_sessions(id) ON DELETE CASCADE
 );
 
 CREATE TABLE episodes (
@@ -1063,7 +1070,7 @@ Validation:
 **Phase 2 landed: episodes as brain events.** Corpus episodes now carry the
 operational evidence Phase 3 corroboration needs (`pattern_corpus_enrich.go`):
 - `episode_commands` get exit codes + `failed` (correlated to outputs by call id) and `episodes.exit_fails`. A current Codex command (the cli's item path: a compact `Bash` block) carries no exit code, so its `result.status:"error"` is stored as `failed` with `exit_code` NULL.
-- `episode_files` (apply_patch `*** Update/Add/Delete File`, Claude `edit/write/read` tools, compact codex `FileChange` changes by `kind`, with a `move_path` as delete + add) with actions; `episodes.files` JSON. A `FileChange` path is absolute. The session's root is the prefix its paths share with the repo-relative `files_touched` its checkpoint records: each root its paths give scores one per distinct path that is a touched file under it, and the highest score wins. Paths under it are stored relative to it, so they link like a patch path whichever checkout the session ran in or the corpus is built from. With no match or a tied score, paths are stored as written. So is any path with a `..` segment, since the OS resolves `..` after symlinks, and a session with one gets no root at all, since leaving that path out could hand the root to the rest. Because the root comes from the checkpoint, a session whose exported checkpoint changes is re-indexed even if its transcript did not.
+- `episode_files` (apply_patch `*** Update/Add/Delete File`, Claude `edit/write/read` tools, compact codex `FileChange` changes by `kind`, with a `move_path` as delete + add) with actions; `episodes.files` JSON. A `FileChange` path is absolute. The session's root is the prefix its paths share with the repo-relative `files_touched` its checkpoint records: each root its paths give scores one per distinct path that is a touched file under it, and the highest score wins. Paths under it are stored relative to it, so they link like a patch path whichever checkout the session ran in or the corpus is built from. With no match or a tied score, paths are stored as written. So is any path with a `..` segment, since the OS resolves `..` after symlinks, and a session with one gets no root at all, since leaving that path out could hand the root to the rest. Because the root comes from the checkpoint, a session whose checkpoint touched other files is re-indexed even if its transcript did not; a later checkpoint that touched the same files leaves it as it is. The root and the refs read the same FileChange tool calls (an assistant line's `tool_use` or `tool` block, any case of the name), and the root is inferred from exactly the paths the refs are made from: a `move_path` counts only on an `update`.
 - `meta_hits` deterministic way-of-working classifier (review_request, validation_loop, handoff_resume, read_only_diagnosis, correction_followup, user_preference, no_egress_constraint).
 - `episode_facts` branch-scoped durable-fact links (text + locus overlap), graceful when no facts exist; facts never leak across branches.
 - Tool OUTPUT is never parsed as a command; everything is redacted at rest.
@@ -1142,7 +1149,7 @@ Both reuse the existing `deep_dossiers → accepted-dossier → convert-to-SKILL
 
 **Surfaces using the V2 corpus:** `refresh`/`patterns refresh` (build), `patterns` (list/status/verify[/--deep/--themes/--lessons/--conventions]/skills[/form]), `brief` (consolidations + themes), `overview` (strongest consolidations + themes), `get`/`multi-get` (`pattern:`/`theme:` ids), `review --patterns`, `brief --handoff`, MCP (`brain_patterns`, `brain_patterns_status`, `brain_get`), `query`/`search --patterns`, `workspace patterns`/`workspace refresh`/`workspace patterns verify`/`workspace patterns skills [form]`/`workspace get`.
 
-**Tables (all created; population status honest):** `episodes`, `episode_tools`, `episode_commands`, `grams`, `meta_hits`, `episode_files`, `episode_facts`, `episode_symbols`, `episode_commits`, `episode_shapes`, `patterns`, `pattern_evidence`, `dossiers`, `deep_dossiers`, `themes`, `synapses`, `workspace_pattern_repos`, `indexed_sessions`, `meta`. Populated by a build EXCEPT `deep_dossiers` (only via the explicit `patterns verify --deep` for `pattern:` ids, `--lessons` for `lesson:` ids, and `--conventions` for `convention:` ids) and `themes` (only via the explicit `patterns verify --themes` — agent-proposed; refresh populates `episode_shapes` but not `themes`).
+**Tables (all created; population status honest):** `episodes`, `episode_tools`, `episode_commands`, `grams`, `meta_hits`, `episode_files`, `episode_facts`, `episode_symbols`, `episode_commits`, `episode_shapes`, `patterns`, `pattern_evidence`, `dossiers`, `deep_dossiers`, `themes`, `synapses`, `workspace_pattern_repos`, `indexed_sessions`, `indexed_session_inputs`, `meta`. Populated by a build EXCEPT `deep_dossiers` (only via the explicit `patterns verify --deep` for `pattern:` ids, `--lessons` for `lesson:` ids, and `--conventions` for `convention:` ids) and `themes` (only via the explicit `patterns verify --themes` — agent-proposed; refresh populates `episode_shapes` but not `themes`).
 
 ### SR4: themes are agent-proposed semantic clusters, not intent_sig buckets
 Themes are no longer grouped by `intent_sig` at refresh. Refresh stays token-free (it only classifies `episode_shapes`). The explicit, egress-gated `patterns verify --themes` samples recent read-only/conversation episodes (capped, redacted intent+excerpt) and asks an agent to group them into coherent latent practices BY MEANING — so differently-worded episodes about the same practice cohere, while same-`intent_sig` episodes about unrelated topics do not. The agent curates membership and assigns a verdict (it can drop members / mark `needs_split`); each accepted seed is then deterministically expanded by intent overlap, fingerprinted, and stored. Cached by the sample fingerprint (unchanged sample → no re-spend). Theme records carry the agent's description (not an intent label), and theme→skill flows through that verified record. Validated by the SR4 tests above.

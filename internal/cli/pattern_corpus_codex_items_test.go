@@ -327,7 +327,7 @@ func TestPatternCorpusIndexesCodexItemPath(t *testing.T) {
 // files_touched belongs to the checkpoint a session was exported from, and a
 // later checkpoint of the same transcript can carry files the earlier one did
 // not. A session first indexed without a root is re-indexed once its
-// checkpoint changes, though its transcript did not.
+// checkpoint touches other files, though its transcript did not.
 func TestPatternCorpusReindexesCodexSessionForNewCheckpoint(t *testing.T) {
 	s := sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/srv/build/repo")}
 	c := newCodexItemPathCorpus(t, s)
@@ -342,5 +342,59 @@ func TestPatternCorpusReindexesCodexSessionForNewCheckpoint(t *testing.T) {
 	c.build(t)
 	if got := c.state(t); got != codexItemPathCorpusWant {
 		t.Fatalf("new checkpoint left the session as first indexed: corpus = %q, want %q", got, codexItemPathCorpusWant)
+	}
+}
+
+// Only the files a checkpoint touched decide the root, so a later checkpoint
+// that touched the same files, in any order and with repeats, leaves the
+// session as it was indexed.
+func TestPatternCorpusKeepsCodexSessionForCheckpointWithSameFiles(t *testing.T) {
+	s := sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/srv/build/repo"), filesTouched: []string{"main.go", "go.mod"}}
+	c := newCodexItemPathCorpus(t, s)
+	c.build(t)
+
+	indexed := recordIndexedSessions(t)
+	s.checkpoint, s.filesTouched = "cp2", []string{"go.mod", "main.go", " main.go"}
+	writeEpisodeFixtureManifest(t, c.brain, c.now, c.key, []sessionFixture{s})
+	c.build(t)
+	if len(*indexed) != 0 {
+		t.Fatalf("re-indexed %v for a checkpoint that touched the same files", *indexed)
+	}
+	if got := c.state(t); got != codexItemPathCorpusWant {
+		t.Fatalf("corpus = %q, want %q", got, codexItemPathCorpusWant)
+	}
+
+	s.checkpoint, s.filesTouched = "cp3", []string{"go.mod"}
+	writeEpisodeFixtureManifest(t, c.brain, c.now, c.key, []sessionFixture{s})
+	c.build(t)
+	if !namesSession(*indexed, "s1") {
+		t.Fatalf("checkpoint that touched other files was not re-indexed: indexed %v", *indexed)
+	}
+}
+
+// A corpus built before indexed_session_inputs existed has no fingerprint for
+// its sessions, so each is re-indexed once and skipped after that.
+func TestPatternCorpusReindexesSessionWithoutStoredInputsOnce(t *testing.T) {
+	c := newCodexItemPathCorpus(t, sessionFixture{id: "s1", agent: "codex", branch: "main", checkpoint: "cp1", relPath: "sessions/main/s1.jsonl", transcript: codexItemPathTranscript(t, "/srv/build/repo"), filesTouched: []string{"main.go"}})
+	c.build(t)
+	db := openCorpus(t, c.brain)
+	if _, err := db.Exec(`DROP TABLE indexed_session_inputs`); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+
+	indexed := recordIndexedSessions(t)
+	c.build(t)
+	if len(*indexed) != 1 || !namesSession(*indexed, "s1") {
+		t.Fatalf("first build after the table was added re-indexed %v, want s1 once", *indexed)
+	}
+	*indexed = nil
+	c.build(t)
+	if len(*indexed) != 0 {
+		t.Fatalf("second build re-indexed %v, want none", *indexed)
+	}
+	if got := c.state(t); got != codexItemPathCorpusWant {
+		t.Fatalf("corpus = %q, want %q", got, codexItemPathCorpusWant)
 	}
 }
